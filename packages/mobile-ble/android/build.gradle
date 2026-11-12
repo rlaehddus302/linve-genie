@@ -1,0 +1,15 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'kr.livegenie.printstation'
+version = '0.0.0'
+
+android {
+  namespace 'kr.livegenie.printstation'
+}
+
+dependencies {
+  implementation 'com.facebook.react:react-android'
+  implementation 'androidx.core:core-ktx:1.13.1'
+}

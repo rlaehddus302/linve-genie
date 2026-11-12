@@ -5,6 +5,7 @@ import type { Me, WriteResult } from '@livejjim/web/src/api/types.ts'
 import { get, isApiError, newRequestId, onUnauthorized, post, withRetry, type ApiError } from './api/client.ts'
 import { AwayTracker } from './lib/away.ts'
 import { setCachedAccount } from './lib/cached-get.ts'
+import { useAppForeground } from './lib/use-app-state.ts'
 import { LabelQueue } from './lib/label-queue.ts'
 import { createLiveStream, type LiveStream } from './lib/live.ts'
 import { clearVoiceArchive, setVoiceAccount } from './lib/voice-preferences.ts'
@@ -163,6 +164,12 @@ export function SessionProvider({ children, services }: { readonly children: Rea
     const timer = setInterval(() => void recheck(), OFFLINE_RECHECK_MS)
     return () => clearInterval(timer)
   }, [offline])
+
+  useAppForeground({ onForeground: () => {
+    if (session.state !== 'in') return
+    services.stream.resume()
+    services.labels.resume()
+  } })
 
   // 로그인한 동안 라벨 대기열(실시간 포함)을 켠다
   useEffect(() => {

@@ -7,6 +7,7 @@
 // 문자찜 칸은 설정 화면 "문자찜 직접 넣기", 상품 자세히는 점선 칸(바로 고치기)·이름 알약(눌러 찜 삭제)·상품 삭제, 찜 기록 꼬리표를 눌러 찜 삭제.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { SessionProvider } from '../src/services.tsx'
 import { ConsoleScreen, LINK_TITLE, THANKS_TITLE } from '../src/screens/ConsoleScreen.tsx'
 import { END_LINK_LABEL } from '../src/screens/console/EndBroadcast.tsx'
 import { ASK_ADD, ASK_NAME, ASK_NO, ASK_PRICE } from '../src/screens/console/ProductAdd.tsx'
@@ -21,8 +22,9 @@ function setVisibility(state: 'visible' | 'hidden') {
   document.dispatchEvent(new Event('visibilitychange'))
 }
 
-async function open(world: ReturnType<typeof makeWorld>) {
-  render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
+async function open(world: ReturnType<typeof makeWorld>, withSession = false) {
+  const console = <ConsoleScreen broadcastId="b1" seller onBack={() => {}} />
+  render(world.wrap(withSession ? <SessionProvider services={world.services}>{console}</SessionProvider> : console))
   await waitFor(() => expect(screen.getByTestId('console-screen')).toBeTruthy())
   await act(async () => {
     world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
@@ -443,7 +445,8 @@ describe('ConsoleScreen', () => {
 
   it('뒤로 갔다 돌아오면 끊긴 실시간을 바로 다시 잇고 "자리를 비운 동안 찜 n건"을 보인다 (APP-04)', async () => {
     const world = makeWorld({ products: [product(15)] })
-    await open(world)
+    world.server.on('GET', /^\/api\/me$/, () => ({ body: { loginId: 'test-seller' } }))
+    await open(world, true)
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 8, { claims: [claim('c1', 15, 'u1'), claim('c2', 15, 'u2', { status: 'WAITLISTED' })] }) }))
     await act(async () => {
       setVisibility('hidden')

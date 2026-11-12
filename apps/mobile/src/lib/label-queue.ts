@@ -100,6 +100,9 @@ export class LabelQueue {
   #retry: unknown = undefined
   #reported: boolean | null = null
   #stopped = false
+  #generation = 0
+  #reconnecting = false
+  #manualDisconnect = false
   #readyCount = 0
   #unsubState: (() => void) | null = null
   #unsubChange: (() => void) | null = null
@@ -243,10 +246,12 @@ export class LabelQueue {
       } else if (state === 'DISCONNECTED') void this.#report(false)
     })
     this.#connect()
-    void this.reload()
+    this.resume()
   }
 
   stop(): void {
+    this.#generation++
+    this.#set({ queue: null, mine: false })
     this.#stopped = true
     this.#stream?.close()
     this.#stream = null
@@ -256,6 +261,8 @@ export class LabelQueue {
     // 로그아웃·앱 끔 — 저절로 다시 잇지 않는다
     this.#syncAuto()
     if (this.#retry !== undefined) this.#timer.clear(this.#retry)
+    this.#retry = undefined
+    this.#reported = null
   }
 
   #connect(): void {
@@ -287,13 +294,32 @@ export class LabelQueue {
   }
 
   /** 대기열 요약 다시 받기 (GET /api/print) */
-  async reload(): Promise<void> {
+  async reload(recoverPrinter = false): Promise<void> {
     if (this.#stopped) return
+    const generation = this.#generation
     try {
       const overview = await get<PrintOverview>('/api/print')
+      if (generation !== this.#generation) return
+      const saved = this.#snapshot.queue
+      const queue = saved && saved.rev > overview.queue.rev ? saved : overview.queue
       this.#set({ loadError: null })
-      this.#applyQueue(overview.queue)
+      this.#applyQueue(queue)
+      const ble = this.#options.ble
+      if (!recoverPrinter || !queue.labelsEnabled || !this.#snapshot.mine || queue.device?.releasing) return
+      if (ble.state === 'CONNECTED' && (queue.pause?.reason === 'DISCONNECTED' || !queue.device?.printerConnected)) {
+        this.#reported = null
+        await this.#report(true)
+      } else if (ble.state === 'DISCONNECTED' && queue.device?.printerConnected && ble.hasRemembered &&
+        !this.#manualDisconnect && !this.#reconnecting && !this.#snapshot.testing && queue.pause === null) {
+        this.#reconnecting = true
+        try {
+          await ble.reconnect('bluetooth')
+        } finally {
+          this.#reconnecting = false
+        }
+      }
     } catch (error) {
+      if (generation !== this.#generation) return
       if (!isApiError(error)) throw error
       this.#set({ loadError: error })
     }
@@ -301,7 +327,7 @@ export class LabelQueue {
 
   /** 앱이 앞으로 돌아왔다 (APP-04): 요약을 다시 받고 이어 찍는다 */
   resume(): void {
-    void this.reload()
+    void this.reload(true)
   }
 
   /** 지금 서버에 남은 장 수 (대기 + 출력 중) — "자리를 비운 동안 라벨 n장" */
@@ -324,12 +350,14 @@ export class LabelQueue {
     // 새 연결: 앞 연결의 테스트 확인은 지난 일이다 (D-PRN2-15)
     this.#set({ printerError: null, testPrinted: false, testConfirmed: false })
     await this.#options.ble.selectTarget(target)
+    this.#manualDisconnect = false
     const result = await this.#options.ble.connect('bluetooth')
     if (!result.ok) this.#set({ printerError: result.error })
   }
 
   /** "다시 연결" — 지금 연결 방법의 기억한 프린터로 고르기 창 없이 (기억이 없으면 고르기 창) */
   async reconnect(): Promise<void> {
+    this.#manualDisconnect = false
     // 다시 잇기도 연결이 바뀐 것이다 — "예"를 지운다 (D-PRN2-15)
     this.#set({ printerError: null, testPrinted: false, testConfirmed: false })
     const ble = this.#options.ble
@@ -338,6 +366,7 @@ export class LabelQueue {
   }
 
   async disconnect(): Promise<void> {
+    this.#manualDisconnect = true
     await this.#options.ble.disconnect()
   }
 
@@ -397,10 +426,12 @@ export class LabelQueue {
   async #report(connected: boolean): Promise<void> {
     if (!this.#snapshot.mine || this.#reported === connected) return
     this.#reported = connected
+    const generation = this.#generation
     try {
       // 이어졌으면 그 프린터의 프로필 ID를 함께 (L-11 10, D-PRN2-07 — 모르면 보내지 않는다)
       const profileId = connected ? connectedProfileId(this.#options.ble) : null
-      await post('/api/print/device/state', { deviceId: this.#options.deviceId, connected, ...(profileId === null ? {} : { profileId }) })
+      const result = await post<{ queue?: QueueSummary }>('/api/print/device/state', { deviceId: this.#options.deviceId, connected, ...(profileId === null ? {} : { profileId }) })
+      if (result.queue && generation === this.#generation && !this.#stopped && result.queue.rev >= (this.#snapshot.queue?.rev ?? 0)) this.#applyQueue(result.queue)
     } catch (error) {
       if (!isApiError(error)) throw error
       this.#reported = null
@@ -485,6 +516,7 @@ export class LabelQueue {
           break
         }
         if (claimed.job === null) {
+          if (claimed.reason === 'BUSY') this.#retryLater()
           this.#set({ busy: false })
           continue
         }

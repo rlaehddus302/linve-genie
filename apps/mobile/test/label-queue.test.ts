@@ -82,6 +82,36 @@ describe('LabelQueue', () => {
     expect(queue.getSnapshot().job).toBeNull()
   })
 
+  it('복귀 시 놓친 찜을 이어 찍고, 서버가 연결 끊김으로 멈췄어도 이미 연결된 프린터를 다시 알린다', async () => {
+    const { server, ble, queue, clock } = setup()
+    const waiting = queueSummary({ rev: 3, pause: { reason: 'DISCONNECTED', message: '끊김', backlog: false } })
+    const ready = queueSummary({ rev: 4 })
+    let summary = queueSummary({ device: null, waiting: 0 })
+    server.on('GET', /^\/api\/print$/, () => ({ body: { queue: summary } }))
+    queue.start()
+    await queue.connect()
+    await flush()
+    summary = waiting
+    server.on('POST', /^\/api\/print\/device\/state$/, () => ({ body: { queue: ready } }))
+    let claims = 0
+    server.on('POST', /^\/api\/print\/claim$/, () => {
+      claims++
+      if (claims === 1) return { body: { job: null, reason: 'BUSY' } }
+      return { body: { job: claims === 2 ? job('away') : null } }
+    })
+    server.on('GET', /bitmap/, () => ({ body: { width: 8, height: 1, data: 'gA==' } }))
+    server.on('POST', /^\/api\/print\/result$/, () => ({ body: { recorded: true } }))
+    queue.resume()
+    await flush(20)
+    await clock.advance(2000)
+    await flush(20)
+    expect(ble.printed).toHaveLength(1)
+    expect(server.callsTo('POST', /print\/result/).map(call => call.body)).toEqual([
+      { deviceId: 'app-device-1', attempt: 'away-a1', ok: true },
+    ])
+    queue.stop()
+  })
+
   it('출력에 실패하면 그 시도를 실패로 알리고 프린터 문장을 보인다', async () => {
     const server = new FakeServer()
     server.install()

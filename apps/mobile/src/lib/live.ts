@@ -111,10 +111,10 @@ export class LiveStream {
     return view
   }
 
-  /** 앱이 앞으로 돌아왔다 (APP-04): 끊긴 연결이면 기다리지 않고 바로 새로 연다 */
+  /** 절전 중 연결은 OPEN으로 남아도 새 알림이 오지 않을 수 있어 복귀할 때 다시 연다. */
   resume(): void {
     if (this.#views.size === 0) return
-    if (this.#source === null || this.#source.readyState === CLOSED) this.#connect()
+    this.#connect()
   }
 
   /** 모두 닫는다 (로그아웃) */

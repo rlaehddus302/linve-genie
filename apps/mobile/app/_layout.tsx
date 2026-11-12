@@ -1,5 +1,6 @@
 // 앱 뼈대 (expo-router): 서버 호출 설정(expo/fetch — 스트리밍 응답·기기 쿠키) → 앱 전체 서비스 → 세션 → 화면 묶음.
 // 바깥 링크는 기기 브라우저(Linking.openURL)로 연다 (APP-01 AC4). 방송 플랫폼 찾기는 그 앱, 없으면 앱 안 브라우저(D-UX3-10). 클립보드는 유튜브 주소 붙여넣기 단계만 읽고, 영수증 링크 복사 때만 쓴다(expo-clipboard).
+import { PrintBackground } from '../src/native/print-background.ts'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { configureVoiceStorage } from '../src/lib/voice-preferences.ts'
 import { fetch as expoFetch } from 'expo/fetch'
@@ -101,6 +102,7 @@ export default function RootLayout() {
         <SessionProvider services={services}>
           <StatusBar style="dark" />
           <PrinterDevicePicker />
+          <PrintBackground />
           <StreamKeeper />
           <TryLogin />
           <UpdateWatch />

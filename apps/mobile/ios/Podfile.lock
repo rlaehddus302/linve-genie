@@ -151,6 +151,8 @@ PODS:
   - hermes-engine (260318099.0.4):
     - hermes-engine/Pre-built (= 260318099.0.4)
   - hermes-engine/Pre-built (260318099.0.4)
+  - LiveGeniePrintStation (0.0.0):
+    - ExpoModulesCore
   - LivejjimAudio (0.0.0):
     - ExpoModulesCore
   - LivejjimNotice (0.0.0):
@@ -2389,6 +2391,7 @@ DEPENDENCIES:
   - fmt (from `build/rndeps-facades/fmt`)
   - glog (from `build/rndeps-facades/glog`)
   - "hermes-engine (from `../../../node_modules/.pnpm/react-native@0.88.0_@babel+core@7.29.7_supports-color@8.1.1__@react-native+metro-config_8f0eef2000e0e0cd22178fb3a3833ac7/node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)"
+  - LiveGeniePrintStation (from `../../../packages/mobile-ble/ios`)
   - LivejjimAudio (from `../../../packages/mobile-audio/ios`)
   - LivejjimNotice (from `../../../packages/mobile-notice/ios`)
   - LivejjimWebSession (from `../../../packages/mobile-websession/ios`)
@@ -2562,6 +2565,8 @@ EXTERNAL SOURCES:
   hermes-engine:
     :podspec: "../../../node_modules/.pnpm/react-native@0.88.0_@babel+core@7.29.7_supports-color@8.1.1__@react-native+metro-config_8f0eef2000e0e0cd22178fb3a3833ac7/node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec"
     :tag: hermes-v260318099.0.2
+  LiveGeniePrintStation:
+    :path: "../../../packages/mobile-ble/ios"
   LivejjimAudio:
     :path: "../../../packages/mobile-audio/ios"
   LivejjimNotice:
@@ -2784,6 +2789,7 @@ SPEC CHECKSUMS:
   fmt: ba0886e864ebb21d14c98b2e12e164b8002f5b93
   glog: 3cf7cb46f743c4bc758ae3e6d9c15bd1b4cfd6d4
   hermes-engine: 82e398b5bff0e418fd1246e00069d4ec594ea60a
+  LiveGeniePrintStation: 331ec6d5d46c4bd45ccb94d3ca0a66540355c898
   LivejjimAudio: 47cbd7b950a5c1057d6204e77a8eb0f1efd3b0ec
   LivejjimNotice: 4d10d80b957e2f9eae2f4227d1b7f335160f4a7e
   LivejjimWebSession: 470729f3f5d32285d05769712b8cb36246e6ef12

@@ -1,0 +1,5 @@
+{
+  "platforms": ["android", "ios"],
+  "android": { "modules": ["kr.livegenie.printstation.PrintStationModule"] },
+  "ios": { "modules": ["PrintStationModule"] }
+}

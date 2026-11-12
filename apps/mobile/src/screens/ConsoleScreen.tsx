@@ -205,8 +205,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     onBackground: () => services.away.leave(store.getSnapshot().data?.claims.keys() ?? [], Date.now()),
     onForeground: () => {
       returning.current = { at: Date.now() }
-      services.stream.resume()
-      services.labels.resume()
       void store.retryNow()
       setTimeout(finishReturn, RETURN_WAIT_MS)
     },
