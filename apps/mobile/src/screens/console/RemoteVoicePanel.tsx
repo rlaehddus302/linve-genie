@@ -1,6 +1,7 @@
 // 서버가 보낸 카드·묻기·주문 상태의 화면. 인식문 해석·판매 판정은 여기서 하지 않는다.
 // 확인 카드는 작게 (D-UX3-90, 사용자 지시 2026-11-09 "수정이나 선택을 요구하는 요소가 너무 화면을 많이 차지한다"):
 // 머리 한 줄(제목 + 오른쪽 작은 ✕ 닫기) · 안내는 작은 글 한 줄 · 고르기·등록·고치기는 옆으로 놓는 작은 알약 — 옛 화면 폭 큰 단추 여러 개·아래 [닫기] 줄.
+import { displayNickname } from '@livejjim/core/format'
 import { useContext, useEffect, type ReactNode } from 'react'
 import { View } from 'react-native'
 import type { VoiceSnapshot } from '@livejjim/web/src/voice/model.ts'
@@ -136,7 +137,7 @@ export function RemoteVoicePanel({ session, snapshot, display, cards = false }: 
           {counting ? <Hint>{words(display, 'countdowns', entry.card.id, '')}</Hint> : null}
           <Chips>
             {entry.card.candidates ? <>
-              {entry.card.candidates.map((candidate) => <Chip key={candidate.buyer} label={`${candidate.display}${candidate.phoneLast4 ? ` · 끝자리 ${candidate.phoneLast4}` : ''}`} onPress={() => command('smsChoose', [entry.card.id, candidate.buyer])} />)}
+              {entry.card.candidates.map((candidate) => <Chip key={candidate.buyer} label={`${displayNickname(candidate.display, api?.names.hideSuffix === true)}${candidate.phoneLast4 ? ` · 끝자리 ${candidate.phoneLast4}` : ''}`} onPress={() => command('smsChoose', [entry.card.id, candidate.buyer])} />)}
               <Chip label="새 손님으로 넣기" onPress={() => command('smsNewBuyer', [entry.card.id])} />
             </> : <Chip primary label={entry.timeCheck ? '그래도 넣기' : '지금 넣기'} onPress={() => command('smsSend', [entry.card.id])} />}
             <Chip label="넣지 않기" onPress={() => command('smsSkip', [entry.card.id])} />

@@ -2,10 +2,22 @@
 import { describe, expect, it } from 'vitest'
 import { TAG_GAP, buyerTagText, fitTags, tagWidth, type ProductTag } from '../src/lib/product-tags.ts'
 import { rowName, rowTags } from '../src/screens/console/ProductBoard.tsx'
+import { BuyerNames } from '../src/lib/derive.ts'
+import { displayNickname } from '@livejjim/core/format'
 import { koreanWon } from '../src/lib/korean-won.ts'
 import { buyer, product } from './support.ts'
 
 describe('상품 줄 꼬리표 (D-UX3-78)', () => {
+  it('영문 숨김을 선택하면 한글 이름 뒤의 영숫자만 줄이고, 겹치는 손님은 계속 구분한다', () => {
+    const buyers = new Map([['first', buyer('first', '꽃언니-ab12')], ['second', buyer('second', '꽃언니CD')]])
+    const names = new BuyerNames(buyers, new Map(), true)
+    expect(names.name('first')).toContain('꽃언니')
+    expect(names.name('first')).not.toContain('ab12')
+    expect(names.name('first')).not.toBe(names.name('second'))
+    expect(new BuyerNames(buyers, new Map()).name('first')).toBe('꽃언니-ab12')
+    for (const raw of ['Rose', '꽃언니12', 'ABC꽃언니', '문자-0937']) expect(displayNickname(raw, true)).toBe(raw)
+  })
+
   // 옛 기대(D-UX3-78): 1등 "찜 홍길동", 문자찜 "문자찜 0937". 새 기대(D-UX4-24, 사용자 지시 2026-11-09 "닉네임만 보여줘. 문자는 [문자-0937]")
   it('닉네임만, 문자 손님은 "문자-끝4자리"(전화번호 전체는 쓰지 않는다) — 1등이어도 낱말을 붙이지 않는다', () => {
     expect(buyerTagText({ kind: 'youtube', phoneLast4: null }, '홍길동', true)).toBe('홍길동')

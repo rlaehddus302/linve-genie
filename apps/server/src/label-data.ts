@@ -21,6 +21,7 @@ import {
   type EngineState,
 } from '@livejjim/core'
 import { claimAmount, MissingAmountError } from './amount.ts'
+import { displayNickname } from '@livejjim/core/format'
 import { checkPackingData, checkProductData, labelContentKey, type LabelBuyer, type PackingEntry, type PackingLabelData, type ProductLabelData } from '@livejjim/label'
 
 /** 찜 ID → 코어 조회 결과 (상태 하나에 한 번 만든다 — 범위 실행 상태의 보기 캐시에 둔다) */
@@ -160,4 +161,9 @@ export function packingLabelData(state: EngineState, buyerId: string, date: stri
 export function contentKeyOf(kind: 'product' | 'packing', data: unknown): string | null {
   const result = labelContentKey(kind, data)
   return result.ok ? result.key : null
+}
+
+export function withDisplayNickname<T extends ProductLabelData | PackingLabelData>(data: T, hideSuffix: boolean): T {
+  if (!hideSuffix || data.buyer.kind !== 'youtube') return data
+  return { ...data, buyer: { ...data.buyer, name: displayNickname(data.buyer.name, true) } }
 }

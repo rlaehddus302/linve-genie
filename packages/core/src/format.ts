@@ -47,3 +47,10 @@ export function formatThanksText({ no, name, price, buyerName, optionText = null
     `${buyerName}님 구매 감사합니다`,
   ].join(' ')
 }
+
+/** 한글 닉네임 뒤의 영문·영숫자 꼬리만 줄인다. 구매자 식별에는 원문을 쓴다. */
+export function displayNickname(name: string, hideSuffix: boolean): string {
+  if (!hideSuffix || !/[가-힣]/u.test(name)) return name
+  const suffix = /(?:[\s_-]+(?=[a-zA-Z0-9]*[a-zA-Z])[a-zA-Z0-9]+|[a-zA-Z][a-zA-Z0-9]*)\s*$/u
+  return name.replace(suffix, '')
+}

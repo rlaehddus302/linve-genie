@@ -703,7 +703,6 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
     return { claims, products }
   }, [items])
 
-  const names = useMemo(() => new BuyerNames(data.buyers, data.claims), [data.buyers, data.claims])
   const settingsOf = useCallback((id: string) => latest.current.data.broadcasts.get(id)?.settings ?? null, [])
   // 라벨 상태는 서버의 출력 기록 (리허설 범위는 라벨이 없다 — 조회하지 않는다, D-I1-08). 라벨 기능이 꺼져 있거나 모르면 보지 않는다(L-13 9)
   const labelsOn = useLabelsEnabled()
@@ -713,6 +712,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
   const labels = labelState.labels
   const print = usePrintState()
   const queueSummary = print.overview?.queue ?? null
+  const hideSuffix = queueSummary?.hideNicknameSuffix === true
+  const names = useMemo(() => new BuyerNames(data.buyers, data.claims, hideSuffix), [data.buyers, data.claims, hideSuffix])
   // 꺼져 있으면 "출력 멈춤"은 알림 띠·Alt+1 순서에서 빠진다 — 버릴 라벨은 남는다 (AC-N4a-14·16). 판매자 멈춤은 까닭·할 일 문장(QL2 D-QL2-09 ②)
   const printAlerts: PrintAlerts = useMemo(
     () => ({ pause: labelsOn === true && queueSummary !== null && queueSummary.pause !== null ? pauseAlertMessage(queueSummary.pause, queueSummary.waiting) : null, discard: queueSummary?.discard ?? 0 }),

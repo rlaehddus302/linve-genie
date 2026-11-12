@@ -35,6 +35,23 @@ async function claimsOf(world: TestServer, seller: Seller): Promise<{ id: string
 }
 
 describe('AC-I1-04 엔진 상태 → 라벨 데이터 (L-9)', () => {
+  it('닉네임 표기 선택은 대기 중인 라벨을 받을 때 적용하고, 끄면 재출력에서 원문으로 돌아온다', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    await sale(world, seller, b.id, 15, 'UC_A', '꽃언니-ab12')
+    const p = printApi(world, seller)
+    await becomeDevice(world, seller)
+    await expectOk(p.put('/api/settings/nickname-display', { hideSuffix: true }))
+    expect((await p.api.get('/api/print')).body).toMatchObject({ queue: { hideNicknameSuffix: true } })
+    const first = (await p.claim(DEVICE_A)).job!
+    expect(first.data.buyer).toMatchObject({ name: '꽃언니' })
+    await p.done(DEVICE_A, first.attempt)
+    await expectOk(p.put('/api/settings/nickname-display', { hideSuffix: false }))
+    await expectOk(p.reprint(b.id, first.label.claim!))
+    expect((await p.claim(DEVICE_A)).job?.data.buyer).toMatchObject({ name: '꽃언니-ab12' })
+  })
+
   it('(가) 닉네임이 바뀌어도 재출력은 처음 이름 (나) 대기 중 품종 고침은 고친 품종 (다) UNPAID_CLAIMS 가격은 바뀐 스냅샷', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)

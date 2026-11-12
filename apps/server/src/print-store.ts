@@ -33,7 +33,7 @@ export async function readQueue(db: Db, sellerId: string): Promise<QueueRow | nu
   return rows[0] ?? null
 }
 
-export type QueuePatch = Partial<Pick<QueueRow, 'deviceId' | 'deviceName' | 'printerConnected' | 'printerProfileId' | 'releasing' | 'paused' | 'backlog' | 'nextOrder' | 'frontOrder' | 'labelsEnabled'>>
+export type QueuePatch = Partial<Pick<QueueRow, 'deviceId' | 'deviceName' | 'printerConnected' | 'printerProfileId' | 'releasing' | 'paused' | 'backlog' | 'nextOrder' | 'frontOrder' | 'labelsEnabled' | 'hideNicknameSuffix'>>
 
 /** 라벨 기능이 꺼져 있는지 (잠그지 않고 읽는다 — 미리 거르기용. 줄이 없으면 켬, N4a L-13 1). 정하는 값은 잠근 줄의 labelsEnabled다 */
 export async function labelsOff(db: Db, sellerId: string): Promise<boolean> {

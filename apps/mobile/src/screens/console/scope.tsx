@@ -107,7 +107,9 @@ export function ScopeConsole({ broadcastId, waiting, children }: { readonly broa
   const { store, snapshot } = useScopeStore(broadcastId)
   const command = useScopeCommand(store)
   const data = snapshot.data
-  const names = useMemo(() => (data === null ? null : new BuyerNames(data.buyers, data.claims)), [data])
+  const { labels } = useServices()
+  const hideSuffix = useSyncExternalStore(labels.subscribe, labels.getSnapshot).queue?.hideNicknameSuffix === true
+  const names = useMemo(() => (data === null ? null : new BuyerNames(data.buyers, data.claims, hideSuffix)), [data, hideSuffix])
   const broadcast = snapshot.broadcast
   if (data === null || names === null || broadcast === null) return <>{waiting}</>
   const api: ConsoleApi = { b: broadcastId, data, names, ended: broadcast.ended, sealed: data.sealed, command, sync: (seq) => store.sync(seq), latest: () => store.getSnapshot().data ?? data, select: () => {}, selected: null, labelWords: NO_WORDS }

@@ -47,7 +47,7 @@ describe('회색 바탕 화면 양옆 여백 통일 (D-UX4-74)', () => {
     const source = read(path)
     // 화면 바깥 스크롤 = style에 flex: 1이 있는 세로 ScrollView의 contentContainerStyle
     const outer = [...source.matchAll(/contentContainerStyle=\{\{([^}]*)\}\}/g)].flatMap((match) => {
-      const start = source.lastIndexOf('<ScrollView', match.index)
+      const start = Math.max(source.lastIndexOf('<ScrollView', match.index), source.lastIndexOf('<Animated.ScrollView', match.index))
       const head = start === -1 ? '' : source.slice(start, match.index)
       return head.includes('flex: 1') && !head.includes('horizontal') ? [match[1] ?? ''] : []
     })

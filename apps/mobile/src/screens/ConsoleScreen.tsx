@@ -239,7 +239,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
 
   const buyers = data?.buyers
   const claims = data?.claims
-  const names = useMemo(() => (buyers && claims ? new BuyerNames(buyers, claims) : null), [buyers, claims])
+  const hideSuffix = labelsQueue.queue?.hideNicknameSuffix === true
+  const names = useMemo(() => (buyers && claims ? new BuyerNames(buyers, claims, hideSuffix) : null), [buyers, claims, hideSuffix])
   const labelWords = useMemo(() => {
     const map = new Map<string, string>()
     for (const label of labels) if (label.claim !== null && label.word !== '') map.set(label.claim, label.word)

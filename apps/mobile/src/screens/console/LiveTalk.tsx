@@ -3,6 +3,7 @@
 // - 문자: 휴대폰 알림 받기로 서버에 온 손님 문자(GET /api/inbox/sms — 서버 메모리, 최신이 앞). 실시간 `inbox` { kind: 'sms', b }가 오면 다시 읽는다.
 // - 둘을 받은 시각으로 섞는다(정렬은 최신이 위, 화면은 최신이 맨 아래 — D-UX3-75). 한 줄에 시각(23:23, 폭 고정 칸)·닉네임(문자는 "문자-끝번호")·결과 꼬리표(찜 금색·대기 회색)·내용(D-UX4-66), 줄 바탕·출처 꼬리표 없음(D-UX3-80·82).
 //   본문·닉네임·보낸 이름은 손님이 쓴 글이라 글자로만 그린다. 판정은 하지 않는다(서버가 한 일을 낱말로만).
+import { displayNickname } from '@livejjim/core/format'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, Platform, ScrollView, View, type ScrollViewInstance } from 'react-native'
 import type { SmsFeedView } from '@livejjim/web/src/api/inbox-types.ts'
@@ -109,11 +110,11 @@ export function chatResult(message: MessagesView['messages'][number], data: Scop
 }
 
 /** 채팅 + 문자 → 한 줄씩 (최신이 위) */
-export function talkRows(chat: MessagesView | null, sms: readonly SmsFeedView[], data: ScopeData): TalkRow[] {
+export function talkRows(chat: MessagesView | null, sms: readonly SmsFeedView[], data: ScopeData, hideSuffix = false): TalkRow[] {
   const rows: TalkRow[] = []
   for (const message of chat?.messages ?? []) {
     const at = Date.parse(message.at)
-    rows.push({ key: `c:${message.id}`, at: Number.isFinite(at) ? at : 0, who: message.nick, text: message.text, tags: chatResult(message, data) })
+    rows.push({ key: `c:${message.id}`, at: Number.isFinite(at) ? at : 0, who: displayNickname(message.nick, hideSuffix), text: message.text, tags: chatResult(message, data) })
   }
   for (const entry of sms) {
     const at = Date.parse(entry.at)
@@ -213,7 +214,7 @@ export function LiveTalk() {
   const api = useConsoleApi()
   const { view, error } = useMessages()
   const sms = useSmsFeed()
-  const rows = useMemo(() => talkRows(view?.sealed === true ? null : view, sms, api.data), [view, sms, api.data])
+  const rows = useMemo(() => talkRows(view?.sealed === true ? null : view, sms, api.data, api.names.hideSuffix), [view, sms, api.data, api.names.hideSuffix])
   const [timeWidth, setTimeWidth] = useState(0)
   const onTimeWidth = useCallback((width: number) => setTimeWidth((was) => Math.max(was, Math.ceil(width))), [])
   return (
@@ -245,7 +246,7 @@ export function TalkDock({ bottom }: { readonly bottom: number }) {
   const api = useConsoleApi()
   const { view } = useMessages()
   const sms = useSmsFeed()
-  const rows = useMemo(() => talkRows(view?.sealed === true ? null : view, sms, api.data), [view, sms, api.data])
+  const rows = useMemo(() => talkRows(view?.sealed === true ? null : view, sms, api.data, api.names.hideSuffix), [view, sms, api.data, api.names.hideSuffix])
   const [open, setOpen] = useState(false)
   const [logHeight, setLogHeight] = useState(0)
   const [timeWidth, setTimeWidth] = useState(0)

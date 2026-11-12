@@ -4,9 +4,10 @@
 // D-UX4-130 (사용자 지시 2026-11-12 "상품 미리 등록 기능 제거해. 라이브 연결 안에 있는 것들 모두 바깥에 있는 라이브 관리 화면으로 꺼내(뎁스 줄이는 의도)
 // 라벨 프린트 화면도 마찬가지로 밖으로 빼"): 이은 라이브 정보(플랫폼·채널·라이브 제목)·라이브 바로가기·채팅 다시 받기·라이브 연결 끊기와
 // 라벨 줄(라벨 뽑기·프린터 연결·라벨 디자인·테스트 인쇄·출력 상태·농도)을 이 화면에 바로 둔다. 아직 잇지 않았으면 "라이브 연결 ›"(잇는 화면)만 남는다.
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
-import { isApiError } from '../../api/client.ts'
+import { useServices } from '../../services.tsx'
+import { isApiError, put } from '../../api/client.ts'
 import { DOCK_CHOICES, DOCK_DESCRIPTION, DOCK_TITLE, dockLabel, setDockChoice, useDockChoice } from '../../lib/dock-choice.ts'
 import { BottomSheet, SheetChoices, ToggleRow, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
@@ -101,6 +102,30 @@ export interface ConsoleManageProps {
   readonly onEnded?: () => void
 }
 
+function NicknameDisplaySwitch() {
+  const { labels } = useServices()
+  const { queue } = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const change = async (hideSuffix: boolean) => {
+    setBusy(true)
+    setError('')
+    try {
+      await put('/api/settings/nickname-display', { hideSuffix })
+      await labels.reload()
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : '닉네임 표시 설정을 저장하지 못했어요.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <View style={{ paddingHorizontal: PLAIN.side }}>
+    <ToggleRow title="닉네임 뒤 영문 숨기기" subtitle="방송 화면과 라벨에 ‘꽃언니-ab12’를 ‘꽃언니’로 표시해요." on={queue?.hideNicknameSuffix === true}
+      disabled={queue === null || busy} onChange={(next) => void change(next)} />
+    {error ? <Notice tone="danger" alert>{error}</Notice> : null}
+  </View>
+}
+
 /** 각 기능은 관리 화면에서 바로 열고, 사용할 수 있는 기능이 있는 묶음만 보여 준다. */
 export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink, stream, onClose, onShowLink, yt, labels, onEnded }: ConsoleManageProps) {
   const api = useConsoleApi()
@@ -136,6 +161,7 @@ export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink,
         ) : null}
 
         <MenuGroup title="채팅·화면 설정">
+          {seller ? <NicknameDisplaySwitch /> : null}
           {showThanks ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
           {thanksError !== null ? <View style={{ paddingHorizontal: PLAIN.side }}><Notice tone="danger" alert>{thanksError}</Notice></View> : null}
           {seller && !closed && stream.status?.phase === 'stopped' ? <PlainRow title="라이브 소리 다시 켜기" onPress={() => { onClose(); stream.retry() }} /> : null}

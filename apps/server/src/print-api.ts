@@ -122,6 +122,16 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
   })
 
   // ── 라벨 기능 켬/끔 (N4a, RCP-01, L-13 1·2) — 판매 규칙 설정(/api/settings)과 따로 ──
+  api.put('/settings/nickname-display', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['hideSuffix'])
+    if (extra !== null) return extra
+    const hideSuffix = own(input, 'hideSuffix')
+    if (typeof hideSuffix !== 'boolean') return invalid([{ field: 'hideSuffix', message: '닉네임 표시 방법을 골라 주세요.' }])
+    await print.setNicknameDisplay(sellerOf(c), hideSuffix)
+    return c.json({ hideSuffix })
+  })
+
   api.get('/settings/labels', async (c) => c.json(await print.labelSettings(sellerOf(c))))
   api.put('/settings/labels', async (c) => {
     const input = body(c)

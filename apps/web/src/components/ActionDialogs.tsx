@@ -1,3 +1,4 @@
+import { displayNickname } from '@livejjim/core/format'
 // 조치 창: 사유 받기, 확인, 메시지 → 찜, 직접 배정·교체, 상품 고치기 (AC-S05-13·15·22·34, D-083·D-084·D-087).
 // 창의 처음 포커스는 아무것도 바꾸지 않는 "닫기"(또는 "아니요")다. 방송자 조치는 5초 뒤에 보낸다(queueHost).
 import { useMemo, useRef, useState } from 'react'
@@ -122,7 +123,7 @@ export function ConvertDialog({ message, onClose }: { readonly message: ChatMess
       return
     }
     api.queueHost({
-      label: `${String(no)}번 ${message.nick} 메시지를 찜으로`,
+      label: `${String(no)}번 ${displayNickname(message.nick, api.names.hideSuffix)} 메시지를 찜으로`,
       event: { type: 'host.convertMessage', b: message.broadcast, msg: message.id, no },
       products: [productKey(message.broadcast, no)],
       message: message.id,
@@ -132,7 +133,7 @@ export function ConvertDialog({ message, onClose }: { readonly message: ChatMess
   return (
     <Modal title="메시지를 찜으로 바꾸기" onClose={onClose}>
       <p className="quote">
-        <strong>{message.nick}</strong> {message.text}
+        <strong>{displayNickname(message.nick, api.names.hideSuffix)}</strong> {message.text}
       </p>
       {message.mentions.length > 0 ? (
         <div className="row" role="group" aria-label="언급 번호">

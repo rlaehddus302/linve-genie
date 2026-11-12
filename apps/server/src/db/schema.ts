@@ -704,6 +704,7 @@ export const printQueues = pgTable('print_queues', {
    * 라벨 기능 켬/끔 (N4a, SPEC RCP-01, L-13 1·D-N4a-01). 기본 켬 — 줄이 없어도 켬. 판매 규칙 설정이 아니다(방송 스냅샷·엔진 입력에 들어가지 않는다).
    * 이 줄을 잠근(lockQueue) 트랜잭션 안에서 읽고 바꾼다: 이벤트 기록의 효과 → 작업, 출력 요청 거절, 켜기·끄기가 같은 잠금으로 한 줄씩 처리된다
    */
+  hideNicknameSuffix: boolean('hide_nickname_suffix').notNull().default(false),
   labelsEnabled: boolean('labels_enabled').notNull().default(true),
 })
 

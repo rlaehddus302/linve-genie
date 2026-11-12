@@ -1,6 +1,7 @@
 // 범위 조회 결과에서 화면에 보일 값 고르기 (웹 lib/derive.ts와 같은 규칙, AC-S05-14·21·30). 판정은 하지 않는다 —
 // 코어 조회 함수 결과(서버 응답)를 고르고 낱말로 바꾸기만 한다. 웹 모듈은 @livejjim/core 전체를 불러오므로 앱은 같은 규칙을 따로 들고
 // 시험(test/derive-sync.test.ts)이 웹 결과와 같은지 본다.
+import { displayNickname } from '@livejjim/core/format'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
 import { kstTime } from '@livejjim/web/src/lib/kst.ts'
 import type { ScopeData } from './scope-data.ts'
@@ -71,10 +72,11 @@ function sameLook(label: string): string {
 }
 
 /** 구매자 이름 표기 하나 (BUY-01 AC2, D-098) — 웹 buyerLabels와 같은 규칙 */
-export function buyerLabels(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>): Map<string, string> {
+export function buyerLabels(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>, hideSuffix = false): Map<string, string> {
+  const display = (buyer: Buyer) => displayNickname(buyer.display, hideSuffix && buyer.kind === 'youtube')
   const counts = new Map<string, number>()
-  for (const buyer of buyers.values()) if (buyer.mergedInto === null) counts.set(buyer.display, (counts.get(buyer.display) ?? 0) + 1)
-  const tagged = (buyer: Buyer) => (counts.get(buyer.display) ?? 0) >= 2
+  for (const buyer of buyers.values()) if (buyer.mergedInto === null) counts.set(display(buyer), (counts.get(display(buyer)) ?? 0) + 1)
+  const tagged = (buyer: Buyer) => (counts.get(display(buyer)) ?? 0) >= 2
   const wanted = new Set<string>()
   for (const buyer of buyers.values()) if (buyer.kind === 'sms' && buyer.phoneLast4 === null && tagged(buyer)) wanted.add(buyer.id)
   const smsTimes = smsCreatedTimes(buyers, claims, wanted)
@@ -82,7 +84,8 @@ export function buyerLabels(buyers: ReadonlyMap<string, Buyer>, claims: Readonly
   const taken = new Set<string>()
   const nextNo = new Map<string, number>()
   for (const buyer of buyers.values()) {
-    const base = tagged(buyer) ? `${buyer.display}${NAME_JOIN}${tagOf(buyer, smsTimes)}` : buyer.display
+    const showTag = tagged(buyer) && !(hideSuffix && buyer.kind === 'youtube' && display(buyer) !== buyer.display)
+    const base = showTag ? `${display(buyer)}${NAME_JOIN}${tagOf(buyer, smsTimes)}` : display(buyer)
     const baseLook = sameLook(base)
     let label = base
     if (taken.has(baseLook)) {
@@ -99,8 +102,10 @@ export function buyerLabels(buyers: ReadonlyMap<string, Buyer>, claims: Readonly
 
 export class BuyerNames {
   readonly #labels: ReadonlyMap<string, string>
-  constructor(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>) {
-    this.#labels = buyerLabels(buyers, claims)
+  readonly hideSuffix: boolean
+  constructor(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>, hideSuffix = false) {
+    this.hideSuffix = hideSuffix
+    this.#labels = buyerLabels(buyers, claims, hideSuffix)
   }
   name(id: string): string {
     return this.#labels.get(id) ?? UNKNOWN_BUYER_NAME

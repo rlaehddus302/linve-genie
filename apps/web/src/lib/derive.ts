@@ -1,3 +1,4 @@
+import { displayNickname } from '@livejjim/core/format'
 // 범위 조회 결과에서 화면에 보일 값 고르기 (AC-S05-14·21·30). 판정은 하지 않는다 — 코어 조회 함수 결과를 고르고 낱말로 바꾸기만 한다.
 import type { Buyer, Claim, Product } from '../api/types.ts'
 import { kstTime } from './kst.ts'
@@ -83,10 +84,11 @@ function tagOf(buyer: Buyer, smsTimes: ReadonlyMap<string, string>): string {
  *   겹침은 화면에 보이는 모양으로 본다(sameLook) — 공백 여러 칸·보이지 않는 글자·호환 글자로만 다른 표기도 겹친 것이다.
  * 문자 구매자 ID·전화번호 원문은 넣지 않는다(AC-S06-80·81).
  */
-export function buyerLabels(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>): Map<string, string> {
+export function buyerLabels(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>, hideSuffix = false): Map<string, string> {
+  const display = (buyer: Buyer) => displayNickname(buyer.display, hideSuffix && buyer.kind === 'youtube')
   const counts = new Map<string, number>()
-  for (const buyer of buyers.values()) if (buyer.mergedInto === null) counts.set(buyer.display, (counts.get(buyer.display) ?? 0) + 1)
-  const tagged = (buyer: Buyer) => (counts.get(buyer.display) ?? 0) >= 2
+  for (const buyer of buyers.values()) if (buyer.mergedInto === null) counts.set(display(buyer), (counts.get(display(buyer)) ?? 0) + 1)
+  const tagged = (buyer: Buyer) => (counts.get(display(buyer)) ?? 0) >= 2
   const wanted = new Set<string>()
   for (const buyer of buyers.values()) if (buyer.kind === 'sms' && buyer.phoneLast4 === null && tagged(buyer)) wanted.add(buyer.id)
   const smsTimes = smsCreatedTimes(buyers, claims, wanted)
@@ -96,7 +98,8 @@ export function buyerLabels(buyers: ReadonlyMap<string, Buyer>, claims: Readonly
   /** 표기(보이는 모양)마다 다음에 붙여 볼 번호 */
   const nextNo = new Map<string, number>()
   for (const buyer of buyers.values()) {
-    const base = tagged(buyer) ? `${buyer.display}${NAME_JOIN}${tagOf(buyer, smsTimes)}` : buyer.display
+    const showTag = tagged(buyer) && !(hideSuffix && buyer.kind === 'youtube' && display(buyer) !== buyer.display)
+    const base = showTag ? `${display(buyer)}${NAME_JOIN}${tagOf(buyer, smsTimes)}` : display(buyer)
     const baseLook = sameLook(base)
     let label = base
     if (taken.has(baseLook)) {
@@ -128,9 +131,11 @@ export class BuyerNames {
   readonly #labels: ReadonlyMap<string, string>
   readonly #counts = new Map<string, number>()
   readonly #buyers: ReadonlyMap<string, Buyer>
-  constructor(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>) {
+  readonly hideSuffix: boolean
+  constructor(buyers: ReadonlyMap<string, Buyer>, claims: ReadonlyMap<string, Claim>, hideSuffix = false) {
+    this.hideSuffix = hideSuffix
     this.#buyers = buyers
-    this.#labels = buyerLabels(buyers, claims)
+    this.#labels = buyerLabels(buyers, claims, hideSuffix)
     for (const buyer of buyers.values()) if (buyer.mergedInto === null) this.#counts.set(buyer.display, (this.#counts.get(buyer.display) ?? 0) + 1)
   }
 

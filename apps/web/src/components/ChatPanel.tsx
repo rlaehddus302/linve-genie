@@ -1,3 +1,4 @@
+import { displayNickname } from '@livejjim/core/format'
 // 채팅 패널 (AC-S05-21·22, ORD-01 AC2, R-3, NFR-06, D-076·D-088).
 // - 오래된 것 위·새것 아래. 시각(KST), 닉네임, 본문. 주문·취소·언급·방송자 표시는 색과 글자를 함께.
 // - 본문·닉네임은 React 기본 이스케이프로만 보인다(HTML로 해석하지 않는다).
@@ -154,6 +155,7 @@ export function ChatPanel({ messages, older, loadingOlder, onLoadOlder, convertN
           <ChatRow
             key={message.id}
             message={message}
+            nickname={displayNickname(message.nick, api.names.hideSuffix)}
             claimText={message.claims
               .map((id) => {
                 const claim = data.claims.get(id)
@@ -215,6 +217,7 @@ const ALREADY_WORD = '이미 찜함'
 export const ALREADY_REASON = '이 분은 이 번호를 이미 찜했어요. 새 찜은 생기지 않았어요.'
 
 interface ChatRowProps {
+  readonly nickname: string
   /** "이미 찜함" 표시 ('|'로 이음, 없으면 '') */
   readonly already: string
   /** 눌러서 펼친 줄 */
@@ -235,7 +238,7 @@ interface ChatRowProps {
 }
 
 const ChatRow = memo(
-  function ChatRow({ message, claimText, already, open, onToggle, note, onConvert, look, onReview, platformTag, badge }: ChatRowProps) {
+  function ChatRow({ message, nickname, claimText, already, open, onToggle, note, onConvert, look, onReview, platformTag, badge }: ChatRowProps) {
   const [focused, setFocused] = useState(false)
   const [hovered, setHovered] = useState(false)
   // 누름(마우스·터치)으로 생긴 초점은 키보드 초점으로 치지 않는다 — 다시 누르면 접혀야 한다 (AC-UX2-03)
@@ -319,7 +322,7 @@ const ChatRow = memo(
         <time dateTime={message.publishedAt}>{kstTime(message.publishedAt)}</time>{' '}
         {platformTag ? <span className={`tag tag-platform tag-platform-${platformOfKey(message.channel).toLowerCase()}`}>{PLATFORM_WORD[platformOfKey(message.channel)]}</span> : null}
         {platformTag ? ' ' : null}
-        <strong className="chat-nick">{message.nick}</strong>
+        <strong className="chat-nick">{nickname}</strong>
         {badge !== undefined ? <> <ChatBadgeMark badge={badge} /></> : null}
         {message.owner ? <span className="tag tag-owner">{CHAT_WORD.owner}</span> : null}
         {look !== null

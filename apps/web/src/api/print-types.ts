@@ -26,6 +26,7 @@ export interface QueueSummary {
   /** 버릴 라벨 장 수 */
   readonly discard: number
   /** 라벨 기능 켬(true)/끔(false) — 판매자 설정 (N4a, L-13 1). 화면은 이 값을 알기 전에는 라벨 조작을 숨긴다 */
+  readonly hideNicknameSuffix?: boolean
   readonly labelsEnabled: boolean
   /** 라벨 설정 크기 고르기 목록 (첫째가 기본) — 출력 기기 프린터 프로필의 크기, 모르면 B1 목록 (PRN2 L-11 13, D-PRN2-07. 옛 서버는 칸이 없다) */
   readonly labelSizes?: readonly string[]

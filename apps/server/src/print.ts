@@ -41,7 +41,7 @@ import { labelSizesForProfileId, printerProfile } from '@livejjim/printer'
 import { kstDate } from './time.ts'
 import type { Db } from './db/database.ts'
 import type { FieldProblem } from './errors.ts'
-import { contentKeyOf, currentLabelBuyer, isWinnerOf, packingLabelData, productLabelBuyer, productLabelData, type ClaimIndex } from './label-data.ts'
+import { withDisplayNickname, contentKeyOf, currentLabelBuyer, isWinnerOf, packingLabelData, productLabelBuyer, productLabelData, type ClaimIndex } from './label-data.ts'
 import { AMOUNT_MISSING_MESSAGE, claimAmount } from './amount.ts'
 import { errorKind, type LogSink } from './log.ts'
 import {
@@ -216,6 +216,7 @@ export interface QueueSummary {
   readonly printing: number
   readonly discard: number
   /** 라벨 기능 켬(true)/끔(false) — 기록이 없으면 켬 (N4a, L-13 1) */
+  readonly hideNicknameSuffix?: boolean
   readonly labelsEnabled: boolean
   /**
    * 라벨 설정의 크기 고르기 목록 (PRN2, L-11 13, D-PRN2-07): 출력 기기가 알린 프로필의 크기(첫째가 기본).
@@ -617,6 +618,7 @@ export class PrintService {
             },
       pause: paused === null ? null : { reason: paused, message: PAUSE_MESSAGES[paused], backlog: queue?.backlog === true },
       ...counts,
+      ...(queue?.hideNicknameSuffix ? { hideNicknameSuffix: true } : {}),
       labelsEnabled: queue?.labelsEnabled ?? true,
       labelSizes: [...labelSizesForProfileId(profileId)],
     }
@@ -1021,6 +1023,7 @@ export class PrintService {
           return { kind: 'none' as const, reason: 'PAUSED' as const }
         }
         const template = await this.#template(tx, sellerId, kind)
+        data = withDisplayNickname(data, queue.hideNicknameSuffix)
         const claimedTemplate = kind === 'packing' && job.perPage !== null && template.kind === 'packing' ? { ...template, perPage: job.perPage } : template
         const token = randomBytes(18).toString('base64url')
         await updateJob(tx, sellerId, job.id, { status: 'PRINTING' })
@@ -1125,7 +1128,8 @@ export class PrintService {
   }
 
   async #preview(sellerId: string, kind: 'product' | 'packing', data: ProductLabelData | PackingLabelData, page: number | null = null, perPage: number | null = null): Promise<BitmapPagesOutcome> {
-    const current = await this.#template(this.#db, sellerId, kind)
+    const [current, queue] = await Promise.all([this.#template(this.#db, sellerId, kind), readQueue(this.#db, sellerId)])
+    data = withDisplayNickname(data, queue?.hideNicknameSuffix === true)
     // claim과 같은 규칙: 포장 작업을 만든 때의 쪽 경계는 템플릿 변경 뒤에도 고정한다.
     const template = kind === 'packing' && perPage !== null && current.kind === 'packing' ? { ...current, perPage } : current
     const env = createNodeRenderEnv()
@@ -1724,6 +1728,17 @@ export class PrintService {
    * 켤 때: 대기 작업이 있고 멈추지 않았거나 끊김 멈춤이면 판매자 멈춤 + 쌓인 라벨("출력 시작"), 손으로 푸는 멈춤이면 그대로, 대기 작업이 없으면 대기열을 바꾸지 않는다(L-13 7).
    * 커밋된 뒤에만 응답·알림(labels, print)이 나간다
    */
+  async setNicknameDisplay(sellerId: string, hideSuffix: boolean): Promise<void> {
+    const now = this.#now()
+    const changed = await this.#db.transaction(async (tx) => {
+      const queue = await lockQueue(tx, sellerId, now)
+      if (queue.hideNicknameSuffix === hideSuffix) return false
+      await updateQueue(tx, sellerId, { hideNicknameSuffix: hideSuffix }, now)
+      return true
+    })
+    if (changed) this.#notify(sellerId, { jobs: [], labels: [] })
+  }
+
   async setLabels(sellerId: string, accountId: string, enabled: boolean): Promise<LabelSettings & { changed: boolean }> {
     const current = await readQueue(this.#db, sellerId)
     // 줄이 없으면 켬이다 — 켜기는 바꿀 것이 없다 (대기열 줄도 만들지 않는다)
