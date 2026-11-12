@@ -216,7 +216,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
     }
   }, [broadcast, rehearsal, seq, labelsQueue.queue?.rev, data === null])
 
-  const names = useMemo(() => (data === null ? null : new BuyerNames(data.buyers, data.claims)), [data])
+  const buyers = data?.buyers
+  const claims = data?.claims
+  const names = useMemo(() => (buyers && claims ? new BuyerNames(buyers, claims) : null), [buyers, claims])
   const labelWords = useMemo(() => {
     const map = new Map<string, string>()
     for (const label of labels) if (label.claim !== null && label.word !== '') map.set(label.claim, label.word)

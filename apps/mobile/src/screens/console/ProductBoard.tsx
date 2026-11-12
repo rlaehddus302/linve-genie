@@ -5,13 +5,13 @@
 // 자세히(아래 판, D-UX4-30, 사용자 지시 2026-11-09): 번호·품종·가격을 한 줄에 점선 둥근 칸으로 — 왼쪽 위 연필. 누르면 반 화면 판에서 고친다(D-UX4-106, ProductEdit).
 // 그 아래 찜·대기 손님 이름 알약(위 탭 알약 크기, 넘치면 아랫줄로) — 누르면 "찜을 삭제할까요?" 팝업. 판매 완료·찜 요약·"아직 찜이 없어요"·일시 중지·판매 종료 단추는 없앴고,
 // 토스 메뉴 줄로 [판매 시작](공개 전·멈춘 상품만) · [누가 살지 정하기](겹침·승계만) · [🗑 상품 삭제] — 삭제는 "상품을 삭제할까요?" 팝업 [닫기 | 삭제].
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Animated, Keyboard, LayoutAnimation, Platform, View } from 'react-native'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
 import { ProductLabelAction } from '../ProductLabelAction.tsx'
 import { SearchField } from '../customer-parts.tsx'
 import { isApiError } from '../../api/client.ts'
-import { boardProducts, claimsOfProduct, productSlots } from '../../lib/derive.ts'
+import { boardProducts, claimsOfProduct, productSlots, type BuyerNames } from '../../lib/derive.ts'
 import { TAG_GAP, TAG_PAD_X, buyerTagText, fitTags, type ProductTag } from '../../lib/product-tags.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, formatWon } from '../../lib/words.ts'
@@ -94,13 +94,19 @@ export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, '
  * 찜도 대기도 없으면 아래 줄을 그리지 않는다. 확인이 필요한 상품은 꼬리표 대신 주황 글 한 줄.
  * freshAt: 방금 올라온 시각(아니면 0) — 그때부터 잠깐 연한 초록, 그 뒤 흰색으로 (D-UX4-29)
  */
-function ProductRow({ product, freshAt, onOpen, doubt }: { readonly product: Product; readonly freshAt: number; readonly onOpen: () => void; readonly doubt?: string }) {
+const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, conflicts, buyers, names }: {
+  readonly product: Product
+  readonly freshAt: number
+  readonly onOpen: (key: string) => void
+  readonly doubt?: string
+  readonly conflicts: number
+  readonly buyers: ScopeData['buyers']
+  readonly names: BuyerNames
+}) {
   const { p, fontScale } = useKit()
-  const api = useConsoleApi()
   const [width, setWidth] = useState(0)
-  const conflicts = claimsOfProduct(api.data, product).filter((claim) => claim.status === 'CONFLICT').length
   const attention = rowAttention(product, conflicts)
-  const { tags, keep } = rowTags(product, (id) => api.data.buyers.get(id), (id) => api.names.name(id))
+  const { tags, keep } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id))
   const fit = fitTags(tags, width, TYPE.note * Math.min(fontScale, MAX_FONT_SCALE), keep)
   const glow = useRef(new Animated.Value(0)).current
   useEffect(() => {
@@ -126,7 +132,7 @@ function ProductRow({ product, freshAt, onOpen, doubt }: { readonly product: Pro
       role="button"
       aria-label={`상품 자세히 — ${String(product.no)}번`}
       testID="product-row"
-      onPress={onOpen}
+      onPress={() => { Keyboard.dismiss(); onOpen(product.key) }}
       style={{ borderRadius: RADIUS.md, borderCurve: 'continuous', overflow: 'hidden' }}
     >
       {({ pressed }) => (
@@ -180,13 +186,21 @@ function ProductRow({ product, freshAt, onOpen, doubt }: { readonly product: Pro
       )}
     </Tap>
   )
-}
+})
 
 /** 상품 전체 리스트 — 가장 최근에 말한(올린) 상품이 맨 위 (D-UX3-87). 처음 받은 상품은 강조하지 않고, 그 뒤에 올라온·고른 상품만 잠깐 초록 */
 export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void }) {
   const api = useConsoleApi()
   const [query, setQuery] = useState('')
   const products = shownProducts(api.data, api.b)
+  const claims = api.data.claims
+  const conflictCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const claim of claims.values()) {
+      if (claim.status === 'CONFLICT') counts.set(claim.product, (counts.get(claim.product) ?? 0) + 1)
+    }
+    return counts
+  }, [claims])
   const seen = useRef<Map<string, number> | null>(null)
   const lastSelected = useRef<string | null>(api.selected)
   if (seen.current === null) seen.current = new Map(products.map((product) => [product.key, 0]))
@@ -208,7 +222,7 @@ export function ProductList({ onOpen }: { readonly onOpen: (key: string) => void
       {matches.length === 0 ? <EmptyFill title="해당 번호의 상품이 없어요" /> : (
         <View role="list" aria-label="상품 목록" style={{ gap: SPACE.xs }}>
           {matches.map((product) => (
-            <ProductRow key={product.key} product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={() => { Keyboard.dismiss(); onOpen(product.key) }} doubt={api.doubts?.get(product.no)} />
+            <ProductRow key={product.key} product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={onOpen} buyers={api.data.buyers} names={api.names} conflicts={conflictCounts.get(product.key) ?? 0} doubt={api.doubts?.get(product.no)} />
           ))}
         </View>
       )}

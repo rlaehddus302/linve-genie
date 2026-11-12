@@ -76,7 +76,7 @@ export function useHeldWhileClosing<T>(visible: boolean, value: T): T {
 }
 
 /** 열고 닫는 움직임: 0 = 닫힘, 1 = 열림. 닫히는 움직임이 끝나야 판을 내린다. 웹(시험)·움직임 줄이기는 바로 */
-function useSheetMotion(visible: boolean): { readonly mounted: boolean; readonly progress: Animated.Value } {
+export function useSheetMotion(visible: boolean): { readonly mounted: boolean; readonly progress: Animated.Value } {
   const instant = Platform.OS === 'web'
   const [mounted, setMounted] = useState(visible)
   const progress = useRef(new Animated.Value(visible ? 1 : 0)).current
@@ -86,25 +86,35 @@ function useSheetMotion(visible: boolean): { readonly mounted: boolean; readonly
       progress.setValue(visible ? 1 : 0)
       return
     }
-    let alive = true
+    const target = visible ? 1 : 0
+    const duration = visible ? SHEET_IN_MS : SHEET_OUT_MS
+    let active = true
+    let animation: Animated.CompositeAnimation | undefined
+    // 네이티브 응답이 사라져도 투명한 Modal이 터치를 계속 가로채지 않게 한다.
+    const settle = (finished: boolean) => {
+      if (!active) return
+      active = false
+      clearTimeout(deadline)
+      if (!finished) progress.setValue(target)
+      if (!visible) setMounted(false)
+    }
+    const deadline = setTimeout(() => settle(false), duration + 100)
     if (visible) setMounted(true)
-    AccessibilityInfo.isReduceMotionEnabled().then(
-      (reduce) => go(reduce),
-      () => go(false),
-    )
     function go(reduce: boolean) {
-      if (!alive) return
-      Animated.timing(progress, {
-        toValue: visible ? 1 : 0,
-        duration: reduce ? 0 : visible ? SHEET_IN_MS : SHEET_OUT_MS,
+      if (!active) return
+      animation = Animated.timing(progress, {
+        toValue: target,
+        duration: reduce ? 0 : duration,
         easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
         useNativeDriver: true,
-      }).start(({ finished }) => {
-        if (alive && finished && !visible) setMounted(false)
       })
+      animation.start(({ finished }) => settle(finished))
     }
+    AccessibilityInfo.isReduceMotionEnabled().then(go, () => go(false))
     return () => {
-      alive = false
+      active = false
+      clearTimeout(deadline)
+      animation?.stop()
     }
   }, [visible, instant, progress])
   return { mounted: instant ? visible : mounted, progress }
