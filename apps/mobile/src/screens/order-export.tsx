@@ -35,6 +35,12 @@ const MIME: Readonly<Record<ExportKind, string>> = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 }
 
+export function ExportRows({ busy, save }: { busy: ExportKind | null; save: (kind: ExportKind) => void }) {
+  return <>{(['photo', 'csv', 'xlsx'] as const).map(kind => (
+    <MenuRow key={kind} title={EXPORT_LABEL[kind]} busy={busy === kind} disabled={busy !== null && busy !== kind} onPress={() => save(kind)} />
+  ))}</>
+}
+
 /** 고른 것 → 서버 경로 (실제 날짜만) */
 export function exportPath(kind: ExportKind, date: string, buyer: string): string {
   if (kind === 'photo') return withQuery(`/api/days/${date}/receipt.jpg`, { buyer, rehearsal: false })
@@ -126,9 +132,7 @@ export function OrderSendSheet({ visible, date, buyer, name, sealed, onClose, on
               disabled={!canSms}
               onPress={() => void sendSms()}
             />
-            {(['photo', 'csv', 'xlsx'] as const).map((kind) => (
-              <MenuRow key={kind} title={EXPORT_LABEL[kind]} busy={busy === kind} disabled={busy !== null && busy !== kind} onPress={() => void save(kind)} />
-            ))}
+            <ExportRows busy={busy} save={kind => void save(kind)} />
           </View>
           {error !== null ? <Notice tone="danger" alert>{error}</Notice> : null}
         </View>

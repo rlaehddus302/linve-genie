@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs'
 import { eq } from 'drizzle-orm'
 import { scopes, youtubeLinks } from '../src/db/schema.ts'
 import { expect, it } from 'vitest'
@@ -60,4 +61,29 @@ it('주문서에는 연결한 영상의 가게 이름을 표시하고 수정은 
   expect((await client(world, other.cookie).put(path, { name: '다른 가게' })).status).toBe(404)
   expect((await api.put(path, { name: '새 가게' })).status).toBe(200)
   expect((await api.get(path)).body).toEqual({ name: '새 가게' })
+})
+
+it('정산 내역서의 CSV와 엑셀에는 선택한 탭과 방송의 확정 판매만 들어간다', async () => {
+  const world = await newWorld()
+  const seller = await addSeller(world)
+  const api = client(world, seller.cookie)
+  const { id } = await createBroadcast(world, seller, { date: DAY })
+  await register(world, seller, id, 15, '5개', 35000)
+  await chat(world, seller, id, 'UC_A', '대봉-t3u', '15')
+  const base = `/api/broadcasts/${id}/statement`
+  const csv = await api.get(base + '/buyers/csv')
+  expect(csv.status).toBe(200)
+  expect(csv.text).toContain('대봉,35000,5')
+  expect(csv.text).not.toContain('-t3u')
+  expect(csv.text).toContain('총계,35000,5')
+  const response = await world.server.app.request(base + '/products/xlsx', { headers: { Cookie: seller.cookie } })
+  expect(response.status).toBe(200)
+  const book = new ExcelJS.Workbook()
+  await book.xlsx.load(await response.arrayBuffer())
+  const sheet = book.getWorksheet('상품별')!
+  expect(sheet.getRow(4).values).toEqual([undefined, '번호', '상품명', '판매 금액', '개수'])
+  expect(sheet.getRow(5).values).toEqual([undefined, 15, '5개 세트', 35000, 5])
+  expect(sheet.getCell('D5').alignment.horizontal).toBe('center')
+  const other = await addSeller(world)
+  expect((await client(world, other.cookie).get(base + '/buyers/csv')).status).toBe(404)
 })

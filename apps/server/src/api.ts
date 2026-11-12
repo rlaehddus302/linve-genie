@@ -489,6 +489,14 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 방송 (AC-S04-21) ──────────────────────────────────────────────────
   api.get('/broadcasts', async (c) => c.json({ broadcasts: await service.broadcasts(sellerOf(c)) }))
+  api.get('/broadcasts/:id/statement/:tab/:format', async c => {
+    const { id, tab, format } = c.req.param()
+    if ((tab !== 'buyers' && tab !== 'products') || (format !== 'csv' && format !== 'xlsx')) return notFound()
+    const file = await service.statementFile(sellerOf(c), id, tab, format)
+    if (!file) return notFound()
+    const name = `정산내역서-${file.date}-${tab === 'buyers' ? '구매자별' : '상품별'}.${format}`
+    return fileResponse(file.bytes, MIME[format], name, `statement-${file.date}-${tab}.${format}`)
+  })
   api.get('/broadcasts/:id/order-shop', async c => {
     const name = await service.orderShop(sellerOf(c), c.req.param('id'))
     return name === null ? notFound() : c.json({ name })

@@ -112,7 +112,8 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
   const platform = item.platforms?.[0]
   const [, month, day] = item.date.split('-')
   const channel = item.channelName || (platform ? { band: '밴드', youtube: '유튜브', tiktok: '틱톡' }[platform] : '라이브')
-  const title = `${Number(month)}.${Number(day)} ${channel}`
+  const date = `${Number(month)}.${Number(day)}`
+  const title = `${date} ${channel}`
   const counts = `${item.salesQty ?? '–'}개 · ${item.buyerCount ?? '–'}명`
   const sales = item.salesTotal == null ? '확인 필요' : formatWon(item.salesTotal)
   const sub = historyAgo(item.endedAt ?? item.createdAt, now) ?? ''
@@ -126,18 +127,18 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
         <PlatformIcon platform={platform} size={34} />
       )}
       <View style={{ flex: 1, gap: 1 }}>
-        <Txt step="bodyLarge" weight="book" numberOfLines={1}>
-          {title}
+        <Txt step="nav" weight="bold" numberOfLines={1}>
+          <Txt step="meta" color="textSub">{date}</Txt>{' '}{channel}
         </Txt>
         {sub === '' ? null : (
-          <Txt step="caption" color="textSub" numberOfLines={1}>
+          <Txt step="meta" color="textSub" numberOfLines={1}>
             {sub}
           </Txt>
         )}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
-        <Txt step="body" weight="bold">{sales}</Txt>
-        <Txt step="caption" color="textSub">{counts}</Txt>
+        <Txt step="nav" weight="bold">{sales}</Txt>
+        <Txt step="meta" color="textSub">{counts}</Txt>
       </View>
     </Tap>
   )

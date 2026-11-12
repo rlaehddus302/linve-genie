@@ -1,3 +1,6 @@
+import { statementFile } from './statement-file.ts'
+import type { FullView as ClientFullView } from '../../web/src/api/types.ts'
+import { readQueue } from './print-store.ts'
 // 판매자 작업 (AC-S04-21·27·31·33·50~52, AC-S05-20·35·50~52·60·61·80). 판정은 모두 packages/core가 한다 — 여기서는 이벤트를 만들고 기록 경로에 넘기고 조회 함수를 부른다.
 // 범위 = (판매자, 날짜, 리허설인지) (D-081). 날짜로 범위를 고르는 조회·쓰기는 리허설을 명시해야 리허설 범위이고, 적지 않으면 실제 범위다.
 // 방송이 있는 입력은 그 방송의 범위로 간다.
@@ -1215,6 +1218,14 @@ export class Service {
     return (await optionScopes(this.#options.db, sellerId)).length > 0
   }
 
+
+  async statementFile(sellerId: string, id: string, tab: 'buyers' | 'products', format: 'csv' | 'xlsx') {
+    const row = await findBroadcast(this.#options.db, sellerId, id)
+    if (!row) return null
+    const [view, shop, queue] = await Promise.all([this.scopeView(sellerId, row.date, row.rehearsal), this.orderShop(sellerId, id), readQueue(this.#options.db, sellerId)])
+    if (!view || shop === null) return null
+    return { date: row.date, bytes: await statementFile(view as unknown as ClientFullView, id, shop, tab, format, queue?.hideNicknameSuffix === true) }
+  }
 
   async orderShop(sellerId: string, id: string): Promise<string | null> {
     const db = this.#options.db

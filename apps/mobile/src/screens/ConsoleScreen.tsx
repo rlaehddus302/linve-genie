@@ -382,7 +382,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const help = closed ? '끝난 라이브예요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   if (salesPage === 'sales' || (closed && salesPage === 'auto')) {
     return <View style={{ flex: 1, backgroundColor: p.background, paddingTop: pageTop }}>
-      <AppHeader title={orderBuyer === null ? "판매 명세" : "구매자 주문서"} onBack={orderBuyer !== null ? () => setOrderBuyer(null) : closed ? onBack : () => setSalesPage('auto')} right={closed && orderBuyer === null ? <HeaderTextButton label="라이브 기록" onPress={() => setSalesPage('record')} /> : undefined} />
+      <AppHeader title={orderBuyer === null ? "정산 내역서" : "구매자 주문서"} onBack={orderBuyer !== null ? () => setOrderBuyer(null) : closed ? onBack : () => setSalesPage('auto')} right={closed && orderBuyer === null ? <HeaderTextButton label="라이브 기록" onPress={() => setSalesPage('record')} /> : undefined} />
       <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
       <BroadcastSalesList {...{ broadcastId, title, sales, inset, names, sealed, rehearsal }} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} />
     </View>
