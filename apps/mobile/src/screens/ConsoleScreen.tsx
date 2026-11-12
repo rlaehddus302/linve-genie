@@ -8,7 +8,7 @@
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { BackHandler, Keyboard, ScrollView, View, type ScrollViewInstance } from 'react-native'
+import { BackHandler, Keyboard, Platform, ScrollView, View, type ScrollViewInstance } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import { get, withQuery } from '../api/client.ts'
 import { BuyerNames, alertCounts, boardProducts } from '../lib/derive.ts'
@@ -17,7 +17,7 @@ import { useAppForeground } from '../lib/use-app-state.ts'
 import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderTextButton, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
-import { GUTTER, SPACE } from '../ui/kit/tokens.ts'
+import { GUTTER, SHADOW, SPACE } from '../ui/kit/tokens.ts'
 import { LOW_PAPER, useLabelPaper } from '../lib/label-paper.ts'
 import { BigButton as SmallButton, Notice, Row } from '../ui/parts.tsx'
 import { useCameLate } from '../ui/late.tsx'
@@ -381,8 +381,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
   return (
     <ConsoleContext.Provider value={api}>
       <View style={{ flex: 1, backgroundColor: p.background }} testID="console-screen"
-        onTouchStart={searchPad ? closeSearchPad : undefined}
-        onPointerDown={searchPad ? closeSearchPad : undefined}>
+        onTouchEnd={searchPad ? closeSearchPad : undefined}
+        onPointerUp={searchPad ? closeSearchPad : undefined}>
         {/* 상태 막대 자리 (D-UX4-51): 겹쳐 뜨는 화면은 이 자리까지 덮는다 */}
         <View style={{ height: pageTop }} />
         <AppHeader
@@ -402,10 +402,12 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         {/* 목록 자리 — (+) 단추는 이 자리 오른쪽 아래(들린 말 창 위)에 뜬다 */}
         <View style={{ flex: 1 }}>
         <ScrollView
+          testID="console-scroll"
           ref={scroll}
           onScrollBeginDrag={searchPad ? closeSearchPad : undefined}
           scrollEventThrottle={100}
           onScroll={(event) => {
+            if (Platform.OS === 'web' && searchPad) closeSearchPad()
             const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
             atBottom.current = bottomTab && contentOffset.y + layoutMeasurement.height >= contentSize.height - 48
           }}
@@ -417,7 +419,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
           // 당겨도 늘어나지 않는다 (D-UX4-108, 사용자 지시 2026-11-10 "스크롤 땡기면 여전히 이렇게 늘어나는데?"): 아이폰 튕김·안드로이드 늘임을 끈다 — 탭 바가 맨 위에서 끌려 내려오지 않게
           bounces={false}
           overScrollMode="never"
-          style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
+          style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl, gap: SPACE.sm }} keyboardShouldPersistTaps={searchPad ? 'always' : 'handled'}>
           {/* 첫째 자식: 탭 바 위 알림들 (한 묶음 — 붙는 머리 자리가 늘 둘째가 되게) */}
           <View style={{ gap: SPACE.sm }}>
             <AwayLine />
@@ -453,10 +455,12 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, openReview
         {live && dock === 'talk' ? <TalkDock bottom={Math.max(inset, SPACE.sm)} /> : null}
 
         {shownTab === 'products' && searchPad ? (
-          <View onTouchStart={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}
-            style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: p.surface, paddingBottom: Math.max(inset, SPACE.sm) }}>
-            <NumberKeys doubleZero={false} onKey={key => setSearchDigits(value => key === 'back' ? value.slice(0, -1) : value + key)} />
-          </View>
+          <Appear distance={280 + inset} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, ...SHADOW.sheet, backgroundColor: p.surface, borderTopWidth: 1, borderTopColor: p.line }}>
+            <View onTouchEnd={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}
+              style={{ paddingBottom: Math.max(inset, SPACE.sm) }}>
+              <NumberKeys doubleZero={false} onKey={key => setSearchDigits(value => key === 'back' ? value.slice(0, -1) : value + key)} />
+            </View>
+          </Appear>
         ) : null}
 
         {/* 상품 자세히 (D-UX4-30): 번호·품종·가격은 판 안 점선 칸이 보이므로 판 제목은 두지 않는다 */}

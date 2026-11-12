@@ -222,7 +222,7 @@ export function ProductList({ onOpen, query, onQuery, numberSearch }: {
     .sort((a, b) => Number(b.no === Number(prefix)) - Number(a.no === Number(prefix)))
   return (
     <View style={{ flexGrow: 1, gap: SPACE.sm }}>
-      <View onTouchStart={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
+      <View onTouchEnd={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}>
         <SearchField label="상품 번호 검색" value={query} numberSearch={numberSearch} onChangeText={text => onQuery(text.normalize('NFKC').replace(/\D/g, ''))} />
       </View>
       {matches.length === 0 ? <EmptyFill title="해당 번호의 상품이 없어요" /> : (

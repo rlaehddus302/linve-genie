@@ -8,7 +8,7 @@ import { AccessibilityInfo, Animated, Easing, Platform, type StyleProp, type Vie
 export const APPEAR_MS = 260
 export const APPEAR_RISE = 10
 
-export function Appear({ children, instant = false, style, testID }: { readonly children: ReactNode; readonly instant?: boolean; readonly style?: StyleProp<ViewStyle>; readonly testID?: string }) {
+export function Appear({ children, instant = false, distance = APPEAR_RISE, style, testID }: { readonly children: ReactNode; readonly instant?: boolean; readonly distance?: number; readonly style?: StyleProp<ViewStyle>; readonly testID?: string }) {
   const still = instant || Platform.OS === 'web'
   const show = useRef(new Animated.Value(still ? 1 : 0)).current
   useEffect(() => {
@@ -23,7 +23,7 @@ export function Appear({ children, instant = false, style, testID }: { readonly 
       alive = false
     }
   }, [still, show])
-  const rise = show.interpolate({ inputRange: [0, 1], outputRange: [APPEAR_RISE, 0] })
+  const rise = show.interpolate({ inputRange: [0, 1], outputRange: [distance, 0] })
   return (
     <Animated.View testID={testID} style={[style, { opacity: show, transform: [{ translateY: rise }] }]}>
       {children}
