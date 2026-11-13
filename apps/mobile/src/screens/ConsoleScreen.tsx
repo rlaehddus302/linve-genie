@@ -116,6 +116,7 @@ function AwayLine() {
 
 /**
  * onEnded: 방송 종료 알림. 화면은 해당 방송의 판매 명세를 보여 준다.
+ * focused (D-RETRO-63): 이 화면이 맨 위에 보이나 — 방송이 저절로 끝났을 때 다른 화면(쌓인 화면)을 쓰던 중이면 정산 정보 판을 띄우지 않고 돌아올 때 띄운다.
  */
 /**
  * openLink: 방송 연결을 쌓인 화면으로 연다(밀어서 뒤로 가기, D-UX3-09) — 없으면 앱 안 전체 화면 판(시험·웹).
@@ -132,7 +133,7 @@ export const SHOW_AFTER_BACK_MS = 600
 /** "그 상품 보기"로 스크롤할 때 그 줄 위에 남기는 자리 (붙는 탭 바 아래에 줄이 보이게) */
 const ROW_PEEK = 64
 
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; readonly refresh?: number }) {
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -314,6 +315,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   }, [labels])
 
   const ended = justEnded || endedHere || broadcast?.ended === true || data?.broadcasts.get(broadcastId)?.ended === true
+  // 이 화면을 보는 동안 방송이 끝났다(판매자가 끝냄 · 플랫폼에서 끝나 저절로 끝남) — 정산 화면으로 넘어가며 정산 정보가 비어 있으면 묻는다 (D-RETRO-63)
+  const sawLive = useRef(false)
+  if (broadcast !== null && data !== null && !ended) sawLive.current = true
+  const endedNow = justEnded || endedHere || (ended && sawLive.current)
   const sealed = data?.sealed ?? false
   // 방송 연결 전체 화면 (D-UX3-06·07): 아직 잇지 않은 방송이면 주소 칸은 본문에, [확인]는 맨 아래(주소를 넣어야 보인다) — 아니면 유튜브 칸 그대로.
   // 훅이라 이른 return보다 앞에 둔다
@@ -435,9 +440,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const help = closed ? '끝난 라이브예요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   if (salesPage === 'sales' || (closed && salesPage === 'auto')) {
     return <View style={{ flex: 1, backgroundColor: p.background, paddingTop: pageTop }}>
-      <AppHeader title={orderBuyer === null ? "정산 내역서" : "구매자 주문서"} onBack={orderBuyer !== null ? () => setOrderBuyer(null) : closed ? onBack : () => setSalesPage('auto')} right={closed && orderBuyer === null ? <HeaderTextButton label="라이브 기록" onPress={() => setSalesPage('record')} /> : undefined} />
+      <AppHeader title={orderBuyer === null ? "정산 내역서" : "구매자 정산서"} onBack={orderBuyer !== null ? () => setOrderBuyer(null) : closed ? onBack : () => setSalesPage('auto')} right={closed && orderBuyer === null ? <HeaderTextButton label="라이브 기록" onPress={() => setSalesPage('record')} /> : undefined} />
       <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
-      <BroadcastSalesList {...{ broadcastId, title, sales, inset, names, sealed, rehearsal }} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} />
+      <BroadcastSalesList {...{ broadcastId, title, sales, inset, names, sealed, rehearsal }} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} justEnded={seller && endedNow && focused} />
     </View>
   }
   const close = () => setSheet('none')

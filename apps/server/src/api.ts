@@ -509,6 +509,16 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (!name || [...name].length > 40 || /[\p{Cc}]/u.test(name)) return apiError(400, 'INVALID_INPUT', '가게 이름을 1~40자로 적어 주세요.')
     return await service.setOrderShop(sellerOf(c), c.req.param('id'), name) ? c.json({ name }) : notFound()
   })
+  // 정산 정보 (D-RETRO-60): 정산서에 찍는 계좌·전화번호·방송 이름·배송비. 값은 로그에 남기지 않는다
+  api.get('/statement-info', async c => {
+    const info = await service.statementInfo(sellerOf(c))
+    return info === null ? notFound() : c.json({ info })
+  })
+  api.put('/statement-info', async c => {
+    const result = await service.updateStatementInfo(sellerOf(c), body(c))
+    if (!result.ok) return apiError(result.rejection.status, result.rejection.code, result.rejection.message, result.rejection.problems)
+    return c.json({ info: result.info })
+  })
   api.post('/broadcasts', async (c) => {
     const input = body(c)
     const requestId = requestIdOf(input)

@@ -38,6 +38,7 @@ import { MONEY_SETTING_KEYS, RAW_FIELDS, applyRawInput, checkRawInput, readMoney
 import type { Db } from './db/database.ts'
 import { broadcasts, sellers, youtubeLinks } from './db/schema.ts'
 import { readShop } from './shop.ts'
+import { STATEMENT_MESSAGES, checkStatementInput, readStatementInfo, shippingSettings, writeStatementShop, type StatementInfo } from './statement-info.ts'
 import type { FieldProblem } from './errors.ts'
 import {
   ChatGenerators,
@@ -1244,6 +1245,27 @@ export class Service {
     const rows = await this.#options.db.update(broadcasts).set({ orderShopName: name })
       .where(and(eq(broadcasts.sellerId, sellerId), eq(broadcasts.id, id))).returning({ id: broadcasts.id })
     return rows.length > 0
+  }
+
+  /** 정산 정보 (D-RETRO-60): 정산서에 찍는 계좌·전화번호·방송 이름과 배송비 규칙. 없는 판매자면 null */
+  statementInfo(sellerId: string): Promise<StatementInfo | null> {
+    return readStatementInfo(this.#options.db, this.#options.masterKey, sellerId)
+  }
+
+  /**
+   * 정산 정보 저장 (D-RETRO-60): 검사 → 배송비를 판매 규칙(shipping.baseFee·shipping.freeThreshold)에 → 계좌·전화번호·방송 이름을 가게 설정에.
+   * 배송비 진실은 판매 규칙 하나다 — 날짜별 정산은 다음에 시작하는 라이브 날부터, 정산서는 바로 이 값을 쓴다
+   */
+  async updateStatementInfo(sellerId: string, body: unknown): Promise<{ ok: true; info: StatementInfo } | { ok: false; rejection: Rejection }> {
+    const shop = await readShop(this.#options.db, sellerId)
+    const checked = checkStatementInput(body, shop)
+    if (!checked.ok) return checked
+    const saved = await this.updateSettings(sellerId, { settings: shippingSettings(checked.value.shipping) })
+    if (!saved.ok) return { ok: false, rejection: rejection(400, 'INVALID_INPUT', STATEMENT_MESSAGES.shipping, [{ field: 'shipping', message: STATEMENT_MESSAGES.shipping }]) }
+    await writeStatementShop(this.#options.db, this.#options.masterKey, sellerId, checked.value)
+    const info = await this.statementInfo(sellerId)
+    if (info === null) throw new Error('판매자가 없다')
+    return { ok: true, info }
   }
 
   async broadcasts(sellerId: string): Promise<{ id: string; date: string; title: string; rehearsal: boolean; ended: boolean; endedAt: string | null; createdAt: string | null; platforms: BroadcastPlatform[]; channelName?: string; salesTotal?: number; salesQty?: number; buyerCount?: number | null }[]> {

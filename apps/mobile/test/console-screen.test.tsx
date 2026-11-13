@@ -613,7 +613,8 @@ describe('ConsoleScreen', () => {
     }) }))
     await open(world)
     fireEvent.click(await screen.findByText('현재 매출 115,000원 ›'))
-    expect(await screen.findByRole('button', { name: /주문서 · 115,000원/ })).toBeTruthy()
+    // 옛 기대: 줄 이름 "… 주문서 · 115,000원". 새 기대(D-RETRO-61): 판매자 양식 이름대로 "정산서"
+    expect(await screen.findByRole('button', { name: /정산서 · 115,000원/ })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '상품별' }))
     expect(await screen.findByText('색금')).toBeTruthy()
     expect(screen.getByText('판매 수량 3개 · 구매자 1명')).toBeTruthy()

@@ -140,14 +140,29 @@ export async function readShop(db: Db, sellerId: string): Promise<ShopView> {
   return { name: row.name, ...parseShopJson(row.shop) }
 }
 
-/** 가게 설정 JSON (sellers.shop 칸 — 계좌·안내만, 가게 이름은 name 칸) */
-export function shopJson(view: Omit<ShopView, 'name'>): string {
-  return JSON.stringify({ bank: view.bank, accountNumber: view.accountNumber, accountHolder: view.accountHolder, accountNote: view.accountNote })
+/**
+ * 가게 설정 JSON (sellers.shop 칸 — 계좌·안내만, 가게 이름은 name 칸).
+ * previous: 지금 저장된 JSON — 정산 정보(statement 칸: 방송 이름·전화번호·정했다 표시, D-RETRO-60)를 그대로 옮긴다. 없으면 계좌·안내만
+ */
+export function shopJson(view: Omit<ShopView, 'name'>, previous?: string): string {
+  let statement: unknown
+  if (previous !== undefined) {
+    try {
+      const parsed: unknown = JSON.parse(previous)
+      if (isPlainObject(parsed)) statement = own(parsed, 'statement')
+    } catch {
+      statement = undefined
+    }
+  }
+  return JSON.stringify({ bank: view.bank, accountNumber: view.accountNumber, accountHolder: view.accountHolder, accountNote: view.accountNote, ...(isPlainObject(statement) ? { statement } : {}) })
 }
 
-/** 가게 설정 저장 (판매자 ID 조건). 검사는 checkShopInput이 먼저 했다 */
+/** 가게 설정 저장 (판매자 ID 조건). 검사는 checkShopInput이 먼저 했다. 같은 JSON의 정산 정보 칸은 지우지 않는다 (D-RETRO-60) */
 export async function writeShop(db: Db, sellerId: string, view: ShopView): Promise<void> {
-  await db.update(sellers).set({ name: view.name, shop: shopJson(view) }).where(eq(sellers.id, sellerId))
+  await db.transaction(async (tx) => {
+    const rows = await tx.select({ shop: sellers.shop }).from(sellers).where(eq(sellers.id, sellerId)).for('update')
+    await tx.update(sellers).set({ name: view.name, shop: shopJson(view, rows[0]?.shop) }).where(eq(sellers.id, sellerId))
+  })
 }
 
 /** 문서 패키지의 가게 설정 모양 (확인서 — 계좌가 없으면 계좌·안내 칸이 없다) */

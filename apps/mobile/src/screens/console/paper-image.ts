@@ -25,7 +25,7 @@ export function snapshot(svg: Svg | null, height: number, width: number): Promis
       clearTimeout(timer)
       try {
         const bytes = decodeBase64(data.replace(/\s/g, ''))
-        if (bytes[0] !== 0x89 || bytes[1] !== 0x50) throw new Error('주문서 사진을 만들지 못했어요.')
+        if (bytes[0] !== 0x89 || bytes[1] !== 0x50) throw new Error('정산서 사진을 만들지 못했어요.')
         resolve(bytes)
       } catch (e) { reject(e) }
     }, { width: width * scale, height: height * scale })

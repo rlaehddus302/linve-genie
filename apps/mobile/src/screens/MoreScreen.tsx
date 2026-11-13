@@ -27,6 +27,8 @@ export const IN_APP_SCREENS = [
   { path: '/receipts', title: '영수증·판매대장', group: '배송' },
   { path: '/labels', title: '라벨 프린터', group: '가게' },
   { path: '/shop-settings', title: '가게 설정', group: '가게' },
+  // 정산서에 찍는 계좌·전화번호·방송 이름·배송비 (D-RETRO-60)
+  { path: '/statement-info', title: '정산 정보', group: '가게' },
 ] as const
 export const MORE_GROUPS = ['라이브', '주문·입금', '배송', '가게'] as const
 export type InAppPath = (typeof IN_APP_SCREENS)[number]['path']

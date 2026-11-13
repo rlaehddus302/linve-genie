@@ -5,7 +5,7 @@ import { View } from 'react-native'
 import { useServices } from '../../services.tsx'
 import { StackPage, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
-import { Loading } from '../../ui/parts.tsx'
+import { Loading, Notice } from '../../ui/parts.tsx'
 import { APP_IMPORT_TITLE, ImportView } from './ImportSheet.tsx'
 import type { LabelPrintNav } from '../LabelPrintScreen.tsx'
 import { ConsoleManage, MANAGE_LABEL } from './Manage.tsx'
@@ -44,6 +44,19 @@ export function ProductAddScreen({ broadcastId, onBack, startNo }: { readonly br
   )
 }
 
+/** 쌓인 화면을 쓰는 동안 라이브가 끝났을 때의 한 줄 (D-RETRO-63) */
+export const ENDED_WHILE_AWAY = '라이브가 끝났어요. 뒤로 가면 정산 화면이 나와요.'
+
+/**
+ * 이 화면을 쓰는 동안 라이브가 끝났다(플랫폼에서 끝나 저절로 끝남) — 쓰던 화면을 넘기지 않고 한 줄로만 알린다 (D-RETRO-63).
+ * 들어올 때 이미 끝나 있던 라이브에는 보이지 않는다
+ */
+function EndedLine({ ended }: { readonly ended: boolean }) {
+  const sawLive = useRef(!ended)
+  if (!ended) sawLive.current = true
+  return ended && sawLive.current ? <Notice tone="info">{ENDED_WHILE_AWAY}</Notice> : null
+}
+
 /**
  * 방송 관리 쌓인 화면. refresh: 바뀌면(방송 연결 화면에서 돌아오면) 유튜브 잇기 상태를 다시 받는다.
  * onEnded: 방송을 끝낸 뒤 — 판매 명세를 보여 준다.
@@ -52,7 +65,10 @@ export function ManageScreen({ broadcastId, onBack, openLink, labels, onEnded, r
   return (
     <StackPage title={MANAGE_LABEL} name={MANAGE_LABEL} onBack={onBack} testID="console-settings">
       <ScopeConsole broadcastId={broadcastId} waiting={<Loading />}>
-        {({ broadcast, snapshot }) => <ManageBody broadcastId={broadcastId} title={broadcast.title.trim() === '' ? '제목 없음' : broadcast.title} rehearsal={broadcast.rehearsal} closed={broadcast.ended || (snapshot.data?.sealed ?? false)} onBack={onBack} openLink={openLink} refresh={refresh} {...(labels === undefined ? {} : { labels })} {...(onEnded === undefined ? {} : { onEnded })} />}
+        {({ broadcast, snapshot }) => <>
+          <EndedLine ended={broadcast.ended || snapshot.data?.broadcasts.get(broadcastId)?.ended === true} />
+          <ManageBody broadcastId={broadcastId} title={broadcast.title.trim() === '' ? '제목 없음' : broadcast.title} rehearsal={broadcast.rehearsal} closed={broadcast.ended || (snapshot.data?.sealed ?? false)} onBack={onBack} openLink={openLink} refresh={refresh} {...(labels === undefined ? {} : { labels })} {...(onEnded === undefined ? {} : { onEnded })} />
+        </>}
       </ScopeConsole>
     </StackPage>
   )
@@ -113,7 +129,10 @@ export function ConsoleToolScreen({ broadcastId, tool, onBack }: { readonly broa
         </Txt>
       </View>
       <ScopeConsole broadcastId={broadcastId} waiting={<Loading />}>
-        {() => <ToolBody broadcastId={broadcastId} tool={tool} />}
+        {({ broadcast, snapshot }) => <>
+          <EndedLine ended={broadcast.ended || snapshot.data?.broadcasts.get(broadcastId)?.ended === true} />
+          <ToolBody broadcastId={broadcastId} tool={tool} />
+        </>}
       </ScopeConsole>
     </StackPage>
   )

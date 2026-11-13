@@ -16,7 +16,51 @@ export interface BuyerOrder {
   subtotal: number | null
 }
 export const salesMoney = (amount: number | null) => amount === null ? '금액 확인 필요' : formatWon(amount)
-export const shippingFor = (subtotal: number) => subtotal >= 50000 ? 0 : 5000
+/** 정산서 배송비 규칙 (D-RETRO-60): 받을지 · 금액 · 얼마 이상 무료. 금액은 정수 원 */
+export interface StatementShipping {
+  readonly charge: boolean
+  readonly fee: number
+  /** 상품 합계가 이 금액 이상이면 무료. 없으면 null */
+  readonly freeFrom: number | null
+}
+/** 정산 정보 (GET·PUT /api/statement-info) — 빈 칸은 "" */
+export interface StatementInfo {
+  readonly bank: string
+  readonly accountNumber: string
+  readonly accountHolder: string
+  readonly phone: string
+  readonly hostName: string
+  readonly shipping: StatementShipping
+  /** 판매자가 한 번이라도 저장했나 — 거짓이면 처음 한 번 묻는다 */
+  readonly decided: boolean
+}
+/** 정하지 않은 판매자의 배송비 (사용자 결정 2026-11-13): 5만 원 미만 5,000원, 5만 원 이상 무료 */
+export const STATEMENT_SHIPPING_DEFAULT: StatementShipping = Object.freeze({ charge: true, fee: 5000, freeFrom: 50000 })
+
+/** 상품 합계(정수 원)에 붙는 배송비(정수 원). 받지 않으면 0, 무료 기준 이상이면 0 */
+export function statementShipping(subtotal: number, rule: StatementShipping = STATEMENT_SHIPPING_DEFAULT): number {
+  if (!rule.charge) return 0
+  return rule.freeFrom !== null && subtotal >= rule.freeFrom ? 0 : rule.fee
+}
+/** 기본 규칙의 배송비 (5만 원 미만 5,000원) */
+export const shippingFor = (subtotal: number) => statementShipping(subtotal)
+
+/** 정산서 한 장의 배송비와 합계. 금액을 모르는 줄이 있으면 둘 다 null. charged: 배송비 줄을 넣나(받지 않는 설정이면 줄 자체가 없다) */
+export function statementTotals(subtotal: number | null, rule: StatementShipping): { readonly charged: boolean; readonly shipping: number | null; readonly total: number | null } {
+  if (subtotal === null) return { charged: rule.charge, shipping: null, total: null }
+  const shipping = statementShipping(subtotal, rule)
+  return { charged: rule.charge, shipping, total: subtotal + shipping }
+}
+/** 정산서 계좌 줄 "은행 계좌번호 예금주" — 셋 다 있을 때만 */
+export function statementAccount(info: Pick<StatementInfo, 'bank' | 'accountNumber' | 'accountHolder'> | null): string | null {
+  if (info === null) return null
+  const parts = [info.bank.trim(), info.accountNumber.trim(), info.accountHolder.trim()]
+  return parts.every(part => part !== '') ? parts.join(' ') : null
+}
+/** 방송을 끝냈을 때 정산 정보를 다시 물을까: 한 번도 정하지 않았거나 계좌·전화번호가 비어 있다 */
+export function statementInfoMissing(info: StatementInfo): boolean {
+  return !info.decided || statementAccount(info) === null || info.phone.trim() === ''
+}
 
 function addLine(group: Map<string, SaleLine>, line: SaleLine) {
   const old = group.get(line.key)
