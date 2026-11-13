@@ -20,7 +20,7 @@ SR = 16000
 
 def transcriber(backend="mlx", model=None):
     """STT 모델 바꿔 끼우기: (소리 float32 16kHz) → [(시작초, 끝초, 글, avg_logprob 또는 None)]
-    backend: mlx(맥, mlx-community 모델) · faster(리눅스·GPU, CTranslate2 모델) · hf(transformers 모델, 예: BuzzASR/korean)"""
+    backend: mlx(맥, mlx-community 모델) · faster(리눅스·GPU, CTranslate2 모델) · hf(transformers 모델, 예: BuzzASR/korean) · qwen(Qwen3-ASR)"""
     if backend == "mlx":
         import mlx_whisper
         model = model or os.environ.get("STT_MODEL", audio.MODEL)
@@ -52,6 +52,12 @@ def transcriber(backend="mlx", model=None):
             return [(c["timestamp"][0] or 0.0, c["timestamp"][1] or len(pcm) / SR, c["text"], None) for c in r.get("chunks", [])] \
                 or [(0.0, len(pcm) / SR, r["text"], None)]
         return run
+    if backend == "qwen":
+        # Qwen3-ASR(예: TeamUNIVA/qwen3_asr_1.7b_ko): 시간 표시가 없어 정렬 모델(Qwen3-ForcedAligner)로 낱말 시각을 붙이고 문장쯤으로 묶는다.
+        # qwen-asr 꾸러미(transformers 4.57)가 든 가상환경에서. 품종 힌트는 STT_HINT(글)로 — sw/bench_stt_live.py, docs/stt-compare.md
+        from .bench_stt_live import group_words, qwen_stt
+        words = qwen_stt(model or "TeamUNIVA/qwen3_asr_1.7b_ko", hint=os.environ.get("STT_HINT", ""), words=True)
+        return lambda pcm: group_words(words(pcm))
     raise SystemExit(f"backend? {backend}")
 
 
