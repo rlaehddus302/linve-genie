@@ -34,6 +34,7 @@ import { AddFab, DIGIT_PAD_HEIGHT, NumberKeys, ProductAddPage } from './console/
 import { SlidePage } from './console/parts.tsx'
 import { DecisionsView } from './console/Decisions.tsx'
 import { UnlistedClaims, unlistedNumbers } from './console/UnlistedClaims.tsx'
+import { TentativeCards } from './console/TentativeCard.tsx'
 
 import { Pill } from '../ui/day-pills.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
@@ -582,6 +583,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         </Animated.ScrollView>
         {shownTab === 'products' && !closed && !searchPad ? <AddFab bottom={(docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => { if (openAdd === undefined) { setAddNo(null); setPage('add') } else openAdd() }} /> : null}
         </View>
+        {/* 확인 중(임시 등록) 상품 확인 카드 (D-RETRO-90): 목록과 아래 창 사이, 한 번에 한 장 — 어느 탭에서든 같은 자리에 뜬다 */}
+        {closed ? null : <TentativeCards onEdit={setDetail} bottom={docked ? SPACE.sm : Math.max(inset, SPACE.sm)} />}
         {/* 들린 말 창은 맨 아래 (D-UX4-53 — 옛 목록 위) */}
         {/* 맨 아래 창은 관리 "화면 아래 창"에서 고른 것 (D-UX4-71): 들린 말 · 채팅·문자 · 안 보기 */}
         {/* 음성 창 오른쪽 끝: 지금 듣는 쪽 표시 — 누르면 소리 듣기 고르는 판 (D-RETRO-72) */}
@@ -596,7 +599,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         </BottomSheet>
         {live ? <ListenSourceSheet visible={sheet === 'listen'} onClose={close} session={services.voice} keep={services.streamKeep} broadcastId={broadcastId} title={streamTitle} stream={stream} /> : null}
         <BottomSheet visible={sheet === 'pending'} onClose={close} title="보류 찜">
-          <Txt step="caption" color="textSub">아직 상품이 없는 번호의 찜이에요. 그 번호 상품을 올리면 먼저 온 순서대로 정해져요.</Txt>
+          {/* 확인 중 상품의 번호로 온 찜도 여기서 기다린다 (D-RETRO-90) */}
+          <Txt step="caption" color="textSub">아직 상품이 없거나 확인 중인 번호의 찜이에요. 그 번호 상품을 올리거나 확정하면 먼저 온 순서대로 정해져요.</Txt>
           {sheet === 'pending' ? <ClaimFeed only="PENDING" /> : null}
         </BottomSheet>
         <ProductAddPage

@@ -5,12 +5,14 @@
 // - 번호 (D-RETRO-21): 번호를 바꾸면 엔진이 그 번호의 확정·대기·겹침 찜을 모두 거절한다(R-10) — "찜 n건이 사라져요. 바꿀까요?" [그대로 두기 | 바꾸기].
 //   지운 번호 자리로 바꿀 때는 "지운 번호예요. 이 번호로 다시 쓸까요?" [그대로 두기 | 다시 쓰기] 뒤 reuseClosed로 보낸다.
 // - 이미 있는 번호 (D-RETRO-22): 그 번호 상품의 품종·가격과 [닫기 | 그 상품 보기].
+// - 확인 중(임시 등록) 상품 (D-RETRO-91): 단추가 [이 값으로 확정] — 번호·품종·가격을 고친 뒤 product.confirm까지 보낸다. 확정된 찜이 없어 위 가격·번호 물음은 뜨지 않는다.
 import { useEffect, useRef, useState } from 'react'
 import { Animated, Keyboard, TextInput, View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { claimsOfProduct, productKey, productSlots } from '../../lib/derive.ts'
+import { isTentative } from '../../lib/tentative.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { formatWon } from '../../lib/words.ts'
 import { BigButton, BottomSheet, ErrorLine, Icon, PopupDialog, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
@@ -18,6 +20,7 @@ import { RADIUS, SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
 import { BigNumber, NumberKeys, PRICE_LIMIT, SameNumberButtons, SameNumberLine, liveProductAt, noLimitWords, typeDigits, type SameNumber } from './ProductAdd.tsx'
 import { ProductDetail, rowName } from './ProductBoard.tsx'
+import { PRICE_SCOPE_ALL, PRICE_SCOPE_NEW, claimedBuyers, priceScopeAsk } from './price-scope.ts'
 
 export type EditField = 'no' | 'name' | 'price'
 
@@ -26,15 +29,15 @@ export type EditDraft = Partial<Record<EditField, string>>
 
 export const EDIT_LABEL: Readonly<Record<EditField, string>> = { no: '번호', name: '품종', price: '가격' }
 export const EDIT_DONE = '확인'
+/** 확인 중(임시 등록) 상품의 수정창 단추 — 고친 값을 저장하고 확정까지 한다 (D-RETRO-91) */
+export const EDIT_CONFIRM = '이 값으로 확정'
 /** 방송에 번호 끝이 없을 때 번호 칸이 받는 가장 큰 수 (상품 추가와 같다) */
 const NO_FALLBACK_MAX = 9999
 const PRICE_DIGITS = 9
 const NAME_MAX = 40
 
 // ── 저장 전 물음의 글 (D-RETRO-20·21) ──
-export const PRICE_SCOPE_NEW = '새 찜부터'
-export const PRICE_SCOPE_ALL = '찜한 손님도'
-export const priceScopeAsk = (buyers: number): string => `이미 찜한 손님 ${String(buyers)}명에게도 새 가격을 적용할까요?`
+export { PRICE_SCOPE_ALL, PRICE_SCOPE_NEW, claimedBuyers, priceScopeAsk }
 export const RENUMBER_KEEP = '그대로 두기'
 export const RENUMBER_GO = '바꾸기'
 export const renumberAsk = (claims: number): string => `번호를 바꾸면 이 번호의 찜 ${String(claims)}건이 사라져요. 바꿀까요?`
@@ -59,11 +62,6 @@ export function editPlan(product: Pick<Product, 'no' | 'name' | 'price'>, draft:
     name: name === null || name === '' || name === product.name.trim() ? null : name,
     price: price === null || price === product.price ? null : price,
   }
-}
-
-/** 가격 적용 범위를 물을 손님 수: 그 상품에 확정된 찜의 손님 (같은 손님은 한 번). 0이면 묻지 않는다 */
-export function claimedBuyers(product: Product): number {
-  return new Set(productSlots(product).winners).size
 }
 
 /** 번호를 바꾸면 사라지는 찜 수: 엔진이 거절하는 확정·대기·겹침 찜 (R-10). 보류 찜은 옛 번호에 그대로 남아 세지 않는다 */
@@ -251,6 +249,8 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
     saving.current = true
     Keyboard.dismiss()
     const plan = editPlan(product, values)
+    // 확인 중 상품은 확정된 찜이 없어 아래 두 물음(번호를 바꾸면 사라지는 찜·가격 적용 범위)이 뜨지 않는다 — 지운 번호 다시 쓰기 물음만 그대로 탄다
+    const tentative = isTentative(product)
     try {
       // ① 번호를 바꾸면 사라지는 찜·지운 번호 다시 쓰기 (D-RETRO-21). [그대로 두기]면 아무것도 보내지 않고 번호 칸으로
       let reuse = false
@@ -318,6 +318,9 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
       // 가격은 원문 칸으로 보낸다(SRV1 약속 2) — "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 품종도 같이 바뀌면 한 번에
       if (plan.price !== null) await api.command({ type: 'product.update', b: api.b, noText: String(no), priceText: `${String(plan.price)}원`, ...(plan.name === null ? {} : { name: plan.name }), ...(applyTo === undefined ? {} : { applyTo }) })
       else if (plan.name !== null) await api.command({ type: 'product.update', b: api.b, no, name: plan.name })
+      // 확인 중 상품이면 고친 값으로 확정까지 (D-RETRO-91): 값을 먼저 고치고 그다음에 확정해야 기다리던 찜이 고친 값으로 정해진다.
+      // 서버가 "바뀐 것 없음"이면 그사이 다른 쪽이 확정한 것 — 따라잡은 상태를 보이고 조용히 닫는다
+      if (tentative) await api.command({ type: 'product.confirm', b: api.b, no })
       // 찜한 손님에게도 적용했고 이미 뽑은 라벨이 있으면 창을 닫지 않고 자세히로 — "라벨 다시 인쇄" 줄이 바로 보인다 (D-RETRO-20)
       const winners = productSlots(product).winnerClaims
       const printed = applyTo === 'UNPAID_CLAIMS' && api.productLabels?.some((label) => label.kind === 'product' && label.claim !== null && winners.includes(label.claim) && label.printed > 0) === true
@@ -370,7 +373,11 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
               maxLength={NAME_MAX}
               returnKeyType="done"
               editable={!busy}
-              onSubmitEditing={({ nativeEvent }) => void apply(draft.name === undefined && nativeEvent.text === before.name ? draft : { ...draft, name: nativeEvent.text })}
+              // 확인 중 상품은 키보드의 완료로 확정하지 않는다 — 가격·번호도 고치려던 참에 품종만 고친 값으로 찜이 정해지지 않게, [이 값으로 확정]을 눌러야 한다 (D-RETRO-91)
+              onSubmitEditing={({ nativeEvent }) => {
+                if (isTentative(product)) Keyboard.dismiss()
+                else void apply(draft.name === undefined && nativeEvent.text === before.name ? draft : { ...draft, name: nativeEvent.text })
+              }}
               style={{ fontSize: TYPE.amount, minHeight: TYPE.amount * 1.5, paddingVertical: 0, color: p.text, ...font(WEIGHT.bold) }}
             />
           ) : (
@@ -393,7 +400,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
       </View>
       <View style={{ paddingHorizontal: SPACE.xl }}>
         {/* 이미 있는 번호면 [확인] 자리에 [닫기 | 그 상품 보기] — 다른 번호를 치면 [확인]으로 돌아온다 (D-RETRO-22) */}
-        {sameShown !== null ? <SameNumberButtons onClose={() => setSame(null)} onShow={() => show(sameShown.key)} /> : <BigButton label={EDIT_DONE} busy={busy} onPress={() => void apply()} />}
+        {sameShown !== null ? <SameNumberButtons onClose={() => setSame(null)} onShow={() => show(sameShown.key)} /> : <BigButton label={isTentative(product) ? EDIT_CONFIRM : EDIT_DONE} busy={busy} onPress={() => void apply()} />}
       </View>
       {field === 'name' ? null : <NumberKeys doubleZero={field === 'price'} onKey={type} />}
     </View>

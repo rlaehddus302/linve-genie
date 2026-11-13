@@ -37,8 +37,11 @@ describe('ShopSettingsScreen (앱 가게 설정)', () => {
     const { w, writes } = world()
     render(w.wrap(<ShopSettingsScreen onBack={() => undefined} />))
     fireEvent.change(await screen.findByLabelText('가게 이름'), { target: { value: '다육한 집' } })
-    fireEvent.click(await screen.findByRole('button', { name: /가격 단위 만원/ }))
-    expect(screen.getByText(/저장하면 다음 라이브부터 '15'는 150,000원으로 들어가요/)).toBeTruthy()
+    // D-RETRO-93 (개선 계획표 A6): 앱의 "가격 단위" 칸이 "가격을 말할 때 단위"로 바뀌었다 — 옛 기대: 단추 이름 /가격 단위 만원/,
+    // 고른 뒤 한 줄 "저장하면 다음 라이브부터 '15'는 150,000원으로 들어가요"(적는 숫자의 예). 새 기대: 말한 예와 언제 적용되는지 한 줄. 저장하는 값은 그대로다
+    fireEvent.click(await screen.findByRole('button', { name: '가격을 말할 때 단위 만 원' }))
+    expect(screen.getByText("'삼십오'라고 하면 350,000원")).toBeTruthy()
+    expect(screen.getByText('다음에 시작하는 라이브부터 적용돼요. 지금 하는 라이브는 그대로예요.')).toBeTruthy()
     expect(screen.getByText('저장하지 않은 칸: 가게 · 판매 규칙')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
     await waitFor(() => expect(writes).toHaveLength(2))

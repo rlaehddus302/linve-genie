@@ -26,6 +26,7 @@ import { Pill } from '../ui/day-pills.tsx'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { AssistCard, BackupCard, ConnectionsCard, ExportCard, useBotThanks } from './settings/ShopExtras.tsx'
 import { DetailToggle, FieldLabel, GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
+import { PriceUnitField } from './settings/PriceUnit.tsx'
 import { Late } from '../ui/late.tsx'
 
 const RULE_FIELDS = [...fieldsAt('basic'), ...fieldsAt('more')]
@@ -203,7 +204,18 @@ export function ShopSettingsScreen({ onBack, onRenamed }: { readonly onBack: () 
   const back = () => (dirty.length > 0 ? setLeaving(true) : onBack())
   const ruleProblem = (key: string): string | null => errors['판매 규칙']?.problemFor(`settings.${key}`)?.message ?? null
   const ruleField = (field: FieldDef) =>
-    rules === null ? null : (
+    rules === null ? null : field.key === 'price.unit' ? (
+      // 가격을 말할 때 단위 (D-RETRO-93): 앱에서는 말로 부르는 가격에만 쓰이는 칸이라 쉬운 낱말·말한 예·적용 시점을 따로 보인다 (옛: 웹과 같은 "가격 단위" 고르기)
+      <PriceUnitField
+        key={field.key}
+        value={rules[field.key]}
+        problem={ruleProblem(field.key)}
+        onChange={(value) => {
+          setResult(null)
+          setRules((current) => (current === null ? current : { ...current, [field.key]: value }))
+        }}
+      />
+    ) : (
       <RuleField
         key={field.key}
         field={field}

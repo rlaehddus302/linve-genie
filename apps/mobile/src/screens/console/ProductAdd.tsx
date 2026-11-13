@@ -15,6 +15,7 @@ import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { productKey } from '../../lib/derive.ts'
+import { isTentative } from '../../lib/tentative.ts'
 import { formatWon } from '../../lib/words.ts'
 import { tapHaptic } from '../../native/haptics.ts'
 import { BigButton, ButtonRow, ErrorLine, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
@@ -22,6 +23,7 @@ import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { edgeSwipeCloses, startsEdgeSwipe, useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
 import { useConsoleApi } from './context.ts'
 import { SlidePage, useFooterInset } from './parts.tsx'
+import { SyncClashDialog, readSyncClash, type SyncClash } from './SyncClash.tsx'
 
 type Step = 'no' | 'price' | 'name' | 'confirm'
 
@@ -30,6 +32,14 @@ export const ASK_NO = '상품 번호가 무엇인가요?'
 export const ASK_PRICE = '가격은 어떻게 되나요?'
 export const ASK_NAME = '어떤 품종인가요?'
 export const ASK_ADD = '상품을 추가할까요?'
+/** 확인 중(임시 등록) 상품이 있는 번호를 쳤을 때 (D-RETRO-92): 친 값으로 그 상품을 확정한다 */
+export const ASK_CONFIRM_HELD = '이 값으로 확정할까요?'
+export const CONFIRM_HELD = '확정하기'
+/** "확인 중인 313번은 지금 빅뱅 10,000원이에요." — 품종이 비어 있으면 가격만 */
+export function heldWords(product: Pick<Product, 'no' | 'name' | 'price'>): string {
+  const name = product.name.trim()
+  return `확인 중인 ${String(product.no)}번은 지금 ${name === '' ? '' : `${name} `}${formatWon(product.price)}이에요.`
+}
 
 /** 큰 칸 글자 (토스 "얼마나 옮길까요?" 사진을 재어 — 키트 headline과 같은 크기). 손님 정보 입력(D-UX4-126)도 같은 크기 */
 export const BIG = TYPE.amount
@@ -599,6 +609,8 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
   const [error, setError] = useState<string | null>(null)
   // 이미 있는 번호의 상품 (D-RETRO-22) — 품종·가격과 [닫기 | 그 상품 보기]를 보인다
   const [same, setSame] = useState<SameNumber | null>(null)
+  // 방금 다른 계정에서 들어온 값과 내 값 (D-RETRO-13) — 둘을 보여 고르게 한다
+  const [clash, setClash] = useState<SyncClash | null>(null)
   const [busy, setBusy] = useState(false)
   const clearProblem = () => {
     setError(null)
@@ -640,7 +652,8 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
     if (no === '' || !Number.isSafeInteger(value) || value < 1) return setError('상품 번호를 숫자로 적어 주세요.')
     if (maxNumber !== null && value > maxNumber) return setError(noLimitWords(maxNumber))
     const existing = liveProductAt(api.data.products, api.b, value)
-    if (existing !== null) {
+    // 확인 중(임시 등록) 상품이 있는 번호는 막지 않는다 — 친 값으로 그 상품을 확정한다 (D-RETRO-92)
+    if (existing !== null && !isTentative(existing)) {
       setSame(existing)
       return setError(`${String(value)}번은 이미 있어요. 다른 번호를 적어 주세요.`)
     }
@@ -666,11 +679,17 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
         // 지운(판매 종료한) 번호를 다시 올리면 새 값으로 고친 뒤 다시 판다
         await api.command({ type: 'product.update', b: api.b, ...raw, ...(trimmed === '' ? {} : { name: trimmed }) })
         await api.command({ type: 'product.open', b: api.b, no: value })
+      } else if (isTentative(existing)) {
+        // 확인 중 상품이 있는 번호 (D-RETRO-92): 다시 등록은 서버가 받지 않는다 — 친 값으로 고친 뒤 확정한다. 값을 먼저 고쳐야 기다리던 찜이 친 값으로 정해진다
+        await api.command({ type: 'product.update', b: api.b, ...raw, ...(trimmed === '' ? {} : { name: trimmed }) })
+        await api.command({ type: 'product.confirm', b: api.b, no: value })
       } else {
         const result = await api.command({ type: 'product.register', b: api.b, ...raw, name: trimmed })
         if (!result.changed) {
           // 그사이 다른 쪽에서 같은 번호를 올렸다 — 따라잡은 자료에서 그 상품을 찾아 같이 보인다 (D-RETRO-22)
           setSame(liveProductAt((api.latest?.() ?? api.data).products, api.b, value))
+          // 방금 다른 계정에서 들어온 값과 내 값이 다르면 둘을 보여 고르게 한다 (D-RETRO-13)
+          setClash(readSyncClash(result))
           throw new Error(`${String(value)}번은 이미 있어요. 다른 번호로 다시 해 주세요.`)
         }
       }
@@ -695,6 +714,9 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
   const sameShown = same !== null && error !== null && (step === 'no' || step === 'confirm') ? same : null
   const sameButtons = sameShown === null || onShow === undefined ? null : <SameNumberButtons onClose={() => setSame(null)} onShow={() => onShow(sameShown.key)} />
   if (step === 'confirm') {
+    // 그 번호에 확인 중 상품이 있으면 친 값으로 그 상품을 확정한다 (D-RETRO-92) — 지금 값을 같이 보인다
+    const held = liveProductAt(api.data.products, api.b, Number(no))
+    const confirming = held !== null && isTentative(held)
     // D-UX4-111 (사용자 지시 2026-11-10): 번호 → 가격 → 품종 순(옛 번호 → 품종 → 가격), 묻는 말과 상품 줄 사이를 띄우고, 글 묶음은 화면 1/3 높이(옛 가운데)
     return (
       <Animated.View {...edgeHandlers} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
@@ -709,8 +731,13 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
               ))}
             </View>
             <Txt step="amount" weight="bold" center>
-              {ASK_ADD}
+              {confirming ? ASK_CONFIRM_HELD : ASK_ADD}
             </Txt>
+            {confirming ? (
+              <Txt step="body" color="textSub" center role="note">
+                {heldWords(held)}
+              </Txt>
+            ) : null}
           </View>
           <View style={{ flex: CONFIRM_BELOW }} />
         </View>
@@ -718,8 +745,10 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
           {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
           {sameShown !== null ? <SameNumberLine product={sameShown} /> : null}
           {/* 그사이 같은 번호가 올라왔으면 [추가하기] 자리에 [닫기 | 그 상품 보기] (D-RETRO-22) */}
-          {sameButtons ?? <BigButton label="추가하기" busy={busy} disabled={busy} onPress={() => void add()} />}
+          {sameButtons ?? <BigButton label={confirming ? CONFIRM_HELD : '추가하기'} busy={busy} disabled={busy} onPress={() => void add()} />}
         </View>
+        {/* 방금 다른 계정에서 들어온 값과 내 값이 다르다 (D-RETRO-13): [그 값 두기 | 내 값으로 바꾸기] */}
+        <SyncClashDialog clash={clash} onClose={() => setClash(null)} onDone={(key) => { setClash(null); onAdded(key) }} onFailed={setError} />
       </Animated.View>
     )
   }

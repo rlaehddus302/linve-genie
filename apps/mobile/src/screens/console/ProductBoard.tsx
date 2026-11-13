@@ -15,6 +15,7 @@ import { SearchField } from '../customer-parts.tsx'
 import { isApiError } from '../../api/client.ts'
 import { boardProducts, claimsOfProduct, productSlots, type BuyerNames } from '../../lib/derive.ts'
 import { TAG_GAP, TAG_PAD_X, buyerTagText, fitTags, type ProductTag } from '../../lib/product-tags.ts'
+import { isTentative, tentativeAttention, waitingAt } from '../../lib/tentative.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, formatWon } from '../../lib/words.ts'
 import { EmptyFill, ErrorLine, PopupDialog, Txt, useKit, Tap } from '../../ui/kit/index.ts'
@@ -25,6 +26,7 @@ import { CLAIM_ADD, ClaimAddForm, type ClaimAdded } from './ClaimAdd.tsx'
 import { feedBuyerName } from './feed-rows.ts'
 import { useConsoleApi } from './context.ts'
 import { IconMenuRow, NamePill, TRASH_TINT, type PillTone } from './parts.tsx'
+import { TentativePanel } from './TentativeCard.tsx'
 
 /** 방금 올라온 상품을 연한 초록으로 두는 시간, 흰색으로 돌아오는 시간 (D-UX4-29) */
 export const FRESH_HOLD_MS = 2500
@@ -101,18 +103,21 @@ export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, '
  * 찜도 대기도 없으면 아래 줄을 그리지 않는다. 확인이 필요한 상품은 꼬리표 대신 주황 글 한 줄.
  * freshAt: 방금 올라온 시각(아니면 0) — 그때부터 잠깐 연한 초록, 그 뒤 흰색으로 (D-UX4-29)
  */
-const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, conflicts, buyers, names }: {
+const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, conflicts, waiting, buyers, names }: {
   readonly product: Product
   readonly freshAt: number
   readonly onOpen: (key: string) => void
   readonly doubt?: string
   readonly conflicts: number
+  /** 그 번호로 기다리는 찜 수 — 확인 중 상품의 줄에만 쓴다 (D-RETRO-90) */
+  readonly waiting: number
   readonly buyers: ScopeData['buyers']
   readonly names: BuyerNames
 }) {
   const { p, fontScale } = useKit()
   const [width, setWidth] = useState(0)
-  const attention = rowAttention(product, conflicts)
+  // 확인 중 상품은 주황 줄 "확인 중 · 기다리는 찜 n건 · 눌러서 확정하기" (D-RETRO-90)
+  const attention = tentativeAttention(product, waiting) ?? rowAttention(product, conflicts)
   const { tags, keep } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id))
   const fit = fitTags(tags, width, TYPE.note * Math.min(fontScale, MAX_FONT_SCALE), keep)
   const glow = useRef(new Animated.Value(0)).current
@@ -241,7 +246,7 @@ export function ProductList({ onOpen, query, onQuery, numberSearch, onRow }: {
         <View role="list" aria-label="상품 목록" style={{ gap: SPACE.xs }}>
           {matches.map((product) => (
             <View key={product.key} collapsable={false} ref={onRow === undefined ? undefined : (node) => onRow(product.key, node)}>
-              <ProductRow product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={onOpen} buyers={api.data.buyers} names={api.names} conflicts={conflictCounts.get(product.key) ?? 0} doubt={api.doubts?.get(product.no)} />
+              <ProductRow product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={onOpen} buyers={api.data.buyers} names={api.names} conflicts={conflictCounts.get(product.key) ?? 0} waiting={isTentative(product) ? waitingAt(api.data, api.b, product.no) : 0} doubt={api.doubts?.get(product.no)} />
             </View>
           ))}
         </View>
@@ -290,6 +295,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
     setAdded(null)
   }, [product.key])
   const claims = detailClaims(api.data, product)
+  const tentative = isTentative(product)
   useAnimatedChange(claims.map((claim) => claim.id).join('|'))
   const fail = (caught: unknown, fallback: string) => setError(isApiError(caught) ? caught.message : caught instanceof Error && caught.message !== '' ? caught.message : fallback)
   const run = async (work: () => Promise<void>, fallback: string) => {
@@ -333,6 +339,9 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
     <View role="group" aria-label="상품 자세히" style={{ gap: SPACE.lg }}>
       {fields}
       {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
+      {/* 확인 중 상품 (D-RETRO-91): 방송 화면 카드와 같은 물음·단추 — [판매 시작]·[상품 삭제] 자리에 확정·거두기. */}
+      {/* 끝난 라이브에도 둔다(봉인 전까지) — 라이브가 끝날 때 남은 확인 중 상품의 기다리는 찜을 판매자가 뒤에 정리할 수 있게 */}
+      {tentative && !api.sealed ? <TentativePanel product={product} values={false} {...(onDone === undefined ? {} : { onDone })} /> : null}
       {claims.length === 0 ? null : (
         <View role="list" aria-label={`${String(product.no)}번 찜·대기`} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>
           {claims.map((claim) => {
@@ -358,10 +367,11 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
         {winnerLabels.map((label) => (
           <ProductLabelAction key={label.key} label={label} title={`${label.buyer.kind === 'youtube' ? displayNickname(label.buyer.name, api.names.hideSuffix) : '문자찜'} · ${label.canPrint ? '라벨 인쇄' : '라벨 다시 인쇄'}`} />
         ))}
-        {!closed && (product.status === 'READY' || product.status === 'HOLD') ? <IconMenuRow emoji="▶️" tint="#E6F2EB" title="판매 시작" ariaLabel={`판매 시작 — ${String(product.no)}번`} onPress={() => void open()} /> : null}
+        {!closed && !tentative && (product.status === 'READY' || product.status === 'HOLD') ? <IconMenuRow emoji="▶️" tint="#E6F2EB" title="판매 시작" ariaLabel={`판매 시작 — ${String(product.no)}번`} onPress={() => void open()} /> : null}
         {!closed && !product.hasOptions ? <IconMenuRow emoji="✍️" tint="#F8E3A3" title={CLAIM_ADD} ariaLabel={`${CLAIM_ADD} — ${String(product.no)}번`} onPress={() => { setError(null); setAdded(null); setAdding(true) }} /> : null}
         {undecided(product) && onDecide !== undefined ? <IconMenuRow emoji="🙋" tint="#FFF4E5" title="누가 살지 정하기" onPress={onDecide} /> : null}
-        {!closed ? <IconMenuRow emoji="🗑️" tint={TRASH_TINT} title="상품 삭제" ariaLabel={`상품 삭제 — ${String(product.no)}번`} onPress={() => setAskProduct(true)} /> : null}
+        {/* 확인 중 상품은 삭제(판매 종료 — 기다리던 찜이 "판매 중 아님"으로 끝난다) 대신 위 [거두기](찜은 그대로 남는다) */}
+        {!closed && !tentative ? <IconMenuRow emoji="🗑️" tint={TRASH_TINT} title="상품 삭제" ariaLabel={`상품 삭제 — ${String(product.no)}번`} onPress={() => setAskProduct(true)} /> : null}
       </View>
       )}
       <PopupDialog

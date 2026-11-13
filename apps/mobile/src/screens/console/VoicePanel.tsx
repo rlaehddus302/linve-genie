@@ -3,7 +3,7 @@
 // 음성 설정과 기록은 방송 메뉴(VoiceSettingsSheet)로 옮겼다.
 import { useEffect, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
-import type { ListenSourceStore } from '../../lib/listen-source.ts'
+import { LISTEN_CONSENT_NO, LISTEN_CONSENT_YES, type ListenSourceStore } from '../../lib/listen-source.ts'
 import type { VoiceSession } from '../../lib/voice-session.ts'
 import { RemoteVoicePanel, VoiceSettings } from './RemoteVoicePanel.tsx'
 import {
@@ -15,9 +15,9 @@ import {
   VOICE_SENT_LINE,
   VOICE_STOPPED_TITLE,
 } from '../../lib/words.ts'
-import { DotStatus, TodoRow } from '../../ui/kit/index.ts'
+import { BigButton as KitButton, ButtonRow, DotStatus, TodoRow } from '../../ui/kit/index.ts'
 import { SPACE } from '../../ui/kit/tokens.ts'
-import { BigButton, BigRed, Body, Card, Hint, Notice, Row } from '../../ui/parts.tsx'
+import { BigButton, BigRed, Body, Card, Hint, Notice } from '../../ui/parts.tsx'
 
 type ListenTone = 'on' | 'off' | 'warn'
 
@@ -76,10 +76,11 @@ export function VoicePanel({ session, broadcastId, title, seller, ended, listen 
             {VOICE_CONSENT_LINES.map((line) => (
               <Body key={line}>{line}</Body>
             ))}
-            <Row wrap>
-              <BigButton label="알겠어요, 켤게요" primary onPress={() => void session.acceptConsent()} />
-              <BigButton label="안 켤래요" onPress={() => session.declineConsent()} />
-            </Row>
+            {/* 단추는 좌우 한 줄 — 부정(안 켤래요)이 왼쪽, 긍정(알겠어요, 켤게요)이 오른쪽 (D-UX4-01, 절대 규칙 8). 옛: 긍정이 왼쪽이고 좁으면 아랫줄로 넘어갔다 */}
+            <ButtonRow>
+              <KitButton kind="outline" label={LISTEN_CONSENT_NO} onPress={() => session.declineConsent()} />
+              <KitButton label={LISTEN_CONSENT_YES} onPress={() => void session.acceptConsent()} />
+            </ButtonRow>
           </View>
         </Card>
       ) : null}
