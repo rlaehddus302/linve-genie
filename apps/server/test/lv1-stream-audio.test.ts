@@ -103,7 +103,7 @@ async function worker(url: string, world: TestServer, capacity = 4) {
 }
 const device = (url: string, cookie: string, b: string, id: string, capture = true) =>
   new Peer(`${url}/api/voice/stream?broadcastId=${encodeURIComponent(b)}&device=${id}${capture ? '' : '&capture=false'}`, { Origin: ORIGIN, Cookie: cookie })
-const phase = async (world: TestServer, cookie: string, b: string) => (await client(world, cookie).get(`/api/broadcasts/${b}/stream-audio`)).body as { phase: string; lagMs?: number }
+const phase = async (world: TestServer, cookie: string, b: string) => (await client(world, cookie).get(`/api/broadcasts/${b}/stream-audio`)).body as { phase: string; lagMs?: number; serverFault?: boolean }
 const watch = async (world: TestServer, cookie: string, b: string) => (await client(world, cookie).post(`/api/broadcasts/${b}/stream-audio/watch`, {})).body as { phase: string }
 
 describe('LV1 방송 소리 부품', () => {
@@ -323,6 +323,43 @@ describe('LV1 방송 소리로 듣기 (서버)', () => {
     await waitFor(() => feed.sinks.length === 0)
     expect((await phase(world, seller.cookie, b.id)).phase).toBe('ended')
   })
+  it('D-LV1-17 서버 쪽 길이 끊김: "받을 수 없는 방송"과 구분해 알리고 1분마다 다시 봐서, 길이 돌아오면 저절로 듣는다', async () => {
+    const { world, feed, timer, url, setLocation } = await setup({ location: () => ({ kind: 'unreachable' }) })
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    await worker(url, world)
+    await watch(world, seller.cookie, b.id)
+    // 옛 앱은 모르는 phase를 숨김으로 읽는다 — phase는 그대로 두고 표시만 더한다
+    await waitFor(async () => (await phase(world, seller.cookie, b.id)).phase === 'unsupported')
+    expect(await phase(world, seller.cookie, b.id)).toEqual({ phase: 'unsupported', serverFault: true })
+    expect(feed.opened).toBe(0)
+    // 아직 끊겨 있으면 그대로, 다시 1분 뒤로
+    expect(timer.runRetries()).toEqual([60_000])
+    await waitFor(() => timer.jobs.filter((job) => job.live && job.ms === 60_000).length === 1)
+    expect(await phase(world, seller.cookie, b.id)).toEqual({ phase: 'unsupported', serverFault: true })
+    // 길이 돌아왔다: 판매자가 아무것도 누르지 않아도 듣는다
+    setLocation(() => ({ kind: 'ok', url: 'https://manifest.googlevideo.com/x' }))
+    expect(timer.runRetries()).toEqual([60_000])
+    await waitFor(() => feed.sink !== undefined)
+    expect(await phase(world, seller.cookie, b.id)).toEqual({ phase: 'idle' })
+    feed.sink?.chunk(Buffer.alloc(3200), undefined)
+    await waitFor(async () => (await phase(world, seller.cookie, b.id)).phase === 'listening')
+  })
+  it('D-LV1-17 서버 쪽 길이 끊김에서 [다시 켜기]를 누르면 바로 다시 본다. 방송 탓인 못 받음에는 표시가 없다', async () => {
+    const { world, feed, timer, url, setLocation } = await setup({ location: () => ({ kind: 'unreachable' }) })
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    await worker(url, world)
+    await watch(world, seller.cookie, b.id)
+    await waitFor(async () => (await phase(world, seller.cookie, b.id)).serverFault === true)
+    setLocation(() => ({ kind: 'unsupported' }))
+    await client(world, seller.cookie).post(`/api/broadcasts/${b.id}/stream-audio/restart`, {})
+    await waitFor(async () => (await phase(world, seller.cookie, b.id)).serverFault === undefined)
+    expect(await phase(world, seller.cookie, b.id)).toEqual({ phase: 'unsupported' })
+    // 방송 탓이면 다시 보지 않는다(옛 동작) — 앞의 1분 타이머도 지워졌다
+    expect(timer.jobs.filter((job) => job.live && job.ms === 60_000)).toEqual([])
+    expect(feed.opened).toBe(0)
+  })
   it('운영자 끔이면 hidden·설정 칸 없음(available false), 판매자 설정 끔이면 소리를 열지 않는다', async () => {
     const off = await setup({ on: false })
     const s1 = await addSeller(off.world)
@@ -439,7 +476,8 @@ describe('D-LV1-11 페이지에 HLS가 없으면 yt-dlp로 소리 주소', () =>
     expect(await locateFromPage(blockedPage, ID, { resolve })).toEqual({ kind: 'ok', url: HLS })
     expect(asked).toBe(1)
     expect(await locateFromPage(blockedPage, ID, { resolve: null })).toEqual({ kind: 'retry' })
-    expect(await locateFromPage(blockedPage, ID, { resolve: async () => ({ kind: 'proxy_down' }) })).toEqual({ kind: 'unsupported' })
+    // D-LV1-17: 프록시 끊김은 방송 탓이 아니다 — 서버 쪽 길이 끊김으로 돌려준다
+    expect(await locateFromPage(blockedPage, ID, { resolve: async () => ({ kind: 'proxy_down' }) })).toEqual({ kind: 'unreachable' })
   })
 
   it('yt-dlp 주소로 소리를 열고, 끊기면(주소 만료) 다시 yt-dlp를 불러 새 주소로 이어 받는다. yt-dlp가 막히면 대비 안내', async () => {
@@ -508,7 +546,7 @@ describe('D-LV1-13 집 회선 프록시 (yt-dlp·ffmpeg 같은 출구)', () => {
     expect(direct[direct.indexOf('-i') + 1]).toBe(HLS)
   })
 
-  it('프록시에 닿지 못하면(연결 거부·터널 거절) BLOCKED가 아닌 PROXY_DOWN — 운영자 경보 한 줄, 판매자는 휴대폰 마이크 안내(못 받음)', async () => {
+  it('프록시에 닿지 못하면(연결 거부·터널 거절) BLOCKED가 아닌 PROXY_DOWN — 운영자 경보 한 줄, 판매자에게는 서버 쪽 길이 끊김으로(D-LV1-17)', async () => {
     let stderr = ''
     const run: ExecFileRunner = (_file, _args, _options, callback) => queueMicrotask(() => callback(Object.assign(new Error('x'), { code: 1 }), '', stderr))
     const proxied = ytDlpResolver('yt-dlp', run, 'http://127.0.0.1:18888')
@@ -527,7 +565,8 @@ describe('D-LV1-13 집 회선 프록시 (yt-dlp·ffmpeg 같은 출구)', () => {
 
     const logs: LogRecord[] = []
     const location = await locateFromPage(livePage(), ID, { resolve: async () => ({ kind: 'proxy_down' }), log: (r) => logs.push(r), sellerId: 's1' })
-    expect(location).toEqual({ kind: 'unsupported' })
+    // D-LV1-17: "받을 수 없는 방송"이 아니라 서버 쪽 길이 끊김
+    expect(location).toEqual({ kind: 'unreachable' })
     expect(logs).toEqual([{ level: 'alert', code: 'STREAM_AUDIO_PROXY_DOWN', seller: 's1' }])
   })
 

@@ -5,11 +5,15 @@
 import type { Clock } from '../time.ts'
 import type { LogSink } from '../log.ts'
 import type { ExternalStream, VoiceRelay } from './relay.ts'
-import { STREAM_IDLE_RECHECK_MS, STREAM_SAMPLE_RATE, STREAM_LATE_MS, STREAM_STALL_CHECK_MS, STREAM_STALL_MS, recordFailure, retryDelayMs, type AudioFeed, type StreamLocator } from './stream-audio.ts'
+import { STREAM_IDLE_RECHECK_MS, STREAM_UNREACHABLE_RECHECK_MS, STREAM_SAMPLE_RATE, STREAM_LATE_MS, STREAM_STALL_CHECK_MS, STREAM_STALL_MS, recordFailure, retryDelayMs, type AudioFeed, type StreamLocator } from './stream-audio.ts'
 
 export type StreamAudioPhase = 'hidden' | 'off' | 'idle' | 'listening' | 'reconnecting' | 'stopped' | 'unsupported' | 'mic' | 'ended'
 /** late = lagMs가 30초를 넘음 (늦음 안내를 보일 때, D-LV1-10) */
-export interface StreamAudioView { readonly phase: StreamAudioPhase; readonly lagMs?: number; readonly late?: boolean }
+/**
+ * serverFault = 방송은 멀쩡한데 서버가 소리를 받아 오는 길이 끊김 (D-LV1-17). 옛 앱이 모르는 phase는 숨김으로 읽으므로
+ * phase는 'unsupported' 그대로 두고 이 표시만 더한다 — 옛 앱은 지금 문구, 새 앱은 "서버 문제" 문구와 [다시 켜기]
+ */
+export interface StreamAudioView { readonly phase: StreamAudioPhase; readonly lagMs?: number; readonly late?: boolean; readonly serverFault?: boolean }
 
 /** 콘솔 열림 신호가 이만큼 끊기면 콘솔이 닫힌 것으로 본다 (콘솔은 10초마다 보낸다) — 다른 방송으로 바꿀 때 */
 export const WATCH_TTL_MS = 25_000
@@ -42,6 +46,8 @@ interface Listen {
   readonly sellerId: string
   readonly broadcastId: string
   phase: StreamAudioPhase
+  /** 서버 쪽 길이 끊겨서 못 받는 중 (D-LV1-17) — phase가 'unsupported'일 때만 뜻이 있다 */
+  serverFault: boolean
   watchedUntil: number
   failures: number[]
   generation: number
@@ -120,7 +126,7 @@ export class StreamAudioService {
       listen = undefined
     }
     if (listen === undefined) {
-      listen = { sellerId, broadcastId, phase: 'idle', watchedUntil: now + WATCH_TTL_MS, failures: [], generation: 0, flow: null, cancel: null, delivered: false }
+      listen = { sellerId, broadcastId, phase: 'idle', serverFault: false, watchedUntil: now + WATCH_TTL_MS, failures: [], generation: 0, flow: null, cancel: null, delivered: false }
       this.#listens.set(sellerId, listen)
       this.#arrange(listen)
     } else listen.watchedUntil = now + WATCH_TTL_MS
@@ -145,6 +151,7 @@ export class StreamAudioService {
       const lagMs = listen.flow?.lagMs ?? null
       return lagMs === null ? { phase: 'listening' } : { phase: 'listening', lagMs, late: lagMs > STREAM_LATE_MS }
     }
+    if (listen.phase === 'unsupported' && listen.serverFault) return { phase: 'unsupported', serverFault: true }
     return { phase: listen.phase }
   }
   async viewFor(sellerId: string, broadcastId: string): Promise<StreamAudioView> {
@@ -252,7 +259,10 @@ export class StreamAudioService {
       location = { kind: 'retry' as const }
     }
     if (!this.#live(listen, generation)) return
+    listen.serverFault = location.kind === 'unreachable'
     if (this.#relay?.micActive(listen.sellerId) === true) { listen.phase = 'mic'; return }
+    // 서버 쪽 길이 돌아왔다(D-LV1-17): "못 받음"을 지우고 평소처럼 잇는다
+    if (listen.phase === 'unsupported' && location.kind !== 'unreachable' && location.kind !== 'unsupported') listen.phase = 'idle'
     switch (location.kind) {
       case 'none':
         if (listen.phase !== 'reconnecting') listen.phase = 'idle'
@@ -264,6 +274,11 @@ export class StreamAudioService {
       case 'unsupported':
         this.#stop(listen); listen.phase = 'unsupported'
         this.#o.log({ level: 'info', code: 'STREAM_AUDIO_UNSUPPORTED', seller: listen.sellerId })
+        return
+      case 'unreachable':
+        // 방송 탓이 아니다(D-LV1-17): 화면은 "서버 문제로 못 받아요" + [다시 켜기], 서버는 1분마다 다시 본다 — 길이 돌아오면 저절로 듣는다
+        this.#stop(listen); listen.phase = 'unsupported'
+        this.#later(listen, STREAM_UNREACHABLE_RECHECK_MS)
         return
       case 'retry':
         this.#fail(listen, generation)

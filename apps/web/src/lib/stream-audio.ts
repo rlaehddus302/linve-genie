@@ -18,6 +18,8 @@ export interface StreamAudioStatus {
   readonly phase: StreamAudioPhase
   /** 받는 소리가 실시간보다 얼마나 뒤처졌는지(밀리초, 조각 도착 기준) */
   readonly lagMs?: number
+  /** phase가 'unsupported'일 때: 방송 탓이 아니라 서버가 소리를 받아 오는 길이 끊김 (D-LV1-17) */
+  readonly serverFault?: boolean
 }
 
 /** 늦음 안내 기준 (D-LV1-04 → D-LV1-10 30초) */
@@ -29,6 +31,8 @@ export const STREAM_AUDIO_RECONNECTING = '라이브 소리 다시 잇는 중'
 export const STREAM_AUDIO_STOPPED = '라이브 소리 음성 인식 멈춤 · 상품은 빠른 입력으로 넣거나 휴대폰 마이크로 음성 인식해 주세요.'
 export const STREAM_AUDIO_LATE = '라이브 소리가 늦어요. 휴대폰 마이크로 음성 인식하면 더 빨라요.'
 export const STREAM_AUDIO_UNSUPPORTED = '이 라이브는 소리를 받을 수 없어요. 휴대폰 마이크로 음성 인식해 주세요.'
+/** 방송은 멀쩡한데 서버 쪽 길이 끊김 (D-LV1-17) — 서버가 1분마다 다시 해 본다 */
+export const STREAM_AUDIO_SERVER_FAULT = '서버 문제로 지금 라이브 소리를 받지 못해요. 곧 다시 해 볼게요. 그동안 휴대폰 마이크로 음성 인식해 주세요.'
 export const STREAM_AUDIO_OFF = '라이브 소리로 음성 인식이 꺼져 있어요. 설정에서 켤 수 있어요.'
 export const STREAM_AUDIO_IDLE = '라이브를 이으면 라이브 소리로 음성 인식해요.'
 export const STREAM_AUDIO_CONSENT_TITLE = '라이브 소리로 음성 인식'
@@ -66,6 +70,7 @@ export function streamAudioLine(status: StreamAudioStatus | null, micOn: boolean
     case 'stopped':
       return { ...base, text: STREAM_AUDIO_STOPPED, tone: 'danger', retry: true, useMic: true }
     case 'unsupported':
+      if (status.serverFault === true) return { ...base, text: STREAM_AUDIO_SERVER_FAULT, tone: 'warn', retry: true, useMic: true }
       return { ...base, text: STREAM_AUDIO_UNSUPPORTED, tone: 'warn', useMic: true }
     case 'off':
       return { ...base, text: STREAM_AUDIO_OFF, tone: 'info' }
@@ -79,9 +84,10 @@ const PHASES: readonly StreamAudioPhase[] = ['hidden', 'off', 'idle', 'listening
 /** 서버 응답을 믿지 않고 읽는다 — 모르는 값은 숨김 */
 export function readStreamAudioStatus(body: unknown): StreamAudioStatus {
   if (typeof body !== 'object' || body === null) return { phase: 'hidden' }
-  const record = body as { phase?: unknown; lagMs?: unknown }
+  const record = body as { phase?: unknown; lagMs?: unknown; serverFault?: unknown }
   const phase = PHASES.find((p) => p === record.phase) ?? 'hidden'
   const lagMs = typeof record.lagMs === 'number' && Number.isFinite(record.lagMs) ? record.lagMs : undefined
+  if (phase === 'unsupported' && record.serverFault === true) return { phase, serverFault: true }
   return lagMs === undefined ? { phase } : { phase, lagMs }
 }
 

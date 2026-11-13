@@ -19,6 +19,8 @@ export const STREAM_RETRY_WINDOW_MS = 60_000
 export const STREAM_RETRY_LIMIT = 6
 /** 방송을 아직 잇지 않았을 때 다시 볼 간격 */
 export const STREAM_IDLE_RECHECK_MS = 3_000
+/** 서버가 소리를 받아 오는 길이 끊겼을 때 다시 보는 간격 (D-LV1-17) — 길이 돌아오면 판매자가 아무것도 안 해도 다시 듣는다 */
+export const STREAM_UNREACHABLE_RECHECK_MS = 60_000
 /** 이만큼 조각이 안 오면 HLS가 멈춘 것으로 보고 끊김으로 센다 (RA-LV1-01) */
 export const STREAM_STALL_MS = 8_000
 /** 멈춤 확인 간격 */
@@ -72,6 +74,8 @@ export type StreamLocation =
   | { readonly kind: 'none' }
   /** 소리를 받을 수 없는 방송 (회원 전용·비공개·소리 주소 없음, D-LV1-07) */
   | { readonly kind: 'unsupported' }
+  /** 방송은 멀쩡한데 서버가 소리를 받아 오는 길(집 회선 프록시, D-LV1-13)이 끊겼다 — 방송 탓이 아니라고 알리고 천천히 다시 본다 (D-LV1-17) */
+  | { readonly kind: 'unreachable' }
   /** 유튜브 라이브가 끝났다 (수집기가 끝을 앎) */
   | { readonly kind: 'ended' }
   /** 지금은 못 봄(막힘·네트워크) — 끊김으로 센다 */
@@ -317,10 +321,13 @@ async function byYtDlp(
   const found = await options.resolve(videoId)
   if (found.kind === 'ok') return found
   const seller = options.sellerId === undefined ? {} : { seller: options.sellerId }
-  // 집 회선 프록시가 끊김(D-LV1-13): 운영자 경보 한 줄 — 판매자에게는 아래처럼 휴대폰 마이크 안내
-  if (found.kind === 'proxy_down') options.log?.({ level: 'alert', code: 'STREAM_AUDIO_PROXY_DOWN', ...seller })
-  else options.log?.({ level: 'warn', code: 'STREAM_AUDIO_YTDLP_FAILED', reason: found.kind.toUpperCase(), ...seller })
-  // 시간 넘김만 끊김으로 세어 다시 본다. 없음·봇 확인 막힘·프록시 끊김·실패는 지금처럼 바로 꺼짐 + 휴대폰 마이크 안내
+  // 집 회선 프록시가 끊김(D-LV1-13): 운영자 경보 한 줄. 방송 탓이 아니므로 "받을 수 없는 방송"이 아니라 "서버 쪽 길이 끊김"으로 돌려준다 (D-LV1-17)
+  if (found.kind === 'proxy_down') {
+    options.log?.({ level: 'alert', code: 'STREAM_AUDIO_PROXY_DOWN', ...seller })
+    return { kind: 'unreachable' }
+  }
+  options.log?.({ level: 'warn', code: 'STREAM_AUDIO_YTDLP_FAILED', reason: found.kind.toUpperCase(), ...seller })
+  // 시간 넘김만 끊김으로 세어 다시 본다. 없음·봇 확인 막힘·실패는 지금처럼 바로 꺼짐 + 휴대폰 마이크 안내
   return found.kind === 'timeout' ? { kind: 'retry' } : { kind: 'unsupported' }
 }
 

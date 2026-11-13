@@ -43,6 +43,9 @@ export const LISTEN_STREAM_RECONNECTING = '라이브 소리를 다시 연결하�
 export const LISTEN_STREAM_IDLE = '라이브를 연결하면 라이브 소리로 들어요'
 export const LISTEN_STREAM_STOPPED = '라이브 소리 듣기가 멈췄어요'
 export const LISTEN_STREAM_UNSUPPORTED = '이 라이브는 소리를 받을 수 없어요'
+/** 방송은 멀쩡한데 서버가 소리를 받아 오는 길이 끊김 (D-LV1-17) — 서버가 1분마다 다시 해 본다 */
+export const LISTEN_STREAM_SERVER_FAULT = '서버 문제로 지금 라이브 소리를 받지 못해요'
+export const LISTEN_STREAM_SERVER_RETRYING = '곧 다시 해 볼게요'
 export const LISTEN_STREAM_OFF = '라이브 소리 듣기가 꺼져 있어요'
 export const LISTEN_NOTHING = '지금은 듣지 않아요'
 export const LISTEN_ENDED = '라이브가 끝났어요'
@@ -127,6 +130,10 @@ export function listenNow(source: ListenSource | null, mic: ListenMic, status: S
     case 'stopped':
       return { ...more, hearing: 'none', text: `${why}${LISTEN_STREAM_STOPPED}`, tone: 'danger', canRetry: true }
     case 'unsupported':
+      // 서버 쪽 길이 끊김(D-LV1-17): 라이브 탓이 아니라고 말하고 [라이브 소리 다시 켜기]를 보인다
+      if (status.serverFault === true) {
+        return { ...more, hearing: 'none', text: wantsMic ? `${whyEnd} ${LISTEN_STREAM_SERVER_FAULT}. ${LISTEN_NOTHING}` : `${LISTEN_STREAM_SERVER_FAULT}. ${LISTEN_STREAM_SERVER_RETRYING}`, tone: 'danger', canRetry: true }
+      }
       return { ...more, hearing: 'none', text: wantsMic ? `${whyEnd} ${LISTEN_STREAM_UNSUPPORTED}. ${LISTEN_NOTHING}` : LISTEN_STREAM_UNSUPPORTED, tone: 'danger' }
     case 'off':
       return { ...more, hearing: 'none', text: wantsMic ? `${whyEnd} ${LISTEN_STREAM_OFF}. ${LISTEN_NOTHING}` : LISTEN_STREAM_OFF, tone: 'danger' }

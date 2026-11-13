@@ -59,6 +59,13 @@ describe('지금 듣는 곳 한 문장 (listenNow — 순수 함수)', () => {
     expect(listenNow('stream', MIC_OFF, { phase: 'idle' })).toMatchObject({ text: '라이브를 연결하면 라이브 소리로 들어요', tone: 'info' })
   })
 
+  it('D-LV1-17 서버 쪽 길이 끊김은 라이브 탓이 아니라고 말하고 [라이브 소리 다시 켜기]를 보인다', () => {
+    expect(listenNow('stream', MIC_OFF, { phase: 'unsupported', serverFault: true })).toEqual({ hearing: 'none', text: '서버 문제로 지금 라이브 소리를 받지 못해요. 곧 다시 해 볼게요', tone: 'danger', late: null, canMic: false, canRetry: true })
+    expect(listenNow('mic', MIC_OFF, { phase: 'unsupported', serverFault: true })).toMatchObject({ text: '마이크가 꺼져 있어요. 서버 문제로 지금 라이브 소리를 받지 못해요. 지금은 듣지 않아요', tone: 'danger', canMic: true, canRetry: true })
+    // 라이브 탓인 못 받음은 그대로 — 다시 켜기를 보이지 않는다
+    expect(listenNow('stream', MIC_OFF, { phase: 'unsupported' })).toMatchObject({ text: '이 라이브는 소리를 받을 수 없어요', canRetry: false })
+  })
+
   it('다른 기기의 마이크 · 아직 모름 · 라이브 끝', () => {
     expect(listenNow('stream', MIC_OFF, { phase: 'mic' })).toMatchObject({ hearing: 'otherMic', text: '다른 기기의 마이크로 듣고 있어요', tone: 'ok' })
     expect(listenNow(null, MIC_OFF, null)).toMatchObject({ hearing: 'none', text: '확인하는 중이에요', tone: 'info', canMic: false })
