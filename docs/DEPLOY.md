@@ -32,6 +32,7 @@
 | `LIVEJJIM_OPS_TOKEN` | 선택 | (32자 이상) | `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"` — 운영 상태 `/ops/status`를 연다 | 비우면 `/ops/status`는 없다(404). 32자 미만이면 시작하지 않는다. 새면 바꾼다(합친 숫자만 보여 판매 정보는 새지 않는다) |
 | `LIVEJJIM_TRANSCRIBE_WORKER_TOKEN` | 자체 받아쓰기면 필수 | (무작위 비밀값) | 서버와 일꾼만 공유한다. 일꾼에는 권한 0600 파일과 `--token-file`로 전달한다 | 비우거나 다르면 일꾼 연결이 401. 연결된 일꾼이 없으면 기기에 받아쓰기 서버가 꺼졌다고 알린다 |
 | `LIVEJJIM_SCREEN_WORKER_TOKEN` | 선택 | (무작위 비밀값, 32자 이상) | 화면 일꾼(D-SCR-01·02 — 운영자 맥, 저장소 livegenie-screen-worker의 `sw.serve`)이 `GET /internal/screen/live`로 볼 라이브를 묻고 `POST /internal/screen/register`로 화면 번호표 + 판매자 말로 확정한 상품을 등록한다. 운영 값은 SSM `/livegenie/prod/screen-worker-token`, 일꾼에는 권한 0600 파일과 `--token-file`로 | 비우면 두 입구가 404(화면 인식 꺼짐). 32자보다 짧으면 서버가 시작하지 않는다. 틀리면 401 |
+| `LIVEJJIM_APP_UPDATES_DIR` | 선택 | `/app-updates` | 앱 화면 새 버전 묶음 폴더(D-OTA-01). 맥 미니 내보내기가 `<플랫폼>/<지문>/<id>/`로 풀어 두고 서버는 읽기만 해서 `/app-updates/manifest`로 나눠 준다. 같은 폴더의 `server-commit` 한 줄(배포가 건강 확인 뒤 적는 지금 운영 커밋)을 `GET /internal/screen/capabilities`가 돌려준다(D-RETRO-32, 6-1절). EC2 배포는 `deploy/ec2/compose.yaml`이 정해 준다 | 비우면 앱 화면 새 버전이 늘 "새 것 없음"이고 서버 판은 `null` |
 | `LIVEJJIM_TRUSTED_PROXIES` | 선택 | `1` | 서버 앞의 믿는 프록시 수(0~5, 기본 0). 5절 | 틀리게 적으면 로그인 IP 한도가 엉뚱한 주소를 센다. 0~5가 아니면 시작하지 않는다 |
 | `LIVEJJIM_YT_WEB_CHAT` | 선택 | (비움) | 서버가 유튜브 채팅을 읽는 기능(YT-11 — 구글 연결·할당량 없이 방송 주소만으로)의 운영자 스위치. 다듬고 소문자로 `off`일 때만 끈다 — 비움·`on`은 켬. 서버 시작 때 한 번 읽는다 | 끄면 유튜브에 아무 요청도 하지 않고 이은 회차의 수집은 "지금은 유튜브 채팅을 자동으로 받지 않아요."로 멈춘다(크롬 확장은 그대로). `on`·`off`·빈 값이 아니면 켬으로 보고 경고 `YT_WEB_CHAT_INVALID`(값 없이)를 남긴다 |
 | `LIVEJJIM_YT_SEND_ROUTE` | 선택 | (비움) | 실시간 채팅 감사를 올리는 길(D-YT-SEND-01~08). 비움·`official`은 공식 Data API(`liveChatMessages.insert` 20단위)만. `innertube`(YouTube.js 내부 API, 봇 계정 쿠키)·`browser`(서버 Chromium, 봇 계정 로그인 상태)·`nightbot`(Nightbot API, 보낸 사람 Nightbot)은 할당량을 쓰지 않는다. `official-bot`은 봇 계정의 **공식 Data API**가 기본 길(D-YT-SEND-20 — 약관 문제 없음, 할당량은 봇 몫: 1회 20단위·하루 약 500회, `LIVEJJIM_YT_SEND_OFFICIAL_CHANNEL_ID`만 적고 비공식 계정 칸은 비운다, 봇 연결은 `youtube-bot` 명령 — D-YT-SEND-21). 판매자 동의·채널 확인은 공식과 같다 | 유튜브가 허락한 연동이 아니다(약관 자동화 제한) — 고른 판매자에게만 켠다. 그 밖의 값이면 시작하지 않는다 |
@@ -258,6 +259,8 @@
 ## 6. 새 버전·백업·복구
 
 ### 새 버전
+운영(EC2)은 main에 푸시하면 맥 미니의 내보내기가 올린다. 방송 중에는 미룬다 — 6-1절.
+
 1. **백업**을 먼저 한다(아래).
 2. **마이그레이션**: `pnpm --filter @livejjim/server migrate` (컨테이너: `node apps/server/src/commands/migrate.ts`). **서버가 여럿이면 새 버전 서버를 띄우기 전에 마이그레이션을 한 번만 먼저** 한다.
 3. 새 이미지로 **다시 시작**한다. 진행 중인 방송의 채팅 수집은 다시 시작한 서버가 저장한 지점부터 이어받는다.
@@ -281,6 +284,153 @@
 3. **마이그레이션**: `pnpm --filter @livejjim/server migrate` (백업 뒤 새 버전이 더한 변경을 적용).
 4. 서버를 **시작**한다(같은 `LIVEJJIM_MASTER_KEY` — 다르면 토큰·전화번호 키를 풀 수 없다).
 5. **재생 검사**: `pnpm --filter @livejjim/server check-replay` (컨테이너: `node apps/server/src/commands/check-replay.ts`) — 범위마다 기록과 상태가 같은지 본다(모두 같으면 종료 코드 0).
+
+## 6-1. 방송 중 배포 (D-RETRO-30~34)
+
+2026-11-12 방송 3시간 14분 동안 main에 푸시할 때마다 운영 서버가 다시 켜졌고(9번, 매번 9~10초 끊김), 화면 일꾼은 사람이 `git pull` 뒤 손으로 다시 켜서(3번) 서버보다 먼저 새 판이 됐으며, 같은 맥 미니에서 돈 APK 빌드 동안 상품 등록이 두 배 느려졌다([복기 8절](retro/2026-11-12-live-retro.md)). 그래서 내보내기(`.github/workflows/ship.yml`)는 **방송 중이면 판매자에게 닿는 일을 미룬다.**
+
+### 문지기가 하는 일
+
+내보내기는 서버 배포 전에 맥 미니에서 `scripts/deploy/live-gate.sh`를 돌린다. 화면 일꾼 관리자(`sw.serve`)가 30초마다 묻는 것과 같은 입구 `GET /internal/screen/live`를 같은 일꾼 토큰 파일로 묻는다. 끊지 않은 유튜브 연결이 있는 끝나지 않은 방송이 하나라도 있으면 "방송 중"이다.
+
+| 무엇 | 방송 중 | 방송 없음 | 방송 여부를 확인하지 못함 |
+|---|---|---|---|
+| 빠른 시험(타입·앱 시험·내보내기 스크립트 시험) | 돈다 | 돈다 | 돈다 |
+| 운영 서버 배포 | **미룬다**(실행은 성공으로 끝나고 요약에 "방송 중이라 서버 배포를 미뤘어요 … (커밋 …)") | 한다 | **한다** — 서버가 죽었을 때 고침을 막으면 살릴 길이 없다. 요약에 경고가 남는다 |
+| 앱 화면 갱신(아이폰, 요청 시 안드로이드) | 서버 배포를 미뤘으면 같이 미룬다(화면이 서버보다 새 판이면 안 된다). 밀린 서버 변경이 없으면 한다 | 한다 | 한다 |
+| TestFlight·APK 빌드 | **미룬다** | 한다 | 한다 |
+| 화면 일꾼 갱신·다시 켜기 | **미룬다** | 서버 배포 다음에 한다 | **미룬다** — 다시 켜면 받아쓰기·번호표 이력을 잃는데 미뤄서 잃는 것은 없다 |
+
+- 서버 배포 대상이 아닌 것: `apps/mobile/`·`docs/`·`*.md`·`.github/`·`packages/screen-worker/`·`scripts/deploy/`만 바뀐 푸시는 서버를 건드리지 않는다(`scripts/deploy/ship-changed.sh`). 11월 12일 11:12의 일꾼 파일만 바뀐 푸시(`5cddb683`)는 방송 중에 서버 배포 단계(백업·이미지 빌드, 25초)를 돌렸다. 이미지가 같아 컨테이너는 다시 켜지지 않았다(복기의 재시작 9번에 없다).
+- 미룬 일은 맥 미니의 `~/.livegenie-ci/deferred/`에 표시 파일(`server`·`worker`·`native-ios`·`native-android`, 내용은 커밋과 미룬 시각)로 남는다.
+- **따라잡기**(`.github/workflows/catchup.yml`, 10분마다): 표시가 있고 방송이 없는 상태가 10분 넘게 이어지면 내보내기를 main에서 다시 부른다. 그 실행이 서버 → 앱 화면 → 앱 빌드 → 화면 일꾼 순서로 밀린 것을 한다. 10분을 기다리는 까닭은 판매자가 방송을 끝냈다가 바로 다시 잇는 일이 있어서다. 같은 표시에는 세 번(30분 간격)까지만 부르고, 그래도 남으면 경고를 남긴다.
+
+### 급할 때 넘기는 법
+
+방송 중 급한 고침만, 사람이 명시해서 한다.
+
+```
+gh workflow run ship.yml --ref main -f force_server=yes     # 방송 중에도 운영 서버 배포 (9~10초 끊김, 실시간·음성 연결이 한 번 끊겼다 붙는다)
+gh workflow run ship.yml --ref main -f force_native=yes     # 방송 중에도 TestFlight·(android=true면) APK 빌드 — 빌드 동안 화면 일꾼이 느려진다
+```
+
+화면 일꾼은 `force_server`로도 방송 중에 다시 켜지지 않는다. 꼭 바꿔야 하면 맥 미니에서 손으로(방송의 받아쓰기·번호표 이력이 처음부터 다시 시작된다):
+
+```
+cd ~/livegenie && git fetch origin main
+LG_WORKER_FORCE=yes bash scripts/deploy/mini-worker-update.sh "$(git rev-parse origin/main)"
+```
+
+### 미뤄진 배포 확인법
+
+```
+gh run list -w 내보내기 -L 5                                  # 성공이어도 미뤘을 수 있다 — 실행 화면의 요약(Summary)을 본다
+gh run view <실행 번호> --log | grep -E '미뤘어요|미룸'          # 요약과 같은 글이 기록에도 있다
+gh run list -w 따라잡기 -L 5                                  # 따라잡기가 돌고 있는지 (10분마다)
+```
+
+맥 미니에서:
+
+```
+ls -l ~/.livegenie-ci/deferred/          # 지금 미뤄 둔 것 (없으면 다 나간 것)
+cat ~/.livegenie-ci/deployed-sha         # 운영 서버에 마지막으로 배포한 커밋
+cat ~/.livegenie-ci/worker-sha           # 화면 일꾼을 마지막으로 갱신한 커밋
+bash ~/.livegenie-ci/bin/live-gate.sh          # live · idle · unknown (까닭이 같이 찍힌다)
+bash ~/.livegenie-ci/bin/live-gate.sh commit   # 운영 서버가 스스로 알려 주는 판(커밋)
+```
+
+방송이 끝났는데 계속 `live`면 끝내지 않은 방송이 남은 것이다(앱에서 [라이브 연결 끊기], 옛 날짜 방송은 `POST /internal/screen/end-stale`).
+
+### 서버가 받는 일꾼 요청 묻기
+
+`GET /internal/screen/capabilities`(일꾼 토큰, 다른 일꾼 입구와 같은 인증)가 서버가 받는 일꾼 입구와 각 입구가 받는 항목, 지금 운영 판을 돌려준다. 일꾼은 켜질 때 이것을 보고 서버가 모르는 요청·항목을 보내지 않는다(복기 E11).
+
+```json
+{ "commit": "63fb1cf8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5",
+  "endpoints": {
+    "register":     { "method": "POST", "path": "/internal/screen/register",  "fields": ["videoId","no","price","name","heard","conf","requestId","observedAt"] },
+    "renumber":     { "method": "POST", "path": "/internal/screen/renumber",  "fields": ["videoId","from","to","requestId","drop","registerRequestId"] },
+    "rename":       { "method": "POST", "path": "/internal/screen/rename",    "fields": ["videoId","no","name","requestId"] },
+    "reprice":      { "method": "POST", "path": "/internal/screen/reprice",   "fields": ["videoId","no","price","requestId"] },
+    "end-stale":    { "method": "POST", "path": "/internal/screen/end-stale", "fields": ["videoId"] },
+    "live":         { "method": "GET",  "path": "/internal/screen/live",      "fields": [] },
+    "capabilities": { "method": "GET",  "path": "/internal/screen/capabilities", "fields": [] } } }
+```
+
+- `commit`은 배포(`scripts/deploy/lg-apply.sh`)가 건강 확인까지 끝낸 뒤 `/opt/livegenie/app-updates/server-commit`에 적은 값이다. 모르면 `null`(내 컴퓨터·시험, 이 기능이 들어가기 전 배포).
+- 입구가 없는 옛 서버는 404를 준다 — 일꾼은 그때 `register`만 있다고 본다.
+- 입구·항목 목록은 서버의 요청 검사와 같은 표(`SCREEN_ENDPOINTS`, `apps/server/src/screen/routes.ts`)에서 나온다. 입구나 항목을 더할 때 그 표에 더한다.
+
+### 화면 일꾼 갱신 순서
+
+1. **서버가 먼저.** 내보내기의 일꾼 갱신 단계는 맨 뒤에 있고, 서버 배포가 끝났거나 서버 변경이 없을 때만 돈다. 서버 배포를 미뤘으면 일꾼 갱신도 미룬다.
+2. `packages/screen-worker/`(시험·문서 제외)가 지난 갱신(`~/.livegenie-ci/worker-sha`) 뒤로 바뀌었을 때만 한다.
+3. `scripts/deploy/mini-worker-update.sh <커밋>`이 문지기를 다시 묻고(방송 중·확인 못 함이면 미룸), 일꾼 폴더를 그 커밋으로 맞춘 뒤 launchd 서비스 `kr.livegenie.screen-worker`를 다시 켠다(SIGTERM으로 멈추고, launchd가 다시 띄우지 않으면 `kickstart`).
+4. 일꾼 폴더는 launchd 설정의 `WorkingDirectory`에서 읽고, 방식은 두 가지다.
+
+| 방식 | 언제 | 갱신 | 지시문(`sw/prompts`) |
+|---|---|---|---|
+| 작업 폴더 (지금) | `WorkingDirectory`가 저장소 안(`~/livegenie/packages/screen-worker`) | 그 저장소를 그 커밋으로 빨리 감기만. **손으로 고친 변경·main이 아닌 가지·내보내지 않은 커밋이 있으면 건드리지 않고 실패로 알린다** | 일꾼이 호출마다 읽으므로 누가 그 폴더에서 `git pull`만 해도 방송 중에 바뀐다(11월 12일에 코드와 어긋난 구간 두 번) |
+| 판 폴더 (권장) | `WorkingDirectory`가 `~/lg/screen-worker/current` | 커밋의 `packages/screen-worker`를 `~/lg/screen-worker/releases/<커밋 12자>`에 풀고 `current` 링크를 바꾼다. 새 판의 관리자가 읽히지 않으면 링크를 바꾸지 않는다 | 판 폴더 안에 코드와 같이 있어 따로 바뀌지 않는다. 저장소에서 무엇을 해도 일꾼은 그대로다 |
+
+판 폴더 방식의 모양:
+
+```
+~/lg/screen-worker/
+  releases/<커밋 12자>/   그 커밋의 packages/screen-worker (RELEASE 파일에 커밋 40자, .venv → ../../venvs/<해시>)
+  venvs/<해시>/           파이썬 묶음 — requirements.lock.txt·.python-version 내용마다 하나(바뀌면 uv로 새로 만든다)
+  current → releases/<커밋 12자>
+  previous                바로 앞 판(되돌릴 때)
+```
+
+관리자는 켜질 때의 판 폴더와 파이썬에 일꾼을 묶는다(`sw/serve.py`). 링크가 바뀌어도 관리자를 다시 켜기 전에는 옛 판으로만 일꾼이 뜬다. 지금 판은 일꾼 기록 첫 줄 `화면 일꾼 관리자 시작 — 판 <커밋 12자>`와 `일꾼 시작 (pid …, 판 …)`에 남는다.
+
+되돌리기(방송이 없을 때):
+
+```
+ln -sfn "$(cat ~/lg/screen-worker/previous)" ~/lg/screen-worker/current
+launchctl kickstart -k gui/$(id -u)/kr.livegenie.screen-worker
+```
+
+### 맥 미니에서 한 번 해 둘 것
+
+launchd 설정(`~/Library/LaunchAgents/kr.livegenie.screen-worker.plist`)과 `~/.livegenie-ci/`는 저장소 밖이라 내보내기가 고치지 못한다. **방송이 없을 때** 한다.
+
+1. 문지기가 쓸 토큰 파일 경로 — 일꾼 launchd 설정의 `--token-file`과 같은 경로를 적는다(값이 아니라 경로).
+   ```
+   /usr/libexec/PlistBuddy -c 'Print :ProgramArguments' ~/Library/LaunchAgents/kr.livegenie.screen-worker.plist   # --token-file 다음 줄이 경로
+   mkdir -p ~/.livegenie-ci
+   printf 'LG_SCREEN_TOKEN_FILE=%s\n' "$HOME/.lg_screen_token" > ~/.livegenie-ci/gate.env     # 위에서 본 경로로
+   bash ~/.livegenie-ci/bin/live-gate.sh      # idle 또는 live 가 나와야 한다. unknown이면 까닭이 같이 찍힌다 (첫 내보내기 전이면 저장소의 scripts/deploy/live-gate.sh)
+   ```
+   이 파일이 없고 토큰이 `~/.lg_screen_token`에도 없으면 문지기는 늘 "확인 못 함"이라 **방송 중에도 서버를 배포한다**(실행마다 경고가 남는다).
+2. launchd 설정에 `WorkingDirectory`가 있는지 본다. 없으면(명령 안에서 `cd` 하는 설정) `gate.env`에 일꾼 폴더를 적는다.
+   ```
+   plutil -extract WorkingDirectory raw -o - ~/Library/LaunchAgents/kr.livegenie.screen-worker.plist
+   echo "LG_WORKER_DIR=$HOME/livegenie/packages/screen-worker" >> ~/.livegenie-ci/gate.env     # WorkingDirectory가 없을 때만
+   ```
+3. 깃허브 실행기가 일꾼 서비스를 볼 수 있는지 — 실행기와 같은 사용자로:
+   ```
+   launchctl print gui/$(id -u)/kr.livegenie.screen-worker | grep -E 'state|pid'
+   ```
+4. (권장) 판 폴더 방식으로 옮기기. 저장소가 추적하지 않는 파일에 일꾼이 기대고 있지 않은지 먼저 본다.
+   ```
+   cd ~/livegenie && git status --short --ignored packages/screen-worker        # .venv·runs·__pycache__ 말고 다른 것이 있으면 멈추고 확인
+   git fetch origin main
+   bash scripts/deploy/mini-worker-update.sh --stage "$(git rev-parse origin/main)"   # 판 폴더·파이썬 묶음·current 를 만든다(다시 켜지 않음, 처음엔 몇 분)
+   (cd ~/lg/screen-worker/current && .venv/bin/python -m sw.doctor --server https://livegenie.kr --token-file ~/.lg_screen_token)   # 판 폴더에서 점검(서버에 등록하지 않는다)
+
+   P=~/Library/LaunchAgents/kr.livegenie.screen-worker.plist
+   cp "$P" "$P.bak-$(date +%Y%m%d)"
+   /usr/libexec/PlistBuddy -c "Set :WorkingDirectory $HOME/lg/screen-worker/current" "$P"       # 항목이 없으면 Set 대신: Add :WorkingDirectory string …
+   /usr/libexec/PlistBuddy -c "Set :ProgramArguments:0 $HOME/lg/screen-worker/current/.venv/bin/python" "$P"
+   /usr/libexec/PlistBuddy -c 'Print' "$P"       # --out-root 가 절대 경로(~/lg/runs/live)인지, KeepAlive가 켜져 있는지도 본다
+   launchctl bootout gui/$(id -u)/kr.livegenie.screen-worker
+   launchctl bootstrap gui/$(id -u) "$P"
+   launchctl print gui/$(id -u)/kr.livegenie.screen-worker | grep -E 'state|pid'
+   ```
+   일꾼 기록 첫 줄에 `판 <커밋 12자> (/Users/…/lg/screen-worker/releases/…)`가 보이면 된 것이다. 그 뒤로 `~/livegenie`는 일꾼과 상관없는 보통 작업 폴더다.
+5. 따라잡기는 맥 미니에 따로 둘 것이 없다(깃허브 예약 실행이 같은 실행기에서 돈다). 첫 내보내기가 `~/.livegenie-ci/bin/`에 스크립트를 깐 뒤부터 일한다.
 
 ## 7. 마스터 키 보관
 

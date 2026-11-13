@@ -5,6 +5,8 @@
 //   한 판매자는 한 영상을 방송 하나에만 잇는다(VIDEO_IN_USE) — 요청 번호는 판매자마다 한 번만이라(events_request_uq) 같은 요청을 다시 보내도 방송마다 한 번.
 // 등록은 서버 단독 소리 등록(headless #register, D-LV1-14)과 같은 길: product.register + voiceLog(device livegenie-screen).
 // 같은 번호가 이미 있으면 엔진이 바꾸지 않는다(R-2, changed false). 번호 바꾸기는 아래 /internal/screen/renumber(D-SCR-06)만.
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { getProduct } from '@livejjim/core'
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm'
 import type { Context, Hono } from 'hono'
@@ -21,6 +23,47 @@ export interface ScreenIntakeDeps {
   /** D-SCR-11: 판매 종료한 번호를 일꾼 등록이 다시 열려면 일꾼이 그 말을 본 시각이 종료보다 이만큼 뒤여야 한다(기본 60초).
    *  받아쓰기가 말보다 20~90초 늦어서, 종료 직후 도착한 것은 대개 종료 전에 한 말이다(394 리마인드를 지운 7초 뒤 로라클론으로 다시 열림) */
   readonly reopenGraceMs?: number
+  /** 지금 운영 중인 서버 판(커밋) — `GET /internal/screen/capabilities`가 돌려준다. 없으면 배포가 남긴 파일에서 읽는다(deployedCommit) */
+  readonly commit?: () => Promise<string | null>
+}
+
+/**
+ * 일꾼 입구와 각 입구가 받는 항목 (D-RETRO-32). 요청 검사와 `GET /internal/screen/capabilities` 응답이 **같은 표**를 쓴다 —
+ * 입구나 항목을 더하면 여기에 더한다. 그래야 일꾼이 "서버가 이 요청·이 항목을 받는가"를 물었을 때 답이 실제 검사와 어긋나지 않는다
+ * (2026-11-12 방송: 일꾼이 서버보다 8분 33초 먼저 새 판이 돼 금액 고치기·번호 바꾸기 4건이 400·405로 거절됐다).
+ */
+export const SCREEN_ENDPOINTS = {
+  register: { method: 'POST', path: '/internal/screen/register', fields: ['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt'] },
+  renumber: { method: 'POST', path: '/internal/screen/renumber', fields: ['videoId', 'from', 'to', 'requestId', 'drop', 'registerRequestId'] },
+  rename: { method: 'POST', path: '/internal/screen/rename', fields: ['videoId', 'no', 'name', 'requestId'] },
+  reprice: { method: 'POST', path: '/internal/screen/reprice', fields: ['videoId', 'no', 'price', 'requestId'] },
+  'end-stale': { method: 'POST', path: '/internal/screen/end-stale', fields: ['videoId'] },
+  live: { method: 'GET', path: '/internal/screen/live', fields: [] },
+  capabilities: { method: 'GET', path: '/internal/screen/capabilities', fields: [] },
+} as const satisfies Record<string, { method: 'GET' | 'POST'; path: string; fields: readonly string[] }>
+
+/** 그 입구가 받지 않는 항목이 하나라도 있나 */
+const hasUnknownField = (endpoint: keyof typeof SCREEN_ENDPOINTS, body: object): boolean => {
+  const fields: readonly string[] = SCREEN_ENDPOINTS[endpoint].fields
+  return Object.keys(body).some((k) => !fields.includes(k))
+}
+
+const COMMIT_RE = /^[0-9a-f]{7,40}$/
+
+/**
+ * 지금 운영 중인 서버 판(커밋). 배포(scripts/deploy/lg-apply.sh)가 새 판을 올리고 건강 확인까지 끝낸 뒤
+ * `<LIVEJJIM_APP_UPDATES_DIR>/server-commit`에 한 줄로 적는다 — 그 폴더는 "내보내기가 쓰고 서버는 읽기만 하는" 폴더라 같이 쓴다(D-RETRO-32).
+ * 컨테이너 환경값으로 넣지 않는 까닭: 환경값이 바뀌면 이미지가 같아도 컨테이너가 다시 켜진다(끊김 9~10초).
+ * 파일이 없거나(내 컴퓨터·시험) 모양이 이상하면 null.
+ */
+export async function deployedCommit(dir: string | undefined = process.env['LIVEJJIM_APP_UPDATES_DIR']): Promise<string | null> {
+  if (dir === undefined || dir.trim() === '') return null
+  try {
+    const text = (await readFile(join(dir.trim(), 'server-commit'), 'utf8')).trim()
+    return COMMIT_RE.test(text) ? text : null
+  } catch {
+    return null
+  }
 }
 
 const VIDEO_RE = /^[A-Za-z0-9_-]{11}$/
@@ -58,8 +101,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     }
     if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('JSON 객체여야 해요.')
     const b = body as Record<string, unknown>
-    const allowed = new Set(['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt'])
-    if (Object.keys(b).some((k) => !allowed.has(k))) return bad('받을 수 없는 항목이 있어요.')
+    if (hasUnknownField('register', b)) return bad('받을 수 없는 항목이 있어요.')
     const { videoId, no, price, requestId } = b
     const name = b.name ?? ''
     const heard = b.heard ?? ''
@@ -130,7 +172,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     }
     if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('JSON 객체여야 해요.')
     const b = body as Record<string, unknown>
-    if (Object.keys(b).some((k) => !['videoId', 'from', 'to', 'requestId', 'drop', 'registerRequestId'].includes(k))) return bad('받을 수 없는 항목이 있어요.')
+    if (hasUnknownField('renumber', b)) return bad('받을 수 없는 항목이 있어요.')
     const { videoId, from, to, requestId, registerRequestId } = b
     const drop = b['drop'] === true
     if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
@@ -200,7 +242,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     }
     if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('JSON 객체여야 해요.')
     const b = body as Record<string, unknown>
-    if (Object.keys(b).some((k) => !['videoId', 'no', field, 'requestId'].includes(k))) return bad('받을 수 없는 항목이 있어요.')
+    if (hasUnknownField(field === 'name' ? 'rename' : 'reprice', b)) return bad('받을 수 없는 항목이 있어요.')
     const { videoId, no, requestId } = b
     const value = b[field]
     if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
@@ -273,7 +315,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     }
     if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('JSON 객체여야 해요.')
     const { videoId } = body as Record<string, unknown>
-    if (Object.keys(body).some((k) => k !== 'videoId')) return bad('받을 수 없는 항목이 있어요.')
+    if (hasUnknownField('end-stale', body)) return bad('받을 수 없는 항목이 있어요.')
     if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
     const results: { broadcastId: string; date: string; result: string }[] = []
@@ -295,6 +337,15 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (!bearerMatches(c.req.header('authorization'), deps.token)) return json({ error: { code: 'UNAUTHORIZED', message: '일꾼 토큰이 필요해요.' } }, 401)
     return json({ videos: (await liveVideos(deps.db)).map((videoId) => ({ videoId })) }, 200)
   })
+  // 서버가 받는 일꾼 요청 (D-RETRO-32, 복기 E11 "서버 먼저, 일꾼 나중"): 일꾼이 켜질 때 묻고, 서버가 모르는 입구·항목은 보내지 않는다.
+  // 돌려주는 값 { commit, endpoints: { <이름>: { method, path, fields } } } — commit은 지금 운영 판(모르면 null), fields는 그 입구가 받는 항목 이름.
+  // 판매자·방송 정보는 없다. 내보내기도 배포 뒤 이 입구로 "서버가 정말 그 판인가"를 본다.
+  app.get('/internal/screen/capabilities', async (c) => {
+    if (deps.token === null) return json({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }, 404)
+    if (!bearerMatches(c.req.header('authorization'), deps.token)) return json({ error: { code: 'UNAUTHORIZED', message: '일꾼 토큰이 필요해요.' } }, 401)
+    return json({ commit: await (deps.commit ?? deployedCommit)(), endpoints: SCREEN_ENDPOINTS }, 200)
+  })
+  app.all('/internal/screen/capabilities', () => json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'GET만 받아요.' } }, 405))
 }
 
 /** 지금 이어진 유튜브 영상 번호 (끊지 않은 연결·끝나지 않은 방송, 겹치면 하나) */

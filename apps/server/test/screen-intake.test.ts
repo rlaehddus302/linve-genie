@@ -1,9 +1,14 @@
 // D-SCR-01 화면 일꾼 입구: 토큰·요청 모양·영상 번호로 방송 찾기·등록·같은 번호 다시 보냄·같은 요청 다시 보냄.
 // D-SCR-04: 같은 영상에 이어진 방송이 여럿이면(판매자 여럿) 모두에 등록, 같은 요청은 방송마다 한 번.
 // 포트를 열지 않는다 — app.request로 /internal/screen/register를 부른다.
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { renderProductLabel } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
+import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
+import { deployedCommit, registerScreenIntake } from '../src/screen/routes.ts'
 import { becomeDevice, chat, DEVICE_A, printApi } from './print-support.ts'
 import { client, createBroadcast, expectOk, writeEvent } from './support.ts'
 import { connectSeller, linkedBroadcast, youtubeWorld } from './youtube-support.ts'
@@ -247,5 +252,70 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
     const ended = await client(world, connected.seller.cookie).post(`/api/broadcasts/${b.id}/end`, { requestId: `end-${b.id}` })
     expect(ended.status, ended.text).toBe(200)
     expect((await get()).body).toEqual({ videos: [] })
+  })
+})
+
+describe('D-RETRO-32 서버가 받는 일꾼 요청 목록·판 번호', () => {
+  const caps = async (app: { request: (path: string, init?: RequestInit) => Response | Promise<Response> }, token: string | null = TOKEN, method = 'GET') => {
+    const response = await app.request('/internal/screen/capabilities', { method, headers: token === null ? {} : { Authorization: `Bearer ${token}` } })
+    const text = await response.text()
+    return { status: response.status, body: (text ? JSON.parse(text) : {}) as Record<string, unknown>, text }
+  }
+
+  it('토큰 없으면 404·틀리면 401·GET만, 응답은 입구 이름마다 방식·주소·받는 항목과 서버 판(모르면 null)', async () => {
+    expect((await caps((await youtubeWorld()).server.app)).status).toBe(404)
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    expect((await caps(world.server.app, null)).status).toBe(401)
+    expect((await caps(world.server.app, 'wrong-token-wrong-token-wrong-token')).status).toBe(401)
+    expect((await caps(world.server.app, TOKEN, 'POST')).status).toBe(405)
+    const got = await caps(world.server.app)
+    expect(got.status, got.text).toBe(200)
+    // 응답 예 — 일꾼(sw/post.py)이 이 모양에 기댄다. 입구·항목을 더할 때만 여기도 더한다
+    expect(got.body).toEqual({
+      commit: null,
+      endpoints: {
+        register: { method: 'POST', path: '/internal/screen/register', fields: ['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt'] },
+        renumber: { method: 'POST', path: '/internal/screen/renumber', fields: ['videoId', 'from', 'to', 'requestId', 'drop', 'registerRequestId'] },
+        rename: { method: 'POST', path: '/internal/screen/rename', fields: ['videoId', 'no', 'name', 'requestId'] },
+        reprice: { method: 'POST', path: '/internal/screen/reprice', fields: ['videoId', 'no', 'price', 'requestId'] },
+        'end-stale': { method: 'POST', path: '/internal/screen/end-stale', fields: ['videoId'] },
+        live: { method: 'GET', path: '/internal/screen/live', fields: [] },
+        capabilities: { method: 'GET', path: '/internal/screen/capabilities', fields: [] },
+      },
+    })
+  })
+
+  it('목록에 적힌 항목은 실제 검사가 받는다: 적힌 항목을 모두 보내도 "받을 수 없는 항목"으로 거절되지 않는다', async () => {
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    const endpoints = (await caps(world.server.app)).body['endpoints'] as Record<string, { method: string; path: string; fields: string[] }>
+    const send = async (path: string, body: Record<string, unknown>) => {
+      const response = await world.server.app.request(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify(body) })
+      return JSON.stringify(await response.json())
+    }
+    const posts = Object.values(endpoints).filter((e) => e.method === 'POST')
+    expect(posts.map((e) => e.path).sort()).toEqual(['/internal/screen/end-stale', '/internal/screen/register', '/internal/screen/rename', '/internal/screen/renumber', '/internal/screen/reprice'])
+    for (const endpoint of posts) {
+      const listed = Object.fromEntries(endpoint.fields.map((field) => [field, null]))
+      expect(await send(endpoint.path, listed), endpoint.path).not.toContain('받을 수 없는 항목')
+    }
+  })
+
+  it('서버 판은 배포가 남긴 파일에서 읽는다: 커밋 모양이 아니거나 파일이 없으면 null', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'lg-commit-'))
+    try {
+      expect(await deployedCommit(dir)).toBeNull()
+      await writeFile(join(dir, 'server-commit'), '63fb1cf8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5\n')
+      expect(await deployedCommit(dir)).toBe('63fb1cf8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5')
+      await writeFile(join(dir, 'server-commit'), '<script>alert(1)</script>\n')
+      expect(await deployedCommit(dir)).toBeNull()
+      expect(await deployedCommit(undefined)).toBeNull()
+      expect(await deployedCommit(' ')).toBeNull()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+    // 입구는 넘겨받은 판을 그대로 돌려준다 (DB·기록 없이도 답한다)
+    const app = new Hono()
+    registerScreenIntake(app, { token: TOKEN, db: null as never, service: null as never, commit: () => Promise.resolve('63fb1cf8') })
+    expect((await caps(app)).body['commit']).toBe('63fb1cf8')
   })
 })

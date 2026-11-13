@@ -7,6 +7,9 @@
 #    (2026-11-12: 60초 기다리는 사이 397번 오색글래머 4만원을 통째로 못 들었다)
 #  - 동시에 최대 2개(--max). 넘으면 기다리게 하고 기록
 #  - 서버에 묻기가 실패하면(네트워크·5xx·아직 없는 입구 404) 지금 도는 일꾼은 그대로 둔다
+#  - 판(D-RETRO-33): 관리자는 켜질 때의 폴더와 파이썬에 일꾼을 묶는다. 내보내기가 판 폴더 링크(~/lg/screen-worker/current)를
+#    새 판으로 바꿔도, 관리자를 다시 켜기 전에는 일꾼이 옛 판의 코드·지시문(sw/prompts)·파이썬 묶음으로만 뜬다 — 반쪽만 새 판이 되지 않는다.
+#    다시 켜는 것은 내보내기가 방송이 없을 때만 한다(scripts/deploy/mini-worker-update.sh). 지금 판은 시작 기록과 일꾼 시작 기록에 남긴다.
 # 표준 라이브러리만 쓴다(무거운 모델은 일꾼 프로세스에서만 뜬다). 토큰은 어디에도 찍지 않는다.
 import argparse
 import os
@@ -25,7 +28,34 @@ POLL = 30          # 서버에 묻는 간격(초)
 STOP_GRACE = 20    # SIGTERM 뒤 이만큼 기다렸다가 SIGKILL
 RESTART_WAIT = 60  # 끝난 일꾼을 다시 띄우기 전 기다림
 REOPEN_WAIT = 3    # 목록에 있는 라이브가 "끝남"으로 끊겼을 때 다시 띄우기 전 기다림
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # packages/screen-worker/ (python -m sw 가 도는 곳)
+# packages/screen-worker/ 또는 판 폴더(python -m sw 가 도는 곳). 링크를 풀어 둔다 — current 링크가 바뀌어도 이 관리자는 켜질 때의 판에 머문다
+HERE = os.path.realpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def pin_python(exe, here):
+    """일꾼을 띄울 파이썬. 관리자가 `<판 폴더 링크>/.venv/bin/python`으로 켜졌으면 같은 파일을 링크를 푼 폴더(here) 아래 경로로 바꾼다.
+    그러지 않으면 링크가 새 판으로 바뀐 뒤 뜨는 일꾼이 새 판의 파이썬 묶음 + 옛 판의 코드로 돈다. 그 밖의 파이썬은 그대로."""
+    bin_dir = os.path.dirname(exe)
+    venv = os.path.dirname(bin_dir)
+    if os.path.basename(bin_dir) != "bin" or os.path.basename(venv) != ".venv":
+        return exe
+    if os.path.realpath(os.path.dirname(venv)) != here:
+        return exe
+    return os.path.join(here, ".venv", "bin", os.path.basename(exe))
+
+
+def release_id(here):
+    """지금 도는 판(커밋 앞 12자). 판 폴더면 내보내기가 적어 둔 RELEASE 파일, 저장소를 그대로 돌리면 그 저장소의 HEAD. 모르면 None"""
+    try:
+        with open(os.path.join(here, "RELEASE"), encoding="utf-8") as f:
+            rel = f.read().strip()
+    except OSError:
+        try:
+            rel = subprocess.run(["git", "-C", here, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5,
+                                 stdin=subprocess.DEVNULL).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            rel = ""
+    return rel[:12] if len(rel) >= 7 and all(c in "0123456789abcdef" for c in rel) else None
 
 
 class Job:
@@ -76,7 +106,7 @@ class Serve:
         url = f"https://www.youtube.com/watch?v={vid}"
         if self.a.worker_cmd:   # 시험용: {url} {video_id} {out} 자리 채우기
             return [p.format(url=url, video_id=vid, out=out) for p in shlex.split(self.a.worker_cmd)]
-        cmd = [sys.executable, "-m", "sw", url, "--post", self.server, "--token-file", self.a.token_file, "--live-only", "--out", out]
+        cmd = [pin_python(sys.executable, HERE), "-m", "sw", url, "--post", self.server, "--token-file", self.a.token_file, "--live-only", "--out", out]
         return cmd + list(self.a.worker_args or [])
 
     def start(self, vid):
@@ -89,7 +119,8 @@ class Serve:
         self.jobs[vid] = Job(vid, proc, out)
         self.waiting.discard(vid)
         threading.Thread(target=self.pipe, args=(vid, proc, out), daemon=True).start()
-        log(f"[{vid}] 일꾼 시작 (pid {proc.pid}) → {out}")
+        # 저장소를 그대로 돌릴 때는 누가 git pull을 하면 관리자와 일꾼의 판이 달라진다 — 일꾼마다 그때의 판을 남겨 뒤에 가릴 수 있게
+        log(f"[{vid}] 일꾼 시작 (pid {proc.pid}, 판 {release_id(HERE) or '모름'}) → {out}")
 
     def pipe(self, vid, proc, out):
         """일꾼 출력을 <out>/worker.log에 남기고 화면에도 영상 번호를 붙여 보여 준다"""
@@ -172,7 +203,7 @@ class Serve:
             self.quit = True
         signal.signal(signal.SIGTERM, bye)
         signal.signal(signal.SIGINT, bye)
-        log(f"화면 일꾼 관리자 시작 — 서버 {self.server}, {self.a.interval}초마다 방송 목록 확인, 동시 최대 {self.a.max}개, 결과 {self.a.out_root}")
+        log(f"화면 일꾼 관리자 시작 — 판 {release_id(HERE) or '모름'} ({HERE}), 서버 {self.server}, {self.a.interval}초마다 방송 목록 확인, 동시 최대 {self.a.max}개, 결과 {self.a.out_root}")
         next_poll = 0.0
         try:
             while not self.quit:

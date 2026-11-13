@@ -1,0 +1,37 @@
+# 방송 때문에 미뤄 둔 내보내기를 방송이 끝난 뒤 저절로 다시 부른다 (D-RETRO-31, 2026-11-12 방송 복기 E6·E12 — docs/DEPLOY.md 6-1절).
+# 내보내기(ship.yml)는 방송 중이면 서버 배포·화면 일꾼 갱신·앱 빌드를 미루고 맥 미니에 미룸 표시(~/.livegenie-ci/deferred/)를 남긴다.
+# 이 워크플로는 10분마다 그 표시를 보고, 방송이 없는 상태가 10분 넘게 이어졌으면 내보내기를 main에서 수동 실행으로 부른다.
+# - 저장소를 내려받지 않는다: 같은 실행기의 작업 폴더를 내보내기와 같이 쓰므로 여기서 checkout을 하면 내보내기의 의존성·빌드 결과가 지워진다.
+#   내보내기가 매번 ~/.livegenie-ci/bin/ 에 깔아 두는 사본으로 돈다.
+# - 미뤄 둔 것이 없으면 서버에 묻지도 않고 바로 끝난다.
+# - 맥 미니에 예약 작업(launchd)을 따로 두지 않는 까닭: 설정이 저장소 밖에 생기고, 깃허브 로그인을 맥 미니에 하나 더 두어야 한다.
+#   여기서는 실행마다 받는 토큰(actions: write)으로 부른다.
+name: 따라잡기
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+concurrency:
+  group: catchup
+  cancel-in-progress: false
+
+jobs:
+  catchup:
+    runs-on: [self-hosted, macOS, livegenie-mini]
+    timeout-minutes: 5
+    env:
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+    steps:
+      - name: 방송이 끝났으면 미뤄 둔 내보내기를 다시 부른다
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          S="$HOME/.livegenie-ci/bin/mini-catchup.sh"
+          if [ ! -f "$S" ]; then echo "내보내기가 아직 따라잡기 스크립트를 깔지 않았어요(다음 내보내기 때 깔려요)"; exit 0; fi
+          bash "$S"
