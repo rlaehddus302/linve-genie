@@ -4,6 +4,7 @@
 // 앱은 그림을 다시 그리지 않는다 — 서버가 만든 1비트 그림(LabelBitmap)을 그대로 넘긴다(APP-03 AC3).
 import type { LabelBitmap } from '@livejjim/label'
 import type { AutoReconnectState } from '@livejjim/mobile-ble'
+import type { LinkFacts } from '../lib/print-cause.ts'
 import type { AdapterProfile, ConnectionMethod, ConnectionState, PrinterError, PrinterResult, RememberedPrinter, RememberingPrinterAdapter } from '@livejjim/printer'
 
 export type { AutoReconnectState, ConnectionMethod, ConnectionState, PrinterError, PrinterResult, RememberedPrinter }
@@ -24,6 +25,10 @@ export interface NativeBlePrinter extends RememberingPrinterAdapter {
   setAutoReconnect(allowed: boolean): void
   /** 저절로 다시 잇기 화면 상태 (n번째 시도 · 그침) */
   readonly autoReconnect: AutoReconnectState
+  /** 방송 중: 한도(6번)를 넘겨도 30초마다 계속 다시 잇는다 (기본 아니오 — F2, D-RETRO-42) */
+  setKeepReconnecting(keep: boolean): void
+  /** 연결 사실 (블루투스 상태·앱 앞/뒤·마지막 끊김 — 실패 까닭 기록, F2-2). 모르면 null */
+  linkFacts(): Promise<LinkFacts | null>
   /** 상태·기억·저절로 다시 잇기·연결 방법이 바뀔 때마다 (기억을 저장소에서 되살렸을 때도) */
   onChange(listener: () => void): () => void
 }
@@ -47,6 +52,10 @@ export class FakeBlePrinter implements NativeBlePrinter {
   target: PrinterTarget = 'bluetooth'
   /** 저절로 다시 잇기 허락 (setAutoReconnect로 받은 마지막 값) */
   autoAllowed = false
+  /** 계속 다시 잇기 (setKeepReconnecting으로 받은 마지막 값) */
+  keepReconnecting = false
+  /** 연결 사실 (시험이 정한다 — 기본 모름) */
+  facts: LinkFacts | null = null
   autoReconnect: AutoReconnectState = null
   readonly printed: { readonly image: LabelBitmap; readonly density: number | undefined }[] = []
   #remembered: RememberedPrinter | null = null
@@ -79,6 +88,14 @@ export class FakeBlePrinter implements NativeBlePrinter {
 
   setAutoReconnect(allowed: boolean): void {
     this.autoAllowed = allowed
+  }
+
+  setKeepReconnecting(keep: boolean): void {
+    this.keepReconnecting = keep
+  }
+
+  async linkFacts(): Promise<LinkFacts | null> {
+    return this.facts
   }
 
   get hasRemembered(): boolean {

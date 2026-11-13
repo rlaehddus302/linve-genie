@@ -5,6 +5,8 @@
 // - 시도끼리 겹치지 않는다. 판매자가 잇기(connect·reconnect)를 부르면 기다림을 그치고 그것 하나만 — 이어지면 그 연결부터 새로 세고,
 //   실패하면 저절로 잇기도 그친다(D-QS1-02 (4) — 판매자가 누른 결과라 오류로 끝난다).
 // - setAllowed(false)(출력 기기에서 내려옴·라벨 기능 끔 — L-11 8)면 그친다. 다시 켜져도 지난 끊김으로는 시작하지 않는다(다음 끊김부터).
+// - setKeepTrying(true)(방송 중 — 출력 기기이고 방송이 열려 있다, F2 D-RETRO-42)면 한도(6번)를 넘겨도 그치지 않고 마지막 간격(30초)으로 계속 잇는다.
+//   화면 상태의 total은 null("n번째"). false로 돌아오면 한도를 넘긴 기다림은 그 자리에서 그친다. 그친 뒤 true가 되면 30초 간격으로 다시 잇는다.
 // 라벨 대기열은 앱 몫이다 — 이 파일은 연결만 되살리고, 출력 성공·실패는 어댑터의 print 결과가 그대로 알린다.
 import { printerError, systemTimer, type ConnectionState, type PrinterResult, type PrinterTimer, type RememberingPrinterAdapter } from '@livejjim/printer'
 
@@ -41,6 +43,11 @@ export interface ReconnectingAdapter extends RememberingPrinterAdapter {
   onAutoChange(listener: (state: AutoReconnectState) => void): () => void
   /** 저절로 다시 이어도 되는지 (기본 true). false면 기다리던 시도를 그친다 */
   setAllowed(allowed: boolean): void
+  /**
+   * 한도를 넘겨도 계속 이을지 (기본 false — 한도에서 그친다). true면 한도 뒤에도 마지막 간격으로 끝없이 잇고(방송 중, F2),
+   * 한도에 걸려 그쳐 있었으면 다시 잇기 시작한다. false로 돌아오면 한도를 넘긴 기다림은 그친다
+   */
+  setKeepTrying(keep: boolean): void
   /** 더는 다시 잇지 않는다 (앱을 끌 때) */
   dispose(): void
 }
@@ -60,6 +67,8 @@ export function createReconnectingAdapter(adapter: RememberingPrinterAdapter, op
   let disposed = false
   let trying = false
   let gaveUp = false
+  /** 한도를 넘겨도 계속 잇는다 (방송 중 — F2) */
+  let keep = false
   /** 판매자 동작·그침마다 는다 — 그 전에 시작한 시도의 뒤처리는 하지 않는다 */
   let series = 0
   let last: ConnectionState = adapter.state
@@ -69,7 +78,7 @@ export function createReconnectingAdapter(adapter: RememberingPrinterAdapter, op
   const autoState = (): AutoReconnectState => {
     if (!allowed || disposed) return null
     if (gaveUp) return { kind: 'gaveUp' }
-    if (wanted && (handle !== null || trying)) return { kind: 'trying', attempt: trying ? attempts : attempts + 1, total }
+    if (wanted && (handle !== null || trying)) return { kind: 'trying', attempt: trying ? attempts : attempts + 1, total: keep ? null : total }
     return null
   }
 
@@ -77,7 +86,7 @@ export function createReconnectingAdapter(adapter: RememberingPrinterAdapter, op
     const next = autoState()
     const same =
       next === shown ||
-      (next !== null && shown !== null && next.kind === shown.kind && (next.kind === 'gaveUp' || (shown.kind === 'trying' && next.attempt === shown.attempt)))
+      (next !== null && shown !== null && next.kind === shown.kind && (next.kind === 'gaveUp' || (shown.kind === 'trying' && next.attempt === shown.attempt && next.total === shown.total)))
     if (same) return
     shown = next
     for (const listener of [...autoListeners]) listener(next)
@@ -103,7 +112,7 @@ export function createReconnectingAdapter(adapter: RememberingPrinterAdapter, op
 
   const schedule = (): void => {
     if (!wanted || !allowed || disposed || handle !== null || trying) return
-    if (total !== null && attempts >= total) {
+    if (total !== null && attempts >= total && !keep) {
       wanted = false
       gaveUp = true
       emit()
@@ -251,6 +260,23 @@ export function createReconnectingAdapter(adapter: RememberingPrinterAdapter, op
         // 출력 기기에서 내려옴·라벨 기능 끔 — 그친다 (L-11 8)
         stopSeries()
         gaveUp = false
+      }
+      emit()
+    },
+    setKeepTrying(next) {
+      if (keep === next) return
+      keep = next
+      if (next) {
+        // 한도에 걸려 그쳐 있었다 — 방송이 열렸으니 다시 잇는다 (판매자가 끊었거나 손으로 이은 것이 실패해 그친 것은 gaveUp이 아니다)
+        if (gaveUp && allowed && !disposed && !linked(adapter.state) && adapter.hasRemembered) {
+          gaveUp = false
+          wanted = true
+          schedule()
+        }
+      } else if (wanted && handle !== null && total !== null && attempts >= total) {
+        // 한도를 넘겨 기다리던 중 — 방송이 끝났으니 그 자리에서 그친다 (하는 중인 시도는 끝난 뒤 schedule이 그친다)
+        cancel()
+        schedule()
       }
       emit()
     },

@@ -6,6 +6,11 @@ import type { PrinterTests } from '../services.tsx'
 // - 앱이 뒤에 있어도 연결은 끊지 않는다. 앞으로 돌아오면(resume) 대기열 요약을 다시 받고 쌓인 라벨을 이어 찍는다.
 // - 연결 방법 단추("블루투스로 연결"·시험용 프린터)는 늘 고르기 창, "다시 연결"은 기억한 프린터로(고르기 창 없이 — 기억이 없으면 고르기 창, L-7).
 // - 저절로 다시 잇기(L-11 8)는 이 기기가 출력 기기이고 라벨 기능이 켜져 있을 때만 허락한다(프린터 모듈이 1·2·4·8·16·30초 6번 잇는다).
+//   방송 중(서버 GET /api/print의 live — 열려 있는 실제 방송이 있다)에는 6번 뒤에도 그치지 않고 30초마다 계속 잇는다(F2, D-RETRO-42).
+//   방송이 끝났는지는 끊길 때·6번을 넘긴 시도마다·그쳤을 때 요약을 다시 받아 확인한다 — 방송이 없으면 지금 정책대로 그친다(배터리·발열).
+// - 대기 라벨 지금 뽑기(printWaiting — F1, D-RETRO-40): 요약을 다시 받고, 끊김 멈춤이면 연결됨을 다시 알려 풀고, 손으로 푸는 멈춤이면 다시 시작을 보낸 뒤
+//   대기 맨 앞부터 받는다. 프린터가 이어져 있지 않으면 받지 않고 "먼저 다시 연결"을 돌려준다(연결은 판매자가 누른 동작 안에서만 — L-7).
+// - 출력이 시간 초과·끊김으로 실패하면 앱이 아는 까닭(블루투스 꺼짐·끊김·앱이 뒤로 감·답 없음)과 시각을 결과에 붙인다(F2-2, D-RETRO-43 — lib/print-cause.ts).
 // - 시험용 프린터는 서버가 시험 모드(GET /api/client-config testPrinter)일 때만 고를 수 있다(L-11 15).
 // - 농도는 연결한 프린터의 범위 안에서만(B1 1~5 · Marklife YXQ 1~3). 농도를 받지 않는 프린터(L11)면 보내지 않고, 고른 농도가 범위 밖이면
 //   보내지 않아 프린터 기본값으로 찍는다(D-PRN2-31 — 웹과 같다. 프로필이 바뀌어도 고른 농도를 바꾸지 않는다).
@@ -18,6 +23,7 @@ import type { PrinterTests } from '../services.tsx'
 //   테스트 라벨은 `/api/print/test-png`, 이 기기가 받은 작업은 `/api/print/jobs/:id/png`(D-PRN2-28). 작업 그림을 보내도 작업 상태를 바꾸지 않고
 //   결과(/print/result)를 보내지 않는다(LBL-07 — 파일로 내보낸 것은 출력함으로 치지 않는다).
 import { connectedProfileId, printerProfile, profileSupportsSize, sizeNotSupportedMessage, type DensityRange } from '@livejjim/printer'
+import { AUTO_RECONNECT_POLICY } from '@livejjim/mobile-ble'
 import type { ClaimedJob, ClientConfig, PrintNotice, PrintOverview, QueueSummary, Templates } from '@livejjim/web/src/api/print-types.ts'
 import { fetchTestBitmap, fetchJobBitmap, bitmapFailure, fetchJobPng, fetchTestPng } from '../api/labels.ts'
 import { get, isApiError, post, withRetry, type ApiError } from '../api/client.ts'
@@ -25,6 +31,7 @@ import type { EventSourceLike, SseMessage } from '../api/sse.ts'
 import type { AutoReconnectState, ConnectionState, NativeBlePrinter, PrinterError, PrinterTarget } from '../native/ble.ts'
 import { labelPaper } from './label-paper.ts'
 import { realTimer, type Timer } from './live.ts'
+import { printCause, type PrintCause } from './print-cause.ts'
 import { APP_PRINTER_UNSUPPORTED } from './words.ts'
 
 export interface LabelQueueSnapshot {
@@ -62,7 +69,27 @@ export interface LabelQueueSnapshot {
   readonly testing: boolean
   /** 마지막 테스트 인쇄의 라벨 크기 ("아니요" 도움말의 크기 줄 — UX-PRN2-001). 아직 안 했으면 null */
   readonly testSize?: string | null
+  /** 지금 열려 있는 실제 방송이 있다 (서버가 알린 값 — 방송 중에는 프린터를 그치지 않고 다시 잇는다, F2). 모르면 없다 */
+  readonly live?: boolean
 }
+
+/** "대기 n장 지금 뽑기"의 결과 (F1, D-RETRO-40) */
+export type PrintWaitingOutcome =
+  /** 이 기기가 뽑기 시작했다 — count = 서버에 남은 장 수(대기 + 출력 중) */
+  | { readonly kind: 'started'; readonly count: number }
+  /** 뽑을 라벨이 없다 */
+  | { readonly kind: 'empty' }
+  /** 라벨 기능이 꺼져 있다 */
+  | { readonly kind: 'off' }
+  /** 이 기기의 프린터가 이어져 있지 않다 — 먼저 [다시 연결] */
+  | { readonly kind: 'needPrinter' }
+  /** 다른 기기가 출력 기기다 — printing: 그 기기가 지금 받을 수 있다(멈춤이 없다) */
+  | { readonly kind: 'other'; readonly name: string; readonly printing: boolean }
+  /** 풀지 못했다 (쉬운 문장) */
+  | { readonly kind: 'error'; readonly message: string }
+
+/** 출력 기기를 새로 정할 때의 기기 이름 (라벨 단계와 같다) */
+export const DEFAULT_DEVICE_NAME = '내 휴대폰'
 
 /**
  * 테스트 인쇄 크기 (D-PRN2-27, 웹 testLabelSize와 같다): 저장된 라벨 크기가 이은 프린터 프로필의 크기 목록에 있으면 그 크기,
@@ -82,6 +109,8 @@ export interface LabelQueueOptions {
   readonly openStream: () => EventSourceLike
   readonly printerTests?: PrinterTests
   readonly timer?: Timer
+  /** 지금 시각 (밀리초) — 실패 까닭의 시각·걸린 시간 (기본 Date.now) */
+  readonly now?: () => number
 }
 
 const RETRY_MS = 2000
@@ -107,6 +136,10 @@ export class LabelQueue {
   #unsubState: (() => void) | null = null
   #unsubChange: (() => void) | null = null
   #autoAllowed = false
+  #keep = false
+  #live = false
+  /** 방송이 열려 있는지 다시 확인한 저절로 잇기 차례 ("gaveUp"은 -1) */
+  #liveChecked: number | null = null
 
   constructor(options: LabelQueueOptions) {
     this.#options = options
@@ -167,9 +200,28 @@ export class LabelQueue {
   /** 저절로 다시 잇기 허락: 출력 기기이고 라벨 기능이 켜져 있을 때만 (L-11 8 — 내려오거나 끄면 그친다) */
   #syncAuto(): void {
     const allowed = !this.#stopped && this.#snapshot.mine && this.#snapshot.queue?.labelsEnabled === true
-    if (allowed === this.#autoAllowed) return
-    this.#autoAllowed = allowed
-    this.#options.ble.setAutoReconnect(allowed)
+    if (allowed !== this.#autoAllowed) {
+      this.#autoAllowed = allowed
+      this.#options.ble.setAutoReconnect(allowed)
+    }
+    // 방송 중에는 6번 뒤에도 그치지 않는다 (F2, D-RETRO-42) — 방송이 없으면 지금 정책 그대로
+    const keep = allowed && this.#live
+    if (keep !== this.#keep) {
+      this.#keep = keep
+      this.#options.ble.setKeepReconnecting(keep)
+    }
+  }
+
+  /**
+   * 저절로 잇는 동안 방송이 아직 열려 있는지 다시 확인한다 (요약 다시 받기): 끊긴 때(첫 차례)·6번을 넘긴 차례마다·그쳤을 때 한 번씩.
+   * 방송이 끝났으면 계속 잇기를 거두고(그친다), 그친 뒤 방송이 열려 있음을 알면 다시 잇는다
+   */
+  #recheckLive(state: AutoReconnectState): void {
+    const mark = state === null ? null : state.kind === 'gaveUp' ? -1 : state.attempt
+    if (mark === this.#liveChecked) return
+    this.#liveChecked = mark
+    if (mark === null || !this.#snapshot.mine || this.#stopped) return
+    if (mark === -1 || mark === 1 || mark > AUTO_RECONNECT_POLICY.maxAttempts) void this.reload()
   }
 
   /** 프린터 모듈의 지금 값 → 화면 (프로필이 바뀌어 농도 범위가 달라지면 그 프린터의 기본 농도로) */
@@ -194,6 +246,7 @@ export class LabelQueue {
       ...(!same ? { testPrinted: false, testConfirmed: false } : {}),
       ...(id !== null && this.#options.printerTests ? { testConfirmed: this.#options.printerTests.has(id) } : {}),
     })
+    this.#recheckLive(ble.autoReconnect)
   }
 
   /** 테스트 결과의 답 ("예"는 이 연결에서 테스트 인쇄가 나온 뒤에만 받는다) */
@@ -298,11 +351,13 @@ export class LabelQueue {
     if (this.#stopped) return
     const generation = this.#generation
     try {
-      const overview = await get<PrintOverview>('/api/print')
+      const overview = await get<PrintOverview & { readonly live?: boolean }>('/api/print')
       if (generation !== this.#generation) return
       const saved = this.#snapshot.queue
       const queue = saved && saved.rev > overview.queue.rev ? saved : overview.queue
-      this.#set({ loadError: null })
+      // 옛 서버는 live를 주지 않는다 — 방송이 없는 것으로 본다(지금 정책 그대로)
+      this.#live = overview.live === true
+      this.#set({ loadError: null, live: this.#live })
       this.#applyQueue(queue)
       const ble = this.#options.ble
       if (!recoverPrinter || !queue.labelsEnabled || !this.#snapshot.mine || queue.device?.releasing) return
@@ -479,6 +534,67 @@ export class LabelQueue {
     await this.reload()
   }
 
+  /**
+   * 대기 라벨 지금 뽑기 (F1, D-RETRO-40). 요약을 다시 받고 → 이 기기의 프린터가 이어져 있으면 끊김 멈춤은 연결됨을 다시 알려 풀고,
+   * 손으로 푸는 멈춤(판매자·프린터 오류·라벨 오류)은 다시 시작을 보내 푼 뒤 대기 맨 앞부터 받는다. 출력 기기가 없으면 이 기기를 출력 기기로 한다.
+   * 프린터가 이어져 있지 않으면 아무것도 바꾸지 않고 needPrinter. 다른 기기가 출력 기기면 손으로 푸는 멈춤만 풀고 그 기기 이름을 돌려준다
+   */
+  async printWaiting(deviceName: string = DEFAULT_DEVICE_NAME): Promise<PrintWaitingOutcome> {
+    const failed = (error: unknown): PrintWaitingOutcome => {
+      if (!isApiError(error)) throw error
+      return { kind: 'error', message: error.message }
+    }
+    const LOAD_FAILED = '대기열을 불러오지 못했어요. 다시 눌러 주세요.'
+    await this.reload()
+    const first = this.getSnapshot()
+    if (first.loadError !== null) return { kind: 'error', message: first.loadError.message }
+    let queue = first.queue
+    if (queue === null) return { kind: 'error', message: LOAD_FAILED }
+    if (!queue.labelsEnabled) return { kind: 'off' }
+    const handPaused = (q: QueueSummary): boolean => q.pause !== null && q.pause.reason !== 'DISCONNECTED'
+    if (queue.device !== null && !this.#snapshot.mine) {
+      // 다시 시작은 어느 기기에서나 누를 수 있다 (L-11 8). 끊김은 그 기기에서 다시 이어야 풀린다
+      if (handPaused(queue)) {
+        try {
+          await post('/api/print/restart', {})
+        } catch (error) {
+          if (!isApiError(error) || error.code !== 'PRINT_RECONNECT_REQUIRED') return failed(error)
+        }
+        await this.reload()
+        queue = this.#snapshot.queue ?? queue
+      }
+      return { kind: 'other', name: queue.device?.name ?? '', printing: queue.pause === null && queue.device?.live === true && queue.device.printerConnected }
+    }
+    const ble = this.#options.ble
+    if (ble.state !== 'CONNECTED' && ble.state !== 'PRINTING') return { kind: 'needPrinter' }
+    if (queue.device === null) {
+      const outcome = await this.become(deviceName)
+      if (outcome.kind === 'taken') return { kind: 'other', name: outcome.name, printing: false }
+      if (outcome.kind === 'error') return { kind: 'error', message: outcome.error.message }
+      queue = this.#snapshot.queue ?? queue
+    }
+    if (queue.pause?.reason === 'DISCONNECTED' || queue.device?.printerConnected === false) {
+      // 프린터는 이어져 있는데 서버는 끊긴 줄 안다 — 연결됨을 다시 알려 끊김 멈춤을 푼다
+      this.#reported = null
+      await this.#report(true)
+      queue = this.#snapshot.queue ?? queue
+    }
+    if (handPaused(queue)) {
+      try {
+        await post('/api/print/restart', {})
+      } catch (error) {
+        return failed(error)
+      }
+    }
+    await this.reload()
+    const last = this.getSnapshot()
+    if (last.queue === null || last.loadError !== null) return { kind: 'error', message: last.loadError?.message ?? LOAD_FAILED }
+    if (last.queue.pause !== null) return { kind: 'error', message: last.queue.pause.message }
+    void this.pump()
+    const count = last.queue.waiting + last.queue.printing
+    return count === 0 ? { kind: 'empty' } : { kind: 'started', count }
+  }
+
   // ── 받기·찍기·결과 (L-11 4·6) ──
 
   #canClaim(): boolean {
@@ -531,6 +647,8 @@ export class LabelQueue {
     this.#set({ job, busy: true })
     let ok = false
     let error: { code: string; item?: string } | null = null
+    let cause: PrintCause | null = null
+    const now = this.#options.now ?? Date.now
     // 템플릿에 크기가 없거나 이은 프린터가 이 크기를 찍지 못한다: 그림을 받지도 보내지도 않고 라벨 오류로 알린다 (L-11 13, D-PRN2-07·34 — 웹과 같다)
     const profileId = connectedProfileId(this.#options.ble)
     const size = (job.template as { readonly size?: unknown } | null)?.size
@@ -540,10 +658,15 @@ export class LabelQueue {
     } else {
       try {
         const bitmap = await fetchJobBitmap(job, this.#options.deviceId)
+        const startedAt = now()
         const result = await this.#printSheet(bitmap)
         ok = result.ok
         if (!result.ok) {
           error = { code: result.error.code }
+          // 시간 초과·끊김이면 앱이 아는 까닭과 시각을 같이 알린다 (F2-2, D-RETRO-43). 까닭을 읽지 못해도 결과는 알린다
+          const failedAt = now()
+          const facts = await this.#options.ble.linkFacts().catch(() => null)
+          cause = printCause({ code: result.error.code, startedAt, failedAt, facts, profileId })
           this.#set({ printerError: result.error })
         }
       } catch (caught) {
@@ -553,10 +676,19 @@ export class LabelQueue {
       }
     }
     const body = { deviceId: this.#options.deviceId, attempt: job.attempt, ok, ...(error === null ? {} : { error }) }
+    const send = (payload: Record<string, unknown>) => withRetry(() => post<{ recorded: boolean }>('/api/print/result', payload))
     try {
-      await withRetry(() => post<{ recorded: boolean }>('/api/print/result', body))
+      await send(cause === null ? body : { ...body, cause })
     } catch (caught) {
       if (!isApiError(caught)) throw caught
+      // 옛 서버는 까닭 칸을 받지 않는다(UNKNOWN_FIELD) — 까닭 없이 결과만 다시 알린다. 결과를 잃으면 대기열이 멈춘다
+      if (cause !== null && caught.code === 'UNKNOWN_FIELD') {
+        try {
+          await send(body)
+        } catch (again) {
+          if (!isApiError(again)) throw again
+        }
+      }
       // 결과를 알리지 못했다: 서버는 시도 시간이 지나면 끊김으로 본다 — 요약을 다시 받는다
     }
     this.#set({ job: null, busy: false, ...(ok ? { printed: this.#snapshot.printed + 1, printerError: null } : {}) })

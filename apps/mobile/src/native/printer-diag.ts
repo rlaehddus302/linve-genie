@@ -6,6 +6,7 @@
 import type { BleError, BleManager, Characteristic, Device } from 'react-native-ble-plx'
 import type { BleManagerLike } from '@livejjim/mobile-ble'
 import { post } from '../api/client.ts'
+import { appStateNow, noteLinkLost } from './link-facts.ts'
 
 interface DiagEvent {
   readonly step: string
@@ -128,6 +129,10 @@ export function diagManager(manager: BleManager): BleManagerLike {
       manager.onDeviceDisconnected(id, (error, device) => {
         if (error !== null) bleError('lost', error)
         else diag('lost')
+        // 끊긴 때와 오류 번호를 적어 둔다 — 그때 찍던 장의 실패 까닭이 된다 (F2-2, D-RETRO-43)
+        noteLinkLost(error)
+        // 끊길 때 앱이 앞에 있었는지 (앱이 뒤로 가서 끊긴 것인지 가린다)
+        diag(`app_${appStateNow()}`)
         diagFlush('link_closed')
         listener(error, device)
       }),

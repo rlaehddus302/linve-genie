@@ -55,6 +55,7 @@ import {
   findLabel,
   findPrintRequest,
   finishAttempt,
+  hasOpenBroadcast,
   headWaitingJob,
   insertAttempt,
   insertJobs,
@@ -79,6 +80,7 @@ import {
   voidLabels,
   waitingJobIds,
   writeTemplate,
+  type AttemptFailure,
   type JobRow,
   type JobWithLabel,
   type LabelEffectBody,
@@ -336,7 +338,72 @@ export type ClaimOutcome =
 export type BitmapOutcome = { readonly kind: 'ok'; readonly image: LabelBitmap } | { readonly kind: 'not_found' } | { readonly kind: 'error'; readonly error: LabelError }
 export type BitmapPagesOutcome = { readonly kind: 'ok'; readonly images: readonly LabelBitmap[] } | { readonly kind: 'not_found' } | { readonly kind: 'error'; readonly error: LabelError }
 
-export type ResultInput = { readonly ok: true } | { readonly ok: false; readonly code: string; readonly item: string | null }
+export type ResultInput = { readonly ok: true } | { readonly ok: false; readonly code: string; readonly item: string | null; /** 앱이 보낸 까닭 그대로 — 기록할 때 parseAttemptCause로 다듬는다 (F2-2) */ readonly cause?: unknown }
+
+// ── 실패한 까닭 (F2-2, D-RETRO-43) ────────────────────────────────────────
+
+/**
+ * 출력 기기 앱이 아는 실패 까닭 낱말. 화면에 보이는 값이 아니다(기록·복기용).
+ * BLUETOOTH_OFF 휴대폰 블루투스 꺼짐 · BLUETOOTH_DENIED 블루투스 권한 없음 · OUT_OF_RANGE 연결이 시간 초과로 끊김(거리·프린터 전원) ·
+ * PRINTER_CLOSED 프린터 쪽에서 끊음(꺼짐·절전) · LINK_LOST 그 밖의 끊김 · APP_BACKGROUND 앱이 뒤로 감 · NO_RESPONSE 이어져 있는데 답이 없음 · UNKNOWN 모름
+ */
+export const ATTEMPT_CAUSE_REASONS = ['BLUETOOTH_OFF', 'BLUETOOTH_DENIED', 'OUT_OF_RANGE', 'PRINTER_CLOSED', 'LINK_LOST', 'APP_BACKGROUND', 'NO_RESPONSE', 'UNKNOWN'] as const
+export type AttemptCauseReason = (typeof ATTEMPT_CAUSE_REASONS)[number]
+
+export interface AttemptCause {
+  readonly reason: AttemptCauseReason
+  /** 앱이 그 실패를 본 시각 (앱 시계). 없거나 서버 시계와 하루 넘게 다르면 null */
+  readonly at: Date | null
+  /** 함께 알린 값 — 아래 칸만 (그 밖의 칸·모양이 다른 값은 버린다) */
+  readonly detail: Readonly<Record<string, string | number | boolean>>
+}
+
+const CAUSE_REASONS: ReadonlySet<string> = new Set(ATTEMPT_CAUSE_REASONS)
+const CAUSE_RADIO: ReadonlySet<string> = new Set(['on', 'off', 'unauthorized', 'unsupported', 'unknown'])
+const CAUSE_APP: ReadonlySet<string> = new Set(['active', 'background', 'inactive', 'unknown'])
+/** 수로 받는 칸과 범위: 걸린 시간·끊긴 지 얼마(밀리초), 블루투스 모듈·안드로이드·아이폰·ATT 오류 번호 */
+const CAUSE_NUMBERS: Readonly<Record<string, readonly [number, number]>> = {
+  elapsedMs: [0, 3_600_000],
+  lostAgoMs: [0, 86_400_000],
+  ble: [-1, 100_000],
+  android: [-1, 100_000],
+  ios: [-1, 100_000],
+  att: [-1, 100_000],
+}
+const CAUSE_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000
+
+/**
+ * 앱이 보낸 까닭을 기록할 값으로 (F2-2). 정해진 칸·정해진 모양만 남기고 나머지는 버린다 — 글(기기 이름·주소·오류 문장)은 받지 않는다.
+ * 프린터는 켠 프로필 표의 프로필 ID만(L-11 10과 같다). 까닭 낱말이 없거나 모르는 낱말이면 null(까닭 없이 결과만 기록한다) —
+ * 까닭이 틀렸다고 결과를 거절하지 않는다(결과를 잃으면 대기열이 멈춘다)
+ */
+export function parseAttemptCause(value: unknown, now: Date): AttemptCause | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const input = value as Record<string, unknown>
+  const pick = (key: string): unknown => (Object.hasOwn(input, key) ? input[key] : undefined)
+  const reason = pick('reason')
+  if (typeof reason !== 'string' || !CAUSE_REASONS.has(reason)) return null
+  const rawAt = pick('at')
+  const parsed = typeof rawAt === 'string' && rawAt.length <= 40 ? new Date(rawAt) : null
+  const at = parsed !== null && !Number.isNaN(parsed.getTime()) && Math.abs(parsed.getTime() - now.getTime()) <= CAUSE_CLOCK_SKEW_MS ? parsed : null
+  const detail: Record<string, string | number | boolean> = {}
+  const radio = pick('radio')
+  if (typeof radio === 'string' && CAUSE_RADIO.has(radio)) detail['radio'] = radio
+  const app = pick('app')
+  if (typeof app === 'string' && CAUSE_APP.has(app)) detail['app'] = app
+  const wentBackground = pick('wentBackground')
+  if (typeof wentBackground === 'boolean') detail['wentBackground'] = wentBackground
+  for (const [key, [min, max]] of Object.entries(CAUSE_NUMBERS)) {
+    const number = pick(key)
+    if (typeof number === 'number' && Number.isSafeInteger(number) && number >= min && number <= max) detail[key] = number
+  }
+  const profileId = knownProfileId(pick('profileId'))
+  if (profileId !== null) detail['profileId'] = profileId
+  return { reason: reason as AttemptCauseReason, at, detail }
+}
+
+const failureOf = (cause: AttemptCause | null | undefined): AttemptFailure | null =>
+  cause === null || cause === undefined ? null : { reason: cause.reason, at: cause.at, detail: Object.keys(cause.detail).length === 0 ? null : JSON.stringify(cause.detail) }
 
 export type ActionOutcome<T> = { readonly kind: 'ok'; readonly value: T } | { readonly kind: 'rejected'; readonly rejection: Rejection; readonly extra?: Readonly<Record<string, unknown>> } | { readonly kind: 'not_found' }
 
@@ -624,13 +691,17 @@ export class PrintService {
     }
   }
 
-  /** 대기열 전체 (출력 중·대기 작업, 버릴 라벨, 요약) */
-  async overview(sellerId: string): Promise<{ queue: QueueSummary; jobs: JobView[]; discard: JobView[] }> {
+  /**
+   * 대기열 전체 (출력 중·대기 작업, 버릴 라벨, 요약). live = 지금 열려 있는 실제 방송이 있다 —
+   * 출력 기기가 방송 중에는 프린터를 그치지 않고 다시 잇는 데 쓴다(F2, D-RETRO-42. 요약 알림에는 싣지 않는다 — 방송이 열리고 끝나는 것은 출력 기록이 아니다)
+   */
+  async overview(sellerId: string): Promise<{ queue: QueueSummary; jobs: JobView[]; discard: JobView[]; live: boolean }> {
     const queue = await this.summary(sellerId)
     const active = await activeJobs(this.#db, sellerId)
     const discard = await discardJobs(this.#db, sellerId)
     const contexts = await this.#contexts(sellerId, active.filter((row) => row.job.kind === 'product').map((row) => row.job.date))
     return {
+      live: await hasOpenBroadcast(this.#db, sellerId),
       queue,
       jobs: active.map((row) => this.#jobView(row, contexts.get(row.job.date) ?? null)),
       discard: discard.map((row) => this.#jobView(row, null)),
@@ -1213,7 +1284,8 @@ export class PrintService {
       }
     } else {
       const code = input.code === 'DOES_NOT_FIT' && input.item !== null ? `${input.code}:${input.item}` : input.code
-      await finishAttempt(tx, sellerId, attempt.id, code, now)
+      // 앱이 아는 까닭(블루투스 꺼짐·끊김·앱이 뒤로 감 등)과 그 시각을 시도 기록에 같이 남긴다 (F2-2, D-RETRO-43)
+      await finishAttempt(tx, sellerId, attempt.id, code, now, failureOf(parseAttemptCause(input.cause, now)))
       if (job.voided) {
         // 출력 중에 폐기된 작업이 실패로 끝나면 대기로 되돌리지 않는다 (L-8 4)
         await updateJob(tx, sellerId, job.id, { status: 'CANCELLED', attempts: job.attempts + 1, lastError: code })
@@ -1331,35 +1403,116 @@ export class PrintService {
         if ((await findPrintRequest(tx, sellerId, requestId)) !== null) return { kind: 'ok', value: null }
         const queue = await lockQueue(tx, sellerId, now)
         if (!queue.labelsEnabled) return labelsOffRejected()
-        let label = await findLabel(tx, sellerId, scopeId, key)
+        const label = await findLabel(tx, sellerId, scopeId, key)
         if (label !== null && (await jobsOfLabels(tx, sellerId, [label.id])).length > 0) return rejected(409, 'PRINT_LABEL_EXISTS', PRINT_MESSAGES.labelExists)
-        if (label === null) {
-          await insertLabels(tx, [{ sellerId, scopeId, date, key, kind: 'product', claim: claimId, version, broadcast: info.broadcast, no: info.no, buyer, effectId, createdAt: now }])
-          label = await findLabel(tx, sellerId, scopeId, key)
-          if (label === null) throw new Error('라벨 키를 만들지 못했다')
-        } else if (label.effectId === null && effectId !== null) {
-          await bindLabelEffect(tx, sellerId, label.id, effectId)
-        }
-        const jobId = newJobId('m')
-        await insertJobs(tx, [
-          {
-            sellerId,
-            scopeId,
-            labelId: label.id,
-            date,
-            jobId,
-            kind: 'product',
-            reason: 'manual',
-            status: label.voidedAt === null ? 'WAITING' : 'CANCELLED',
-            voided: label.voidedAt !== null,
-            queueOrder: queue.nextOrder,
-            requestedBy: accountId,
-            createdAt: now,
-          },
-        ])
+        const jobId = await this.#insertManualJob(tx, { sellerId, scopeId, date, accountId, now, queueOrder: queue.nextOrder }, { key, claim: claimId, version, broadcast: info.broadcast, no: info.no, buyer, effectId }, label)
         await insertPrintRequest(tx, sellerId, requestId, JSON.stringify({ date, jobs: [jobId] }), now)
         await updateQueue(tx, sellerId, { nextOrder: queue.nextOrder + 1 }, now)
         created = [jobId]
+        return { kind: 'ok', value: null }
+      })
+    })
+    if (outcome.kind !== 'ok') return outcome
+    if (created.length === 0) return { kind: 'ok', value: { jobs: (await this.#priorJobs(sellerId, requestId)) ?? [] } }
+    const jobs = await this.#jobViewsOf(sellerId, date, created, await this.#options.writer.read(sellerId, date))
+    this.#notifyJobs(sellerId, date, created)
+    return { kind: 'ok', value: { jobs } }
+  }
+
+  /**
+   * 손으로 출력 작업 한 장을 넣는다 (L-11 3 — 대기열 줄을 잠근 트랜잭션 안에서, 그 라벨 키에 작업이 없음을 확인한 뒤 부른다).
+   * 라벨 키가 없으면 만들고, 있는데 효과와 묶이지 않았으면 그 라벨 키의 자동 출력 효과와 묶는다(L-13 8). 폐기된 라벨 키면 출력 안 함으로만 남긴다. 넣은 작업 ID
+   */
+  async #insertManualJob(
+    tx: Db,
+    at: { readonly sellerId: string; readonly scopeId: string; readonly date: string; readonly accountId: string; readonly now: Date; readonly queueOrder: number },
+    ref: { readonly key: string; readonly claim: string; readonly version: number; readonly broadcast: string; readonly no: number; readonly buyer: string; readonly effectId: string | null },
+    existing: LabelRow | null,
+  ): Promise<string> {
+    const { sellerId, scopeId, date, now } = at
+    let label = existing
+    if (label === null) {
+      await insertLabels(tx, [{ sellerId, scopeId, date, key: ref.key, kind: 'product', claim: ref.claim, version: ref.version, broadcast: ref.broadcast, no: ref.no, buyer: ref.buyer, effectId: ref.effectId, createdAt: now }])
+      label = await findLabel(tx, sellerId, scopeId, ref.key)
+      if (label === null) throw new Error('라벨 키를 만들지 못했다')
+    } else if (label.effectId === null && ref.effectId !== null) {
+      await bindLabelEffect(tx, sellerId, label.id, ref.effectId)
+    }
+    const jobId = newJobId('m')
+    await insertJobs(tx, [
+      {
+        sellerId,
+        scopeId,
+        labelId: label.id,
+        date,
+        jobId,
+        kind: 'product',
+        reason: 'manual',
+        status: label.voidedAt === null ? 'WAITING' : 'CANCELLED',
+        voided: label.voidedAt !== null,
+        queueOrder: at.queueOrder,
+        requestedBy: at.accountId,
+        createdAt: now,
+      },
+    ])
+    return jobId
+  }
+
+  /**
+   * 라벨 없는 판매 한꺼번에 뽑기 (F1-2, D-RETRO-41): 그 방송의 지금 1등 찜 가운데 라벨 키(찜, 지금 확정버전)에 작업이 하나도 없는 것마다
+   * 손으로 출력 작업 하나를 넣는다 — 라벨 기능을 꺼 둔 동안 확정돼 작업이 되지 않은 판매다(L-13 3). "라벨 출력"(printLabel, L-11 3)과 같은 길·같은 규칙:
+   * 작업이 하나라도 있는 라벨 키(대기·출력 중·출력함·출력 안 함)는 다시 넣지 않고, 그 라벨 키의 자동 출력 효과가 있으면 묶어 출력함이 될 때 보고한다(L-13 8).
+   * 폐기된 라벨 키·찜 금액이 없는 찜은 건너뛴다. 번호 순(같은 번호는 확정버전 순)으로 대기 맨 끝에 넣는다. 같은 요청 번호면 같은 결과. 없으면 빈 목록
+   */
+  async printMissing(sellerId: string, accountId: string, requestId: string, b: string): Promise<ActionOutcome<{ jobs: JobView[] }>> {
+    const prior = await this.#priorJobs(sellerId, requestId)
+    if (prior !== null) return { kind: 'ok', value: { jobs: prior } }
+    const scope = await this.#broadcastScope(sellerId, b)
+    if (scope === null) return { kind: 'not_found' }
+    if (scope === 'rehearsal') return rejected(422, 'PRINT_REHEARSAL', PRINT_MESSAGES.rehearsal)
+    if (await labelsOff(this.#db, sellerId)) return labelsOffRejected()
+    const { date } = scope
+    let created: string[] = []
+    const outcome = await this.#options.writer.withState(sellerId, date, false, async (runtime): Promise<ActionOutcome<null>> => {
+      if (runtime.scopeId === null) return { kind: 'not_found' }
+      const scopeId = runtime.scopeId
+      const { state } = runtime
+      const claims = claimIndex(runtime, state)
+      const effects = new Map<string, string>()
+      for (const effect of listEffects(state)) if (effect.kind === 'PRINT_PRODUCT_LABEL') effects.set(`${effect.claim}@${String(effect.confirmVersion)}`, effect.id)
+      const targets: { key: string; claim: string; version: number; broadcast: string; no: number; buyer: string; effectId: string | null }[] = []
+      for (const product of listProducts(state)) {
+        for (const claimId of winnerClaimsOf(product)) {
+          const info = claims.get(claimId)
+          if (info === undefined || info.broadcast !== b || info.status !== 'CONFIRMED' || info.confirmVersion === null) continue
+          // 찜 금액이 없으면 라벨 데이터를 만들 수 없다 — 그 찜만 건너뛴다 (D-O3-15)
+          if (claimAmount(info) === null) {
+            this.#amountMissing(info.id)
+            continue
+          }
+          const key = `${claimId}@${String(info.confirmVersion)}`
+          targets.push({ key, claim: claimId, version: info.confirmVersion, broadcast: info.broadcast, no: info.no, buyer: JSON.stringify(productLabelBuyer(state, info)), effectId: effects.get(key) ?? null })
+        }
+      }
+      targets.sort((x, y) => x.no - y.no || x.version - y.version)
+      const now = this.#now()
+      return this.#db.transaction(async (tx): Promise<ActionOutcome<null>> => {
+        if ((await findPrintRequest(tx, sellerId, requestId)) !== null) return { kind: 'ok', value: null }
+        const queue = await lockQueue(tx, sellerId, now)
+        if (!queue.labelsEnabled) return labelsOffRejected()
+        const existing = new Map((await scopeLabels(tx, sellerId, scopeId, 'product')).map((row) => [row.key, row]))
+        const withJobs = new Set((await jobsOfLabels(tx, sellerId, [...existing.values()].map((row) => row.id))).map((job) => job.labelId))
+        let order = queue.nextOrder
+        const jobIds: string[] = []
+        for (const target of targets) {
+          const label = existing.get(target.key) ?? null
+          // 이미 작업이 있는 라벨 키(대기·출력 중·출력함·출력 안 함)와 폐기된 라벨 키는 다시 넣지 않는다 — 같은 라벨이 두 번 나오지 않게
+          if (label !== null && (withJobs.has(label.id) || label.voidedAt !== null)) continue
+          jobIds.push(await this.#insertManualJob(tx, { sellerId, scopeId, date, accountId, now, queueOrder: order++ }, target, label))
+        }
+        await insertPrintRequest(tx, sellerId, requestId, JSON.stringify({ date, jobs: jobIds }), now)
+        if (jobIds.length > 0) await updateQueue(tx, sellerId, { nextOrder: order }, now)
+        created = jobIds
         return { kind: 'ok', value: null }
       })
     })

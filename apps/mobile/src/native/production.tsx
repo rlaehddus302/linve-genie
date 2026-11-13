@@ -8,7 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { labelPaper } from '../lib/label-paper.ts'
 import { wireDockChoice } from '../lib/dock-choice.ts'
 import { wireFeedView } from '../lib/feed-view.ts'
-import { Modal, PermissionsAndroid, Platform, ScrollView } from 'react-native'
+import { AppState, Modal, PermissionsAndroid, Platform, ScrollView } from 'react-native'
 import { BleManager } from 'react-native-ble-plx'
 import { getAudioCapture } from '@livejjim/mobile-audio/native'
 import { getNoticeIntake, requestNoticeContacts } from '@livejjim/mobile-notice/native'
@@ -29,6 +29,7 @@ import { AppPrinter } from './app-printer.ts'
 import { LiveNativeAudio } from './live-audio.ts'
 import { setNativeModules } from './index.ts'
 import { diag, diagBegin, diagFlush, diagManager } from './printer-diag.ts'
+import { linkFacts, noteAppState } from './link-facts.ts'
 import { setNoticeModule } from './notice.ts'
 import { setErrorHaptic, setHaptic } from './haptics.ts'
 import * as Haptics from 'expo-haptics'
@@ -106,9 +107,13 @@ export function installProductionNative(): void {
   chooser.connect = traced('connect', connect)
   chooser.reconnect = traced('reconnect', reconnect)
   const device = createReconnectingAdapter(chooser, AUTO_RECONNECT_POLICY)
+  // 출력이 실패한 까닭 기록 (F2-2, D-RETRO-43): 앱이 앞에서 벗어난 때를 적어 두고, 실패하면 그때의 블루투스 상태와 함께 읽는다
+  noteAppState(AppState.currentState)
+  AppState.addEventListener('change', (state) => noteAppState(state))
   const printer = new AppPrinter({
     device,
     createTest: () => createReconnectingAdapter(createFakePrinter({ methods: ['bluetooth'] }), AUTO_RECONNECT_POLICY),
+    facts: async () => linkFacts(await transport.state()),
   })
   labelPaper.storage = AsyncStorage
   void wirePrinterMemory(device, (value) => printer.restoreDeviceMemory(value), AsyncStorage)

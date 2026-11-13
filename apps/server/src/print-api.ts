@@ -11,7 +11,7 @@ import { REQUEST_ID_RE, hasControlChar, own, ownKeys } from './api-fields.ts'
 import type { SessionContext } from './auth.ts'
 import { apiError, type FieldProblem } from './errors.ts'
 import { unknownFieldProblems } from './messages.ts'
-import { DEVICE_ID_RE, PRINT_MESSAGES, cleanDeviceName, isKnownErrorCode, knownProfileId, type ActionOutcome, type BitmapOutcome, type PrintService } from './print.ts'
+import { DEVICE_ID_RE, PRINT_MESSAGES, cleanDeviceName, isKnownErrorCode, knownProfileId, type ActionOutcome, type BitmapOutcome, type PrintService, type ResultInput } from './print.ts'
 
 type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
 
@@ -261,7 +261,8 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
 
   api.post('/print/result', async (c) => {
     const input = body(c)
-    const extra = onlyKeys(input, ['deviceId', 'attempt', 'ok', 'error'])
+    // cause: 실패한 까닭 (F2-2, D-RETRO-43) — 있어도 없어도 되고, 모양이 틀리면 까닭만 버린다(결과는 그대로 기록한다)
+    const extra = onlyKeys(input, ['deviceId', 'attempt', 'ok', 'error', 'cause'])
     if (extra !== null) return extra
     const deviceId = deviceIdOf(input)
     if (deviceId === null) return badDevice()
@@ -270,7 +271,7 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     const ok = own(input, 'ok')
     if (typeof ok !== 'boolean') return invalid([{ field: 'ok', message: '출력했는지는 예나 아니오로만 알려 주세요.' }])
     const error = own(input, 'error')
-    let result: { ok: true } | { ok: false; code: string; item: string | null }
+    let result: ResultInput
     if (ok) {
       if (error !== undefined) return invalid([{ field: 'error', message: '출력했으면 오류를 적지 않아요.' }])
       result = { ok: true }
@@ -283,7 +284,7 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
       const item = own(record, 'item')
       if (!isKnownErrorCode(code)) return invalid([{ field: 'error.code', message: '알 수 없는 오류 코드예요.' }])
       if (item !== undefined && (typeof item !== 'string' || !ITEM_RE.test(item))) return invalid([{ field: 'error.item', message: '항목을 확인해 주세요.' }])
-      result = { ok: false, code, item: code === 'DOES_NOT_FIT' && typeof item === 'string' ? item : null }
+      result = { ok: false, code, item: code === 'DOES_NOT_FIT' && typeof item === 'string' ? item : null, cause: own(input, 'cause') }
     }
     const recorded = await print.result(sellerOf(c), deviceId, attempt, result)
     if (recorded.kind === 'not_found') return notFound()
@@ -316,6 +317,18 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     if (typeof claim !== 'string' || !REF_RE.test(claim)) problems.push({ field: 'claim', message: '찜을 골라 주세요.' })
     if (problems.length > 0) return invalid(problems)
     return outcome(c, await print.printLabel(sellerOf(c), accountOf(c), requestId, b as string, claim as string))
+  })
+
+  // 라벨 없는 판매 한꺼번에 뽑기 (F1-2, D-RETRO-41): 그 방송의 1등 찜 중 라벨 작업이 하나도 없는 것만 대기열에 넣는다
+  api.post('/print/labels/print-missing', async (c) => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'b'])
+    if (extra !== null) return extra
+    const b = own(input, 'b')
+    if (typeof b !== 'string' || !REF_RE.test(b)) return invalid([{ field: 'b', message: '방송을 골라 주세요.' }])
+    return outcome(c, await print.printMissing(sellerOf(c), accountOf(c), requestId, b))
   })
 
   api.post('/print/labels/reprint', async (c) => {

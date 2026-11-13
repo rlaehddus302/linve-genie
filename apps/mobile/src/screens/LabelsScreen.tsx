@@ -12,6 +12,7 @@ import { ScrollView, View } from 'react-native'
 import { isApiError } from '../api/client.ts'
 import { LOW_PAPER, labelPaper, useLabelPaper } from '../lib/label-paper.ts'
 import { testHelp } from '../lib/test-help.ts'
+import { keepReconnectingMessage } from '../lib/print-words.ts'
 import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, PRINT_ACTION, RETRY_NOW, TEST_CONFIRMED_PAST, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import type { Tone } from '../ui/theme.ts'
@@ -148,6 +149,8 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
             </View>
           ) : null}
           {snapshot.autoReconnect?.kind === 'trying' && snapshot.autoReconnect.total !== null ? <Notice tone="info">{autoReconnectingMessage(snapshot.autoReconnect.attempt, snapshot.autoReconnect.total)}</Notice> : null}
+          {/* 방송 중에는 그치지 않는다 — 총 횟수 없이 몇 번째인지만 (F2, D-RETRO-42) */}
+          {snapshot.autoReconnect?.kind === 'trying' && snapshot.autoReconnect.total === null && snapshot.live === true ? <Notice tone="info">{keepReconnectingMessage(snapshot.autoReconnect.attempt)}</Notice> : null}
           {snapshot.autoReconnect?.kind === 'gaveUp' && disconnected ? (
             <Notice tone="danger" alert>
               {AUTO_RECONNECT_GAVE_UP}

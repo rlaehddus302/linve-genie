@@ -7,6 +7,7 @@
 import type { LabelBitmap } from '@livejjim/label'
 import type { ReconnectingAdapter } from '@livejjim/mobile-ble'
 import type { AdapterProfile, ConnectionMethod, ConnectionState, PrintOptions, PrinterResult, RememberedPrinter } from '@livejjim/printer'
+import type { LinkFacts } from '../lib/print-cause.ts'
 import type { AutoReconnectState, NativeBlePrinter, PrinterTarget } from './ble.ts'
 
 export interface AppPrinterOptions {
@@ -14,6 +15,8 @@ export interface AppPrinterOptions {
   readonly device: ReconnectingAdapter
   /** 시험용 프린터를 만든다 (처음 고를 때 한 번) */
   readonly createTest: () => ReconnectingAdapter
+  /** 블루투스 프린터의 연결 사실 (블루투스 상태·앱 앞/뒤·마지막 끊김 — 실패 까닭 기록, F2-2). 없으면 모름 */
+  readonly facts?: () => Promise<LinkFacts>
 }
 
 export class AppPrinter implements NativeBlePrinter {
@@ -22,6 +25,8 @@ export class AppPrinter implements NativeBlePrinter {
   #test: ReconnectingAdapter | null = null
   #target: PrinterTarget = 'bluetooth'
   #allowed = false
+  #keep = false
+  readonly #facts: (() => Promise<LinkFacts>) | undefined
   readonly #stateListeners = new Set<(state: ConnectionState) => void>()
   readonly #rememberListeners = new Set<(value: RememberedPrinter | null) => void>()
   readonly #changeListeners = new Set<() => void>()
@@ -29,6 +34,7 @@ export class AppPrinter implements NativeBlePrinter {
   constructor(options: AppPrinterOptions) {
     this.#device = options.device
     this.#createTest = options.createTest
+    this.#facts = options.facts
     this.#device.setAllowed(false)
     this.#wire(this.#device, 'bluetooth')
   }
@@ -57,6 +63,7 @@ export class AppPrinter implements NativeBlePrinter {
     if (this.#test === null) {
       const test = this.#createTest()
       test.setAllowed(this.#allowed)
+      test.setKeepTrying(this.#keep)
       this.#test = test
       this.#wire(test, 'test')
     }
@@ -136,6 +143,23 @@ export class AppPrinter implements NativeBlePrinter {
     this.#allowed = allowed
     this.#device.setAllowed(allowed)
     this.#test?.setAllowed(allowed)
+  }
+
+  /** 방송 중에는 한도(6번)를 넘겨도 계속 다시 잇는다 (F2, D-RETRO-42) */
+  setKeepReconnecting(keep: boolean): void {
+    this.#keep = keep
+    this.#device.setKeepTrying(keep)
+    this.#test?.setKeepTrying(keep)
+  }
+
+  /** 연결 사실 — 블루투스 프린터일 때만 (시험용 프린터는 블루투스를 쓰지 않는다) */
+  async linkFacts(): Promise<LinkFacts | null> {
+    if (this.#target !== 'bluetooth' || this.#facts === undefined) return null
+    try {
+      return await this.#facts()
+    } catch {
+      return null
+    }
   }
 
   connect(method: ConnectionMethod): Promise<PrinterResult> {

@@ -4,7 +4,7 @@
 // - 트랜잭션 안에서는 트랜잭션 객체(tx)를 넘긴다(PGlite는 연결이 하나다).
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
-import { accounts, labelSwitches, labelTemplates, outbox, printAttempts, printJobs, printLabels, printQueues, printRequests, scopes } from './db/schema.ts'
+import { accounts, broadcasts, labelSwitches, labelTemplates, outbox, printAttempts, printJobs, printLabels, printQueues, printRequests, scopes } from './db/schema.ts'
 
 export type QueueRow = typeof printQueues.$inferSelect
 export type LabelRow = typeof printLabels.$inferSelect
@@ -48,6 +48,20 @@ export async function updateQueue(tx: Db, sellerId: string, patch: QueuePatch, n
     .where(eq(printQueues.sellerId, sellerId))
     .returning({ rev: printQueues.rev })
   return rows[0]?.rev ?? 0
+}
+
+/**
+ * 지금 열려 있는 실제 방송이 있는지 (F2, D-RETRO-42 — 방송 중에는 출력 기기가 프린터를 계속 다시 잇는다).
+ * 방송 화면에 들어온 적이 있고(openedAt) 아직 끝내지 않은(endedAt 없음) 방송. 리허설은 라벨이 없으므로 세지 않는다
+ */
+export async function hasOpenBroadcast(db: Db, sellerId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: broadcasts.id })
+    .from(broadcasts)
+    .innerJoin(scopes, and(eq(scopes.id, broadcasts.scopeId), eq(scopes.sellerId, sellerId), eq(scopes.rehearsal, false)))
+    .where(and(eq(broadcasts.sellerId, sellerId), isNotNull(broadcasts.openedAt), isNull(broadcasts.endedAt)))
+    .limit(1)
+  return rows.length > 0
 }
 
 /** 대기·출력 중·버릴 라벨 장 수 (실제 범위만) */
@@ -413,10 +427,17 @@ export async function openAttempt(db: Db, sellerId: string, jobRef: number): Pro
   return rows[0] ?? null
 }
 
-export async function finishAttempt(tx: Db, sellerId: string, id: number, result: string, now: Date): Promise<void> {
+/** 실패한 시도에 앱이 알린 까닭 (F2-2, D-RETRO-43) — 낱말·앱이 본 시각·함께 알린 값 JSON */
+export interface AttemptFailure {
+  readonly reason: string
+  readonly at: Date | null
+  readonly detail: string | null
+}
+
+export async function finishAttempt(tx: Db, sellerId: string, id: number, result: string, now: Date, failure: AttemptFailure | null = null): Promise<void> {
   await tx
     .update(printAttempts)
-    .set({ result, endedAt: now })
+    .set({ result, endedAt: now, ...(failure === null ? {} : { failReason: failure.reason, failAt: failure.at, failDetail: failure.detail }) })
     .where(and(eq(printAttempts.sellerId, sellerId), eq(printAttempts.id, id), isNull(printAttempts.result)))
 }
 

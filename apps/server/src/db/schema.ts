@@ -849,6 +849,12 @@ export const printAttempts = pgTable(
     result: text('result'),
     startedAt: timestamptz('started_at').notNull(),
     endedAt: timestamptz('ended_at'),
+    /** 실패한 까닭 (F2-2, D-RETRO-43): 출력 기기 앱이 아는 까닭 낱말 (print.ts ATTEMPT_CAUSE_REASONS). 모르거나 옛 앱이면 null */
+    failReason: text('fail_reason'),
+    /** 앱이 그 실패를 본 시각 (앱 시계 — 서버 시계 endedAt과 따로 둔다) */
+    failAt: timestamptz('fail_at'),
+    /** 앱이 함께 알린 값 JSON: 블루투스 상태·앱 앞/뒤·오류 번호·걸린 시간·프린터 프로필 ID뿐 (기기 주소·이름·라벨 내용 없음) */
+    failDetail: text('fail_detail'),
   },
   (t) => [unique('print_attempts_token_uq').on(t.sellerId, t.token), index('print_attempts_job_idx').on(t.jobRef)],
 )

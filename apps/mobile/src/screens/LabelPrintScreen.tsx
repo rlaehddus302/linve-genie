@@ -12,6 +12,7 @@ import { useServices } from '../services.tsx'
 import { BottomSheet, FormPage, ListRow, ToggleRow, Txt } from '../ui/kit/index.ts'
 import { Notice } from '../ui/parts.tsx'
 import { PLAIN, PlainRow } from './console/parts.tsx'
+import { LabelBacklog } from './LabelBacklog.tsx'
 import type { LabelSetupStep } from './LabelSetupScreen.tsx'
 
 export const LABEL_PRINT_TITLE = '라벨 프린트'
@@ -55,6 +56,7 @@ function useLabelPrint() {
 /**
  * 라이브 관리 안의 라벨 줄들 (D-UX4-130): 라벨 뽑기(켜고 끄기) · 프린터 연결(지금 프린터) › · 라벨 디자인 › · 테스트 인쇄 › · 출력 상태·농도 ›.
  * 흰 화면 줄 모양(PlainRow — 토스 "비밀번호 · 보안"). 부모는 화면 끝까지 넓어야 한다.
+ * 쌓인 라벨이 있으면 라벨 뽑기 줄 바로 아래에 "대기 n장 지금 뽑기"·"라벨 없는 판매 n건 뽑기" 줄이 생긴다(LabelBacklog — F1, D-RETRO-40·41).
  */
 export function LabelPrintRows({ openStep, openStatus, openHistory, openDirect }: LabelPrintNav) {
   const { snapshot, busy, error, printerName, enabled, switchLabels } = useLabelPrint()
@@ -71,6 +73,8 @@ export function LabelPrintRows({ openStep, openStatus, openHistory, openDirect }
       <View style={{ paddingHorizontal: PLAIN.side }}>
         <ToggleRow title={LABEL_PRINT_ROWS.on} titleStep="bodyLarge" titleWeight={PLAIN.weight} titleInk={PLAIN.ink} rowHeight={PLAIN.row} on={enabled} disabled={busy || snapshot.queue === null} onChange={switchLabels} onHelp={() => setHelp(true)} testID="label-print-on" />
       </View>
+      {/* 라벨 없는 판매 뽑기는 출력 내역과 같은 조건(판매자)에서만 */}
+      <LabelBacklog bulk={openHistory !== undefined} />
       <PlainRow title={LABEL_PRINT_ROWS.connect} value={printerName} testID="label-print-connect" onPress={() => openStep('connect')} />
       <PlainRow title={LABEL_PRINT_ROWS.design} testID="label-print-design" onPress={() => openStep('design')} />
       <PlainRow title={LABEL_PRINT_ROWS.test} testID="label-print-test" onPress={() => openStep('test')} />

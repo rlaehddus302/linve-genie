@@ -4,7 +4,9 @@ import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import { isApiError, newRequestId, post, withRetry } from '../api/client.ts'
 import { BigButton, ErrorLine, Txt } from '../ui/kit/index.ts'
 
-export type LabelEdits = { no?: number; name?: string; price?: number; nickname?: string }
+import type { LabelEdits } from '../lib/label-fix.ts'
+
+export type { LabelEdits }
 
 export function ProductLabelAction({ label, edits, title, disabled = false }: { label: LabelView; edits?: LabelEdits; title: string; disabled?: boolean }) {
   if (!label.canReprint && !label.canPrint) return label.word ? <Txt color="textSub">{label.word}</Txt> : null
