@@ -7,7 +7,10 @@
 //   바꿀 것만 넣는다. 사람이 고친 값 > 일꾼 값, 나중 > 먼저. 금액이 다르고 사람이 고친 값이 없으면 기준 계정(감사 채팅·라벨이 켜진 계정이 하나일 때)의
 //   값을 쓰고, 기준 계정이 없으면 덮어쓰지 않는다.
 // - 느린 꼬리(D-RETRO-12): 고친 요청이 커밋되면 바로 넣고, 그사이 온 요청은 한 번 더 돈다. 실패는 1초 뒤 다시, 5초 넘게 밀리면 로그·운영 상태에 남긴다.
-import { getBroadcast, getProduct } from '@livejjim/core'
+// - 기다리는 찜은 확인 뒤 확정 (D-RETRO-83, 복기 G6·A5 — 2026-11-12 313번: 다른 계정의 1만 원 손 등록이 먼저 들어와 기다리던 찜이 1만 원으로 확정, 실제는 3만 원):
+//   동기화로 새로 넣는 등록은 받는 계정에 그 번호로 기다리는 찜이 있으면 확인 중(임시 등록)으로 넣는다 — 그 계정 판매자가 확정한다. 없으면 지금처럼 판매 중.
+//   원천 상품이 확인 중이면(일꾼의 임시 등록을 사람이 고친 것) 받는 계정에도 확인 중으로. 한 계정에서 사람이 확정·거두면 다른 계정의 확인 중 상품도 확정·거둔다.
+import { getBroadcast, getProduct, pendingCount, type ProductInfo } from '@livejjim/core'
 import { sql, type SQL } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { errorKind, type LogCode, type LogSink } from '../log.ts'
@@ -18,8 +21,11 @@ type By = 'human' | 'worker'
 /** [누가, 원천 시각(ms)] */
 type Stamp = [By, number]
 
+/** 확인 중 표시에서 옮기는 것 (R-2 "확인 중") — 까닭 낱말과 후보 */
+type Tentative = { reasons: string[]; candidates?: { no?: number[]; price?: number[]; name?: string[] } }
+
 type Edit = {
-  type: 'product.open' | 'product.update' | 'product.register' | 'product.close' | 'product.renumber'
+  type: 'product.open' | 'product.update' | 'product.register' | 'product.close' | 'product.renumber' | 'product.confirm' | 'product.withdraw'
   no: number
   name: string
   price: number
@@ -29,6 +35,8 @@ type Edit = {
   setPrice: boolean
   /** 금액을 이미 찜한 손님(입금 전)에게도 적용했는지 — 받는 계정에도 같은 범위로 (D-RETRO-15) */
   applyTo?: 'UNPAID_CLAIMS'
+  /** 원천 상품이 (이 고침 뒤에도) 확인 중이다 — 받는 계정에 새로 넣을 때 확인 중으로 넣는다 (D-RETRO-83) */
+  tentative?: Tentative
   /** 원천 이벤트 (D-RETRO-11): 판매자·방송·순번·시각 */
   srcSeller?: string
   srcB?: string
@@ -50,11 +58,28 @@ export type Member = { id: string; seller_id: string; broadcast_id: string; date
 
 /** 값을 정한 쪽·원천 시각(ms)·같은 시각일 때의 차례(이벤트 행 번호) */
 export type Prov = { by: By; at: number; ord: number }
-/** 한 계정의 한 번호: 지금 값과 칸마다 그 값을 정한 쪽 (stateP = 등록·다시 열기·판매 종료 가운데 마지막) */
-export type Held = { name: string; price: number; closed: boolean; nameP: Prov; priceP: Prov; stateP: Prov }
+/** 한 계정의 한 번호: 지금 값과 칸마다 그 값을 정한 쪽 (stateP = 등록·다시 열기·판매 종료·확정 가운데 마지막). tentative = 지금 확인 중인지 (D-RETRO-83) */
+export type Held = { name: string; price: number; closed: boolean; nameP: Prov; priceP: Prov; stateP: Prov; tentative?: boolean }
 export type Party = Member & { held: Map<number, Held> }
 
-const KINDS = ['product.register', 'product.open', 'product.update', 'product.renumber', 'product.close'] as const
+const KINDS = ['product.register', 'product.open', 'product.update', 'product.renumber', 'product.close', 'product.confirm', 'product.withdraw'] as const
+/** 동기화로 넣는 확인 중 등록의 까닭 낱말 (코어 TENTATIVE_REASONS와 같은 글자) */
+const OTHER_ACCOUNT = 'OTHER_ACCOUNT'
+const PENDING_CLAIMS = 'PENDING_CLAIMS'
+
+const tentativeOf = (product: ProductInfo | null): Tentative | undefined => {
+  const t = product?.tentative
+  if (t === undefined) return undefined
+  const candidates = { ...(t.candidates.no.length ? { no: [...t.candidates.no] } : {}), ...(t.candidates.price.length ? { price: [...t.candidates.price] } : {}), ...(t.candidates.name.length ? { name: [...t.candidates.name] } : {}) }
+  return { reasons: [...t.reasons], ...(Object.keys(candidates).length ? { candidates } : {}) }
+}
+
+/** 받는 계정에 새로 넣는 등록의 확인 중 칸 — 원천이 확인 중이거나 그 번호로 기다리는 찜이 있을 때만 (없으면 undefined = 바로 판매 중) */
+function syncTentative(source: Tentative | undefined, waiting: boolean): Record<string, unknown> | undefined {
+  if (source === undefined && !waiting) return undefined
+  const reasons = [...new Set([...(source?.reasons ?? []), OTHER_ACCOUNT, ...(waiting ? [PENDING_CLAIMS] : [])])].slice(-6)
+  return { by: 'SYNC', reasons, ...(source?.candidates === undefined ? {} : { candidates: source.candidates }) }
+}
 const CATALOG_RE = /^catalog-(\d{1,18})(?:-open)?$/
 /** 쓰기 전에 밀린 전달을 기다리는 한도이자 "밀림"으로 보는 기준 (ms) */
 export const CATALOG_LATE_MS = 5000
@@ -91,7 +116,7 @@ export async function enqueueCatalogEdits(tx: Db, ctx: TxHookContext) {
     const e = record.event
     if (
       !record.changed ||
-      !['product.open', 'product.update', 'product.register', 'product.close', 'product.renumber'].includes(e.type) ||
+      !['product.open', 'product.update', 'product.register', 'product.close', 'product.renumber', 'product.confirm', 'product.withdraw'].includes(e.type) ||
       !('b' in e)
     )
       continue
@@ -100,13 +125,20 @@ export async function enqueueCatalogEdits(tx: Db, ctx: TxHookContext) {
       e.type !== 'product.update' &&
       e.type !== 'product.register' &&
       e.type !== 'product.close' &&
-      e.type !== 'product.renumber'
+      e.type !== 'product.renumber' &&
+      e.type !== 'product.confirm' &&
+      e.type !== 'product.withdraw'
     )
       continue
     if (e.type === 'product.update' && e.name === undefined && e.price === undefined) continue
-    const no = e.type === 'product.renumber' ? e.to : e.no
-    const product = getProduct(ctx.states[index]!, e.b, no)
+    const no = e.type === 'product.renumber' ? e.to : e.type === 'product.confirm' ? (e.to ?? e.no) : e.no
+    const earlier = index === 0 ? ctx.before : ctx.states[index - 1]!
+    // 거둔 상품은 지금 상태에 없다 — 거두기 전의 값으로 옮긴다
+    const product = e.type === 'product.withdraw' ? getProduct(earlier, e.b, e.no) : getProduct(ctx.states[index]!, e.b, no)
     if (!product) continue
+    // 확인 중 상품을 공개한 것은 지금 값으로 확정한 것이다 (R-2 "확인 중") — 다른 계정에도 확정으로 옮긴다
+    const kind = e.type === 'product.open' && getProduct(earlier, e.b, e.no)?.tentative !== undefined ? 'product.confirm' : e.type
+    const still = kind === 'product.withdraw' ? undefined : tentativeOf(product)
     const [link] = await rows<{ video_id: string }>(tx, sql`
       SELECT l.video_id FROM youtube_links l JOIN broadcasts b ON b.id=l.broadcast_id
       WHERE l.seller_id=${ctx.sellerId} AND l.broadcast_id=${e.b} AND l.unlinked_at IS NULL AND b.ended_at IS NULL
@@ -114,14 +146,16 @@ export async function enqueueCatalogEdits(tx: Db, ctx: TxHookContext) {
     if (!link) continue
     await lockVideo(tx, link.video_id)
     const edit: Edit = {
-      type: e.type,
+      type: kind,
       no,
       name: product.name,
       price: product.price,
       ...(e.type === 'product.renumber' ? { from: e.from } : {}),
-      setName: e.type !== 'product.open' && (e.type !== 'product.update' || e.name !== undefined),
-      setPrice: e.type !== 'product.open' && (e.type !== 'product.update' || e.price !== undefined),
+      ...(e.type === 'product.confirm' && e.to !== undefined && e.to !== e.no ? { from: e.no } : {}),
+      setName: kind !== 'product.open' && kind !== 'product.withdraw' && (e.type !== 'product.update' || e.name !== undefined),
+      setPrice: kind !== 'product.open' && kind !== 'product.withdraw' && (e.type !== 'product.update' || e.price !== undefined),
       ...(e.type === 'product.update' && e.price !== undefined && e.applyTo === 'UNPAID_CLAIMS' ? { applyTo: 'UNPAID_CLAIMS' as const } : {}),
+      ...(still === undefined ? {} : { tentative: still }),
       srcSeller: ctx.sellerId,
       srcB: e.b,
       srcSeq: record.seq,
@@ -196,11 +230,12 @@ async function holdings(tx: Db, member: Member): Promise<Map<number, Held>> {
     price: string | number | null
     old: number | null
     next: number | null
+    tent: boolean | null
   }>(
     tx,
     sql`
     SELECT id,type AS kind,actor,request_id,at,(body::jsonb->>'no')::int AS no,body::jsonb->>'name' AS name,(body::jsonb->>'price')::bigint AS price,
-      (body::jsonb->>'from')::int AS old,(body::jsonb->>'to')::int AS next FROM events
+      (body::jsonb->>'from')::int AS old,(body::jsonb->>'to')::int AS next,(body::jsonb->'tentative') IS NOT NULL AS tent FROM events
     WHERE seller_id=${member.seller_id} AND scope_id=${member.scope_id} AND changed AND NOT failed
     AND type IN (${sql.join(
       KINDS.map((kind) => sql`${kind}`),
@@ -234,11 +269,20 @@ async function holdings(tx: Db, member: Member): Promise<Map<number, Held>> {
     if (e.no === null) continue
     const last = held.get(e.no)
     if (e.kind === 'product.register') {
-      held.set(e.no, { name: e.name ?? '', price: Number(e.price), closed: false, nameP: prov('name'), priceP: prov('price'), stateP: prov('state') })
+      held.set(e.no, { name: e.name ?? '', price: Number(e.price), closed: false, nameP: prov('name'), priceP: prov('price'), stateP: prov('state'), ...(e.tent === true ? { tentative: true } : {}) })
+    } else if (e.kind === 'product.withdraw') {
+      // 거둔 확인 중 상품은 없는 번호다 (R-2 "확인 중")
+      held.delete(e.no)
     } else if (last !== undefined) {
-      if (e.kind === 'product.open' || e.kind === 'product.close') {
+      if (e.kind === 'product.open' || e.kind === 'product.close' || e.kind === 'product.confirm') {
         last.closed = e.kind === 'product.close'
         last.stateP = prov('state')
+        delete last.tentative
+      }
+      // 확정하며 번호를 옮겼으면 그 번호로 (엔진이 받은 확정만 changed다 — 옮길 번호는 비어 있었다)
+      if (e.kind === 'product.confirm' && e.next !== null && e.next !== e.no) {
+        held.delete(e.no)
+        held.set(e.next, last)
       }
       // 값이 실제로 바뀐 칸만 그 조치자의 값이다 (엔진과 같다 — 같은 값을 다시 적은 칸은 그대로)
       if (e.name !== null && e.name !== last.name) {
@@ -308,7 +352,9 @@ export function planFirstSync(members: readonly Party[], base: Party | null, now
       if (price === null) out.push({ to: m, body: { type: 'conflict', no, mine: h === undefined || h.closed ? null : h.price, prices, merge: true, queuedAt: now } })
       if (h === undefined) {
         // 금액을 정하지 못한 번호는 없는 계정에 새로 넣지 않는다 (틀린 금액으로 기다리던 찜이 확정되지 않게)
-        if (price !== null) out.push({ to: m, body: { type: 'product.register', no, name: name.value, price: price.value, setName: true, setPrice: true, merge: true, was: null, queuedAt: now, prov: { name: stamp(name.p), price: stamp(price.p), state: stamp(fact.p) } } })
+        // 가진 계정이 모두 확인 중이면 새 계정에도 확인 중으로 넣는다 (D-RETRO-83). 기다리는 찜이 있는지는 넣을 때 그 계정의 상태로 본다
+        const allTentative = open.every((x) => x.h.tentative === true)
+        if (price !== null) out.push({ to: m, body: { type: 'product.register', no, name: name.value, price: price.value, setName: true, setPrice: true, merge: true, was: null, queuedAt: now, prov: { name: stamp(name.p), price: stamp(price.p), state: stamp(fact.p) }, ...(allTentative ? { tentative: { reasons: [OTHER_ACCOUNT] } } : {}) } })
         continue
       }
       const setName = h.name !== name.value
@@ -631,7 +677,24 @@ export class CatalogDelivery {
         const target = getProduct(state, b, edit.no)
         const add = (fields: Record<string, unknown>) =>
           drafts.push({ fields: { ...fields, b }, actor: { kind: 'server' }, requestId: drafts.length ? `${requestId}-open` : requestId })
-        if (edit.type === 'product.close') {
+        // 다른 계정이 확정한 상품이 이 계정에서 아직 확인 중이면(같은 일꾼 임시 등록) 같은 값으로 확정한다 (D-RETRO-83)
+        const awaiting = edit.type === 'product.confirm' ? getProduct(state, b, edit.from ?? edit.no) : null
+        if (edit.type === 'product.withdraw') {
+          // 다른 계정이 거둔 임시 등록: 이 계정에서도 아직 확인 중일 때만 거둔다 (확정했거나 손으로 넣은 상품은 그대로)
+          if (target?.tentative !== undefined) add({ type: edit.type, no: edit.no })
+        } else if (awaiting !== null && awaiting.tentative !== undefined) {
+          const moving = awaiting.no !== edit.no
+          if (moving && target) seen.note = 'NUMBER_TAKEN'
+          else {
+            // 이 계정이 그 뒤에 스스로 고친 칸은 그대로 두고 확정한다 (차례 지키기, D-RETRO-11)
+            const name = edit.setName && !seen.name && awaiting.name !== edit.name
+            const price = edit.setPrice && !seen.price && awaiting.price !== edit.price
+            add({ type: 'product.confirm', no: awaiting.no, ...(moving ? { to: edit.no } : {}), ...(name ? { name: edit.name } : {}), ...(price ? { price: edit.price } : {}) })
+          }
+        } else if (awaiting !== null && awaiting.no !== edit.no && awaiting.status !== 'CLOSED') {
+          // 다른 계정은 번호를 옮겨 확정했는데 이 계정은 처음 번호로 이미 확정했다 — 같은 상품을 두 번호로 만들지 않는다 (사람이 본다)
+          seen.note = 'kept'
+        } else if (edit.type === 'product.close') {
           if (target && target.status !== 'CLOSED') add({ type: edit.type, no: edit.no })
         } else if (
           edit.type === 'product.renumber' &&
@@ -644,7 +707,11 @@ export class CatalogDelivery {
         } else if (!target) {
           // 처음 맞추기가 "있는 번호를 고침"으로 계산했는데 그사이 없어졌으면 새로 만들지 않는다
           if (edit.merge && edit.was) seen.note = 'kept'
-          else add({ type: 'product.register', no: edit.no, name: edit.name, price: edit.price })
+          else {
+            // 이 계정에 그 번호로 기다리는 찜이 있으면 확인 중으로 넣는다 — 다른 계정의 값으로 그 찜이 바로 확정되지 않게 (D-RETRO-83, 313번)
+            const tentative = syncTentative(edit.tentative, pendingCount(state, b, edit.no) > 0)
+            add({ type: 'product.register', no: edit.no, name: edit.name, price: edit.price, ...(tentative === undefined ? {} : { tentative }) })
+          }
         } else if (edit.merge && edit.was === null) {
           // 처음 맞추기가 "없는 번호에 등록"으로 계산했는데 그사이 누가 넣었으면 그 값을 그대로 둔다
           if (target.name !== edit.name || target.price !== edit.price) seen.note = 'kept'
@@ -665,7 +732,7 @@ export class CatalogDelivery {
               ...(name ? { name: edit.name } : {}),
               ...(price ? { price: edit.price, applyTo: edit.applyTo === 'UNPAID_CLAIMS' ? 'UNPAID_CLAIMS' : 'NEW_ONLY' } : {}),
             })
-          if ((edit.type === 'product.register' || edit.type === 'product.open') && target.status === 'CLOSED') add({ type: 'product.open', no: edit.no })
+          if ((edit.type === 'product.register' || edit.type === 'product.open' || edit.type === 'product.confirm') && target.status === 'CLOSED') add({ type: 'product.open', no: edit.no })
         }
         return drafts
       },

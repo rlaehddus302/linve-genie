@@ -396,6 +396,10 @@ export function compareExpect(expect: Expect, snapshot: GoldenSnapshot, where?: 
           if (want.confirmVersion !== undefined && want.confirmVersion !== product.confirmVersion) {
             push({ path: `${base}.confirmVersion`, expected: want.confirmVersion, actual: product.confirmVersion })
           }
+          // 확인 중인지 (R-2 "확인 중") — 이 값을 내지 않는 관찰은 확인 중이 아닌 것으로 본다
+          if (want.tentative !== undefined && want.tentative !== (product.tentative ?? false)) {
+            push({ path: `${base}.tentative`, expected: want.tentative, actual: product.tentative ?? false })
+          }
         }
         break
       }

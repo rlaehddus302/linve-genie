@@ -1,6 +1,6 @@
 // 판정 엔진 공개 API (R-0, AC-S02-01, AC-S03-01, AC-S04-01·05·08, AC-S06b-01): initEngine · applyEvent · 입력 검사 · 상태 형식 · 순수 도우미 · 조회 함수 · checkInvariants.
 export { initEngine, applyEvent } from './engine/reducer.ts'
-export { checkEvent, InvalidEventError, isInvalidEvent, EVENT_TYPES } from './engine/validate.ts'
+export { checkEvent, InvalidEventError, isInvalidEvent, EVENT_TYPES, TENTATIVE_BY, TENTATIVE_REASONS, TENTATIVE_LIMITS } from './engine/validate.ts'
 export { STATE_FORMAT, StateFormatError, isStateFormatError } from './engine/state-format.ts'
 export { upgradeState } from './engine/upgrade.ts'
 export { checkInvariants } from './engine/invariants.ts'
@@ -16,6 +16,7 @@ export {
   listProducts,
   listClaims,
   listPending,
+  pendingCount,
   getBuyer,
   listBuyers,
   currentBuyerOf,

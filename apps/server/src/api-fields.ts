@@ -29,6 +29,10 @@ export const API_EVENTS: Readonly<Record<string, ApiEventSpec>> = {
   'product.close': { broadcast: true, fields: [...BY_PRODUCT, VOICE_LOG_FIELD] },
   'product.update': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'applyTo', ...PRODUCT_OPTIONS, VOICE_LOG_FIELD] },
   'product.renumber': { broadcast: true, fields: ['b', 'from', 'to', 'reuseClosed', VOICE_LOG_FIELD] },
+  // 확인 중(임시 등록) 상품을 판매자가 한 번에 확정·거두기 (R-2 "확인 중", D-RETRO-82): 후보에서 고른 번호(to)·품종·금액을 함께 보낸다 — 적지 않은 칸은 지금 값.
+  // 확인 중으로 올리는 칸(product.register의 tentative)은 여기서 받지 않는다 — 판매자의 손 등록은 늘 바로 판매 중이다(일꾼 입구·계정 동기화만 임시로 올린다)
+  'product.confirm': { broadcast: true, fields: [...BY_PRODUCT, 'to', 'name', 'price'] },
+  'product.withdraw': { broadcast: true, fields: BY_PRODUCT },
   // O2: 지금 상품 정하기 (옵션 방송만, 화면은 5초 대기 없이 바로 보낸다 — D-O2-10)
   'product.focus': { broadcast: true, fields: BY_PRODUCT },
   // last4 (V1): 음성 문자찜의 뒤 4자리 — phone처럼 엔진 필드가 아니고 서버가 지정 구매자 또는 키·뒤 4자리로 바꾼다 (AC-V1-10)

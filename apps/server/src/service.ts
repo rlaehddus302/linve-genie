@@ -609,6 +609,11 @@ export class Service {
     body: Record<string, unknown>,
     queryDate: string | undefined,
     queryRehearsal?: boolean,
+    /**
+     * 서버 안쪽에서만 넣는 엔진 필드 (화면 API는 받지 않는다 — API_EVENTS 허용 목록 밖). 지금은 화면 일꾼 입구가 임시 등록의
+     * 확인 중 칸(product.register의 tentative)을 넣을 때만 쓴다 (D-RETRO-82)
+     */
+    serverFields?: Readonly<Record<string, unknown>>,
   ): Promise<WriteOutcome | { kind: 'phone'; outcome: WriteOutcome; phoneLast4: string | null }> {
     const type = own(body, 'type')
     const spec = typeof type === 'string' && Object.hasOwn(API_EVENTS, type) ? API_EVENTS[type] : undefined
@@ -627,6 +632,7 @@ export class Service {
       const value = own(body, field)
       if (value !== undefined && field !== 'phone' && field !== 'last4' && field !== 'newBuyer' && field !== 'voice' && field !== VOICE_LOG_FIELD) Object.defineProperty(fields, field, { value, enumerable: true, writable: true, configurable: true })
     }
+    for (const [field, value] of Object.entries(serverFields ?? {})) Object.defineProperty(fields, field, { value, enumerable: true, writable: true, configurable: true })
 
     // 범위 정하기: 방송이 있는 종류는 그 방송의 범위(날짜·리허설인지), 없는 종류는 요청에 적은 날짜와 리허설인지(적지 않으면 실제) (D-069, D-081)
     let date: string
@@ -1625,6 +1631,8 @@ const ACTION_BATCH = 1000
 function targetsProduct(event: Record<string, unknown>, product: ProductFilter): boolean {
   if (event.b !== product.b) return false
   if (event.type === 'product.renumber') return event.from === product.no || event.to === product.no
+  // 확인 중 상품을 다른 번호로 확정 (R-2 "확인 중") — 처음 번호·최종 번호 모두
+  if (event.type === 'product.confirm') return event.no === product.no || event.to === product.no
   return event.no === product.no
 }
 

@@ -137,6 +137,78 @@ function productOptionTexts(e: Readonly<Record<string, unknown>>): [string, stri
   return [...(e.options === undefined ? [] : checkOptionsShape(e.options).texts), ...(e.aliases === undefined ? [] : checkAliasesShape(e.aliases).texts)]
 }
 
+// ── 확인 중 칸 (R-2 "확인 중", D-RETRO-80) ───────────────────────────────
+
+/** 확인 중으로 올린 쪽 */
+export const TENTATIVE_BY: readonly string[] = ['WORKER', 'SYNC']
+/**
+ * 지금 쓰는 까닭 낱말 (화면이 쉬운 문장으로 바꾼다). 엔진은 모양(영문 대문자·숫자·`_` 1~32자)만 검사한다 —
+ * 일꾼이 낱말을 더해도 서버·엔진을 먼저 고치지 않아도 되게(모르는 낱말은 화면이 "확인이 필요해요"로 보인다).
+ */
+export const TENTATIVE_REASONS = Object.freeze({
+  /** 번호 근거가 하나뿐 (말한 번호만, 또는 화면 번호표만) */
+  NUMBER_SINGLE_SOURCE: 'NUMBER_SINGLE_SOURCE',
+  /** 말한 번호와 화면 번호표가 다름 (숫자 쌍 불일치) */
+  NUMBER_MISMATCH: 'NUMBER_MISMATCH',
+  /** 오늘 쓰는 번호대 밖 */
+  NUMBER_OUT_OF_RANGE: 'NUMBER_OUT_OF_RANGE',
+  /** 금액 근거가 하나뿐 (규칙 값만, 또는 LLM 값만) */
+  PRICE_SINGLE_SOURCE: 'PRICE_SINGLE_SOURCE',
+  /** 금액 답이 갈림 (규칙 값 ≠ LLM 값) */
+  PRICE_DISAGREE: 'PRICE_DISAGREE',
+  /** 자릿수·가격대가 이 판매자와 맞지 않음 */
+  PRICE_OUT_OF_RANGE: 'PRICE_OUT_OF_RANGE',
+  /** 품종 답이 갈리거나 사전에 없음 */
+  NAME_UNSURE: 'NAME_UNSURE',
+  /** 다른 계정이 넣은 값 (계정 동기화) */
+  OTHER_ACCOUNT: 'OTHER_ACCOUNT',
+  /** 이 번호로 기다리는 찜이 있음 (계정 동기화) */
+  PENDING_CLAIMS: 'PENDING_CLAIMS',
+} as const)
+/** 확인 중 칸의 크기 제한: 까닭 6개, 후보는 칸마다 4개, 품종 후보 60자 */
+export const TENTATIVE_LIMITS = Object.freeze({ reasons: 6, candidates: 4, name: 60 })
+const TENTATIVE_REASON_RE = /^[A-Z][A-Z0-9_]{0,31}$/
+const TENTATIVE_KEYS: readonly string[] = ['by', 'reasons', 'candidates']
+const CANDIDATE_KEYS: readonly string[] = ['no', 'price', 'name']
+const isRecord = (v: unknown): v is Readonly<Record<string, unknown>> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** product.register의 tentative 칸: 모양 문제와 글 칸(품종 후보) */
+function checkTentativeShape(value: unknown): { readonly problems: EventProblem[]; readonly texts: [string, string][] } {
+  const problems: EventProblem[] = []
+  const texts: [string, string][] = []
+  const bad = (field: string, message: string): void => void problems.push({ field, message })
+  if (!isRecord(value)) {
+    bad('tentative', '확인 중 칸은 { by, reasons, candidates? } 객체여야 한다')
+    return { problems, texts }
+  }
+  for (const key of Reflect.ownKeys(value)) if (typeof key !== 'string' || !TENTATIVE_KEYS.includes(key)) bad(`tentative.${String(key)}`, '확인 중 칸에 없는 항목이다')
+  if (typeof value.by !== 'string' || !TENTATIVE_BY.includes(value.by)) bad('tentative.by', `${TENTATIVE_BY.join(' / ')} 중 하나여야 한다`)
+  const reasons = value.reasons
+  if (!Array.isArray(reasons) || reasons.length < 1 || reasons.length > TENTATIVE_LIMITS.reasons) bad('tentative.reasons', `까닭 낱말은 1~${String(TENTATIVE_LIMITS.reasons)}개 목록이어야 한다`)
+  else if (!reasons.every((reason) => typeof reason === 'string' && TENTATIVE_REASON_RE.test(reason))) bad('tentative.reasons', "까닭 낱말은 영문 대문자로 시작하는 대문자·숫자·'_' 1~32자여야 한다")
+  else if (new Set(reasons).size !== reasons.length) bad('tentative.reasons', '까닭 낱말이 겹친다')
+  const candidates = value.candidates
+  if (candidates === undefined) return { problems, texts }
+  if (!isRecord(candidates)) {
+    bad('tentative.candidates', '후보는 { no?, price?, name? } 객체여야 한다')
+    return { problems, texts }
+  }
+  for (const key of Reflect.ownKeys(candidates)) if (typeof key !== 'string' || !CANDIDATE_KEYS.includes(key)) bad(`tentative.candidates.${String(key)}`, '후보에 없는 항목이다')
+  const list = (key: 'no' | 'price' | 'name', ok: (item: unknown) => boolean, message: string): void => {
+    const items = candidates[key]
+    if (items === undefined) return
+    const field = `tentative.candidates.${key}`
+    if (!Array.isArray(items) || items.length > TENTATIVE_LIMITS.candidates) bad(field, `후보는 ${String(TENTATIVE_LIMITS.candidates)}개까지의 목록이어야 한다`)
+    else if (!items.every(ok)) bad(field, message)
+    else if (new Set(items).size !== items.length) bad(field, '후보가 겹친다')
+    else if (key === 'name') for (const item of items as string[]) texts.push([field, item])
+  }
+  list('no', (item) => isInt(item, 1), '번호 후보는 1 이상 정수여야 한다')
+  list('price', (item) => isInt(item, 0), '금액 후보는 0 이상 정수(원)여야 한다')
+  list('name', (item) => typeof item === 'string' && item.trim() !== '' && [...item].length <= TENTATIVE_LIMITS.name, `품종 후보는 빈 글이 아닌 ${String(TENTATIVE_LIMITS.name)}자까지의 글이어야 한다`)
+  return { problems, texts }
+}
+
 const pickShape = (e: Readonly<Record<string, unknown>>): EventProblem[] => (e.options === undefined ? [] : checkPickShape(e.options))
 const PRODUCT_OPTIONS = { aliases: nestedShape, options: nestedShape, stocks: nestedShape }
 const PICK = { options: nestedShape }
@@ -160,9 +232,11 @@ const SPECS: Readonly<Record<string, Spec>> = {
   'broadcast.pendingExpire': { required: { [BROADCAST]: id, expire: bool } },
   'product.register': {
     required: { ...BY_PRODUCT, name: freeText, price: money },
-    optional: { stock, status: oneOf('OPEN', 'READY'), ...PRODUCT_OPTIONS },
-    nested: productOptionShapes,
-    texts: productOptionTexts,
+    optional: { stock, status: oneOf('OPEN', 'READY'), ...PRODUCT_OPTIONS, tentative: nestedShape },
+    nested: (e) => [...productOptionShapes(e), ...(e.tentative === undefined ? [] : checkTentativeShape(e.tentative).problems)],
+    texts: (e) => [...productOptionTexts(e), ...(e.tentative === undefined ? [] : checkTentativeShape(e.tentative).texts)],
+    // 확인 중으로 올리는 등록은 공개 전이다 — 바로 판매 중(OPEN)과 함께 쓸 수 없다 (R-2 "확인 중")
+    extra: (e) => (e.tentative !== undefined && e.status === 'OPEN' ? { field: 'status', message: '확인 중(tentative)으로 올리는 등록은 OPEN일 수 없다' } : null),
   },
   'product.open': { required: BY_PRODUCT },
   'product.hold': { required: BY_PRODUCT },
@@ -174,6 +248,9 @@ const SPECS: Readonly<Record<string, Spec>> = {
     texts: productOptionTexts,
   },
   'product.renumber': { required: { [BROADCAST]: id, from: no, to: no }, optional: { reuseClosed: bool } },
+  // 확인 중 상품 확정·거두기 (R-2 "확인 중", D-RETRO-80)
+  'product.confirm': { required: BY_PRODUCT, optional: { to: no, name: freeText, price: money } },
+  'product.withdraw': { required: BY_PRODUCT },
   'product.focus': { required: BY_PRODUCT },
   chat: { required: { [BROADCAST]: id, id, ch: channel, nick: text, text }, optional: { owner: bool, publishedAt: time } },
   sms: {

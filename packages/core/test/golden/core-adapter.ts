@@ -118,6 +118,8 @@ export function toSnapshot(state: EngineState): GoldenSnapshot {
       confirmVersion: product.confirmVersion,
       confirmedUnits: product.confirmedUnits,
       hasOptions: product.hasOptions,
+      // 확인 중인 상품에만 싣는다 — 없으면 확인 중이 아닌 것으로 견준다 (R-2 "확인 중", D-RETRO-80)
+      ...(product.tentative === undefined ? {} : { tentative: true }),
     }
     for (const variant of product.variants) {
       variants[variant.key] = { status: variant.status, winners: variant.winners, waitlist: variant.waitlist, stock: variant.stock, confirmedUnits: variant.confirmedUnits }

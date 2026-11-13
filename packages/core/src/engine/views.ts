@@ -176,6 +176,18 @@ function productInfo(state: EngineState, r: Draft, slot: SlotRecord, product: Pr
     hasOptions: product.options.length > 0,
     confirmedUnits: confirmed,
     variants,
+    // 확인 중인 상품에만 싣는다 (R-2 "확인 중") — 닉네임·채팅 글은 없다
+    ...(product.tentative === undefined
+      ? {}
+      : {
+          tentative: {
+            by: product.tentative.by,
+            reasons: [...product.tentative.reasons],
+            candidates: { no: [...product.tentative.candidates.no], price: [...product.tentative.candidates.price], name: [...product.tentative.candidates.name] },
+            seq: product.tentative.seq,
+            at: product.tentative.at,
+          },
+        }),
   }
 }
 
@@ -258,6 +270,11 @@ export function listPending(state: EngineState): PendingInfo[] {
       const claims = sortedPending(r, slot)
       return { product: slot.key, broadcast: slot.b, no: slot.no, buyers: claims.map((id) => r.root(claimOf(state, id).buyer)), claims }
     })
+}
+
+/** 그 번호에 기다리는 보류 찜 수 (상품이 없어도 센다). 계정 동기화가 "기다리는 찜이 있는 번호"를 볼 때 쓴다 (D-RETRO-83) */
+export function pendingCount(state: EngineState, broadcast: string, no: number): number {
+  return pget(state.slots, `${broadcast}/${String(no)}`)?.pending.size ?? 0
 }
 
 /** 구매자 자신과 합쳐진 구매자 전부의 확정 찜, 생성 순서 */

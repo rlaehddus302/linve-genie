@@ -1,0 +1,227 @@
+# 라이브 복기(2026-11-12) — 확인 중(임시 등록) 상품 (SPEC PRD-07, DOMAIN_RULES R-2 "확인 중"·R-5·R-10·R-13, D-RETRO-80~82).
+# 화면 일꾼·계정 동기화가 확인 없이 올린 값으로 기다리던 찜이 확정돼 틀린 번호·가격·품종의 감사 채팅과 라벨이 나간 일을 막는다:
+# 임시 등록은 공개 전이라 찜은 보류로 받고, 확정(product.confirm)하는 순간 도착 순서대로 **확정하는 값**으로 판정해 그때 효과를 낸다.
+# 확인 중 칸(tentative)을 적지 않은 등록은 지금 그대로 바로 판매 중이다(G-ENG-RETRO-07 — 옛 방송 재생, D-072).
+# 운영 판매자 기본값처럼 등록 전 찜을 만료하지 않는 방송은 첫 이벤트 broadcast.pendingExpire(expire: false)로 만든다(D-PEND-01 — 서버가 방송마다 넣는 이벤트와 같다).
+# 모든 기대값은 손으로 계산했다. 감사 문구 = "{번호}번 {품종} {가격} {구매자}님 구매 감사합니다"(R-13).
+---
+id: G-ENG-RETRO-01
+title: 313번 — 임시 등록(1만 원) 동안 온 찜은 보류이고 효과가 없다. 3만 원으로 확정하면 먼저 온 순서대로 3만 원으로 확정되고 그때 라벨·감사가 나온다
+refs: [PRD-07, ORD-03, YT-04, R-2, R-4, R-5, R-13, D-RETRO-80, D-RETRO-81]
+settings: {}
+broadcasts: [{ id: b1, date: 2026-11-12, title: 다육 라이브 }]
+events:
+  - { at: "13:18:00", type: broadcast.pendingExpire, b: b1, expire: false }   # 운영처럼 등록 전 찜을 만료하지 않는다 (D-PEND-01)
+  - { at: "13:18:28", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "313" }     # 상품보다 먼저 온 찜 — 보류
+  - { at: "13:19:21", type: product.register, b: b1, no: 313, name: 빅뱅, price: 10000, tentative: { by: SYNC, reasons: [OTHER_ACCOUNT, PENDING_CLAIMS] } }   # 다른 계정의 1만 원 손 등록이 동기화로 — 확인 중
+  - { at: "13:19:21.5", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "313" }     # 확인 중에 온 찜도 보류
+  - { at: "13:19:21.7", type: sms, b: b1, ref: s1, no: 313, received: "13:19" }              # 문자찜도 보류
+  - type: assert
+    expect:
+      products:
+        b1/313: { status: READY, tentative: true, winner: null, waitlist: [], price: 10000, confirmVersion: 0 }
+      pending: { b1/313: [UC_A, UC_B, sms:s1] }
+      effectCounts: { PRINT_PRODUCT_LABEL: 0, POST_THANKS: 0 }       # 확인 중에는 라벨·감사가 하나도 나오지 않는다
+      claimCount: 3
+  - { at: "13:19:22", type: product.confirm, b: b1, no: 313, price: 30000 }               # 판매자가 3만 원으로 확정 → A 확정(1), B·문자찜 대기
+expect:
+  products:
+    b1/313: { status: SOLD, tentative: false, winner: UC_A, waitlist: [UC_B, sms:s1], price: 30000, priceHistory: [{ from: 10000, to: 30000 }], confirmVersion: 1 }
+  pending: { b1/313: [] }
+  claims:
+    - { product: b1/313, buyer: UC_A, status: CONFIRMED }
+    - { product: b1/313, buyer: UC_B, status: WAITLISTED }
+    - { product: b1/313, buyer: sms:s1, status: WAITLISTED }
+  buyers:
+    UC_A: { items: [b1/313], subtotal: 30000 }     # 확정 시점의 가격 스냅샷 — 1만 원이 아니다
+  settlements:
+    UC_A@2026-11-12: { subtotal: 30000, shipping: 4000, total: 34000, payment: UNPAID }
+  effects:
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/313, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/313, buyer: UC_A, text: "313번 빅뱅 30,000원 홍길동님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { PRINT_PRODUCT_LABEL: 1, POST_THANKS: 1 }
+---
+id: G-ENG-RETRO-02
+title: 333/334 — 틀린 번호(334)로 임시 등록됐다가 옳은 번호(333)로 확정하면 333으로 기다리던 찜이 도착 순서대로 확정된다. 334로 온 보류 찜은 334의 보류 찜으로 남는다
+refs: [PRD-07, PRD-02, R-2, R-5, R-10, D-056, D-RETRO-80, D-RETRO-81]
+settings: { print.autoOnConfirm: false }
+broadcasts: [{ id: b1, date: 2026-11-12, title: 다육 라이브 }]
+events:
+  - { at: "11:00:00", type: broadcast.pendingExpire, b: b1, expire: false }   # 운영처럼 등록 전 찜을 만료하지 않는다 (D-PEND-01)
+  - { at: "11:00:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "333" }
+  - { at: "11:00:03", type: product.register, b: b1, no: 334, name: 색금, price: 20000, stock: 2, tentative: { by: WORKER, reasons: [NUMBER_MISMATCH], candidates: { no: [334, 333] } } }   # 말한 번호 333, 화면 번호표 334(3↔4는 귀로 헷갈리는 쌍 — 화면을 따르되 확인 중)
+  - { at: "11:00:04", type: chat, b: b1, id: m2, ch: UC_B, nick: 나, text: "333" }
+  - { at: "11:00:05", type: chat, b: b1, id: m3, ch: UC_C, nick: 다, text: "334" }
+  - { at: "11:00:06", type: chat, b: b1, id: m4, ch: UC_D, nick: 라, text: "333" }
+  - type: assert
+    expect:
+      products:
+        b1/334: { status: READY, tentative: true }
+        b1/333: { exists: false }
+      pending: { b1/333: [UC_A, UC_B, UC_D], b1/334: [UC_C] }
+      effectCounts: { POST_THANKS: 0 }
+  - { at: "11:00:15", type: product.confirm, b: b1, no: 334, to: 333 }                     # 판매자가 [333] 단추 한 번 → 재고 2: A·B 확정, D 대기
+expect:
+  products:
+    b1/334: { exists: false }
+    b1/333: { status: SOLD, tentative: false, winners: [UC_A, UC_B], waitlist: [UC_D], price: 20000, confirmVersion: 2 }
+  pending: { b1/333: [], b1/334: [UC_C] }             # 없는 번호를 쓴 찜은 그 번호의 보류 찜으로 남는다 (R-10 1)
+  claims:
+    - { product: b1/334, buyer: UC_C, status: PENDING }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/333, buyer: UC_A, text: "333번 색금 20,000원 가님 구매 감사합니다", confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/333, buyer: UC_B, text: "333번 색금 20,000원 나님 구매 감사합니다", confirmVersion: 2 }
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 0 }
+---
+id: G-ENG-RETRO-03
+title: 거두기 — 확인 중 상품을 거두면 상품 기록이 없어지고 그 번호의 보류 찜은 그대로 보류다. 같은 번호를 손으로 등록하면 그 찜이 도착 순서대로 판정된다
+refs: [PRD-07, PRD-01, R-2, R-4, R-5, D-RETRO-80]
+settings: { print.autoOnConfirm: false }
+broadcasts: [{ id: b1, date: 2026-11-12, title: 다육 라이브 }]
+events:
+  - { at: "11:10:00", type: broadcast.pendingExpire, b: b1, expire: false }   # 운영처럼 등록 전 찜을 만료하지 않는다 (D-PEND-01)
+  - { at: "11:10:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "40" }
+  - { at: "11:10:02", type: product.register, b: b1, no: 40, name: 세검, price: 3000, tentative: { by: WORKER, reasons: [NUMBER_SINGLE_SOURCE, PRICE_SINGLE_SOURCE] } }
+  - { at: "11:10:03", type: chat, b: b1, id: m2, ch: UC_B, nick: 나, text: "40" }
+  - { at: "11:10:09", type: product.withdraw, b: b1, no: 40 }                              # 근거가 모이지 않아 일꾼이 거둠
+  - type: assert
+    expect:
+      products:
+        b1/40: { exists: false }
+      pending: { b1/40: [UC_A, UC_B] }                # 보류 찜은 하나도 끝나지 않는다
+      claims:
+        - { product: b1/40, buyer: UC_A, status: PENDING }
+        - { product: b1/40, buyer: UC_B, status: PENDING }
+      effectCounts: { POST_THANKS: 0 }
+  - { at: "11:10:10", type: chat, b: b1, id: m3, ch: UC_C, nick: 다, text: "40" }           # 거둔 번호에 온 찜도 보류 (없는 번호와 같다)
+  - { at: "11:10:30", type: product.withdraw, b: b1, no: 40 }                              # 이미 거둔 번호 — 아무 일도 없다
+  - { at: "11:10:40", type: product.register, b: b1, no: 40, name: 색금, price: 30000 }     # 판매자의 손 등록은 바로 판매 중 → A 확정, B·C 대기
+expect:
+  products:
+    b1/40: { status: SOLD, tentative: false, winner: UC_A, waitlist: [UC_B, UC_C], price: 30000, priceHistory: [], confirmVersion: 1 }
+  pending: { b1/40: [] }
+  buyers:
+    UC_A: { items: [b1/40], subtotal: 30000 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/40, buyer: UC_A, text: "40번 색금 30,000원 가님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { POST_THANKS: 1 }
+  claimCount: 3
+---
+id: G-ENG-RETRO-04
+title: 보류 찜 유효 시간은 임시 등록 시각에서 잰다 — 확정이 5분 늦어도 임시 등록 30초 전(경계 포함)부터 온 찜은 판정하고, 그보다 오래된 찜만 만료한다
+refs: [PRD-07, ORD-04, R-5, D-052, D-PEND-01, D-RETRO-81]
+settings: { print.autoOnConfirm: false, thanks.liveChat: false }      # claim.preOpenExpire 기본(예)·유효 시간 30초
+broadcasts: [{ id: b1, date: 2026-11-12, title: 다육 라이브 }]
+events:
+  - { at: "12:00:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "50" }           # 임시 등록 40초 전 — 만료
+  - { at: "12:00:10", type: chat, b: b1, id: m2, ch: UC_B, nick: 나, text: "50" }           # 임시 등록 30초 전 정각 — 경계 포함, 판정
+  - { at: "12:00:40", type: product.register, b: b1, no: 50, name: 창, price: 15000, stock: 3, tentative: { by: WORKER, reasons: [PRICE_DISAGREE], candidates: { price: [15000, 150000] } } }
+  - { at: "12:01:40", type: chat, b: b1, id: m3, ch: UC_C, nick: 다, text: "50" }           # 확인 중에 온 찜
+  - { at: "12:05:40", type: product.confirm, b: b1, no: 50 }                               # 5분 뒤 확정 — T = 임시 등록 시각 12:00:40
+expect:
+  products:
+    b1/50: { status: OPEN, tentative: false, winners: [UC_B, UC_C], price: 15000 }
+  claims:
+    - { product: b1/50, buyer: UC_A, status: REJECTED, reason: EXPIRED }
+    - { product: b1/50, buyer: UC_B, status: CONFIRMED }
+    - { product: b1/50, buyer: UC_C, status: CONFIRMED }
+  buyers:
+    UC_B: { subtotal: 15000 }
+    UC_C: { subtotal: 15000 }
+---
+id: G-ENG-RETRO-05
+title: 확인 중에 고친 값과 번호 변경은 확정 때 그대로 쓰인다. 공개(product.open)는 지금 값으로 확정한 것이고, 확인 중 상품의 판매 종료는 지금 규칙 그대로다
+refs: [PRD-07, PRD-02, PRD-03, R-2, R-10, D-055, D-056, D-RETRO-80]
+settings: { print.autoOnConfirm: false }
+broadcasts: [{ id: b1, date: 2026-11-12, title: 다육 라이브 }]
+events:
+  - { at: "13:00:00", type: broadcast.pendingExpire, b: b1, expire: false }   # 운영처럼 등록 전 찜을 만료하지 않는다 (D-PEND-01)
+  - { at: "13:00:00", type: product.register, b: b1, no: 11, name: "", price: 5000, tentative: { by: WORKER, reasons: [NUMBER_SINGLE_SOURCE, NAME_UNSURE], candidates: { no: [11, 17], name: [삼광, 상광] } } }
+  - { at: "13:00:01", type: product.register, b: b1, no: 21, name: 리마인드, price: 20000, tentative: { by: WORKER, reasons: [PRICE_SINGLE_SOURCE] } }
+  - { at: "13:00:02", type: product.register, b: b1, no: 31, name: 없는 상품, price: 1000, tentative: { by: WORKER, reasons: [NUMBER_OUT_OF_RANGE] } }
+  - { at: "13:00:03", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "17" }
+  - { at: "13:00:04", type: chat, b: b1, id: m2, ch: UC_B, nick: 나, text: "21" }
+  - { at: "13:00:05", type: chat, b: b1, id: m3, ch: UC_C, nick: 다, text: "31" }
+  - { at: "13:00:06", type: product.update, b: b1, no: 11, name: 삼광, price: 50000 }       # 확인 중에 판매자가 고침 — 확인 중 그대로
+  - { at: "13:00:07", type: product.renumber, b: b1, from: 11, to: 17 }                    # 번호 변경 — 확인 중 그대로, 17의 보류 찜은 아직 보류
+  - { at: "13:00:08", type: product.register, b: b1, no: 21, name: 다른 값, price: 99000 }   # 같은 번호 다시 등록 — 아무 일도 없다 (R-2)
+  - type: assert
+    expect:
+      products:
+        b1/11: { exists: false }
+        b1/17: { status: READY, tentative: true, price: 50000, priceHistory: [{ from: 5000, to: 50000 }] }
+        b1/21: { status: READY, tentative: true, price: 20000 }
+        b1/31: { status: READY, tentative: true }
+      pending: { b1/17: [UC_A], b1/21: [UC_B], b1/31: [UC_C] }
+      effectCounts: { POST_THANKS: 0 }
+  - { at: "13:00:10", type: product.confirm, b: b1, no: 17 }                               # 값 없이 확정 = 지금 값(삼광 5만 원)
+  - { at: "13:00:11", type: product.open, b: b1, no: 21 }                                  # 공개 = 지금 값으로 확정
+  - { at: "13:00:12", type: product.close, b: b1, no: 31 }                                 # 판매 종료 — 보류 찜은 REJECTED(NOT_ON_SALE), 확인 중 표시는 사라진다
+  - { at: "13:00:13", type: product.confirm, b: b1, no: 21, price: 1000, name: 늦은 확정 }   # 이미 확정한 상품 — 아무 일도 없다 (늦게 온 확정이 값을 덮지 않는다)
+  - { at: "13:00:14", type: product.withdraw, b: b1, no: 17 }                              # 확인 중이 아닌 상품 — 아무 일도 없다
+expect:
+  products:
+    b1/17: { status: SOLD, tentative: false, winner: UC_A, price: 50000, confirmVersion: 1 }
+    b1/21: { status: SOLD, tentative: false, winner: UC_B, price: 20000, priceHistory: [] }
+    b1/31: { status: CLOSED, tentative: false, winner: null }
+  claims:
+    - { product: b1/31, buyer: UC_C, status: REJECTED, reason: NOT_ON_SALE }
+  buyers:
+    UC_A: { items: [b1/17], subtotal: 50000 }
+    UC_B: { items: [b1/21], subtotal: 20000 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/17, buyer: UC_A, text: "17번 삼광 50,000원 가님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/21, buyer: UC_B, text: "21번 리마인드 20,000원 나님 구매 감사합니다" }
+  effectCounts: { POST_THANKS: 2 }
+---
+id: G-ENG-RETRO-06
+title: 확정하며 번호·품종·금액을 함께 정한다 — 옮길 번호에 상품이 이미 있으면 확정 전체가 아무 일도 없고, 비어 있는 번호로는 한 번에 확정된다. 확정 뒤의 고침은 지금 규칙(R-10·R-13)대로다
+refs: [PRD-07, PRD-02, YT-04, R-2, R-10, R-13, D-RETRO-02, D-RETRO-80]
+settings: { print.autoOnConfirm: false, thanks.followEdits: true }
+broadcasts: [{ id: b1, date: 2026-11-12, title: 다육 라이브 }]
+events:
+  - { at: "14:00:00", type: broadcast.pendingExpire, b: b1, expire: false }   # 운영처럼 등록 전 찜을 만료하지 않는다 (D-PEND-01)
+  - { at: "14:00:00", type: product.register, b: b1, no: 388, name: 손톱, price: 10000 }    # 손 등록 — 바로 판매 중
+  - { at: "14:00:01", type: product.register, b: b1, no: 383, name: 녹음에지는, price: 3000, tentative: { by: WORKER, reasons: [NUMBER_MISMATCH, PRICE_DISAGREE, NAME_UNSURE], candidates: { no: [383, 388, 389], price: [3000, 30000], name: [녹금, 녹음에지는] } } }
+  - { at: "14:00:02", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "389" }
+  - { at: "14:00:03", type: product.confirm, b: b1, no: 383, to: 388, name: 녹금, price: 30000 }   # 388에는 상품이 있다 — 이벤트 전체가 아무 일도 없다 (품종·금액도 그대로)
+  - type: assert
+    expect:
+      products:
+        b1/383: { status: READY, tentative: true, price: 3000, priceHistory: [] }
+        b1/388: { status: OPEN, tentative: false, price: 10000 }
+      pending: { b1/389: [UC_A] }
+  - { at: "14:00:04", type: product.confirm, b: b1, no: 383, to: 389, name: 녹금, price: 30000 }   # 번호 389·품종 녹금·3만 원으로 한 번에 확정 → A 확정
+  - { at: "14:00:06", type: product.update, b: b1, no: 389, name: 창녹금 }                        # 확정 뒤 고침 — 게시 전 감사 문구가 따라간다 (D-RETRO-02)
+expect:
+  products:
+    b1/383: { exists: false }
+    b1/389: { status: SOLD, tentative: false, winner: UC_A, price: 30000, priceHistory: [{ from: 3000, to: 30000 }], confirmVersion: 1 }
+  buyers:
+    UC_A: { items: [b1/389], subtotal: 30000 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/389, buyer: UC_A, text: "389번 창녹금 30,000원 가님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { POST_THANKS: 1 }
+---
+id: G-ENG-RETRO-07
+title: 확인 중 칸을 적지 않은 등록은 지금 그대로다 — 손 등록·옛 일꾼 등록은 바로 판매 중이고 기다리던 찜이 그 값으로 확정된다. 확정·거두기는 그런 상품을 건드리지 않는다 (옛 방송 재생)
+refs: [PRD-01, PRD-07, R-0, R-2, R-5, D-072, D-RETRO-80]
+settings: { print.autoOnConfirm: false }
+broadcasts: [{ id: b1, date: 2026-11-12, title: 다육 라이브 }]
+events:
+  - { at: "15:00:00", type: broadcast.pendingExpire, b: b1, expire: false }   # 운영처럼 등록 전 찜을 만료하지 않는다 (D-PEND-01)
+  - { at: "15:00:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "15" }
+  - { at: "15:00:01", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }  # 확인 중 칸 없음 → 바로 판매 중, A 확정
+  - { at: "15:00:02", type: product.register, b: b1, no: 16, name: 라울, price: 8000, status: READY }   # 지금의 공개 전 상품 — 확인 중이 아니다
+  - { at: "15:00:03", type: chat, b: b1, id: m2, ch: UC_B, nick: 나, text: "16" }
+  - { at: "15:00:04", type: product.confirm, b: b1, no: 15, price: 1 }                     # 확인 중이 아님 — 아무 일도 없다
+  - { at: "15:00:05", type: product.confirm, b: b1, no: 16, price: 1 }                     # 공개 전이지만 확인 중이 아님 — 아무 일도 없다 (공개는 product.open)
+  - { at: "15:00:06", type: product.withdraw, b: b1, no: 16 }                              # 아무 일도 없다
+expect:
+  products:
+    b1/15: { status: SOLD, tentative: false, winner: UC_A, price: 10000, priceHistory: [] }
+    b1/16: { status: READY, tentative: false, price: 8000, priceHistory: [] }
+  pending: { b1/16: [UC_B] }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, text: "15번 핑크프릴 10,000원 가님 구매 감사합니다" }
+  effectCounts: { POST_THANKS: 1 }

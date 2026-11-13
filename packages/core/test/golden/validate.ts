@@ -97,6 +97,8 @@ export interface ProductExpect {
   /** 지금까지 확정 횟수 (0 이상 정수 — 코어 ProductInfo.confirmVersion, N5 D-N5-14) */
   readonly confirmVersion?: number
   readonly confirmedUnits?: number
+  /** 확인 중(임시 등록)인지 (R-2 "확인 중", D-RETRO-80) */
+  readonly tentative?: boolean
 }
 
 /** `variants."<방송>/<번호>#<옵션 글>"` (O1) */
@@ -470,6 +472,7 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
         if (hasValue(product, 'price')) c.value([...kp, 'price'], product.price, intAtLeast(0))
         if (hasValue(product, 'confirmedUnits')) c.value([...kp, 'confirmedUnits'], product.confirmedUnits, intAtLeast(0))
         if (hasValue(product, 'confirmVersion')) c.value([...kp, 'confirmVersion'], product.confirmVersion, intAtLeast(0))
+        if (hasValue(product, 'tentative')) c.value([...kp, 'tentative'], product.tentative, bool)
         if (hasValue(product, 'priceHistory')) {
           const hp = [...kp, 'priceHistory']
           if (c.array(hp, product.priceHistory)) {
@@ -1051,6 +1054,14 @@ function checkOptionEvent(c: Checker, ctx: ScenarioContext, path: readonly PathS
     if (from !== undefined && !ctx.catalog.has(`${entry.b}/${String(entry.to)}`)) {
       ctx.catalog.set(`${entry.b}/${String(entry.to)}`, from)
       ctx.catalog.delete(`${entry.b}/${String(entry.from)}`)
+    }
+  }
+  // 확인 중 상품을 다른 번호로 확정하면 상품 옵션도 그 번호로 옮긴다 (번호 변경과 같다 — R-2 "확인 중")
+  if (type === 'product.confirm' && typeof entry.b === 'string' && hasValue(entry, 'to') && entry.to !== entry.no) {
+    const from = ctx.catalog.get(`${entry.b}/${String(entry.no)}`)
+    if (from !== undefined && !ctx.catalog.has(`${entry.b}/${String(entry.to)}`)) {
+      ctx.catalog.set(`${entry.b}/${String(entry.to)}`, from)
+      ctx.catalog.delete(`${entry.b}/${String(entry.no)}`)
     }
   }
   if (mode === undefined) return

@@ -109,6 +109,8 @@ export interface ProductView {
   readonly confirmVersion?: number
   /** (O1) 모든 변형의 확정 수량 합 (옵션 없는 상품은 확정 찜 수량의 합). 없으면 확정 구매자 수로 본다 */
   readonly confirmedUnits?: number
+  /** 확인 중(임시 등록)인지 (코어 ProductInfo.tentative가 있는지 — R-2 "확인 중", D-RETRO-80). 이 값을 내지 않는 관찰은 확인 중이 아닌 것으로 본다 */
+  readonly tentative?: boolean
   /** (O1) 옵션 항목이 있는 상품인지 — 상품 단위 winner·waitlist를 적으면 러너 오류다(D-O1-01) */
   readonly hasOptions?: boolean
 }

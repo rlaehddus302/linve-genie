@@ -177,6 +177,12 @@ export function checkInvariants(state: EngineState): InvariantViolation[] {
     checkSlot(slot, bySlot.get(slot.key) ?? [], context)
     bySlot.delete(slot.key)
     if (slot.product !== null && !isMoney(slot.product.price)) out.push({ id: 'INV-6', message: `상품 ${slot.key} 가격이 0 이상의 정수가 아니다 (값: ${String(slot.product.price)})` })
+    // INV-13: 확인 중 상품은 공개 전이고 확정·대기·충돌 찜이 없다 — 확정 전에는 효과(라벨·감사)가 나오지 않는다 (R-2 "확인 중")
+    if (slot.product?.tentative !== undefined) {
+      const busy = slot.winners.length > 0 || slot.waitlist.length > 0 || slot.conflict !== null || slot.units.some((unit) => unit.winners.length > 0 || unit.waitlist.length > 0 || unit.conflict !== null)
+      if (slot.product.phase !== 'READY') out.push({ id: 'INV-13', message: `상품 ${slot.key}: 확인 중인데 공개 전이 아니다 (단계: ${slot.product.phase})` })
+      if (busy) out.push({ id: 'INV-13', message: `상품 ${slot.key}: 확인 중인데 확정·대기·충돌 찜이 있다` })
+    }
   }
   // 번호 기록이 없는 찜은 거절된 찜뿐이다(차단·판매 아님 등으로 번호를 만들지 않았다)
   for (const orphans of bySlot.values()) {

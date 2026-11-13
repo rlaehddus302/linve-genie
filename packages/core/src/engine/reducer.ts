@@ -81,11 +81,13 @@ import type {
   HostResolveConflictEvent,
   HostResolveReviewEvent,
   ProductCommandEvent,
+  ProductConfirmEvent,
   ProductFocusEvent,
   ProductRecord,
   ProductRegisterEvent,
   ProductRenumberEvent,
   ProductUpdateEvent,
+  ProductWithdrawEvent,
   ReviewReason,
   ReviewRecord,
   SettlementAdjustEvent,
@@ -94,6 +96,8 @@ import type {
   SettlementRefundEvent,
   SettlementShippingEvent,
   SmsEvent,
+  TentativeInput,
+  TentativeRecord,
   VariantStock,
 } from './types.ts'
 
@@ -375,15 +379,47 @@ function variantStocks(options: readonly OptionItem[], stocks: Readonly<Record<s
   return variantTexts(options).map((text) => ({ text, stock: stocks !== undefined && Object.hasOwn(stocks, text) ? (stocks[text] as number) : base(text) }))
 }
 
+/** 확인 중 칸 → 상태 기록 (R-2 "확인 중"). 시각은 임시 등록 이벤트의 것 */
+function tentativeOf(d: Draft, input: TentativeInput): TentativeRecord {
+  const candidates = input.candidates
+  return {
+    by: input.by,
+    reasons: [...input.reasons],
+    candidates: { no: [...(candidates?.no ?? [])], price: [...(candidates?.price ?? [])], name: [...(candidates?.name ?? [])] },
+    seq: d.seq,
+    at: d.at,
+  }
+}
+
+/** 확인 중 표시를 뗀 상품 기록 (확인 중이 아니면 같은 칸·같은 순서의 사본) */
+function settled(product: ProductRecord): Omit<ProductRecord, 'tentative'> {
+  const { tentative: _tentative, ...rest } = product
+  return rest
+}
+
 function register(d: Draft, e: ProductRegisterEvent): void {
   if (d.readSlot(slotKey(e.b, e.no))?.product) return
   const slot = d.slot(e.b, e.no)
-  const phase = e.status === 'READY' ? 'READY' : 'SELLING'
+  // 확인 중으로 올린 등록은 공개 전이다 — 찜은 보류로 받고 확정(product.confirm)·공개(product.open) 때 판정한다 (R-2 "확인 중", D-RETRO-80)
+  const phase = e.status === 'READY' || e.tentative !== undefined ? 'READY' : 'SELLING'
   const id = d.newProductId()
   const stock = e.stock ?? 1
   const options = e.options ?? []
   const variants = variantStocks(options, e.stocks, () => stock)
-  slot.product = { id, name: e.name, price: e.price, stock, phase, priceHistory: [], nameHistory: [], aliases: [...(e.aliases ?? [])], options, variants }
+  // 확인 중 칸은 적은 등록의 상품에만 넣는다 — 적지 않은 등록의 상품 기록은 지금과 글자까지 같다 (옛 로그 재생, D-072)
+  slot.product = {
+    id,
+    name: e.name,
+    price: e.price,
+    stock,
+    phase,
+    priceHistory: [],
+    nameHistory: [],
+    aliases: [...(e.aliases ?? [])],
+    options,
+    variants,
+    ...(e.tentative === undefined ? {} : { tentative: tentativeOf(d, e.tentative) }),
+  }
   slot.units = withPendingUnits(d, slot, variants.map(({ text }) => ({ ...emptyUnit(text), winners: [], waitlist: [] })))
   d.setProductKey(id, slot.key)
   if (phase === 'SELLING') {
@@ -440,9 +476,10 @@ function productCommand(d: Draft, e: ProductCommandEvent): void {
   if (e.type === 'product.open') {
     if (phase === 'SELLING') return
     const slot = d.slot(e.b, e.no)
-    slot.product = { ...product, phase: 'SELLING' }
+    // 확인 중 상품을 공개하면 지금 값으로 확정한 것이다 — 표시를 떼고, 보류 찜 유효 시간은 임시 등록 시각에서 잰다 (R-2 "확인 중", R-5)
+    slot.product = { ...settled(product), phase: 'SELLING' }
     setFocus(d, e.b, product.id)
-    openPending(d, slot, e.at, openHooks(d, e.no))
+    openPending(d, slot, openedAtOf(product, e.at), openHooks(d, e.no))
     return
   }
   if (e.type === 'product.hold') {
@@ -455,7 +492,8 @@ function productCommand(d: Draft, e: ProductCommandEvent): void {
   const busy = current.winners.length > 0 || current.waitlist.length > 0 || current.units.some((unit) => unit.winners.length > 0 || unit.waitlist.length > 0)
   if (phase === 'CLOSED' || busy) return
   const slot = d.slot(e.b, e.no)
-  slot.product = { ...product, phase: 'CLOSED' }
+  // 판매 종료하면 확인 중 표시도 사라진다 — 방송자가 정한 것이라 더 물을 것이 없다 (R-2 "확인 중")
+  slot.product = { ...settled(product), phase: 'CLOSED' }
   clearFocus(d, e.b, product.id)
   const ids = pkeys(slot.pending).sort((a, b) => claimNumber(a) - claimNumber(b))
   slot.pending = emptyPMap()
@@ -611,8 +649,18 @@ function renumber(d: Draft, e: ProductRenumberEvent): void {
     }
     unit.awaiting = false
   }
-  // 상품은 품종·가격·재고·옵션·상태·이력·확정버전을 가지고 b로 (지금 상품도 상품 ID로 따라간다 — 정한 시각 그대로)
-  const to = d.slot(e.b, e.to)
+  const to = moveProduct(d, from, e.to)
+  if (product.phase === 'SELLING') openPending(d, to, e.at, openHooks(d, e.to))
+}
+
+/**
+ * 상품을 다른 번호로 옮긴다 (R-10 번호 변경 2, 확인 중 상품의 확정 — 부르는 쪽이 옮길 수 있는지와 옛 번호의 확정·대기·충돌 찜 정리를 끝냈다).
+ * 상품은 품종·가격·재고·옵션·상태·이력·확정버전을 가지고 새 번호로 (지금 상품도 상품 ID로 따라간다 — 정한 시각 그대로).
+ * 옛 번호의 보류 찜은 그 번호에 그대로 남는다.
+ */
+function moveProduct(d: Draft, from: SlotDraft, toNo: number): SlotDraft {
+  const product = from.product as ProductRecord
+  const to = d.slot(from.b, toNo)
   to.product = product
   to.version = from.version
   to.units = withPendingUnits(d, to, product.variants.map(({ text }) => ({ ...emptyUnit(text), winners: [], waitlist: [] })))
@@ -622,7 +670,55 @@ function renumber(d: Draft, e: ProductRenumberEvent): void {
   from.units = withPendingUnits(d, from, [])
   from.requests = []
   d.setProductKey(product.id, to.key)
-  if (product.phase === 'SELLING') openPending(d, to, e.at, openHooks(d, e.to))
+  return to
+}
+
+// ── 확인 중 상품 (R-2 "확인 중", D-RETRO-80) ─────────────────────────────
+
+/** 공개 시각 (R-5의 T): 확인 중이던 상품은 임시 등록 시각 — 확정이 늦어도 임시 등록 때 온 찜이 유효 시간 밖으로 밀리지 않는다 */
+function openedAtOf(product: ProductRecord, at: number): number {
+  return product.tentative === undefined ? at : Math.min(at, product.tentative.at)
+}
+
+/**
+ * product.confirm: 확인 중 상품의 최종 번호·품종·금액을 정하고 공개한다. 그 번호(최종 번호)의 보류 찜을 판정 순위대로, 확정하는 지금의 값으로 판정한다(R-5).
+ * - 확인 중이 아닌 상품·없는 번호면 아무 일도 없다 (이미 확정한 상품에 늦게 온 확정이 값을 덮지 않는다).
+ * - 최종 번호에 상품 기록이 이미 있으면(CLOSED 포함) 이벤트 전체가 아무 일도 없다 (R-10 번호 변경과 같다).
+ * - 바뀐 품종·금액은 이력을 남긴다. 처음 번호에 와 있던 보류 찜은 그 번호의 보류 찜으로 남는다(R-10 1).
+ */
+function confirmTentative(d: Draft, e: ProductConfirmEvent): void {
+  const product = d.readSlot(slotKey(e.b, e.no))?.product
+  if (product === null || product === undefined || product.tentative === undefined) return
+  const toNo = e.to ?? e.no
+  if (toNo !== e.no && d.readSlot(slotKey(e.b, toNo))?.product) return
+  const change = { seq: d.seq, at: d.at }
+  const name = e.name !== undefined && e.name !== product.name ? e.name : undefined
+  const price = e.price !== undefined && e.price !== product.price ? e.price : undefined
+  const from = d.slot(e.b, e.no)
+  const slot = toNo === e.no ? from : moveProduct(d, from, toNo)
+  slot.product = {
+    ...settled(product),
+    ...(name === undefined ? {} : { name, nameHistory: [...product.nameHistory, { from: product.name, to: name, ...change }] }),
+    ...(price === undefined ? {} : { price, priceHistory: [...product.priceHistory, { from: product.price, to: price, ...change }] }),
+    phase: 'SELLING',
+  }
+  setFocus(d, e.b, product.id)
+  openPending(d, slot, openedAtOf(product, e.at), openHooks(d, toNo))
+}
+
+/**
+ * product.withdraw: 확인 중 상품을 거둔다 — 그 번호의 상품 기록이 없어진다(다시 등록할 수 있다). 그 번호의 보류 찜은 그대로 보류다.
+ * 확인 중이 아닌 상품·없는 번호면 아무 일도 없다. 상품 ID → 번호 지도는 남긴다(그 상품에 붙어 끝난 찜이 마지막 번호를 가리키게).
+ */
+function withdraw(d: Draft, e: ProductWithdrawEvent): void {
+  const product = d.readSlot(slotKey(e.b, e.no))?.product
+  if (product === null || product === undefined || product.tentative === undefined) return
+  const slot = d.slot(e.b, e.no)
+  slot.product = null
+  slot.version = 0
+  // 변형 보류 찜의 자리는 남긴다 (번호 변경 뒤의 옛 번호와 같다 — R-10 1)
+  slot.units = withPendingUnits(d, slot, [])
+  clearFocus(d, e.b, product.id)
 }
 
 // ── 채팅 (R-4 머리말 "채팅 메시지에서 찜까지", D-045, 옵션 방송은 R-20) ───
@@ -1179,6 +1275,8 @@ const HANDLERS: Readonly<Record<string, (d: Draft, event: never) => void>> = {
   'product.close': productCommand,
   'product.update': update,
   'product.renumber': renumber,
+  'product.confirm': confirmTentative,
+  'product.withdraw': withdraw,
   'product.focus': focus,
   chat,
   sms,

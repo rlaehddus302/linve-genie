@@ -232,7 +232,7 @@ export interface WriterOptions {
 }
 
 /** 상품 공개가 일어날 수 있는 이벤트 (R-5 — 보류 찜을 판정하는 때) */
-const OPENING_TYPES: ReadonlySet<unknown> = new Set(['product.register', 'product.open', 'product.renumber'])
+const OPENING_TYPES: ReadonlySet<unknown> = new Set(['product.register', 'product.open', 'product.renumber', 'product.confirm'])
 
 /** D-PEND-01: 공개 이벤트 앞에 그 방송의 만료 끄기를 덧붙인다(이미 꺼졌거나 끝난 방송·모르는 방송이면 그대로) */
 function withPendingKept(state: EngineState, drafts: readonly Draft[]): readonly Draft[] {

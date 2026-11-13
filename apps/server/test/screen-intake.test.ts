@@ -245,7 +245,8 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
     const connected = await connectSeller(world)
     const { b, live } = await linkedBroadcast(world, connected)
     const listed = await get()
-    expect(listed.body).toEqual({ videos: [{ videoId: live.videoId }] })
+    // D-RETRO-84: 영상마다 그 방송의 가격 단위(설정 스냅샷 price.unit — 기본 THOUSAND)를 함께 싣는다 (교체: 이전에는 videoId만)
+    expect(listed.body).toEqual({ videos: [{ videoId: live.videoId, priceUnit: 'THOUSAND' }] })
     // 판매자·방송 정보는 내보내지 않는다
     expect(listed.text).not.toContain(connected.seller.sellerId)
     expect(listed.text).not.toContain(b.id)
@@ -271,10 +272,13 @@ describe('D-RETRO-32 서버가 받는 일꾼 요청 목록·판 번호', () => {
     const got = await caps(world.server.app)
     expect(got.status, got.text).toBe(200)
     // 응답 예 — 일꾼(sw/post.py)이 이 모양에 기댄다. 입구·항목을 더할 때만 여기도 더한다
+    // D-RETRO-82: 임시 등록 선택지(register의 tentative)와 확정·거두기 입구(confirm·withdraw)를 더했다
     expect(got.body).toEqual({
       commit: null,
       endpoints: {
-        register: { method: 'POST', path: '/internal/screen/register', fields: ['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt'] },
+        register: { method: 'POST', path: '/internal/screen/register', fields: ['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt', 'tentative'] },
+        confirm: { method: 'POST', path: '/internal/screen/confirm', fields: ['videoId', 'no', 'requestId', 'registerRequestId', 'to', 'price', 'name'] },
+        withdraw: { method: 'POST', path: '/internal/screen/withdraw', fields: ['videoId', 'no', 'requestId', 'registerRequestId'] },
         renumber: { method: 'POST', path: '/internal/screen/renumber', fields: ['videoId', 'from', 'to', 'requestId', 'drop', 'registerRequestId'] },
         rename: { method: 'POST', path: '/internal/screen/rename', fields: ['videoId', 'no', 'name', 'requestId'] },
         reprice: { method: 'POST', path: '/internal/screen/reprice', fields: ['videoId', 'no', 'price', 'requestId'] },
@@ -293,7 +297,8 @@ describe('D-RETRO-32 서버가 받는 일꾼 요청 목록·판 번호', () => {
       return JSON.stringify(await response.json())
     }
     const posts = Object.values(endpoints).filter((e) => e.method === 'POST')
-    expect(posts.map((e) => e.path).sort()).toEqual(['/internal/screen/end-stale', '/internal/screen/register', '/internal/screen/rename', '/internal/screen/renumber', '/internal/screen/reprice'])
+    // D-RETRO-82: 확정·거두기 입구를 더했다
+    expect(posts.map((e) => e.path).sort()).toEqual(['/internal/screen/confirm', '/internal/screen/end-stale', '/internal/screen/register', '/internal/screen/rename', '/internal/screen/renumber', '/internal/screen/reprice', '/internal/screen/withdraw'])
     for (const endpoint of posts) {
       const listed = Object.fromEntries(endpoint.fields.map((field) => [field, null]))
       expect(await send(endpoint.path, listed), endpoint.path).not.toContain('받을 수 없는 항목')

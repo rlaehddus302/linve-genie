@@ -139,6 +139,56 @@ export interface ProductRegisterEvent extends EventBase {
   readonly options?: readonly OptionItem[]
   /** 옵션 글 → 변형 재고(0 이상). 키는 그 상품의 변형이어야 한다 (옵션 방송만, D-O1-03) */
   readonly stocks?: Readonly<Record<string, number>>
+  /**
+   * 확인 중(임시 등록)으로 올린다 (R-2 "확인 중", D-RETRO-80). 적으면 상품은 공개 전(READY)이고 확인 중 표시가 붙는다 — `status: OPEN`과 함께 쓰면 입력 오류.
+   * 적지 않은 등록은 지금 그대로다(판매자의 손 등록은 바로 판매 중).
+   */
+  readonly tentative?: TentativeInput
+}
+
+/** 확인 중으로 올린 쪽: 화면 일꾼 · 계정 동기화 (R-2 "확인 중") */
+export type TentativeBy = 'WORKER' | 'SYNC'
+
+/** 확인 중 상품의 후보 값 (판매자 화면이 좌우 단추로 띄운다). 칸마다 4개까지, 겹치지 않게 */
+export interface TentativeCandidates {
+  /** 번호 후보 (1 이상 정수) */
+  readonly no?: readonly number[]
+  /** 금액 후보 (정수 원, 0 이상) */
+  readonly price?: readonly number[]
+  /** 품종 후보 (60자까지 — 글 칸) */
+  readonly name?: readonly string[]
+}
+
+/** product.register의 확인 중 칸 */
+export interface TentativeInput {
+  readonly by: TentativeBy
+  /** 까닭 낱말 (영문 대문자·숫자·`_` 1~32자, 6개까지 — 화면이 쉬운 문장으로 바꾼다. 아는 낱말은 TENTATIVE_REASONS) */
+  readonly reasons: readonly string[]
+  readonly candidates?: TentativeCandidates
+}
+
+/**
+ * 확인 중 상품 확정 (R-2 "확인 중", D-RETRO-80): 최종 번호·금액·품종을 정하고 공개한다.
+ * 확인 중이 아닌 상품·없는 번호면 아무 일도 없다. `to`에 상품 기록이 이미 있으면 이벤트 전체가 아무 일도 없다(R-10 번호 변경과 같다).
+ */
+export interface ProductConfirmEvent extends EventBase {
+  readonly type: 'product.confirm'
+  readonly b: string
+  /** 지금 번호 */
+  readonly no: number
+  /** 최종 번호 (적지 않으면 지금 번호) */
+  readonly to?: number
+  /** 최종 품종 (적지 않으면 지금 값) */
+  readonly name?: string
+  /** 최종 금액 — 정수 원, 0 이상 (적지 않으면 지금 값) */
+  readonly price?: number
+}
+
+/** 확인 중 상품 거두기 (R-2 "확인 중", D-RETRO-80): 상품 기록을 없앤다. 그 번호의 보류 찜은 그대로 보류다. 확인 중이 아니면 아무 일도 없다 */
+export interface ProductWithdrawEvent extends EventBase {
+  readonly type: 'product.withdraw'
+  readonly b: string
+  readonly no: number
 }
 
 export interface ProductCommandEvent extends EventBase {
@@ -387,6 +437,8 @@ export type EngineEvent =
   | ProductCommandEvent
   | ProductUpdateEvent
   | ProductRenumberEvent
+  | ProductConfirmEvent
+  | ProductWithdrawEvent
   | ProductFocusEvent
   | ChatEvent
   | SmsEvent
@@ -478,6 +530,19 @@ export interface VariantStock {
   readonly stock: number
 }
 
+/**
+ * 확인 중 표시 (R-2 "확인 중", D-RETRO-80). 확인 중으로 올린 상품에만 있고, 확정·판매 종료하면 사라진다.
+ * 닉네임·채팅 글은 담지 않는다 — 후보는 일꾼·동기화가 낸 번호·금액·품종뿐이다.
+ */
+export interface TentativeRecord {
+  readonly by: TentativeBy
+  readonly reasons: readonly string[]
+  readonly candidates: { readonly no: readonly number[]; readonly price: readonly number[]; readonly name: readonly string[] }
+  /** 임시 등록한 이벤트의 seq·at. 확정할 때 보류 찜 유효 시간(R-5)은 이 시각에서 잰다 — 확정이 늦어도 임시 등록 때 온 찜이 만료되지 않게 */
+  readonly seq: number
+  readonly at: number
+}
+
 export interface ProductRecord {
   /** 상품 ID (`p1`부터). 번호를 바꿔도 그대로다 (D-056) */
   readonly id: string
@@ -494,6 +559,11 @@ export interface ProductRecord {
   readonly options: readonly OptionItem[]
   /** 변형마다의 재고, 항목 순서·선택지 순서 (옵션이 없으면 빈 목록) */
   readonly variants: readonly VariantStock[]
+  /**
+   * 확인 중 표시 (R-2 "확인 중"). 확인 중인 상품에만 이 칸이 있다 — 없는 상품의 기록에는 칸 자체를 넣지 않는다:
+   * 이 칸이 없던 옛 이벤트 로그를 재생한 상태가 글자까지 그대로여야 한다(INV-4, D-072 — thanks.followEdits와 같은 방식, D-RETRO-02).
+   */
+  readonly tentative?: TentativeRecord
 }
 
 /** 방송의 번호 하나 (상품이 아직 없어도 보류 찜이 있으면 생긴다) */
@@ -806,6 +876,22 @@ export interface ProductInfo {
   readonly confirmedUnits: number
   /** 변형, 항목 순서·선택지 순서 (옵션이 없으면 빈 목록) */
   readonly variants: readonly VariantInfo[]
+  /**
+   * 확인 중 표시 (R-2 "확인 중", D-RETRO-80). 확인 중인 상품에만 있다(상태는 READY) — 없으면 확인 중이 아니다.
+   * 누가 올렸나·까닭 낱말·후보(번호·금액·품종)·임시 등록 시각. 닉네임·채팅 글은 없다.
+   */
+  readonly tentative?: TentativeInfo
+}
+
+/** 확인 중 표시 (조회) */
+export interface TentativeInfo {
+  readonly by: TentativeBy
+  readonly reasons: readonly string[]
+  readonly candidates: { readonly no: readonly number[]; readonly price: readonly number[]; readonly name: readonly string[] }
+  /** 임시 등록한 이벤트의 순번 (서버가 "그 등록이 만든 상품"인지 볼 때 쓴다) */
+  readonly seq: number
+  /** 임시 등록 시각 */
+  readonly at: number
 }
 
 /** 변형 하나 (R-19 "변형과 재고 단위", D-O1-01) */

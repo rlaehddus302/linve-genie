@@ -79,9 +79,14 @@ describe('AC-S04-50 판매 규칙 설정 읽기·바꾸기', () => {
 
 describe('AC-S04-51 이벤트 쓰기 API', () => {
   // O2(AC-O2-31, D-O2-14): 옵션 방송 이벤트(지금 상품 product.focus·확인 필요 바로잡기 host.resolveReview·지우기 host.dismissReview)의 쓰기 API를 열었다 — product.* 6 → 7, host.* 12 → 14 (교체)
-  it('화면이 보낼 수 있는 종류는 product.*(7)·sms·host.*(14)·buyer.merge/unmerge·settlement.*(4) — 모두 엔진이 처리하는 종류다', () => {
+  // D-RETRO-82: 확인 중(임시 등록) 상품을 판매자가 확정·거두는 product.confirm·product.withdraw의 쓰기 API를 열었다 — product.* 7 → 9 (교체)
+  it('화면이 보낼 수 있는 종류는 product.*(9)·sms·host.*(14)·buyer.merge/unmerge·settlement.*(4) — 모두 엔진이 처리하는 종류다', () => {
     const types = Object.keys(API_EVENTS)
-    expect(types.filter((type) => type.startsWith('product.'))).toHaveLength(7)
+    expect(types.filter((type) => type.startsWith('product.'))).toHaveLength(9)
+    expect(types).toContain('product.confirm')
+    expect(types).toContain('product.withdraw')
+    // 확인 중으로 올리는 칸은 화면이 보내지 못한다 — 판매자의 손 등록은 늘 바로 판매 중이다 (D-RETRO-82)
+    expect(API_EVENTS['product.register']?.fields).not.toContain('tentative')
     expect(types.filter((type) => type.startsWith('host.'))).toHaveLength(14)
     expect(types.filter((type) => type.startsWith('settlement.'))).toHaveLength(4)
     expect(types.filter((type) => type.startsWith('buyer.')).sort()).toEqual(['buyer.merge', 'buyer.unmerge'])
@@ -91,9 +96,11 @@ describe('AC-S04-51 이벤트 쓰기 API', () => {
     expect(types).toContain('host.dismissReview')
     // D-YT-SRV-24: 방송 중 감사 켜기·끄기 broadcast.thanks를 방송 메뉴에서 보낸다 — 종류 하나 추가 (+1)
     expect(types.filter((type) => type.startsWith('broadcast.'))).toEqual(['broadcast.thanks'])
-    expect(types).toHaveLength(7 + 14 + 4 + 2 + 1 + 1)
+    expect(types).toHaveLength(9 + 14 + 4 + 2 + 1 + 1)
     for (const type of types) expect(EVENT_TYPES).toContain(type)
-    const engineOnly = ['broadcast.start', 'broadcast.end', 'chat', 'effect.labelPrinted', 'effect.thanksSent']
+    // D-RETRO-85: broadcast.pendingExpire(D-PEND-01)는 서버가 상품 공개 이벤트 앞에 스스로 덧붙이는 종류다(writer.ts withPendingKept) — 화면이 보내는 종류가 아니다.
+    // D-PEND-01이 엔진에 종류를 더하며 이 목록을 고치지 않아 깨져 있던 것을 스펙(R-5 "방송 중에는 broadcast.pendingExpire로")대로 바로잡는다
+    const engineOnly = ['broadcast.start', 'broadcast.end', 'broadcast.pendingExpire', 'chat', 'effect.labelPrinted', 'effect.thanksSent']
     for (const type of EVENT_TYPES) if (!types.includes(type)) expect(engineOnly).toContain(type)
   })
 

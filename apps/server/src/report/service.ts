@@ -111,6 +111,8 @@ interface ProductEventBody {
   readonly to?: unknown
   readonly status?: unknown
   readonly at?: unknown
+  /** 확인 중으로 올린 등록 (R-2 "확인 중") */
+  readonly tentative?: unknown
 }
 
 const slotKey = (b: string, no: number) => JSON.stringify([b, no])
@@ -124,13 +126,14 @@ export class ReportService {
 
   /**
    * 그 범위에서 상품(방송·번호 자리)이 처음 판매 중이 된 시각 (UTC 밀리초) — 등록(상태를 READY로 적지 않음)·공개 이벤트의 at.
-   * 번호 바꾸기는 자리를 따라 옮긴다. 엔진이 거절한(failed) 이벤트는 보지 않는다
+   * 번호 바꾸기는 자리를 따라 옮긴다. 엔진이 거절한(failed) 이벤트는 보지 않는다.
+   * 확인 중으로 올린 등록(R-2 "확인 중")은 아직 판매 중이 아니다 — 확정(product.confirm, 상태를 바꾼 것만)한 때가 처음 판매 중이 된 시각이고 자리는 최종 번호다
    */
   async #openedTimes(sellerId: string, scopeId: string): Promise<Map<string, number>> {
     const rows = await this.#deps.db
-      .select({ type: events.type, body: events.body })
+      .select({ type: events.type, body: events.body, changed: events.changed })
       .from(events)
-      .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), eq(events.failed, false), inArray(events.type, ['product.register', 'product.open', 'product.renumber'])))
+      .where(and(eq(events.sellerId, sellerId), eq(events.scopeId, scopeId), eq(events.failed, false), inArray(events.type, ['product.register', 'product.open', 'product.renumber', 'product.confirm'])))
       .orderBy(asc(events.seq))
     const opened = new Map<string, number>()
     for (const row of rows) {
@@ -150,7 +153,13 @@ export class ReportService {
         continue
       }
       if (typeof body.no !== 'number' || typeof body.at !== 'number') continue
-      if (row.type === 'product.register' && body.status === 'READY') continue
+      if (row.type === 'product.register' && (body.status === 'READY' || body.tentative !== undefined)) continue
+      if (row.type === 'product.confirm') {
+        if (!row.changed) continue
+        const to = slotKey(body.b, typeof body.to === 'number' ? body.to : body.no)
+        if (!opened.has(to)) opened.set(to, body.at)
+        continue
+      }
       const key = slotKey(body.b, body.no)
       if (!opened.has(key)) opened.set(key, body.at)
     }

@@ -234,6 +234,12 @@ export function checkOptionContext(state: EngineState, type: string, e: Rec): Ev
       if (product === null) return [{ field: 'no', message: '그 방송에 그 번호의 상품이 없다 (R-20 7)' }]
       return [...qtyProblem(e.qty, settings), ...pickProblems(product, e.options, true)]
     }
+    case 'product.confirm': {
+      // 확정하며 정하는 금액도 변형 단가가 0원 아래로 내려가면 안 된다 (R-19 "가격")
+      if (product === null || e.price === undefined || product.options.length === 0) return []
+      return lowestUnitPrice(e.price as number, product.options) < 0 ? [{ field: 'price', message: '변형 단가(상품 가격 + 가격 차이)는 0원 이상이어야 한다' }] : []
+    }
+    case 'product.withdraw':
     case 'product.focus':
     case 'host.dismissReview':
       return []

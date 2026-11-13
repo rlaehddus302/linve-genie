@@ -3,7 +3,10 @@
 // 기록을 뒤에서 앞으로 보며 번호를 바꾸는 두 이벤트의 결과(기록할 때 엔진이 낸 changed)만 되돌린다 — 판정을 다시 하지 않는다.
 // - product.register가 상태를 바꿨다 = 그 번호에 상품이 새로 생겼다 → 그 앞에는 그 번호가 비어 있었다.
 // - product.renumber가 상태를 바꿨다 = from의 상품이 to로 옮겨 갔다 → 그 앞에는 그 상품이 from에 있었고 to는 비어 있었다.
-// (상품 기록을 만들거나 옮기는 이벤트는 이 둘뿐이다 — 상품은 지워지지 않는다.)
+// - product.confirm이 상태를 바꿨고 최종 번호(to)가 처음 번호(no)와 다르다 = 번호 변경과 같다 (R-2 "확인 중", D-RETRO-80).
+// - product.withdraw가 상태를 바꿨다 = 그 번호의 확인 중 상품이 없어졌다 → 그 앞에는 거둔 상품이 그 번호에 있었다.
+//   거둔 상품은 지금 상태에 없으므로(상품 ID를 알 수 없다) 그 상품의 줄은 어느 상품에도 넣지 않는다.
+// (상품 기록을 만들거나 옮기거나 없애는 이벤트는 이 넷뿐이다.)
 // 돌리는 규칙:
 // - product.register: 그 등록 뒤 그 번호에 있는 상품(새로 만든 상품, 이미 있었으면 그 상품).
 // - product.renumber: 그때 from에 있던 상품(바뀐 상품).
@@ -42,6 +45,8 @@ export function productOwners(rows: readonly ActionRow[], current: readonly Curr
   }
   /** 지금 보고 있는 줄 뒤에 그 번호에 처음 생긴 상품 */
   const next = new Map<string, string>()
+  /** 거둔 상품의 자리표 (지금 상태에 없는 상품 — 줄 번호로 만든다. 상품 ID `p1`과 겹치지 않는다) */
+  const gone = new Set<string>()
   const owners: (string | null)[] = new Array<string | null>(rows.length).fill(null)
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i] as ActionRow
@@ -54,12 +59,24 @@ export function productOwners(rows: readonly ActionRow[], current: readonly Curr
       owners[i] = after
       if (applied && after !== null) {
         at.delete(key)
-        next.set(key, after)
+        // 거둔 상품이 생기기 전의 줄은 그 뒤 그 번호에 생긴 지금 있는 상품으로 간다 (그 번호의 보류 찜은 그 상품의 공개 때 판정된다)
+        if (!gone.has(after)) next.set(key, after)
       }
       continue
     }
-    if (row.type === 'product.renumber') {
-      const from = slot(event.b, event.from)
+    if (row.type === 'product.withdraw') {
+      const key = slot(event.b, event.no)
+      if (key === null) continue
+      if (applied) {
+        const placeholder = `gone:${String(i)}`
+        gone.add(placeholder)
+        at.set(key, placeholder)
+      }
+      owners[i] = at.get(key) ?? next.get(key) ?? null
+      continue
+    }
+    if (row.type === 'product.renumber' || (row.type === 'product.confirm' && event.to !== undefined && event.to !== event.no)) {
+      const from = slot(event.b, row.type === 'product.confirm' ? event.no : event.from)
       const to = slot(event.b, event.to)
       if (from === null || to === null) continue
       if (applied && from !== to) {
@@ -67,7 +84,7 @@ export function productOwners(rows: readonly ActionRow[], current: readonly Curr
         if (moved !== undefined) {
           at.delete(to)
           at.set(from, moved)
-          next.set(to, moved)
+          if (!gone.has(moved)) next.set(to, moved)
         }
       }
       owners[i] = at.get(from) ?? next.get(from) ?? null
@@ -77,5 +94,5 @@ export function productOwners(rows: readonly ActionRow[], current: readonly Curr
     if (key === null) continue
     owners[i] = at.get(key) ?? next.get(key) ?? null
   }
-  return owners
+  return owners.map((owner) => (owner !== null && gone.has(owner) ? null : owner))
 }

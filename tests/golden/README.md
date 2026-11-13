@@ -177,8 +177,10 @@ expect:
 | `broadcast.end` | `b` | (S04, D-070) |
 | `broadcast.thanks` | `b`, `liveChat`(불리언) | 방송 중 감사 채팅 켜기·끄기 — 그 방송 설정의 `thanks.liveChat`만 바꾼다(그 뒤 확정부터, 같은 값이면 아무 일도 없다, D-YT-SRV-24) |
 | `broadcast.pendingExpire` | `b`, `expire`(불리언) | 방송 중 보류 찜 만료 켜기·끄기 — 그 방송 설정의 `claim.preOpenExpire`만 바꾼다(그 뒤 공개부터, 같은 값이면 아무 일도 없음, D-PEND-01) |
-| `product.register` | `b`, `no`(1 이상), `name`(빈 문자열 가능 — 글 칸), `price`(0 이상 정수) | `stock`(1 이상, 기본 1 — 옵션 상품이면 `stocks`에 적지 않은 변형마다의 재고), `status`(`OPEN` 기본 / `READY`). 옵션 방송만(O1, R-19, D-O1-03): `aliases`(상품 별칭 — 문자열 목록 0~10개, 글 칸), `options`(`[{ name, choices: [{ label, aliases?, price? }] }]` — 항목 0~3개·선택지 1~20개·별칭 0~10개·글자 1~10/1~20자·`/`·`#`·제어 글자 없음·`price` 정수 −1,000,000~1,000,000·변형 100개까지·한 상품 안 비교 글자 겹침 없음·변형 단가 0 이상. 이름·별칭은 모두 글 칸), `stocks`(옵션 글 → 0 이상 정수. 키는 그 상품의 변형 옵션 글이어야 하고 `options` 없이 쓰지 않는다). 어기거나 옵션 방송이 아닌 방송에 쓰면 읽기 오류 |
+| `product.register` | `b`, `no`(1 이상), `name`(빈 문자열 가능 — 글 칸), `price`(0 이상 정수) | `stock`(1 이상, 기본 1 — 옵션 상품이면 `stocks`에 적지 않은 변형마다의 재고), `status`(`OPEN` 기본 / `READY`). `tentative`(확인 중으로 올림 — `{ by: WORKER / SYNC, reasons: [까닭 낱말 1~6개 — 영문 대문자로 시작하는 대문자·숫자·`_` 1~32자, 겹치지 않게], candidates?: { no?, price?, name? } }`. 후보는 칸마다 4개까지·겹치지 않게, 번호 1 이상·가격 0 이상 정수·품종 1~60자 글 칸. 모양이 틀리면 읽기 오류 — R-2 "확인 중", D-RETRO-80. `status: OPEN`과 함께 쓰지 않는다). 옵션 방송만(O1, R-19, D-O1-03): `aliases`(상품 별칭 — 문자열 목록 0~10개, 글 칸), `options`(`[{ name, choices: [{ label, aliases?, price? }] }]` — 항목 0~3개·선택지 1~20개·별칭 0~10개·글자 1~10/1~20자·`/`·`#`·제어 글자 없음·`price` 정수 −1,000,000~1,000,000·변형 100개까지·한 상품 안 비교 글자 겹침 없음·변형 단가 0 이상. 이름·별칭은 모두 글 칸), `stocks`(옵션 글 → 0 이상 정수. 키는 그 상품의 변형 옵션 글이어야 하고 `options` 없이 쓰지 않는다). 어기거나 옵션 방송이 아닌 방송에 쓰면 읽기 오류 |
 | `product.open` / `product.hold` / `product.close` | `b`, `no` | |
+| `product.confirm` | `b`, `no` | `to`(최종 번호, 1 이상), `name`(최종 품종 — 글 칸), `price`(최종 가격, 0 이상 정수). 확인 중 상품의 확정 — 확인 중이 아닌 상품·없는 번호, `to`에 상품 기록이 있는 경우는 읽기 오류가 아니라 엔진에서 아무 일도 없다 (R-2 "확인 중", D-RETRO-80) |
+| `product.withdraw` | `b`, `no` | 확인 중 상품 거두기 — 확인 중이 아니면 엔진에서 아무 일도 없다 (R-2 "확인 중", D-RETRO-80) |
 | `product.update` | `b`, `no` | `name`(글 칸), `price`, `stock`, `applyTo`(`NEW_ONLY` 기본 / `UNPAID_CLAIMS`). 옵션 방송만(O1, R-19 "옵션 바꾸기"): `aliases`, `options`(바꾼 뒤의 전체 목록 — 모양은 `product.register`와 같다), `stocks`(옵션 글 → 0 이상 정수, 키는 바꾼 뒤의 변형). 찜이 있을 때 막히는 바꾸기는 읽기 오류가 아니라 엔진에서 아무 일도 없다 |
 | `product.renumber` | `b`, `from`, `to` | |
 | `product.focus` | `b`, `no` | (O1, R-20 6 — 옵션 방송만) |
@@ -231,6 +233,7 @@ expect:
 | └ `price` / `priceHistory` | 현재 가격 / 가격 변경 이력 `[{ from, to }]` 시간순, 정확히 같음 |
 | └ `confirmVersion` | 0 이상 정수, 정확히 같음. 확정될 때마다 1씩 늘고(승계·역전·교체·충돌 바꾸기·재고 2 이상의 다음 확정 포함) 취소·무효·대기 없음으로 1등이 없어져도 줄지 않는다. 번호를 바꾸면 상품과 함께 옮기고, 옛 번호에 새로 등록한 상품은 0부터다(N5, D-N5-14) |
 | └ `confirmedUnits` | (O1) 그 상품 모든 변형의 확정 수량 합(옵션 없는 상품은 확정 찜 수량의 합) |
+| └ `tentative` | 확인 중(임시 등록)인지 `true`·`false` (R-2 "확인 중", D-RETRO-80). 확인 중 상품의 `status`는 `READY`다 |
 | (옵션 상품) | (O1, D-O1-01) 옵션 항목이 있는 상품에는 `status`·`exists`·`price`·`priceHistory`·`confirmedUnits`만 적는다. `winner`·`winners`·`waitlist`·`conflict`를 적으면 러너 오류다(늘 실패 — 변형마다 `variants`로 적는다). `status`는 판매 중이면 모든 변형이 `SOLD`일 때 `SOLD`, 아니면 `OPEN` |
 | `variants."<방송>/<번호>#<옵션 글>"` | (O1, R-19 "변형과 재고 단위") 지금 그 번호를 가진 상품의 그 변형(옵션 글 = 선택지 `label`을 항목 순서대로 `/`로 이은 글). 키는 따옴표로 적는다. 그런 변형이 없으면 불일치. 적은 필드만 비교: `status`(상품이 판매 중(`OPEN`·`SOLD`)이면 그 변형의 확정 수량 = 재고일 때 `SOLD`, 아니면 `OPEN`. 판매 중이 아니면 상품 상태 `READY`·`HOLD`·`CLOSED` — D-O1-01), `winner`·`winners`·`waitlist`(상품과 같은 뜻, 그 변형의 찜만), `stock`(그 변형 재고, 0 이상), `confirmedUnits`(그 변형 확정 찜 수량의 합) |
 | `buyers.<키>` | 키를 지금의 구매자로 풀어서(합치기·전화번호 연결 반영) 비교 |

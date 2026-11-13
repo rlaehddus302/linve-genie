@@ -299,6 +299,38 @@ const spec = (required: Record<string, FieldKind>, optional: Record<string, Fiel
   hasBroadcast: 'b' in required,
 })
 
+/**
+ * product.register의 확인 중 칸 (README 이벤트 표, DOMAIN_RULES R-2 "확인 중", D-RETRO-80) — 코어 상수를 쓰지 않고 README대로 적는다:
+ * `{ by: WORKER|SYNC, reasons: [낱말 1~6개], candidates?: { no?, price?, name? } }` — 후보는 칸마다 4개까지, 겹치지 않게, 품종 후보는 글 칸(1~60자).
+ */
+export const tentativeShape: ValueCheck = (value) => {
+  const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+  if (!isObject(value)) return '확인 중 칸은 { by, reasons, candidates? }여야 한다'
+  const extra = Object.keys(value).filter((key) => !['by', 'reasons', 'candidates'].includes(key))
+  if (extra.length > 0) return `확인 중 칸에 없는 키: ${extra.join(', ')}`
+  if (value.by !== 'WORKER' && value.by !== 'SYNC') return 'by는 WORKER / SYNC 중 하나여야 한다'
+  const reasons = value.reasons
+  if (!Array.isArray(reasons) || reasons.length < 1 || reasons.length > 6) return 'reasons는 까닭 낱말 1~6개 목록이어야 한다'
+  if (!reasons.every((reason) => typeof reason === 'string' && /^[A-Z][A-Z0-9_]{0,31}$/.test(reason))) return "까닭 낱말은 영문 대문자로 시작하는 대문자·숫자·'_' 1~32자여야 한다"
+  if (new Set(reasons).size !== reasons.length) return '까닭 낱말이 겹친다'
+  const candidates = value.candidates
+  if (candidates === undefined) return undefined
+  if (!isObject(candidates)) return 'candidates는 { no?, price?, name? }여야 한다'
+  const unknown = Object.keys(candidates).filter((key) => !['no', 'price', 'name'].includes(key))
+  if (unknown.length > 0) return `후보에 없는 키: ${unknown.join(', ')}`
+  const checks: [string, (item: unknown) => boolean][] = [
+    ['no', (item) => typeof item === 'number' && Number.isSafeInteger(item) && item >= 1],
+    ['price', (item) => typeof item === 'number' && Number.isSafeInteger(item) && item >= 0],
+    ['name', (item) => typeof item === 'string' && item.trim() !== '' && [...item].length <= 60 && freeText(item) === undefined],
+  ]
+  for (const [key, ok] of checks) {
+    const items = candidates[key]
+    if (items === undefined) continue
+    if (!Array.isArray(items) || items.length > 4 || !items.every(ok) || new Set(items).size !== items.length) return `candidates.${key}는 겹치지 않는 4개까지의 목록이어야 한다 (번호 1 이상·금액 0 이상 정수·품종 1~60자 글 칸)`
+  }
+  return undefined
+}
+
 const hostWithBuyer = spec({ b: F.b, no: F.no, buyer: F.buyer, reason: F.reason }, { options: F.pick })
 const hostConfirmLike = spec({ b: F.b, no: F.no, buyer: F.buyer }, { reason: F.reason, options: F.pick })
 /** host.assign의 교체 대상(replace)과 교체 방법(replaceTo)은 함께 쓴다 (README 이벤트 표, D-042). 하나만 있으면 validate에서 읽기 오류 */
@@ -314,7 +346,7 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   'broadcast.pendingExpire': spec({ b: F.b, expire: F.v(bool) }),
   'product.register': spec(
     { b: F.b, no: F.no, name: F.v(freeText), price: F.v(intAtLeast(0)) },
-    { stock: F.v(intAtLeast(1)), status: F.v(oneOf(['OPEN', 'READY'])), aliases: F.aliases, options: F.optionItems, stocks: F.stocks },
+    { stock: F.v(intAtLeast(1)), status: F.v(oneOf(['OPEN', 'READY'])), aliases: F.aliases, options: F.optionItems, stocks: F.stocks, tentative: F.v(tentativeShape) },
   ),
   'product.open': productByNo,
   'product.hold': productByNo,
@@ -332,6 +364,9 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
     },
   ),
   'product.renumber': spec({ b: F.b, from: F.no, to: F.no }),
+  // 확인 중 상품 확정·거두기 (R-2 "확인 중", D-RETRO-80)
+  'product.confirm': spec({ b: F.b, no: F.no }, { to: F.no, name: F.v(freeText), price: F.v(intAtLeast(0)) }),
+  'product.withdraw': productByNo,
   'product.focus': spec({ b: F.b, no: F.no }),
   chat: spec(
     { b: F.b, id: F.v(nonEmptyStr), ch: F.channel, nick: F.v(nonEmptyStr), text: F.v(str) },
@@ -389,7 +424,7 @@ export const EXPECT_KEYS = [
   'variants',
   'reviews',
 ] as const
-export const PRODUCT_EXPECT_KEYS = ['status', 'winner', 'winners', 'waitlist', 'conflict', 'exists', 'price', 'priceHistory', 'confirmedUnits', 'confirmVersion'] as const
+export const PRODUCT_EXPECT_KEYS = ['status', 'winner', 'winners', 'waitlist', 'conflict', 'exists', 'price', 'priceHistory', 'confirmedUnits', 'confirmVersion', 'tentative'] as const
 /** 옵션 상품에 적으면 러너 오류인 상품 단위 키 (D-O1-01 — 변형마다 variants로 적는다) */
 export const PRODUCT_UNIT_ONLY_KEYS = ['winner', 'winners', 'waitlist', 'conflict'] as const
 /** `variants."<방송>/<번호>#<옵션 글>"` (O1, R-19) */
