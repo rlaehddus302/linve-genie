@@ -6,7 +6,7 @@
 // - 전화번호 원문·정규화한 번호는 어디에도 두지 않는다. 판매자 전화번호 키는 마스터 키로 암호화한 값만 둔다(D-073).
 // - 이 파일과 마이그레이션이 어긋나지 않는지는 test/schema.test.ts가 실제 DB 구조와 대조한다.
 import { and, eq, sql, type SQL } from 'drizzle-orm'
-import { bigint, bigserial, boolean, index, integer, jsonb, primaryKey, pgTable, real, text, timestamp, unique, uniqueIndex } from 'drizzle-orm/pg-core'
+import { bigint, bigserial, boolean, index, integer, jsonb, pgTable, real, text, timestamp, unique, uniqueIndex } from 'drizzle-orm/pg-core'
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date' })
 
