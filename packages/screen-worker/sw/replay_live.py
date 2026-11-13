@@ -3,12 +3,18 @@
 #  - 시계는 가짜(1초씩 흐름). 받아쓰기 줄·화면 장은 그때 일꾼이 읽은 시각(추정)에, LLM 답은 기록의 at 시각에 들어간다.
 #  - 로직이 스스로 묻지 못하게 하고(par=0) 기록된 답만 넣는다. 물음이 날아가 있던 동안은 로직도 "묻는 중"으로 본다.
 #    로직이 "이 줄은 묻지 않겠다"(reg.skipped)고 한 호출의 답은 넣지 않고 줄인 호출로 센다. 로직이 더 묻고 싶어 한 호출(가격 확인)은 횟수만 센다(답이 없다).
-#  - 서버는 흉내만: 같은 번호는 처음 보낸 값이 남고, 번호 바로잡기·이름·금액 고치기는 그 위에 적용한다. 실제 서버·LLM은 부르지 않는다.
+#  - 서버는 흉내만(FakeServer): 같은 번호는 처음 보낸 값이 남고, 번호 바로잡기·이름·금액 고치기는 그 위에 적용한다. 실제 서버·LLM은 부르지 않는다.
+#    임시 등록(D-SCR-18~22)도 받는다: 임시로 올라간 상품은 확정하면 판매 중이 되고 거두면 없어진다(계약서 docs/retro/tentative-contract.md 2절의 답 모양).
+#    서버 답은 바로 돌려주고 일꾼은 다음 초에 그 답을 본다. 판매자의 손 조작(먼저 확정·수정·지움)은 흉내 내지 않는다.
+#  - 임시 등록 수치: "줄 도착→임시 등록"(그 줄을 읽은 때부터 임시로 올린 때), "줄 도착→서버에 처음 보임"(임시든 바로든 판매자 화면에 처음 뜬 때),
+#    "줄 도착→보냄"(판매 중이 된 때 = 바로 등록했거나 확정한 때 — 감사 채팅·라벨이 나갈 수 있는 때), 틀린 값이 확정까지 간 수, 끝내 확정 못 한 임시 등록 수.
+#    가짜 시계가 1초씩 흐르므로 1초보다 짧은 차이는 재지 못하고, 서버 왕복 시간은 들어 있지 않다.
 #  - 실행이 여럿이면(방송 중 일꾼을 다시 켬) 앞선 실행의 이벤트를 다음 실행에 넘긴다(다시 켠 일꾼이 이어받는 것과 같게).
 #  - 정답(products.json: 방송 끝의 번호·품종·가격, phase CLOSED = 판매자가 지운 번호)과 견줘 수치를 낸다.
 # 사용:
-#   python -m sw.replay_live <실행 폴더>... --truth <정답 products.json> [--wrong 2,5,27] [--logic <옛 llm_live.py>] [--mode both]
-#                            [--detail <번호별 표 csv>] [--events <이벤트를 적을 폴더>]
+#   python -m sw.replay_live <실행 폴더>... --truth <정답 products.json> [--wrong 2,5,27] [--logic <옛 llm_live.py>] [--mode both|before|after|flow]
+#                            [--variant '이름:KEY=값,KEY=값']... [--detail <번호별 표 csv>] [--events <이벤트를 적을 폴더>]
+#   --mode flow = 지금 방식(LLM_TENTATIVE=0) 대 임시 등록 흐름. --variant 는 환경변수를 바꾼 판을 하나 더(예: '규칙 끔:LLM_TENTATIVE_RULE=0').
 #   실행 폴더는 방송 순서대로(이름순 정렬). 기록에는 손님 닉네임이 있으므로 저장소 안으로 복사하지 않는다(--detail·--events도 저장소 밖에) — 임시 폴더는 끝나면 지운다.
 #   --logic 을 주면 "고치기 전"을 그 파일로 돌린다(예: git show <커밋>:packages/screen-worker/sw/llm_live.py > /tmp/old.py). 안 주면 LLM_REG_SAFE=0 으로 돌린다.
 #   환경변수(LLM_PRICE_WAIT, LLM_NAME_SELLER …)를 바꿔 "고친 뒤"를 돌리면 그 값의 효과를 잴 수 있다. 6개 실행(3시간 10분)에 판마다 4분쯤 걸린다.
@@ -61,23 +67,103 @@ class Late:
         return self.out
 
 
+class FakeServer:
+    """서버 흉내(계약서 docs/retro/tentative-contract.md 2절의 규칙만): 번호 → 상품 {no, price, name, rid, state: "임시"·"판매"}.
+    같은 번호는 처음 값이 남고, 임시 등록은 확정하면 판매 중이 되고 거두면 없어진다. 판매자의 손 조작(먼저 확정·수정·지움)은 흉내 내지 않는다.
+    방송 중 다시 켠 일꾼들(여러 실행)이 한 서버에 차례로 보낸다"""
+
+    def __init__(self):
+        self.products = {}
+
+    def apply(self, kind, at, b):
+        """요청 하나를 넣고 서버 응답(방송 하나)을 돌려준다"""
+        ps = self.products
+        row = {"changed": False}
+        if kind in ("send", "tentative"):
+            if b["no"] not in ps:
+                ps[b["no"]] = {"no": b["no"], "price": b["price"], "name": b.get("name") or "", "rid": b.get("requestId"), "at": at,
+                               "state": "임시" if kind == "tentative" else "판매"}
+                row = {"changed": True, **({"tentative": True} if kind == "tentative" else {})}
+        elif kind in ("confirm", "withdraw"):
+            p = ps.get(b["no"])
+            to = b.get("to")
+            if p is None:
+                row["skip"] = "NO_PRODUCT"
+            elif p["state"] != "임시":
+                row["skip"] = "NOT_TENTATIVE"
+            elif p["rid"] != b["rid"]:
+                row["skip"] = "OTHER_REGISTER"
+            elif kind == "withdraw":
+                del ps[b["no"]]
+                row = {"changed": True}
+            elif to is not None and to != b["no"] and to in ps:
+                row["skip"] = "TARGET_EXISTS"
+            else:
+                p["state"] = "판매"
+                if b.get("price") is not None:
+                    p["price"] = b["price"]
+                if b.get("name"):
+                    p["name"] = b["name"]
+                if to is not None and to != b["no"]:
+                    ps[to] = dict(ps.pop(b["no"]), no=to)
+                row = {"changed": True}
+        elif kind == "renumber":
+            src = ps.get(b["from"])
+            if src is None:
+                row["skip"] = "NO_PRODUCT"
+            elif b.get("rid") and src.get("rid") != b["rid"]:
+                row["skip"] = "OTHER_REGISTER"
+            elif b["drop"]:
+                if b["to"] in ps:
+                    del ps[b["from"]]
+                    row = {"changed": True}
+            elif b["to"] not in ps:
+                ps[b["to"]] = dict(ps.pop(b["from"]), no=b["to"])
+                row = {"changed": True}
+            else:
+                row["skip"] = "TARGET_EXISTS"
+        elif kind in ("rename", "reprice") and b["no"] in ps:
+            field = "name" if kind == "rename" else "price"
+            row = {"changed": ps[b["no"]][field] != b[field]}
+            ps[b["no"]][field] = b[field]
+        return {"ok": True, "changed": row["changed"], **({"tentative": True} if row.get("tentative") else {}), "broadcasts": [row]}
+
+
 class FakePoster:
-    """서버로 보낸 것을 가짜 시각과 함께 적어 둔다"""
+    """서버로 보낸 것을 가짜 시각과 함께 적어 두고, 가짜 서버의 답을 바로 돌려준다(임시 등록·확정·거두기를 받는 서버)"""
 
-    def __init__(self, clock):
+    def __init__(self, clock, server=None, tentative=True):
         self.clock, self.calls = clock, []
+        self.server = server if server is not None else FakeServer()
+        self.tentative = tentative
+        self.price_unit = None
 
-    def send(self, body):
-        self.calls.append(("send", self.clock.now, dict(body)))
+    def tentative_ok(self):
+        return self.tentative
+
+    def _do(self, kind, b, on_result=None):
+        self.calls.append((kind, self.clock.now, dict(b)))
+        res = self.server.apply(kind, self.clock.now, b)
+        if on_result is not None:
+            on_result(res)
+
+    def send(self, body, on_result=None):
+        self._do("tentative" if "tentative" in body else "send", body, on_result)
+
+    def confirm(self, vid, no, rid, to=None, price=None, name=None, n=1, on_result=None):
+        self._do("confirm", {"no": no, "rid": rid, "to": to, "price": price, "name": name}, on_result)
+
+    def withdraw(self, vid, no, rid, n=1, on_result=None):
+        self._do("withdraw", {"no": no, "rid": rid}, on_result)
 
     def renumber(self, vid, frm, to, rid, drop=False):
-        self.calls.append(("renumber", self.clock.now, {"from": frm, "to": to, "rid": rid, "drop": drop}))
+        self._do("renumber", {"from": frm, "to": to, "rid": rid, "drop": drop})
 
     def rename(self, vid, no, name, n):
-        self.calls.append(("rename", self.clock.now, {"no": no, "name": name}))
+        self._do("rename", {"no": no, "name": name})
 
     def reprice(self, vid, no, price, n):
-        self.calls.append(("reprice", self.clock.now, {"no": no, "price": price}))
+        self._do("reprice", {"no": no, "price": price})
 
     def pending(self):
         return 0
@@ -151,20 +237,24 @@ def load_run(run):
             "calls": [(sod(c["at"]) + 0.5, c) for c in calls], "recorded": [e for e in events if e.get("kind") == "LLM등록" and e.get("sent")]}
 
 
-def replay_run(data, logic, prior=()):
+def replay_run(data, logic, prior=(), server=None):
     """한 실행을 로직에 흘린다 → {calls: 서버로 보낸 것, events, fed: 넣은 답 수, cut: 줄인 호출 수, confirm: 로직이 더 바란 확인 호출 수}
-    prior = 같은 방송의 앞선 실행이 남긴 이벤트(다시 켠 일꾼이 이어받는 것 — 로직이 받을 줄 알 때만 넘긴다)"""
+    prior = 같은 방송의 앞선 실행이 남긴 이벤트(다시 켠 일꾼이 이어받는 것 — 로직이 받을 줄 알 때만 넘긴다)
+    server = 앞선 실행들이 보낸 것이 남아 있는 가짜 서버(없으면 빈 서버) — 임시 등록의 답(올라감·이미 있는 번호)을 여기서 받는다"""
     clock = FakeTime()
     logic.time = clock
-    poster, events = FakePoster(clock), []
+    poster, events = FakePoster(clock, server), []
     tr, seen, sc = data["tr"], data["seen"], data["sc"]
     calls = sorted(data["calls"], key=lambda ac: ac[0] - ac[1].get("sec", 0))        # 물은 순서
     emit = lambda d: events.append(dict(d, at=clock.strftime("%H:%M:%S"), wall=clock.now))
     with tempfile.TemporaryDirectory(prefix="sw_replay_") as tmp, contextlib.redirect_stdout(io.StringIO()):
-        if "prior" in inspect.signature(logic.LlmRegister.__init__).parameters:
-            reg = logic.LlmRegister(tmp, poster, "replay00000", emit, par=1, prior=logic.prior_from_events(prior))
-        else:
-            reg = logic.LlmRegister(tmp, poster, "replay00000", emit, par=1)
+        params = inspect.signature(logic.LlmRegister.__init__).parameters
+        kw = {}
+        if "prior" in params:
+            kw["prior"] = logic.prior_from_events(prior)
+        if "prior_tent" in params:
+            kw["prior_tent"] = logic.prior_tentative(prior)
+        reg = logic.LlmRegister(tmp, poster, "replay00000", emit, par=1, **kw)
         reg.par = 0                                          # 스스로 묻지 않는다 — 기록된 답만
         build, memo = reg.sc.build, {}
 
@@ -234,48 +324,85 @@ def nkey(name):
 def score(results, truth, wrong=()):
     """여러 실행(방송 순서)의 결과를 한 서버에 차례로 넣은 셈으로 정답과 견준다"""
     selling = {p["no"]: p for p in truth if p.get("phase") != "CLOSED" and p["no"] not in wrong}
-    server, first, waits = {}, {}, []
-    sends = dup = dup_diff = fixes = 0
+    srv = FakeServer()
+    server = srv.products
+    first, waits = {}, []                                    # first = 판매 중이 된 순간의 값(바로 등록했거나 임시 등록을 확정한 때) — 감사 채팅·라벨이 이 값으로 나간다
+    tents, shown = {}, []                                    # 임시 등록(요청 번호 → 올린 값·결과), 줄 도착 → 서버에 처음 보이기까지(임시든 바로든)
+    sends = dup = dup_diff = tent_dup = 0
     for res in results:
-        wait_of = {}
+        wait_of, tent_of = {}, {}
         for e in res["events"]:
             if e.get("kind") == "LLM등록" and e.get("sent"):
                 wait_of[(e["no"], round(e["wall"], 1))] = e.get("wait_sec")
+            elif e.get("kind") == "LLM임시등록" and e.get("sent"):
+                tent_of[e.get("rid")] = e
         for kind, at, b in res["calls"]:
+            before = server.get(b["no"]) if "no" in b else None
+            out = srv.apply(kind, at, b)
             if kind == "send":
                 sends += 1
-                if b["no"] in server:
+                if not out["changed"]:
                     dup += 1
-                    dup_diff += b["price"] != server[b["no"]]["price"]
+                    dup_diff += b["price"] != before["price"]
                     continue
-                rec = {"no": b["no"], "price": b["price"], "name": b.get("name") or "", "rid": b.get("requestId"), "at": at,
-                       "wait": wait_of.get((b["no"], round(at, 1)))}
-                rec["first"] = dict(rec)
-                server[b["no"]] = rec
-                first[b["no"]] = rec["first"]
+                rec = dict(server[b["no"]], wait=wait_of.get((b["no"], round(at, 1))))
+                first[b["no"]] = rec
                 if rec["wait"] is not None:
                     waits.append(rec["wait"])
-            elif kind == "renumber":
-                src = server.get(b["from"])
-                if src is None or (b.get("rid") and src.get("rid") != b["rid"]):
+                    shown.append(rec["wait"])
+            elif kind == "tentative":
+                if not out["changed"]:
+                    tent_dup += 1
                     continue
-                fixes += 1
-                if b["drop"]:
-                    if b["to"] in server:
-                        del server[b["from"]]
-                elif b["to"] not in server:
-                    server[b["to"]] = dict(server.pop(b["from"]), no=b["to"])
-            elif kind == "rename" and b["no"] in server:
-                server[b["no"]]["name"] = b["name"]
-            elif kind == "reprice" and b["no"] in server:
-                server[b["no"]]["price"] = b["price"]
+                e = tent_of.get(b.get("requestId")) or {}
+                tents[b.get("requestId")] = {"no": b["no"], "price": b["price"], "name": b.get("name") or "", "at": at, "wait": e.get("wait_sec"),
+                                             "rule": bool(e.get("rule")), "end": None}
+            elif kind == "confirm" and b["rid"] in tents:
+                t = tents[b["rid"]]
+                if not out["changed"]:
+                    t["end"] = t["end"] or out["broadcasts"][0].get("skip")
+                    continue
+                no = b["to"] if b.get("to") is not None else b["no"]
+                t["end"] = "확정"
+                rec = dict(server[no], at=at, wait=wait_of.get((no, round(at, 1))), tent_wait=t["wait"])
+                first[no] = rec
+                if rec["wait"] is not None:
+                    waits.append(rec["wait"])
+                if t["wait"] is not None:
+                    shown.append(t["wait"])
+            elif kind == "withdraw" and b["rid"] in tents and out["changed"]:
+                tents[b["rid"]]["end"] = "거둠"
     reg = set(first)
     bad = sorted(n for n in reg if n not in selling)
     good = sorted(n for n in reg if n in selling)
     priced = [n for n in good if selling[n].get("price") is not None]
     named = [n for n in good if nkey(selling[n].get("name"))]
     waits.sort()
-    pct = lambda q: waits[min(len(waits) - 1, int(len(waits) * q))] if waits else None
+    pct = lambda q, xs=waits: xs[min(len(xs) - 1, int(len(xs) * q))] if xs else None
+    mean = lambda xs: round(sum(xs) / len(xs), 1) if xs else None
+    twaits = sorted(t["wait"] for t in tents.values() if t["wait"] is not None)
+    shown.sort()
+    open_tents = sorted(t["no"] for t in tents.values() if t["end"] != "확정" and t["end"] != "거둠")
+    tent_bad = sorted({t["no"] for t in tents.values() if t["no"] not in selling})
+    wrong_price = sum(first[n]["price"] != selling[n]["price"] for n in priced)
+    tentative = {
+        "임시 등록 수(서버에 올라간 것)": len(tents),
+        "그중 규칙으로 올린 수(LLM 답 전)": sum(t["rule"] for t in tents.values()),
+        "임시 등록 → 확정된 수": sum(t["end"] == "확정" for t in tents.values()),
+        "임시 등록 → 거둔 수": sum(t["end"] == "거둠" for t in tents.values()),
+        "끝내 확정 못 한 임시 등록 수": len(open_tents),
+        "이미 있는 번호라 서버가 넘긴 임시 등록 수": tent_dup,
+        "임시로 올라간 정답에 없는 번호 수": len(tent_bad),
+        "임시 금액이 정답과 달랐던 수(올릴 때)": sum(t["price"] != selling[t["no"]]["price"] for t in tents.values()
+                                         if t["no"] in selling and selling[t["no"]].get("price") is not None),
+        "줄 도착→임시 등록(초) 가운데값": pct(0.5, twaits),
+        "줄 도착→임시 등록(초) 90%": pct(0.9, twaits),
+        "줄 도착→임시 등록(초) 평균": mean(twaits),
+        "줄 도착→서버에 처음 보임(초) 가운데값": pct(0.5, shown),
+        "줄 도착→서버에 처음 보임(초) 90%": pct(0.9, shown),
+        "줄 도착→서버에 처음 보임(초) 평균": mean(shown),
+        "틀린 값이 확정(판매 중)까지 간 수": f"번호 {len(bad)} · 금액 {wrong_price}",
+    }
     return {
         "보낸 등록 수": sends,
         "새 번호로 들어간 등록 수": len(reg),
@@ -300,7 +427,8 @@ def score(results, truth, wrong=()):
         "번호 근거가 없어 보류한 수": sum(1 for r in results for e in r["events"] if e.get("kind") == "LLM번호보류"),
         "앞 번호표라 보류한 수": sum(1 for r in results for e in r["events"] if e.get("kind") == "LLM앞번호표보류"),
         "숫자 쌍으로 번호를 바꾼 수": sum(1 for r in results for e in r["events"] if e.get("kind") == "LLM번호쌍판정"),
-        "_bad": bad, "_first": first, "_server": server, "_selling": selling,
+        **tentative,
+        "_bad": bad, "_first": first, "_server": server, "_selling": selling, "_tents": tents, "_open_tents": open_tents, "_tent_bad": tent_bad,
     }
 
 
@@ -330,7 +458,10 @@ def main(argv=None):
     ap.add_argument("--truth", required=True, help="정답 상품 목록 products.json")
     ap.add_argument("--wrong", default="", help="정답 목록에 남아 있지만 틀린 번호(쉼표로)")
     ap.add_argument("--logic", help="고치기 전 판 llm_live.py 파일(없으면 LLM_REG_SAFE=0)")
-    ap.add_argument("--mode", choices=["before", "after", "both"], default="both")
+    ap.add_argument("--mode", choices=["before", "after", "both", "flow"], default="both",
+                    help="flow = 지금 방식(LLM_TENTATIVE=0) 대 임시 등록 흐름(기본값)을 견준다 — 가짜 서버가 임시 등록·확정·거두기를 받는다")
+    ap.add_argument("--variant", action="append", default=[], metavar="이름:KEY=값,KEY=값",
+                    help="환경변수를 바꾼 판을 하나 더 돌린다(여러 번 쓸 수 있다). 예: --variant '규칙 끔:LLM_TENTATIVE_RULE=0'")
     ap.add_argument("--detail", help="번호별 첫 등록 값을 적을 CSV(저장소 밖 경로)")
     ap.add_argument("--events", help="재현에서 나온 이벤트·서버로 보낸 것을 판마다 적을 폴더(저장소 밖 경로)")
     a = ap.parse_args(argv)
@@ -343,11 +474,17 @@ def main(argv=None):
         logics["고치기 전"] = load_logic(a.logic, None if a.logic else {"LLM_REG_SAFE": "0"}, "before")
     if a.mode in ("after", "both"):
         logics["고친 뒤"] = load_logic(None, None, "after")
+    if a.mode == "flow":
+        logics["지금 방식"] = load_logic(None, {"LLM_TENTATIVE": "0"}, "plain")
+        logics["임시 등록"] = load_logic(None, {"LLM_TENTATIVE": "1"}, "tentative")
+    for k, spec in enumerate(a.variant):
+        tag, _, pairs = spec.partition(":")
+        logics[tag] = load_logic(None, dict(x.split("=", 1) for x in pairs.split(",") if "=" in x), f"variant{k}")
     scores = {}
     for tag, logic in logics.items():
-        results, prior = [], []
-        for d in runs:                                       # 다시 켠 일꾼은 앞선 실행의 이벤트를 이어받는다
-            results.append(replay_run(d, logic, prior))
+        results, prior, server = [], [], FakeServer()
+        for d in runs:                                       # 다시 켠 일꾼은 앞선 실행의 이벤트를 이어받고, 서버에는 앞선 실행이 보낸 것이 남아 있다
+            results.append(replay_run(d, logic, prior, server))
             prior = prior + results[-1]["events"]
         scores[tag] = score(results, truth, wrong)
         scores[tag]["_results"] = results
@@ -361,6 +498,8 @@ def main(argv=None):
         print(f"{k:<{width}}" + "".join(f"{str(s[k]):>14}" for s in scores.values()))
     for tag, s in scores.items():
         print(f"{tag} · 정답에 없는 번호: {s['_bad']}")
+        if s["_tents"]:
+            print(f"{tag} · 끝내 확정 못 한 임시 등록: {s['_open_tents']} · 임시로 올라간 정답에 없는 번호: {s['_tent_bad']}")
     if len(scores) == 2:
         b, n = scores.values()
         print(f"고친 뒤에 빠진 정답 번호: {sorted(x for x in b['_first'] if x in b['_selling'] and x not in n['_first'])}")

@@ -81,7 +81,8 @@ class Worker:
         self.varieties = {}                   # key → 상품 기록(품종 답 기다리는 중)       # 품종 사전(라이브지니 + 거둔 이름) — LLM이 뽑은 이름 철자 맞춤용
         # --post: 확정 상품을 라이브지니 서버에 등록. 금액(+품종)이 나오면 뒤 스레드로 보낸다
         self.video_id = getattr(a, "video_id", None)
-        self.poster = post.Poster(a.post, a.token_file, os.path.join(self.out, "post.jsonl")) if getattr(a, "post", None) else None
+        # 켜질 때 서버가 받는 입구·항목(E11)과 이 방송의 가격 단위를 묻는다 — 임시 등록을 쓸지, 단위 없는 금액을 무엇으로 읽을지(D-SCR-18·21)
+        self.poster = post.Poster(a.post, a.token_file, os.path.join(self.out, "post.jsonl"), video_id=self.video_id) if getattr(a, "post", None) else None
         self.ready = {}                       # key → 보낼 상품 {rec, price, conf, heard, t}(품종 답 기다리는 중)
         self.names = {}                       # key → 품종 이름(먼저 온 답)
         self.heard = {}                       # key → 금액을 정할 때 쓴 판매자 말 [(초, 글)] — 결과 기록·서버 heard용

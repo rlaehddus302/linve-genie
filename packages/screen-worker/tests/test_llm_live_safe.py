@@ -25,7 +25,7 @@ class Stage:
         clock = patch("sw.llm_live.time", self.clock)
         clock.start()
         case.addCleanup(clock.stop)
-        self.poster, self.events = Mock(), []
+        self.poster, self.events = kw.pop("poster", None) or Mock(), []   # poster = 가짜 서버(임시 등록 시험이 준다)
         self.out, self.asked = "", []                        # LLM이 다음에 할 답, 지금까지 물은 글
         llm = patch("sw.llm_b6.ask", self._ask)              # 시험 내내 가짜 LLM — 실제 codex는 절대 부르지 않는다
         llm.start()

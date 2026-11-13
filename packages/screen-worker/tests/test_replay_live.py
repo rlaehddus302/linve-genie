@@ -90,6 +90,41 @@ class ReplayTest(unittest.TestCase):
             self.assertEqual(plain["고치기 전"]["_bad"], [])
             self.assertEqual(marked["고치기 전"]["_bad"], [2])
 
+    def test_tentative_flow_is_measured_against_the_current_way(self):
+        # --mode flow: 가짜 서버가 임시 등록·확정·거두기를 받는다. "372번 팔색조 8만원"은 줄이 도착하자마자 규칙으로 임시 등록되고, LLM 답이 온 뒤 확정된다
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "testvideo01-20261112_110000"
+            run.mkdir()
+            write(run / "transcript.jsonl", [{"start_sec": 0.0, "end_sec": 3.0, "text": "372번 팔색조 8만원 갑니다"}])
+            write(run / "screen.jsonl", [{"sec": s, "t": [[372, .4, .4, .1, .1]]} for s in range(0, 30)])
+            write(run / "llm_live.jsonl", [{"upto": 0, "why": "숫자", "user": "L0 [0:00:00] (화면: 372 크게 4초) 372번 팔색조 8만원 갑니다", "at": "11:00:12", "sec": 6.9,
+                                            "answer": json.dumps({"line": 0, "no": 372, "no_from": "말+화면", "price": 80000, "name": "팔색조", "confidence": "high"}, ensure_ascii=False)}])
+            write(run / "events.jsonl", [{"kind": "LLM등록", "no": 372, "price": 80000, "sent": True, "line": 0, "line_end_sec": 3.0,
+                                          "line_seen_wall": DAY0 + T0 + 5.0, "sent_wall": DAY0 + T0 + 12.0, "at": "11:00:12", "wait_sec": 7.0}])
+            truth = Path(tmp) / "products.json"
+            truth.write_text(json.dumps({"products": [{"no": 372, "name": "팔색조", "price": 80000, "phase": "SELLING"}]}, ensure_ascii=False), encoding="utf-8")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                scores = replay_live.main([str(run), "--truth", str(truth), "--mode", "flow", "--events", str(Path(tmp) / "events"),
+                                           "--variant", "규칙 끔:LLM_TENTATIVE_RULE=0"])
+            plain, flow, norule = scores["지금 방식"], scores["임시 등록"], scores["규칙 끔"]
+            # 지금 방식·규칙 끔: 번호 근거와 가격이 첫 답에서 다 맞아 임시를 거치지 않고 바로 등록한다
+            for s in (plain, norule):
+                self.assertEqual((s["보낸 등록 수"], s["임시 등록 수(서버에 올라간 것)"]), (1, 0))
+                self.assertEqual(s["줄 도착→서버에 처음 보임(초) 가운데값"], 8.0)
+            self.assertEqual((flow["보낸 등록 수"], flow["임시 등록 수(서버에 올라간 것)"], flow["그중 규칙으로 올린 수(LLM 답 전)"]), (0, 1, 1))
+            self.assertEqual((flow["임시 등록 → 확정된 수"], flow["임시 등록 → 거둔 수"], flow["끝내 확정 못 한 임시 등록 수"]), (1, 0, 0))
+            self.assertEqual(flow["줄 도착→임시 등록(초) 가운데값"], 1.0)             # 화면 읽기가 그 줄 끝까지 오기를 1초 기다렸다
+            self.assertEqual(flow["줄 도착→서버에 처음 보임(초) 가운데값"], 1.0)
+            for s in (plain, flow, norule):                                         # 판매 중이 되는 때(확정)와 그 값은 같다
+                self.assertEqual(s["줄 도착→보냄 지연(초) 가운데값"], 8.0)
+                self.assertEqual(s["정답 번호 중 등록된 수"], "1/1")
+                self.assertEqual(s["틀린 값이 확정(판매 중)까지 간 수"], "번호 0 · 금액 0")
+                self.assertEqual((s["_server"][372]["price"], s["_server"][372]["name"], s["_server"][372]["state"]), (80000, "팔색조", "판매"))
+            kinds = [json.loads(line)["kind"] for line in (Path(tmp) / "events" / "임시 등록.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([k for k in kinds if k.startswith("서버:")], ["서버:tentative", "서버:confirm"])
+            self.assertIn("끝내 확정 못 한 임시 등록", out.getvalue())
+
     def test_logic_can_be_loaded_from_another_file_or_switched_by_env(self):
         # 고치기 전 판: 옛 llm_live.py 파일을 주거나(--logic), 같은 파일을 LLM_REG_SAFE=0 으로 읽는다
         old = replay_live.load_logic(None, {"LLM_REG_SAFE": "0"}, "test_old")
