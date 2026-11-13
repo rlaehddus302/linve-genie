@@ -104,6 +104,13 @@ done
 
 끄기: `sudo launchctl bootout system/com.livegenie.home-proxy.tunnel` (tinyproxy도 같은 모양).
 
+**지금 맥 미니의 상태 (2026-11-13, D-LV1-17)**: 위 방식(sudo)이 아니라 **로그인 서비스**로 올라 있다 — `~/Library/LaunchAgents/com.livegenie.home-proxy.{tinyproxy,tunnel}.plist`.
+11월 1일에 손으로만 켜 둔 탓에 11월 12일 23:17 재부팅 뒤 안 떠서 "이 라이브는 소리를 받을 수 없어요"가 떴다. 같은 틀에서 `UserName` 두 줄만 빼고 넣었다(화면 일꾼·받아쓰기 일꾼과 같은 방식).
+맥 미니가 저절로 로그인되는 동안에는 재부팅 뒤에도 켜진다. 로그인 없이도 켜야 하면 위 sudo 방식으로 옮기고 아래 둘을 내린다.
+
+- 상태: `launchctl print gui/$(id -u)/com.livegenie.home-proxy.tunnel | grep -E 'state|runs'`
+- 끄기: `launchctl bootout gui/$(id -u)/com.livegenie.home-proxy.tunnel` (tinyproxy도 같은 모양)
+
 로그 돌리기(`/etc/newsyslog.d/livegenie-home-proxy.conf`, 1MB마다 5개, G = 이름 무늬):
 
 ```
