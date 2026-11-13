@@ -13,7 +13,10 @@ TEAM=N62U2LAB66
 UDID=${1:-$(xcrun devicectl list devices 2>/dev/null | awk '/physical/ && /connected/ {for(i=1;i<=NF;i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{16}$/) {print $i; exit}}')}
 [ -n "$UDID" ] || { echo "연결된 아이폰이 없어요 — 케이블을 꽂고 아이폰에서 '이 컴퓨터 신뢰'를 눌러 주세요"; exit 1; }
 echo "기기 $UDID"
-FP=$(npx expo-updates fingerprint:generate --platform ios | python3 -c 'import json,sys;print(json.load(sys.stdin)["hash"])')
+# 지문은 맥 미니가 화면 업데이트를 발행할 때 쓰는 값과 같아야 그 업데이트를 받는다. 이 맥에서 계산한 값은 저장소에 없는 파일
+# (ios/Pods·ios/build·.xcode.env.local·packages/mobile-notice/ios/.build 등) 때문에 달라질 수 있다(2026-11-13 실제로 달랐다).
+# LG_IOS_FP에 맥 미니의 값(맥 미니 ~/.livegenie-ci/built-ios)을 주면 그 값을 쓴다.
+FP=${LG_IOS_FP:-$(npx expo-updates fingerprint:generate --platform ios | python3 -c 'import json,sys;print(json.load(sys.stdin)["hash"])')}
 echo "앱 지문 $FP"
 BUILD=$(date +%Y%m%d.%H%M)
 OUT=ios/build/device
