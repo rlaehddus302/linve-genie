@@ -26,7 +26,7 @@
 #
 # 처음 한 번:
 #   - 자리 표시 파일도 옛 app 컨테이너도 없으면(새 서버) a 자리를 바로 운영으로 띄운다.
-#   - 옛 한 자리 구성(app 컨테이너)이 돌고 있으면 "이사"를 한다: a 자리를 대기로 띄워 확인 → 올림 → 앞단을 새 설정으로 다시 켬(1~2초 끊김) → 옛 app 내림.
+#   - 옛 한 자리 구성(app 컨테이너)이 돌고 있으면 "이사"를 한다: a 자리를 대기로 띄워 확인 → 올림 → 앞단을 새 설정으로 다시 켬(2~3초 끊김) → 옛 app 내림.
 #
 # 환경값: LG_ROOT(/opt/livegenie) · LG_FRONT_URL(기본 https://<LJ_DOMAIN>) · LG_SKIP_BACKUP=1 · LG_BACKUP_CMD · LG_SKIP_SMOKE=1(급할 때만) ·
 #         LG_KEEP_HOURS(24) · LG_PROJECT(livegenie) — 내 컴퓨터 연습 환경(scripts/deploy/practice)이 바꿔 쓴다.
@@ -54,6 +54,7 @@ STAGED_NEW=0       # 이번 실행이 대기 자리를 띄웠나(실패하면 �
 PROMOTED=0
 LOCKED=0
 FINISHED=0         # 결과 줄을 찍고 끝냈나(아니면 끝날 때 LG-SWITCH-FAIL)
+OLD_T_IMAGE=""; OLD_T_COMMIT=""; T_ENV_CHANGED=0   # 대기 자리에 적혀 있던 이미지·판(실패하면 되돌려 적는다)
 
 say() { echo "$*" >&2; }
 # 시험(scripts/deploy/test.sh)이 가짜로 바꿔 끼운다
@@ -106,9 +107,9 @@ set_slot_env() {
   chmod 0644 "$f.tmp"
   mv -f "$f.tmp" "$f"
 }
-get_slot_env() { sed -n "s/^$1=//p" "$SLOT_DIR/slots.env" 2>/dev/null | head -n1; }
+get_slot_env() { sed -n "s/^$1=//p" "$SLOT_DIR/slots.env" 2>/dev/null | head -n1 || true; }
 
-env_value() { sed -n "s/^$1=//p" "${LJ_ENV_FILE:-$LG_ROOT/.env}" 2>/dev/null | head -n1; }
+env_value() { sed -n "s/^$1=//p" "${LJ_ENV_FILE:-$LG_ROOT/.env}" 2>/dev/null | head -n1 || true; }
 front_url() {
   if [ -n "${LG_FRONT_URL:-}" ]; then echo "${LG_FRONT_URL%/}"; else echo "https://$(env_value LJ_DOMAIN)"; fi
 }
@@ -152,6 +153,11 @@ on_exit() {
     compose logs --tail 30 "app-$TARGET" >&2 2>/dev/null
     compose rm -sf "app-$TARGET" >/dev/null 2>&1
     rm -f "$SLOT_DIR/staged"
+    # 그 자리에 적혀 있던 이미지·판을 되돌려 적는다(되돌리기·상태 보기가 실패한 판을 가리키지 않게)
+    if [ "$T_ENV_CHANGED" = 1 ]; then
+      set_slot_env "LG_IMAGE_$(upper "$TARGET")" "$OLD_T_IMAGE"
+      set_slot_env "LG_COMMIT_$(upper "$TARGET")" "$OLD_T_COMMIT"
+    fi
   fi
   unlock
   echo "LG-SWITCH-FAIL $STEP" >&3
@@ -223,6 +229,7 @@ stage() { # 대기 자리에 새 이미지를 띄운다
   STEP=stage
   local U
   U=$(upper "$TARGET")
+  OLD_T_IMAGE=$(get_slot_env "LG_IMAGE_$U"); OLD_T_COMMIT=$(get_slot_env "LG_COMMIT_$U"); T_ENV_CHANGED=1
   set_slot_env "LG_IMAGE_$U" "$IMAGE"
   set_slot_env "LG_COMMIT_$U" "$COMMIT"
   STAGED_NEW=1
@@ -375,6 +382,9 @@ if [ "$BACK" = 1 ]; then
   if [ -n "$TCID" ] && [ "$(docker inspect -f '{{.Config.Image}}' "$TCID" 2>/dev/null || true)" = "$IMAGE" ]; then
     is_running "$TCID" || docker start "$TCID" >/dev/null
   else
+    # 멈춰 둔 컨테이너가 없으면(그 사이 실패한 배포가 그 자리를 썼다) 옛 이미지로 새로 띄운다
+    set_slot_env "LG_IMAGE_$(upper "$TARGET")" "$IMAGE"
+    set_slot_env "LG_COMMIT_$(upper "$TARGET")" "$COMMIT"
     compose up -d --no-deps --force-recreate "app-$TARGET" >&2
   fi
   check_health standby
@@ -419,8 +429,9 @@ if [ -z "$ACTIVE" ]; then
   if [ "$STAGE_ONLY" = 1 ]; then die "이사는 --stage-only 로 하지 않아요(방송이 없을 때 한 번에)."; fi
   promote
   STEP=front-restart
-  # 앞단을 두 자리 설정으로 다시 켠다 — 여기서 1~2초 연결이 끊긴다(이사 때 한 번뿐)
-  LG_SLOTS=a "$COMPOSE" up -d --no-deps --force-recreate caddy >&2
+  # 앞단을 두 자리 설정으로 다시 켠다 — 여기서 2~3초 연결이 끊긴다(이사 때 한 번뿐).
+  # --timeout 2: 앞단은 멈출 때 열려 있는 실시간 연결·웹소켓이 끝나기를 기다린다. 기본(10초)으로 두면 그 10초가 통째로 끊긴다(연습 환경에서 10.4초로 잼)
+  LG_SLOTS=a "$COMPOSE" up -d --no-deps --force-recreate --timeout 2 caddy >&2
   STEP=verify
   if ! wait_front a "${LG_FRONT_WAIT:-60}"; then
     say "앞단이 새 자리로 보내지 않아요. 옛 app 컨테이너는 그대로 떠 있어요 — 앞단 설정을 옛 것으로 되돌리려면 Caddyfile을 고친 뒤 sudo lg-compose restart caddy."

@@ -134,12 +134,12 @@ const sse = { connects: 0, drops: [], reconnectMs: [] }
 async function sseLoop() {
   let droppedAt = null
   while (!stopping) {
+    let ready = false
     try {
       const response = await fetch(`${base}/api/stream`, { headers: { ...headers, Accept: 'text/event-stream' }, signal: stopSignal.signal })
       if (response.status !== 200 || response.body === null) throw new Error(`HTTP ${String(response.status)}`)
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
-      let ready = false
       let buffer = ''
       for (;;) {
         const chunk = await reader.read()
@@ -159,12 +159,13 @@ async function sseLoop() {
           return
         }
       }
-      if (ready && !stopping) {
-        droppedAt = Date.now()
-        sse.drops.push({ atMs: since() })
-      }
     } catch {
-      // 붙지 못함 — 다시 해 본다
+      // 붙지 못했거나 읽다가 연결이 깨짐 — 아래에서 끊김으로 세고 다시 해 본다
+    }
+    // 붙어 있던 연결이 끝났다(서버가 닫았든 연결이 깨졌든). 이미 끊긴 채 다시 붙는 중이었으면 처음 끊긴 때를 그대로 둔다
+    if (ready && !stopping) {
+      sse.drops.push({ atMs: since() })
+      droppedAt ??= Date.now()
     }
     if (!stopping) await sleep(RECONNECT_EVERY_MS)
   }

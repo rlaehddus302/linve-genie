@@ -584,6 +584,16 @@ eq "앞단 확인 실패 → 옛 자리로" "$(FAKE_FRONT_DOWN=1 swl --commit "$
 eq "앞단 확인 실패 뒤 운영은 다시 b" "$(active_slot) $(c_mode b) $(c_commit b)" "b active $C2"
 eq "앞단 확인 실패 뒤 새 자리는 멈춤" "$(c_mode a)" stopped
 
+# 실패한 배포는 되돌릴 자리(멈춰 둔 a)를 썼다 지운다 — 그래도 옛 이미지로 되돌릴 수 있어야 한다
+sw_reset
+sw --commit "$C1" --build > /dev/null; sw --commit "$C2" --build > /dev/null
+eq "실패한 배포" "$(FAKE_SMOKE_RC=1 swl --commit "$C3" --build)" "LG-SWITCH-FAIL smoke"
+eq "실패하면 그 자리에 적힌 이미지·판을 되돌려 적음" "$(sed -n 's/^LG_COMMIT_A=//p' "$T/lgroot/slot/slots.env") $(sed -n 's/^LG_IMAGE_A=//p' "$T/lgroot/slot/slots.env")" "$C1 livegenie-app:${C1:0:12}"
+eq "실패한 배포 뒤에도 되돌리기" "$(swl --back)" "LG-SWITCHED a $C1"
+eq "되돌린 자리는 옛 판·옛 이미지" "$(c_commit a) $(sed -n 1p "$T/fd/c-a")" "$C1 livegenie-app:${C1:0:12}"
+sw_reset
+sw --commit "$C1" --build > /dev/null; sw --commit "$C2" --build > /dev/null   # 다시 운영 b · C2
+
 # — 방송 중: 띄워 확인까지만 —
 USR2_BEFORE=$(calls '^kill -s USR2 cid-a')
 eq "띄워 확인까지만" "$(sw --commit "$C3" --build --stage-only)" 0

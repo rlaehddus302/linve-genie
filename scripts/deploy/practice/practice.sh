@@ -40,16 +40,16 @@ guard() {
   docker info > /dev/null 2>&1 || die "도커가 꺼져 있어요(OrbStack을 켜 주세요: open -a OrbStack)."
 }
 
-# 연습에 쓸 판(커밋) 넷: 진짜 HEAD 하나와, 같은 이미지에 태그만 다르게 붙인 셋(끝 글자만 바꾼다)
+# 연습에 쓸 판(커밋) 넷: 진짜 HEAD 하나와, 같은 이미지에 태그만 다르게 붙인 셋(첫 글자만 바꾼다 — 태그는 앞 12자라 서로 달라진다)
 commits() {
-  local head tail c
+  local head first c
   head=$(git -C "$REPO" rev-parse HEAD)
-  tail=${head:39:1}
+  first=${head:0:1}
   C0="$head"
   CS=()
   for c in 0 1 2 3 4; do
-    [ "$c" = "$tail" ] && continue
-    CS+=("${head:0:39}$c")
+    [ "$c" = "$first" ] && continue
+    CS+=("$c${head:1}")
     [ "${#CS[@]}" -ge 3 ] && break
   done
 }
@@ -95,7 +95,6 @@ cmd_build() {
   docker image inspect -f '이미지 크기 {{.Size}} 바이트' "$(tag_of "$C0")" | tee -a "$R/build.txt"
   local c
   for c in "${CS[@]}"; do docker tag "$(tag_of "$C0")" "$(tag_of "$c")"; done
-  docker tag "$(tag_of "$C0")" livegenie-app:local
 }
 
 # 옛 한 자리 구성: main의 compose·Caddyfile을 포트만 바꿔 쓴다
@@ -104,8 +103,11 @@ legacy_compose() {
 }
 cmd_legacy_up() {
   guard
+  commits
+  # 이미지 이름은 이번에 만든 태그로 바꾼다 — 이 컴퓨터에 이미 있을 수 있는 livegenie-app:local 을 덮어쓰지 않는다
   git -C "$REPO" show origin/main:deploy/ec2/compose.yaml \
     | sed -e '/^    build:$/d' -e '/^      context: \.\.\/\.\.$/d' -e '/^      dockerfile: Dockerfile$/d' \
+          -e "s/image: livegenie-app:local/image: $(tag_of "$C0")/" \
           -e "s/\"80:80\"/\"$LJ_HTTP_PORT:80\"/" -e "s/\"443:443\"/\"$LJ_HTTPS_PORT:443\"/" -e "s/\"443:443\\/udp\"/\"$LJ_HTTPS_PORT:443\\/udp\"/" \
     > "$P/legacy/compose.yaml"
   git -C "$REPO" show origin/main:deploy/ec2/Caddyfile > "$P/legacy/Caddyfile"
@@ -160,7 +162,7 @@ measure_start() { # <이름표> <결과 파일>
 }
 measure_stop() {
   sleep "$PAUSE"
-  kill "$STATS_PID" 2>/dev/null || true
+  { kill "$STATS_PID" && wait "$STATS_PID"; } 2>/dev/null || true
   kill -INT "$MEASURE_PID"
   wait "$MEASURE_PID" || true
 }
