@@ -87,6 +87,11 @@ const HISTORY_LIMIT_MAX = 500
 
 export interface ApiDeps {
   readonly screenProducts?: boolean
+  /**
+   * 손 등록이 "이미 있는 번호"로 아무 일도 없었을 때, 그 번호가 방금(2초 안) 다른 계정에서 동기화로 들어온 것이고 값이 다르면 응답에 더할 값
+   * `{ syncClash }` (D-RETRO-13 — screen/catalog.ts registerClash). 해당 없으면 빈 객체
+   */
+  readonly registerClash?: (sellerId: string, result: WriteResult | null) => Promise<Readonly<Record<string, unknown>>>
   readonly voiceAliases?: VoiceAliases
   /** D-V3-127 내 품종 장부. 없으면 /api/voice/varieties 경로가 없다 */
   readonly voiceVarieties?: VoiceVarieties
@@ -561,7 +566,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     // 같은 요청 번호로 이미 기록했으면(내용이 달라도) 처음 결과 (AC-S04-25). 동시에 온 경우는 기록 경로가 트랜잭션 안에서 다시 확인한다
     const prior = await service.priorResult(sellerOf(c), requestId)
     if (prior !== null) {
-      return outcomeResponse(c, { kind: 'duplicate', result: prior })
+      return outcomeResponse(c, { kind: 'duplicate', result: prior }, (await deps.registerClash?.(sellerOf(c), prior)) ?? {})
     }
     const rehearsal = rehearsalOf(c)
     if (!rehearsal.ok) return rehearsal.response
@@ -570,7 +575,10 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       return apiError(409, 'REQUEST_ERROR', '자동 상품 등록은 화면 일꾼이 처리해요. 직접 등록하려면 상품 추가를 눌러 주세요.')
     }
     const outcome = await service.writeEvent(sellerOf(c), actorOf(c), requestId, input, c.req.query('date'), rehearsal.value)
-    return outcomeResponse(c, outcome.kind === 'phone' ? outcome.outcome : outcome)
+    const written = outcome.kind === 'phone' ? outcome.outcome : outcome
+    // 거의 동시에 넣은 손 등록 (D-RETRO-13): 다른 계정의 등록이 먼저 들어와 내 등록이 버려졌으면 그 사실과 지금 값을 함께 돌려준다
+    const clash = written.kind === 'ok' || written.kind === 'duplicate' ? await deps.registerClash?.(sellerOf(c), written.result) : undefined
+    return outcomeResponse(c, written, clash ?? {})
   })
 
   // ── 서버 읽기 입구 (SRV1 약속 1 — 친 글 원문 → 읽은 값, 기록 없음) ─────

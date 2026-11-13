@@ -301,9 +301,11 @@ describe('AC-I3-81 운영 상태 /ops/status', () => {
     const body = (await ok.json()) as Record<string, unknown>
     // N2b-2(AC-N2b-2-70)가 인스타 DM 행 수·틱톡 연결 수를, BND1(AC-BND1-64)이 밴드 글 연결 수·호출 한도 쉼을 더했다 (바꾼 기존 시험, dev-notes)
     // YT-SRV(YT-11 AC5)가 유튜브 서버 웹 읽기 합계(youtubeWebChat — 유튜브 연동이 없으면 null)를 더했다 (바꾼 기존 시험, harness/sprints/YT-SRV/dev-notes.md)
-    expect(Object.keys(body).sort()).toEqual(['band', 'collectors', 'db', 'failedEvents24h', 'instagramDm', 'loginRejected', 'outbox', 'quota', 'realtimeConnections', 'startedAt', 'tiktok', 'transcribe', 'version', 'workers', 'youtubeWebChat'])
+    // D-RETRO-12(2026-11-12 복기 G3)가 같은 라이브의 계정 사이 상품 동기화 밀림(catalogSync — 밀린 수·가장 오래 기다린 초·5초 넘게 밀렸는지·처음 맞추기 대기 수)을 더했다 (바꾼 기존 시험)
+    expect(Object.keys(body).sort()).toEqual(['band', 'catalogSync', 'collectors', 'db', 'failedEvents24h', 'instagramDm', 'loginRejected', 'outbox', 'quota', 'realtimeConnections', 'startedAt', 'tiktok', 'transcribe', 'version', 'workers', 'youtubeWebChat'])
     expect(body.transcribe).toEqual({ workers: 0, streams: 0, p95Ms: null })
     expect(body).toMatchObject({ db: 'ok', quota: null, realtimeConnections: 0, loginRejected: { ip: 0, busy: 0 }, version: '0.0.0' })
+    expect(body.catalogSync).toEqual({ pending: 0, oldestSeconds: 0, late: false, merges: 0 })
     expect(body.workers).toEqual({
       collector: { lastSuccessAt: null, consecutiveFailures: 0 },
       outbox: { lastSuccessAt: null, consecutiveFailures: 0 },

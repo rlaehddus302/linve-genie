@@ -295,6 +295,8 @@ export interface LivejjimServer {
   readonly app: Hono
   readonly service: Service
   readonly writer: ScopeWriter
+  /** 같은 라이브의 계정 사이 상품 동기화 (D-RETRO-10~15 — 시험·점검용) */
+  readonly catalog: CatalogDelivery
   readonly hub: StreamHub
   readonly auth: Auth
   /** 보기 캐시 상한 (판매자마다 4·서버 전체 32·10분, AC-S06b-12 — 시험·점검용) */
@@ -556,7 +558,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       }
     },
   })
-  const catalog: CatalogDelivery = new CatalogDelivery(db, writer)
+  const catalog: CatalogDelivery = new CatalogDelivery(db, writer, { log, now: () => clock.now() })
   writerRef = writer
   print = new PrintService({
     db,
@@ -651,7 +653,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     options.youtube === undefined
       ? null
       : new YoutubeSystem({
-          syncCatalog: (seller, date) => catalog.beforeWrite(seller, date),
+          syncCatalog: (seller, date) => catalog.afterLink(seller, date),
           db,
           masterKey,
           timer,
@@ -730,6 +732,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
       tiktok: { operator: (tiktok as TikTokLive).operatorOn, links: await counts(() => tiktokLinkCounts(db)), connections: (tiktok as TikTokLive).stateCounts() },
       // 밴드 글 연결 수(상태별)·앱 전체 호출 한도 쉼 (판매자 정보 없이, AC-BND1-64)
       band: await counts(() => (band as BandService).opsStatus()),
+      // 같은 라이브의 계정 사이 상품 동기화 (D-RETRO-12): 밀린 전달 수·가장 오래 기다린 초·5초 넘게 밀렸는지·처음 맞추기 대기 수 (판매자 정보 없이)
+      catalogSync: await counts(() => catalog.status()),
       loginRejected: auth.loginRejections,
     }
   }
@@ -874,6 +878,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     logError: (error) => log({ level: 'error', code: 'REQUEST_FAILED', errorKind: errorKind(error) }),
     api: {
       screenProducts,
+      registerClash: (sellerId, result) => catalog.registerClash(sellerId, result),
       log,
       service,
       closing,
@@ -946,6 +951,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     streamAudio,
     service,
     writer,
+    catalog,
     hub,
     auth,
     youtube,

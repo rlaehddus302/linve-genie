@@ -226,6 +226,12 @@ export type LogCode =
   | 'LEDGER_SWEEP_FAILED'
   | 'LEDGER_SWEPT'
   | 'LEDGER_SWEEP_SKIPPED' // KP1 RA-KP1-002
+  // 같은 라이브의 계정 사이 상품 동기화 (D-RETRO-12): 판매자 ID·범위 날짜·수·까닭 종류만 — 상품·금액·닉네임은 남기지 않는다
+  // LATE count = 가장 오래 밀린 전달이 기다린 초, FAILED count = 그 전달을 다시 넣은 횟수(reason: RETRY · GAVE_UP · MERGE · CLAIM · CLASH), CONFLICT count = 덮어쓰지 않은 금액 차이 번호 수
+  | 'CATALOG_SYNC_LATE'
+  | 'CATALOG_SYNC_CAUGHT_UP'
+  | 'CATALOG_SYNC_FAILED'
+  | 'CATALOG_SYNC_CONFLICT'
 
 export type LogSink = (record: LogRecord) => void
 
@@ -394,6 +400,10 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   LEDGER_SWEEP_FAILED: '손님 장부 정리 중 오류가 생겼어요(다음 주기에 다시 해요)',
   LEDGER_SWEPT: '보관 기간이 지난 손님 장부 줄과 끝난 연결 코드를 정리했어요',
   LEDGER_SWEEP_SKIPPED: '읽지 못한 지난 장부가 있어 이 판매자의 손님 장부는 이번에 지우지 않았어요(다음 주기에 다시 봐요)', // KP1 RA-KP1-002
+  CATALOG_SYNC_LATE: '같은 라이브의 다른 계정으로 상품 고침을 옮기는 일이 5초 넘게 밀렸어요',
+  CATALOG_SYNC_CAUGHT_UP: '밀렸던 상품 고침 옮기기가 다 들어갔어요',
+  CATALOG_SYNC_FAILED: '상품 고침을 다른 계정에 넣지 못했어요(1초 뒤 다시 넣어요)',
+  CATALOG_SYNC_CONFLICT: '계정을 처음 맞출 때 금액이 서로 달라 덮어쓰지 않은 번호가 있어요',
 }
 
 /** 오류 종류 이름만 꺼낸다 (메시지·스택은 버린다) */

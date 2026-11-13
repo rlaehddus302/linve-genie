@@ -14,6 +14,7 @@ import { bearerMatches } from '../app.ts'
 import type { Db } from '../db/database.ts'
 import { broadcasts, events, youtubeLinks } from '../db/schema.ts'
 import type { Service } from '../service.ts'
+import { carriedBy } from './catalog.ts'
 
 export interface ScreenIntakeDeps {
   /** 일꾼 토큰 (LIVEJJIM_SCREEN_WORKER_TOKEN, 32자 이상). null이면 입구가 없다(404) */
@@ -267,14 +268,16 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
           const ofNo = and(eq(events.sellerId, sellerId), eq(events.scopeId, runtime.scopeId), sql`${events.body}::jsonb->>'b' = ${broadcastId}`, sql`${events.body}::jsonb->>'no' = ${String(no)}`)
           const [reg] = await tx.select({ requestId: events.requestId }).from(events)
             .where(and(ofNo, eq(events.type, 'product.register'), eq(events.changed, true))).orderBy(desc(events.seq)).limit(1)
-          byScreen = reg?.requestId?.startsWith('screen-') === true
-          // 판매자 고침: 판매자 계정이 직접, 또는 상품 목록이 판매자 고침을 다른 방송에 옮긴 것(요청 번호 catalog-)
+          // 일꾼 등록: 일꾼이 직접(screen-), 또는 계정을 처음 맞출 때 다른 계정의 일꾼 값을 옮겨 넣은 등록(D-RETRO-10 — 그 계정에서도 일꾼이 계속 고친다)
+          byScreen = reg?.requestId?.startsWith('screen-') === true || (await carriedBy(tx, reg?.requestId, field)) === 'worker'
+          // 판매자 고침: 판매자 계정이 직접, 또는 상품 목록이 판매자 고침을 다른 방송에 옮긴 것(요청 번호 catalog-). 처음 맞출 때 옮긴 일꾼 금액은 판매자 고침이 아니다
           const bySeller = field === 'name'
             ? eq(events.actor, 'account')
             : or(eq(events.actor, 'account'), sql`${events.requestId} like 'catalog-%'`)
-          const [edit] = await tx.select({ seq: events.seq }).from(events)
-            .where(and(ofNo, eq(events.type, 'product.update'), bySeller, sql`${events.body}::jsonb ? ${field}`)).limit(1)
-          sellerSet = edit !== undefined
+          const edits = await tx.select({ actor: events.actor, requestId: events.requestId }).from(events)
+            .where(and(ofNo, eq(events.type, 'product.update'), bySeller, sql`${events.body}::jsonb ? ${field}`))
+          sellerSet = false
+          for (const edit of edits) if (edit.actor === 'account' || (await carriedBy(tx, edit.requestId, field)) !== 'worker') sellerSet = true
           return null
         },
         build: ({ state }) => {
