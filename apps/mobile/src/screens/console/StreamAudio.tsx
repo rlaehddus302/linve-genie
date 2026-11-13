@@ -4,7 +4,7 @@
 //   서버가 방송 소리를 받아 받아쓰기 일꾼에 넣고, 받아쓴 글은 이 기기의 마이크 없는 연결(음성 세션의 조작 전용 흐름)로 온다.
 // - 휴대폰 마이크를 켜면 마이크가 대신 듣는다(서버는 쉰다, D-LV1-06). 상태 줄은 색 + 글자로.
 // - D-LV1-14: 앱을 닫아도 서버는 방송이 끝날 때까지 듣고, 받을 앱이 없으면 서버가 읽고 바로 등록한다. 돌아오면 ServerHeard가 그동안 한 일을 보여 준다.
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Animated, Easing, Platform, ScrollView, View } from 'react-native'
 import { readStreamAudioStatus, streamAudioLine, type StreamAudioStatus } from '@livejjim/web/src/lib/stream-audio.ts'
 import { useFollowScroll } from '../../lib/use-follow-scroll.ts'
@@ -17,6 +17,8 @@ import type { StreamKeep } from '../../lib/stream-keep.ts'
 
 const POLL_MS = 1000
 const WATCH_MS = 10_000
+/** 고른 듣는 곳(D-RETRO-70)을 서버에서 다시 읽는 사이 — 웹·다른 기기에서 바꾼 것이 이만큼 안에 따라온다 */
+export const LISTEN_SOURCE_POLL_MS = 5000
 
 export const streamAudioPath = (broadcastId: string): string => `/api/broadcasts/${encodeURIComponent(broadcastId)}/stream-audio`
 /** 서버가 듣고 있거나 들으려는 상태 — 이때만 받아쓴 글을 받을 연결을 열어 둔다 */
@@ -86,7 +88,35 @@ function KeptRunner({ session, keep, broadcastId, title }: { readonly session: V
   useEffect(() => { keep.publish(broadcastId, { status, hold, retry }) }, [keep, broadcastId, status, hold, retry])
   // 방송이 끝나면(서버가 끝을 앎) 놓는다
   useEffect(() => { if (status?.phase === 'ended') keep.release(broadcastId) }, [keep, broadcastId, status?.phase])
+  useListenSourceRule(session, keep, broadcastId, title)
   return null
+}
+
+/**
+ * 고른 듣는 곳을 이 휴대폰 마이크에 그대로 따르게 한다 (D-RETRO-70) — 방송을 붙잡은 동안 앱 뿌리에서 한 번만.
+ * - 라이브 소리: 이 방송으로 켜진 휴대폰 마이크를 끈다(서버가 라이브 소리로 돌아온다, D-LV1-06).
+ * - 휴대폰 마이크로 바뀜(웹·다른 기기에서): 이 기기가 예전에 안내를 받았고 권한이 있을 때만 켠다. 이 기기에서 고른 것은 고르는 판이 직접 켠다.
+ * 서버 값을 모르면 아무것도 하지 않는다(예전 동작 그대로).
+ */
+function useListenSourceRule(session: VoiceSession, keep: StreamKeep, broadcastId: string, title: string): void {
+  const view = useSyncExternalStore(session.subscribe, session.getView, session.getView)
+  const setting = useSyncExternalStore(keep.listen.subscribe, keep.listen.get, keep.listen.get)
+  const source = setting?.source ?? null
+  const micOn = view.on && view.broadcastId === broadcastId
+  useEffect(() => {
+    const read = () => { void keep.listen.refresh() }
+    read()
+    const timer = setInterval(read, LISTEN_SOURCE_POLL_MS)
+    return () => clearInterval(timer)
+  }, [keep])
+  const before = useRef(source)
+  useEffect(() => {
+    const was = before.current
+    before.current = source
+    if (source === 'stream') {
+      if (micOn) void session.turnOff()
+    } else if (source === 'mic' && was === 'stream' && !keep.listen.choseHere) void session.preferMic(broadcastId, title)
+  }, [session, keep, broadcastId, title, source, micOn])
 }
 
 /** 앱 뿌리에 하나: 로그인한 동안, 마지막으로 연 방송 중인 방송의 소리를 화면과 상관없이 계속 듣는다 */
@@ -236,7 +266,7 @@ export function useOpenMotion(open: boolean): { readonly value: Animated.Value; 
  * 시각 칸과 상태 칸은 같은 폭이라 지난 말·지금 말이 모두 같은 왼쪽 줄에서 시작한다. 지금 들리는 말은 아래 줄에만.
  * 글자 크기는 채팅·문자 탭 채팅과 같은 meta. 다시 켜기·휴대폰 마이크는 방송 관리 화면에 있다(D-UX3-73).
  */
-export function ListenLine({ session, broadcastId, stream, bottom }: { readonly session: VoiceSession; readonly broadcastId: string; readonly stream: StreamAudio; readonly bottom: number }) {
+export function ListenLine({ session, broadcastId, stream, bottom, source }: { readonly session: VoiceSession; readonly broadcastId: string; readonly stream: StreamAudio; readonly bottom: number; /** 지금 줄 오른쪽 끝의 작은 "소리 듣기" 표시 (D-RETRO-72) — 누르면 고르는 판 */ readonly source?: ReactNode }) {
   const { p } = useKit()
   const view = useSyncExternalStore(session.subscribe, session.getView)
   const [open, setOpen] = useState(false)
@@ -276,7 +306,7 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
         })}
     </View>
   )
-  const currentRow = (
+  const expandRow = (
       <Tap role="button" aria-label={open ? '음성 인식 접기' : '음성 인식 펼치기'} aria-expanded={open} onPress={() => { follow.reset(); setOpen((was) => !was) }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: DOCK_ROW_HEIGHT, paddingHorizontal: SPACE.xs, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
         <View onLayout={(event) => setColumn(event.nativeEvent.layout.width)}>
           {/* 자리 재기: 가장 긴 상태 알약 폭 — 보이지도 읽히지도 않는다 */}
@@ -297,6 +327,13 @@ export function ListenLine({ session, broadcastId, stream, bottom }: { readonly 
         {/* 아래에 붙은 창이라 위로 펼친다 — 닫혀 있으면 ⌃, 펼쳤으면 ⌄ */}
         <Icon name={open ? 'down' : 'up'} size={16} color={p.textSub} />
       </Tap>
+  )
+  // 소리 듣기 표시는 펼치는 줄 옆 형제로 둔다 — 누르는 칸 안에 누르는 칸을 넣지 않는다 (D-RETRO-72)
+  const currentRow = source === undefined || source === null ? expandRow : (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
+      <View style={{ flex: 1 }}>{expandRow}</View>
+      {source}
+    </View>
   )
   return (
     <View role="region" aria-label="음성 인식 창" style={{ backgroundColor: p.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, borderCurve: 'continuous', paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, paddingBottom: bottom, shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: -2 }, elevation: 8 }}>

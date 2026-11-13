@@ -30,6 +30,8 @@ export const sellers = pgTable('sellers', {
   shop: text('shop').notNull().default('{}'),
   /** 설정 "방송 소리로 듣기" (LV1 D-LV1-03, 기본 켬 — 마이그레이션 0035) */
   streamAudio: boolean('stream_audio').notNull().default(true),
+  /** 소리 듣기 고르기 (D-RETRO-70): 'mic' 휴대폰 마이크 · 'stream' 라이브 소리 */
+  listenSource: text('listen_source').notNull().default('mic'),
 })
 
 /**

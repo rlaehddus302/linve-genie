@@ -161,6 +161,22 @@ export class VoiceSession {
     if (!this.#view.on && !this.#manualOff) await this.turnOn(broadcastId, title)
   }
 
+  /** 마이크 권한이 있는지 — 이 기기 모듈이 알려 주지 않으면 null (소리 듣기 판의 "마이크 권한이 없어", D-RETRO-70) */
+  async micAllowed(): Promise<boolean | null> {
+    const ask = this.#options.audio.canResume
+    if (ask === undefined) return null
+    try { return await ask.call(this.#options.audio) } catch { return null }
+  }
+
+  /**
+   * 소리 듣기가 "휴대폰 마이크"로 바뀌었다 (D-RETRO-70 — 다른 기기에서 바꿨을 때): 라이브 소리로 듣느라 꺼 둔 표시를 지우고,
+   * 이 기기가 예전에 안내를 받았고 권한이 있을 때만 켠다. 안내 창은 띄우지 않는다(띄우는 것은 이 기기에서 직접 고른 turnOn)
+   */
+  async preferMic(broadcastId: string, title: string): Promise<void> {
+    this.#manualOff = false
+    await this.resumeIfConsented(broadcastId, title)
+  }
+
   async turnOn(broadcastId: string, title: string): Promise<void> {
     this.#manualOff = false
     if (!this.#consented && this.#options.audio.onSession) this.#consented = (await readVoicePreferences()).consent === true
