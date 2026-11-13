@@ -7,6 +7,7 @@ import { createApi, type ApiDeps } from './api.ts'
 import { JSON_CONTENT_TYPE, errorResponse } from './errors.ts'
 import { errorKind, formatLog } from './log.ts'
 import { isServerPath, type WebServer } from './web.ts'
+import { takesTraffic, type SlotView } from './slot.ts'
 
 export type ErrorLogger = (error: unknown) => void
 
@@ -23,6 +24,11 @@ export interface AppOptions {
   readonly web?: WebServer | null
   /** 준비 확인 /health/ready: DB가 2초 안에 답하는지 (AC-I3-80). 없으면 그 경로 없음 */
   readonly ready?: () => Promise<boolean>
+  /**
+   * 두 자리 교대 (D-RETRO-35~37, slot.ts): 주면 /health에 자리 이름·판(커밋)·상태를 싣고, 앞단이 "운영 자리인가"를 묻는 /health/active를 연다.
+   * 없으면 /health는 `{"status":"ok"}` 그대로이고 /health/active는 없다(404)
+   */
+  readonly slot?: () => SlotView
   /** 운영 상태 /ops/status (AC-I3-81): 토큰(없으면 404)과 합친 숫자 */
   readonly ops?: { readonly token: string | null; readonly status: () => Promise<Record<string, unknown>> }
   /** 크롬 확장 경로 (/ext — 로그인·Origin 검사 밖, 확장 토큰으로만 받는다, X1) */
@@ -113,8 +119,19 @@ export function createApp(options: AppOptions = {}): Hono {
   })
 
   // 헬스체크: DB·외부 서비스·비밀값을 보지 않는다 (D-025)
-  app.get('/health', (c) => c.json({ status: 'ok' }))
+  // 두 자리 교대(D-RETRO-35): 자리 이름·판·상태를 더 싣는다 — 대기 자리도 200이다(프로세스가 살아 있는지만 답한다)
+  const slot = options.slot
+  app.get('/health', (c) => (slot === undefined ? c.json({ status: 'ok' }) : jsonNoStore({ status: 'ok', ...slot() }, 200)))
   app.all('/health', () => errorResponse(405, { Allow: HEALTH_ALLOW }))
+
+  // 앞단(Caddy)의 건강 확인 (D-RETRO-36): 운영 자리(와 뒤 작업만 넘기는 중인 자리)만 200. 대기·내리는 중은 503이라 앞단이 그 자리로 보내지 않는다. DB·비밀값을 보지 않는다
+  if (slot !== undefined) {
+    app.get('/health/active', () => {
+      const { mode } = slot()
+      return jsonNoStore({ status: mode }, takesTraffic(mode) ? 200 : 503)
+    })
+    app.all('/health/active', () => errorResponse(405, { Allow: HEALTH_ALLOW }))
+  }
 
   // 준비 확인 (AC-I3-80): DB에 가벼운 질의가 2초 안에 되면 200, 아니면 503 — 이유·오류 문장 없음. 세션·Origin 필요 없음
   const ready = options.ready

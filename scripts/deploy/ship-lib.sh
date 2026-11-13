@@ -40,3 +40,18 @@ native_blocked() {
   undefer "native-$1"
   return 1
 }
+
+# ci_setting <이름> <기본값> — 맥 미니의 ~/.livegenie-ci/gate.env 에서 한 줄(이름=값)을 읽는다. 없으면 기본값. 파일을 실행하지 않고 글자로만 읽는다
+ci_setting() {
+  local v=""
+  if [ -f "$LG_CI_DIR/gate.env" ]; then v=$(sed -n "s/^$1=//p" "$LG_CI_DIR/gate.env" | tail -n 1 | tr -d ' \t\r'); fi
+  echo "${v:-$2}"
+}
+
+# server_mode <live|idle|unknown> <force_server: yes|no> <방송 중 할 일: defer|stage-only> → switch | stage-only | defer  (D-RETRO-37, 복기 E6)
+#   방송이 없거나 확인하지 못하면 올린다(switch) — 서버가 죽었을 때 고침을 막으면 살릴 길이 없다(live-gate.sh 머리말).
+#   방송 중이면: force_server=yes → 올린다 · stage-only → 대기 자리에 띄워 확인까지만 · 그 밖(모르는 값 포함) → 통째로 미룬다(지금까지와 같다).
+server_mode() {
+  if [ "$1" != live ] || [ "$2" = yes ]; then echo switch; return 0; fi
+  if [ "$3" = stage-only ]; then echo stage-only; else echo defer; fi
+}

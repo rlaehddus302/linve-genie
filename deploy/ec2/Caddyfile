@@ -1,13 +1,33 @@
-# 라이브지니 앞단 (compose.yaml의 caddy). LJ_DOMAIN 하나로 인증서를 받고 app:3000으로 넘긴다.
+# 라이브지니 앞단 (compose.yaml의 caddy). LJ_DOMAIN 하나로 인증서를 받고 운영 중인 앱 자리로 넘긴다.
 # - 앞단 프록시는 이것 하나다 → .env의 LIVEJJIM_TRUSTED_PROXIES=1 (docs/DEPLOY.md 5절).
 #   Caddy는 들어온 X-Forwarded-For를 믿지 않고 실제 접속 주소로 다시 적는다(trusted_proxies를 두지 않는다).
 # - WebSocket(/api/voice/stream·/api/voice/worker)은 reverse_proxy가 그대로 넘긴다.
 # - 압축(encode)은 두지 않는다: 이어 보내는 응답이 묶여 늦게 갈 수 있다.
+#
+# 두 자리 교대 (D-RETRO-36, docs/DEPLOY.md 6-2절): 관리 기능(admin)을 열지 않는다. 두 자리를 모두 적어 두고 건강 확인으로 고른다.
+# - health_uri /health/active: 서버가 "운영" 상태일 때만 200을 준다(대기·내리는 중은 503, apps/server/src/slot.ts). 1초마다 묻고 한 번 결과로 바로 바꾼다.
+#   떠 있지 않은 자리는 이름조차 풀리지 않아 건강 확인이 떨어진다 — 평소에는 한 자리만 건강하다.
+# - lb_policy first: 건강한 자리 가운데 앞에 적힌 쪽. 교체하는 1~2초 동안 둘 다 운영일 때 요청이 두 자리로 흩어지지 않게 한다.
+# - lb_try_duration 15s: 보낼 자리가 없거나(교체 순간·서버가 막 뜨는 중) 연결을 못 맺으면 실패로 답하지 않고 15초까지 다른 자리를 다시 찾는다.
+#   다시 보내는 것은 **연결을 맺지 못한 요청**뿐이다(서버에 닿지 않았으니 두 번 처리될 일이 없다). 서버에 닿은 뒤 끊긴 요청은 GET만 다시 보낸다(Caddy 기본) —
+#   쓰기 요청을 앞단이 두 번 보내지 않는다.
+# - fail_duration 5s: 요청이 연결을 못 맺은 자리는 건강 확인을 기다리지 않고 5초 동안 건너뛴다.
+# - 이미 맺은 실시간 연결(SSE)·WebSocket은 앞단이 끊지 않는다. 내리는 자리가 스스로 닫고, 화면·앱·일꾼이 다시 붙을 때 운영 자리로 간다.
 {
-	admin off
+    admin off
 }
 
 # - LJ_OLD_DOMAINS(빈칸으로 여럿, 비어도 됨): 도메인을 옮기는 동안 옛 주소에도 인증서를 받아 같은 앱으로 넘긴다(D-OPS-DOMAIN).
 {$LJ_DOMAIN} {$LJ_OLD_DOMAINS} {
-	reverse_proxy app:3000
+    reverse_proxy app-a:3000 app-b:3000 {
+        lb_policy first
+        lb_try_duration 15s
+        lb_try_interval 100ms
+        health_uri /health/active
+        health_interval 1s
+        health_timeout 2s
+        health_passes 1
+        health_fails 1
+        fail_duration 5s
+    }
 }

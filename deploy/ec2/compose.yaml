@@ -1,8 +1,12 @@
 # 라이브지니 EC2 한 대 배포 (deploy/ec2/README.md). 직접 부르지 말고 lg-compose(lg-compose.sh)로 부른다.
-# - app: 저장소 루트 Dockerfile로 이 기계에서 빌드. 포트를 밖에 내지 않는다(caddy만 닿는다).
+# - app-a · app-b: 앱 자리 둘 (두 자리 교대, D-RETRO-35~39 · docs/DEPLOY.md 6-2절). 평소에는 한 자리만 떠 있고, 새 판을 낼 때만 다른 자리에
+#        대기 상태로 띄워 확인한 뒤 갈아 끼운다(deploy/ec2/switch.sh). 포트를 밖에 내지 않는다(caddy만 닿는다).
+#        이미지는 자리마다 따로다: LG_IMAGE_A·LG_IMAGE_B (switch.sh가 /opt/livegenie/slot/slots.env 에 적는다 — 판마다 다른 태그).
+#        어느 자리가 운영인지는 /opt/livegenie/slot/active 한 줄(a 또는 b)이 정한다. 컨테이너는 그 폴더를 읽기만 한다(apps/server/src/slot.ts).
+#        profiles: lg-compose는 운영 자리만 고른다(sudo lg-compose up -d 가 대기 자리까지 띄우지 않게). 두 자리를 다 다룰 때는 switch.sh가 한다.
 # - db: PostgreSQL 15 — 서버 이미지의 pg_dump(데비안 bookworm, 15)와 메이저 판을 맞춘다(docs/DEPLOY.md 6절).
 #        판을 올리면 서버 백업 명령이 실패하니 Dockerfile의 pg_dump도 함께 올린다.
-# - caddy: 80·443만 공개, LJ_DOMAIN 인증서를 저절로 받고 /api/voice/* WebSocket도 그대로 넘긴다.
+# - caddy: 80·443만 공개, LJ_DOMAIN 인증서를 저절로 받고 /api/voice/* WebSocket도 그대로 넘긴다. 두 자리를 모두 알고 운영 자리로만 보낸다(Caddyfile).
 # - 망: back(내부 전용, db·app) · edge(밖으로 나가는 망, app·caddy). db는 밖으로 나가지도 들어오지도 않는다.
 # 값: --env-file로 받은 .env(LJ_DOMAIN·LJ_DB_PASSWORD)와 app의 env_file(같은 파일). 값에 $를 넣지 않는다.
 name: livegenie
@@ -12,6 +16,40 @@ x-logging: &logging
   options:
     max-size: "10m"
     max-file: "5"
+
+# 두 앱 자리가 같이 쓰는 정의 (자리마다 다른 것은 이미지·자리 이름·판뿐이다)
+x-app-env: &app-env
+  LIVEJJIM_APP_UPDATES_DIR: /app-updates
+  # 운영 자리 이름 한 줄(switch.sh가 올리기 직전에 고쳐 쓴다). 이 자리 이름과 같으면 운영, 다르거나 없으면 대기로 뜬다
+  LIVEJJIM_SLOT_FILE: /run/livegenie-slot/active
+
+x-app: &app
+  restart: unless-stopped
+  env_file:
+    - ${LJ_ENV_FILE:-/opt/livegenie/.env}
+  depends_on:
+    db:
+      condition: service_healthy
+  volumes:
+    # 서버의 판매자 자동 백업 폴더(LIVEJJIM_BACKUP_DIR=/backups). 이미지 사용자 node(uid 1000)가 쓸 수 있어야 한다
+    - ${LJ_APP_BACKUP_DIR:-/opt/livegenie/backups/app}:/backups
+    # 감사 채팅 봇 계정 로그인 파일·계정 목록(D-YT-SEND-12, LIVEJJIM_YT_SEND_ACCOUNTS_FILE=/run/livegenie-secrets/bots.json). 읽기만.
+    # 파일은 uid 1000·권한 600. 봇 길을 쓰지 않으면 빈 폴더라 아무 일도 하지 않는다
+    - ${LJ_APP_SECRETS_DIR:-/opt/livegenie/secrets}:/run/livegenie-secrets:ro
+    # 앱 화면 새 버전 묶음(D-OTA-01): 맥 미니 자동 내보내기가 SSM으로 이 폴더에 풀고, 서버는 읽기만 해서 /app-updates로 나눠 준다
+    - ${LJ_APP_UPDATES_DIR:-/opt/livegenie/app-updates}:/app-updates:ro
+    # 자리 표시 폴더(D-RETRO-36): active(운영 자리 이름 한 줄). 비밀값 없음, 읽기만
+    - ${LJ_SLOT_DIR:-/opt/livegenie/slot}:/run/livegenie-slot:ro
+  networks: [back, edge]
+  # 집 회선 프록시 터널 끝(D-LV1-13, deploy/home-proxy/README.md). host-gateway = 호스트의 도커 브리지 주소(172.17.0.1).
+  # 터널은 EC2 sshd가 그 주소의 18888만 열게 한다(GatewayPorts clientspecified + PermitListen) — 0.0.0.0에 열지 않고 보안 그룹도 열지 않는다.
+  # app을 host 망으로 바꾸지 않는 까닭: db·caddy와 이름으로 붙는 망(back·edge)과 "app 포트를 밖에 내지 않음"을 그대로 지키려고.
+  # 프록시를 쓰지 않으면(LIVEJJIM_YT_MEDIA_PROXY 비움) 이 줄은 아무 일도 하지 않는다.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  # 내릴 때(docker stop): 뒤 작업을 멈추고 임대를 내려놓은 뒤 앞단이 알아챌 때까지 3초쯤 더 받고, 진행 중 요청을 마친다(main.ts) — 기본 10초로는 모자란다
+  stop_grace_period: 45s
+  logging: *logging
 
 services:
   db:
@@ -31,35 +69,23 @@ services:
       retries: 10
     logging: *logging
 
-  app:
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-    image: livegenie-app:local
-    restart: unless-stopped
-    env_file:
-      - ${LJ_ENV_FILE:-/opt/livegenie/.env}
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      # 서버의 판매자 자동 백업 폴더(LIVEJJIM_BACKUP_DIR=/backups). 이미지 사용자 node(uid 1000)가 쓸 수 있어야 한다
-      - ${LJ_APP_BACKUP_DIR:-/opt/livegenie/backups/app}:/backups
-      # 감사 채팅 봇 계정 로그인 파일·계정 목록(D-YT-SEND-12, LIVEJJIM_YT_SEND_ACCOUNTS_FILE=/run/livegenie-secrets/bots.json). 읽기만.
-      # 파일은 uid 1000·권한 600. 봇 길을 쓰지 않으면 빈 폴더라 아무 일도 하지 않는다
-      - ${LJ_APP_SECRETS_DIR:-/opt/livegenie/secrets}:/run/livegenie-secrets:ro
-      # 앱 화면 새 버전 묶음(D-OTA-01): 맥 미니 자동 내보내기가 SSM으로 이 폴더에 풀고, 서버는 읽기만 해서 /app-updates로 나눠 준다
-      - ${LJ_APP_UPDATES_DIR:-/opt/livegenie/app-updates}:/app-updates:ro
+  app-a:
+    <<: *app
+    profiles: [a]
+    image: ${LG_IMAGE_A:-livegenie-app:local}
     environment:
-      LIVEJJIM_APP_UPDATES_DIR: /app-updates
-    networks: [back, edge]
-    # 집 회선 프록시 터널 끝(D-LV1-13, deploy/home-proxy/README.md). host-gateway = 호스트의 도커 브리지 주소(172.17.0.1).
-    # 터널은 EC2 sshd가 그 주소의 18888만 열게 한다(GatewayPorts clientspecified + PermitListen) — 0.0.0.0에 열지 않고 보안 그룹도 열지 않는다.
-    # app을 host 망으로 바꾸지 않는 까닭: db·caddy와 이름으로 붙는 망(back·edge)과 "app 포트를 밖에 내지 않음"을 그대로 지키려고.
-    # 프록시를 쓰지 않으면(LIVEJJIM_YT_MEDIA_PROXY 비움) 이 줄은 아무 일도 하지 않는다.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    logging: *logging
+      <<: *app-env
+      LIVEJJIM_SLOT: a
+      LIVEJJIM_COMMIT: ${LG_COMMIT_A:-}
+
+  app-b:
+    <<: *app
+    profiles: [b]
+    image: ${LG_IMAGE_B:-livegenie-app:local}
+    environment:
+      <<: *app-env
+      LIVEJJIM_SLOT: b
+      LIVEJJIM_COMMIT: ${LG_COMMIT_B:-}
 
   caddy:
     image: caddy:2.11.6-alpine
@@ -67,16 +93,16 @@ services:
     environment:
       LJ_DOMAIN: ${LJ_DOMAIN:?LJ_DOMAIN이 .env에 없어요}
       LJ_OLD_DOMAINS: ${LJ_OLD_DOMAINS:-}
+    # 포트는 운영에서 80·443 그대로다. 내 컴퓨터 연습 환경(scripts/deploy/practice)만 LJ_HTTP_PORT·LJ_HTTPS_PORT로 다른 번호를 쓴다
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "${LJ_HTTP_PORT:-80}:80"
+      - "${LJ_HTTPS_PORT:-443}:443"
+      - "${LJ_HTTPS_PORT:-443}:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
-    depends_on:
-      - app
+    # 앱 자리에 매이지 않는다 — 자리는 switch.sh가 따로 띄우고 내린다. 떠 있지 않은 자리는 건강 확인이 떨어져 보내지 않는다
     networks: [edge]
     logging: *logging
 

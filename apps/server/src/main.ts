@@ -10,6 +10,12 @@
 // - 기동 로그에 환경변수 값을 찍지 않는다.
 // - Ctrl+C(SIGINT)·SIGTERM이면 새 연결을 받지 않고 진행 중인 요청을 마친 뒤 종료 코드 0으로 끝난다.
 //   한 번 더 누르면 바로 끝낸다.
+// - 두 자리 교대 (D-RETRO-35~37, slot.ts — 자리 이름 LIVEJJIM_SLOT을 적었을 때만):
+//   · 자리 표시 파일이 다른 자리를 가리키면 **대기**로 뜬다: 요청은 받지만 뒤 작업(워커·주기 작업·자동 백업)을 시작하지 않는다.
+//   · SIGUSR2를 받으면 운영으로 올린다(뒤 작업 시작). 바깥에서 부를 수 있는 HTTP 입구는 두지 않는다.
+//   · SIGHUP을 받으면 뒤 작업만 멈추고 임대를 내려놓는다(넘기는 중 — 요청은 그대로 받는다). 새 자리를 올리기 전에 보내 뒤 작업이 두 곳에서 같이 돌지 않게 한다.
+//   · SIGTERM을 받으면 내린다: (아직이면) 뒤 작업을 멈추고 임대를 내려놓음 → 앞단이 알아챌 때까지 잠깐 더 받음(/health/active는 바로 503) →
+//     실시간 연결을 닫음 → 새 연결을 받지 않고 진행 중 요청을 마치고 끝.
 import { readMediaProxy, readStreamAudioSwitch, readYtDlpPath } from './voice/stream-audio.ts'
 import { existsSync } from 'node:fs'
 import { FolderBackupStorage } from './backup.ts'
@@ -25,9 +31,22 @@ import { readMasterKey } from './secrets.ts'
 import { createServer } from './server.ts'
 import { webDirProblem } from './web.ts'
 import { SERVICE_NAME } from './brand.ts'
+import { readSlotSetting, SlotState } from './slot.ts'
 
 /** 종료를 요청한 뒤 남은 연결을 강제로 끊기까지 기다리는 시간 */
 const FORCE_CLOSE_AFTER_MS = 5000
+/**
+ * 두 자리 교대에서 내릴 때: "내리는 중"이 된 뒤에도 이만큼은 요청을 계속 받는다.
+ * 앞단(Caddy)은 1초마다 /health/active를 물어 한 번 실패로 이 자리를 뺀다(deploy/ec2/Caddyfile). 그 전에 연결을 닫으면 그 사이에 온 요청이 실패한다.
+ */
+const DRAIN_GRACE_MS = 4000
+/**
+ * 내리는 중이 된 뒤 실시간 연결(SSE)·음성 웹소켓을 닫는 때. 앞단이 이 자리를 뺀 다음(1초 + 여유)이라 다시 붙는 연결은 새 자리로 간다.
+ * 끝까지 열어 두면 그 화면은 새 자리에서 일어난 기록을 알림으로 받지 못한다(알림은 프로세스 안에서만 퍼진다, hub.ts)
+ */
+const DRAIN_REALTIME_CLOSE_MS = 2000
+/** 두 자리 교대에서 내릴 때 진행 중 요청(파일 만들기 등)을 기다리는 시간 — 새 요청은 이미 다른 자리로 간다 */
+const DRAIN_FORCE_CLOSE_AFTER_MS = 20_000
 
 const say = (line: string) => process.stdout.write(`[server] ${line}\n`)
 const complain = (line: string) => process.stderr.write(`[server] ${line}\n`)
@@ -114,6 +133,14 @@ if (tiktokSend !== null) {
   }
   say('틱톡 감사 채팅을 봇 계정 브라우저로 올려요 — 틱톡이 허락한 연동이 아니에요.')
 }
+// 두 자리 교대 (D-RETRO-35·36): 어느 자리인지, 대기로 뜰지. 자리 이름이 없으면 한 대 구성 — 늘 운영으로 뜬다
+const slotSetting = readSlotSetting(process.env)
+if (!slotSetting.ok) {
+  complain(`시작하지 못했어요. ${slotSetting.message}`)
+  process.exit(1)
+}
+if (slotSetting.notice !== null) complain(slotSetting.notice)
+const slot = new SlotState(slotSetting)
 const databaseSetting = readDatabaseSetting(process.env)
 if (!databaseSetting.ok) {
   complain(`시작하지 못했어요. ${databaseSetting.message}`)
@@ -137,6 +164,8 @@ if (!assembled.ok) {
 const backupDir = readBackupDir(process.env)
 const livejjim = createServer({
   ...assembled.options,
+  standby: slot.mode === 'standby',
+  slot: () => slot.view(),
   trustedProxies: deploy.trustedProxies,
   ...(deploy.opsToken === null ? {} : { opsToken: deploy.opsToken }),
   ...(deploy.webDir === null ? {} : { webDir: deploy.webDir }),
@@ -159,10 +188,15 @@ const livejjim = createServer({
   // 집 회선 프록시 (D-LV1-13): LIVEJJIM_YT_MEDIA_PROXY — 이 기계 안 터널 끝(http://127.0.0.1·localhost·host.docker.internal:<포트>)만. 그 밖이면 쓰지 않고 경고 한 줄
   streamAudio: { on: readStreamAudioSwitch(process.env), ytDlpPath: readYtDlpPath(process.env), mediaProxy: readMediaProxy(process.env) },
 })
-// 워커: 유튜브 수집기·발송함(설정이 있을 때), 30일 봉인 작업 — 끝나지 않은 회차의 수집기가 저절로 다시 돈다 (NFR-03)
-livejjim.start()
-// 매일 판매자 자동 백업 (I2 D-I2-10)
-livejjim.backups.start()
+/** 뒤 작업을 켠다 — 운영으로 뜰 때 바로, 대기로 떴으면 올릴 때(SIGUSR2) */
+function startBackground(): void {
+  // 워커: 유튜브 수집기·발송함(설정이 있을 때), 30일 봉인 작업 — 끝나지 않은 회차의 수집기가 저절로 다시 돈다 (NFR-03)
+  livejjim.start()
+  // 매일 판매자 자동 백업 (I2 D-I2-10)
+  livejjim.backups.start()
+}
+if (slot.mode === 'active') startBackground()
+else say('대기 자리로 떴어요. 요청은 받지만 뒤 작업은 올릴 때까지 돌리지 않아요.')
 // 확인서 미리 보기 워커를 미리 띄운다 (첫 미리 보기가 워커를 띄우는 시간을 기다리지 않게 — RA-I2-003)
 livejjim.work.receipts.warm()
 const server = createNodeServer({ app: livejjim.app })
@@ -195,12 +229,9 @@ server.listen(setting.port, () => {
 })
 
 let stopping = false
-function stop(): void {
-  if (stopping) {
-    complain('바로 끝낼게요.')
-    process.exit(1)
-  }
-  stopping = true
+
+/** 실시간 연결·남은 타이머를 닫고, 새 연결을 받지 않고, 진행 중 요청을 마친 뒤 끝낸다 */
+function shutdown(forceAfterMs: number): void {
   say('끄는 중이에요. 진행 중인 요청을 마무리하고 있어요.')
   livejjim.close()
   server.close((error) => {
@@ -213,8 +244,62 @@ function stop(): void {
     void finish(0)
   })
   server.closeIdleConnections()
-  setTimeout(() => server.closeAllConnections(), FORCE_CLOSE_AFTER_MS).unref()
+  setTimeout(() => server.closeAllConnections(), forceAfterMs).unref()
 }
 
+/** 뒤 작업을 멈추고 임대를 내려놓는다 — 한 번만 돈다(넘길 때 했으면 내릴 때 다시 하지 않는다) */
+let quiet: Promise<void> | null = null
+function quiesce(): Promise<void> {
+  quiet ??= livejjim.quiesce().catch(() => {
+    complain('뒤 작업을 멈추다 오류가 났어요. 남은 임대는 시간이 지나면 풀려요.')
+  })
+  return quiet
+}
+
+function stop(): void {
+  if (stopping) {
+    complain('바로 끝낼게요.')
+    process.exit(1)
+  }
+  stopping = true
+  // 한 대 구성(자리 이름 없음)은 지금까지와 같다: 바로 닫는다
+  if (slot.view().slot === null) {
+    shutdown(FORCE_CLOSE_AFTER_MS)
+    return
+  }
+  // 두 자리 교대: 내리는 중으로 바꾸고(/health/active 503 — 앞단이 이 자리를 뺀다) 뒤 작업을 멈춰 임대를 내려놓는다.
+  // 그동안에도 요청은 받는다. 앞단이 알아챌 시간(DRAIN_GRACE_MS)과 뒤 작업 멈추기가 둘 다 끝나면 닫는다
+  slot.drain()
+  say('내리는 중이에요. 요청은 잠깐 더 받아요.')
+  const grace = new Promise<void>((resolve) => setTimeout(resolve, DRAIN_GRACE_MS))
+  // 실시간 연결을 먼저 닫아 화면·앱·일꾼이 새 자리로 다시 붙게 한다 (요청은 계속 받는다)
+  setTimeout(() => {
+    livejjim.hub.closeAll()
+    livejjim.voice.close()
+  }, DRAIN_REALTIME_CLOSE_MS).unref()
+  void Promise.all([grace, quiesce()]).then(() => shutdown(DRAIN_FORCE_CLOSE_AFTER_MS))
+}
+
+// 올리기 (D-RETRO-37): 대기 → 운영. 이미 운영이거나 내리는 중이면 아무것도 하지 않는다(처리기가 없으면 SIGUSR2는 프로세스를 끝낸다 — 늘 받아 둔다)
+process.on('SIGUSR2', () => {
+  if (!slot.promote()) {
+    say('올리기 신호를 받았지만 대기 자리가 아니라 그대로 둬요.')
+    return
+  }
+  startBackground()
+  say('운영으로 올렸어요. 뒤 작업을 시작했어요.')
+})
+// 넘기기 (D-RETRO-37): 운영 → 넘기는 중. 뒤 작업이 다 멈춘 뒤에 상태를 바꾼다 — 교체 스크립트가 그 상태를 보고 새 자리를 올린다.
+// 한 대 구성에서는 아무것도 하지 않는다(뒤 작업을 이어받을 자리가 없다)
+process.on('SIGHUP', () => {
+  if (slot.view().slot === null || slot.mode !== 'active' || stopping) {
+    say('넘기기 신호를 받았지만 두 자리 구성의 운영 자리가 아니라 그대로 둬요.')
+    return
+  }
+  say('뒤 작업을 멈추고 임대를 내려놓아요. 요청은 그대로 받아요.')
+  void quiesce().then(() => {
+    if (slot.handover()) say('뒤 작업을 넘길 준비가 됐어요.')
+  })
+})
 process.on('SIGINT', stop)
 process.on('SIGTERM', stop)

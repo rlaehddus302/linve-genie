@@ -6,20 +6,21 @@
 |---|---|
 | 기계 | EC2 `t4g.small`(arm64, 2 vCPU·2GB, 스왑 2GB를 더함) · Amazon Linux 2023 · gp3 30GB(암호화) · 서울 `ap-northeast-2` |
 | 공개 포트 | 80·443만. SSH 없음 — 관리는 SSM(세션 관리자·Run Command) |
-| 구성 | `compose.yaml`: `app`(저장소 Dockerfile을 그 기계에서 빌드) · `db`(postgres 15.19, 볼륨) · `caddy`(2.11.6, 자동 https) |
+| 구성 | `compose.yaml`: `app-a`·`app-b`(앱 자리 둘 — 평소에는 한 자리만 떠 있고 새 판을 낼 때 다른 자리에 띄워 갈아 끼운다, [두 자리 교대](../../docs/DEPLOY.md)) · `db`(postgres 15.19, 볼륨) · `caddy`(2.11.6, 자동 https, 운영 자리로만 보냄) |
 | 주소 | `.env`의 `LJ_DOMAIN` 하나. 도메인이 없으면 `<탄력적 IP 점을 대시로>.sslip.io` |
 | 비밀값 | `/opt/livegenie/.env`(600). 마스터 키·운영 토큰·일꾼 토큰은 SSM Parameter Store `/livegenie/prod/*`(SecureString)에도 |
-| 백업 | 매일 04:00(KST) `pg_dump` → gzip → S3 `postgres/`, 로컬 7일 · S3 30일 |
+| 백업 | 매일 04:00(KST) `pg_dump` → gzip → S3 `postgres/`, 로컬 7일 · S3 30일. 배포 전에는 DB 변경이 있는 판일 때만 한 번 더(D-RETRO-39) |
 
 ## 파일
 
 | 파일 | 하는 일 |
 |---|---|
-| `bootstrap.sh` | EC2 user-data. 설치 → 배포 키 → 저장소 받기(최대 60분 기다림) → 비밀값 → 백업 타이머 → `up -d --build` → `/health` |
-| `update.sh` | 새 버전: 백업 → `git pull --ff-only` → 빌드 → `up -d` → `/health` (SSM Run Command로 부른다) |
+| `bootstrap.sh` | EC2 user-data. 설치 → 배포 키 → 저장소 받기(최대 60분 기다림) → 비밀값 → 백업 타이머 → `switch.sh`(이미지 만들고 `app-a`를 운영으로) → `/health` |
+| `switch.sh` | 두 자리 교대: 이미지(받기·만들기) → DB 변경이 있으면 백업 → 대기 자리에 띄움 → 건강·판·연습 방송 확인 → 옛 자리 뒤 작업 넘기기 → 올리기 → 옛 자리 내리기. `--stage-only`·`--back`·`--status`. 끝 줄 `LG-SWITCHED <자리> <커밋>`·`LG-SWITCH-FAIL <단계>` (docs/DEPLOY.md 6-2절) |
+| `update.sh` | 새 버전을 손으로: `git pull --ff-only` → `switch.sh --build` (SSM Run Command로 부른다). 맥 미니 내보내기는 `scripts/deploy/lg-apply.sh` → `switch.sh` |
 | `backup.sh` | DB 백업 하나 만들고 S3에 올린다(systemd `livegenie-backup.timer`) |
 | `wait-health.sh` | 컨테이너 안 `/health`, 밖 `https://<주소>/health` 확인 |
-| `lg-compose.sh` | `/usr/local/bin/lg-compose` — 올바른 `.env`·compose 파일로 `docker compose`를 부른다 |
+| `lg-compose.sh` | `/usr/local/bin/lg-compose` — 올바른 `.env`·compose 파일로 `docker compose`를 부른다. 운영 자리만 고르고, `app`이라고 적으면 운영 자리 이름으로 바꿔 준다(두 자리 다: `LG_SLOTS=all`) |
 | `compose.yaml` · `Caddyfile` · `env.template` | 서비스 정의 · 앞단 · `.env` 틀 |
 | `iam-policy.json` | 인스턴스 역할 인라인 정책(SSM 그 경로 읽기·쓰기, 백업 버킷 `postgres/` 올리기만) |
 
@@ -194,7 +195,8 @@ aws ssm get-parameter --name /livegenie/prod/transcribe-worker-token --with-decr
 | 할 일 | 명령 |
 |---|---|
 | 새 버전 | `aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript --timeout-seconds 3600 --parameters 'commands=["/opt/livegenie/src/deploy/ec2/update.sh"]' --query Command.CommandId --output text` → `aws ssm get-command-invocation --command-id <ID> --instance-id $INSTANCE_ID --query '[Status,StandardOutputContent]' --output text` (끝 줄 `LG-UPDATED <커밋>`) |
-| 상태·기록 | 세션에서 `sudo lg-compose ps` · `sudo lg-compose logs --tail 100 app` |
+| 상태·기록 | 세션에서 `sudo lg-compose ps` · `sudo lg-compose logs --tail 100 app` · 자리 상태 `sudo /opt/livegenie/src/deploy/ec2/switch.sh --status` |
+| 되돌리기 | `sudo /opt/livegenie/src/deploy/ec2/switch.sh --back` — 멈춰 둔 바로 앞 자리(옛 이미지)를 다시 올린다. DB는 되돌아가지 않는다(docs/DEPLOY.md 6-2절) |
 | 운영 상태 | `curl -H "Authorization: Bearer <ops-token>" https://$LJ_DOMAIN/ops/status` (토큰은 SSM `/livegenie/prod/ops-token`) |
 | 백업 바로 하기·확인 | `sudo systemctl start livegenie-backup.service` · `systemctl list-timers livegenie-backup.timer` · `journalctl -u livegenie-backup` |
 | 가입 문자 인증 켜기(SENS) | 맥에서 `bash deploy/ec2/set-sms-env.sh <SENS 서비스 ID> <등록한 보내는 번호>` → 인증키 둘을 가려진 칸에 붙여넣음. 키는 SSM `/livegenie/prod/sms-ncp-*`(SecureString)에 넣고 서버가 거기서 읽어 `.env`에 쓴 뒤 앱을 다시 띄운다(옛 `.env`는 `.env.bak-sms`). 키를 바꿀 때도 같은 명령 |
@@ -221,7 +223,7 @@ aws ssm get-parameter --name /livegenie/prod/transcribe-worker-token --with-decr
 ## 남은 위험
 
 - **sslip.io 인증서**: Let's Encrypt는 등록 도메인마다 주간 발급 한도가 있다. sslip.io를 쓰는 사람이 많으면 막힐 수 있다(Caddy는 ZeroSSL로도 시도한다). 출시 전 자기 도메인으로 바꾼다.
-- **메모리 2GB**: 첫 빌드와 서버가 겹치면 느리다(스왑 2GB로 버틴다). 빌드가 OOM으로 죽으면 t4g.medium으로 한 번 올려 빌드한 뒤 내린다.
+- **메모리 2GB**: 첫 빌드와 서버가 겹치면 느리다(스왑 2GB로 버틴다). 빌드가 OOM으로 죽으면 t4g.medium으로 한 번 올려 빌드한 뒤 내린다. 두 자리 교대는 교체하는 몇십 초 동안 앱 컨테이너 둘이 같이 뜬다 — 처음 적용하기 전에 `free -m`·`sudo docker stats --no-stream`으로 여유를 본다(docs/DEPLOY.md 6-2절 "처음 적용"). 이미지를 맥 미니에서 만들어 받아 오면(`LG_IMAGE_FROM=mini`) 서버에서 빌드하지 않는다.
 - **한 대·한 디스크**: DB와 서버가 같은 EBS에 있다. 백업은 하루 한 번이라 최대 하루치 기록을 잃을 수 있다. EBS 스냅숏(Data Lifecycle Manager)을 더하면 줄어든다.
 - **데이터센터 IP와 유튜브**: 방송 소리는 막혀 끔(D-LV1-11·12). 서버 채팅 읽기도 봇 확인으로 막힐 수 있다(경보 `YT_CHAT_BLOCKED`, D-YT-SRV-19 대체 경로).
 - **비밀값 두 곳**: `.env`(디스크 암호화)와 SSM. 마스터 키를 바꾸지 않는다. 백업 버킷에는 넣지 않는다.

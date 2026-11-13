@@ -187,6 +187,8 @@ step_dirs() {
   STEP=dirs
   install -d -m 0700 -o 1000 -g 1000 "$LG_ROOT/backups/app"
   install -d -m 0700 "$LG_ROOT/backups/db"
+  # 자리 표시 폴더(운영 자리 이름 한 줄, 비밀값 없음) — 컨테이너의 앱(비 root)이 읽는다
+  install -d -m 0755 "$LG_ROOT/slot"
 }
 
 step_backup_timer() {
@@ -215,7 +217,8 @@ EOF
 
 step_up() {
   STEP=compose
-  lg-compose up -d --build --remove-orphans
+  # 두 자리 교대(D-RETRO-35): 처음이면 switch.sh가 이미지를 만들고 a 자리를 바로 운영으로 띄운다. 이미 운영 자리가 있으면(다시 돌림) 그대로 둔다
+  if [ -s "$LG_ROOT/slot/active" ]; then lg-compose up -d; else "$LG_SRC/deploy/ec2/switch.sh" --commit "$(git -C "$LG_SRC" rev-parse HEAD)" --build; fi
 }
 
 step_health() {

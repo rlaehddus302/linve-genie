@@ -32,6 +32,8 @@ export interface InstagramModuleOptions {
   readonly timer?: LiveTimer
   /** DM 실행기를 스스로 돌린다 (기본 true. 시험은 false로 두고 dms.drain()을 부른다) */
   readonly dmAutoRun?: boolean
+  /** DM 실행기를 만들 때 바로 돌리지 않는다 — 대기 자리(두 자리 교대 D-RETRO-35)는 올릴 때 dms.start()를 부른다. 기본 false */
+  readonly dmDeferStart?: boolean
   /** 수집 상태 알림 간격 (기본 1000밀리초) */
   readonly collectionIntervalMs?: number
   /** 판매자마다 한 줄 (라이브 연결 — 틱톡과 같은 것을 나눈다, D-N2b-2-01). 없으면 새로 만든다 */
@@ -151,7 +153,7 @@ export function createInstagram(options: InstagramModuleOptions): InstagramModul
   const dmRunner = dms
   const liveNotices = notices
   const liveLinks = links
-  dmRunner.start()
+  if (options.dmDeferStart !== true) dmRunner.start()
 
   const txHook: TxHook = async (tx, ctx) => {
     const created = await dmRunner.txHook(tx, ctx)

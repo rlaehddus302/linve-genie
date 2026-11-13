@@ -71,7 +71,8 @@ import { instagramDmCounts } from './ops-store.ts'
 import { DepositService, type DepositOptions } from './deposit/service.ts'
 import { registerInboxIntake } from './inbox/routes.ts'
 import { CatalogDelivery, enqueueCatalogEdits } from './screen/catalog.ts'
-import { registerScreenIntake } from './screen/routes.ts'
+import { deployedCommit, registerScreenIntake } from './screen/routes.ts'
+import type { SlotView } from './slot.ts'
 import { BuyerInfoService } from './inbox/buyer-info-service.ts'
 import { InboxService } from './inbox/service.ts'
 import { ParcelService, type ParcelOptions } from './parcel/service.ts'
@@ -117,6 +118,13 @@ export const SERVER_VERSION: string = (() => {
 })()
 
 export interface ServerOptions {
+  /**
+   * 대기로 만든다 (두 자리 교대 D-RETRO-35, slot.ts): 만들 때 바로 걸던 주기 작업(입금 받아 오기·휴대폰 알림 정리·인스타그램 감사 DM 실행기)을 걸지 않고 start()가 건다.
+   * 대기 자리는 HTTP만 받는다 — 팝빌을 부르거나 알림 카드를 지우거나 DM을 보내는 일은 운영 자리 한 곳만 한다. 기본 false(지금까지와 같다)
+   */
+  readonly standby?: boolean
+  /** 자리 이름·판·상태 (두 자리 교대 — /health에 싣고 /health/active를 연다). 운영 기동(main.ts)만 넘긴다 */
+  readonly slot?: () => SlotView
   /** 판매자가 고르지 않은 설정 칸의 기본값 (D-YT-SRV-23 — 운영 기동은 SELLER_DEFAULTS: 감사 채팅 끔) */
   readonly sellerDefaults?: Readonly<Record<string, unknown>>
   /** 이력 저장소 관측/장애 시험 포트. 운영 기동은 제공하지 않는다. */
@@ -364,6 +372,13 @@ export interface LivejjimServer {
   start(): void
   /** 워커를 멈춘다 (임대를 놓는다) */
   stop(): Promise<void>
+  /**
+   * 뒤 작업만 멈춘다 — 요청·실시간 연결·음성 연결은 그대로 받는다 (두 자리 교대에서 넘길 때·내릴 때, D-RETRO-37).
+   * 워커(유튜브 수집기·발송함·봉인·손님 보관·장부 정리·결제 재확인·택배 조회)가 돌던 일을 마치고 임대를 내려놓을 때까지 기다린다.
+   * 틱톡 감사 실행기(봇 브라우저)와 자동 백업 확인도 멈춘다. 그 밖의 것(상품 동기화·인스타 DM·입금 받아 오기·알림 정리·틱톡·밴드 읽기)은
+   * 요청 처리와 얽혀 있어 close()까지 둔다 — 임대·행 잠금·유일 제약으로 두 자리에서 같이 돌아도 한 번만 처리된다(docs/DEPLOY.md 6-2절 표)
+   */
+  quiesce(): Promise<void>
   /** 실시간 연결을 닫고 리허설 생성기·타이머·워커·자동 백업 확인을 멈춘다 (DB는 닫지 않는다) */
   close(): void
   /** 경보 기록 (AC-I3-82) */
@@ -749,6 +764,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     publish: (sellerId, data) => hub.publishInstagram(sellerId, data),
     ...(options.liveTimer === undefined ? {} : { timer: options.liveTimer }),
     ...(options.dmAutoRun === undefined ? {} : { dmAutoRun: options.dmAutoRun }),
+    // 대기 자리는 감사 DM을 보내지 않는다 — 올릴 때(start) 실행기를 건다 (D-RETRO-35)
+    dmDeferStart: options.standby === true,
     ...(options.collectionIntervalMs === undefined ? {} : { collectionIntervalMs: options.collectionIntervalMs }),
     locks: liveLocks,
   })
@@ -919,6 +936,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     extension: createExtensionApp({ extension, clock, trustedProxies, address: connectionAddress, tiktok: tiktokExtension, ...(options.extensionCodeLimits === undefined ? {} : { codeLimits: options.extensionCodeLimits }) }) as unknown as Hono,
     https: options.appOrigin.startsWith('https://'),
     web: options.webDir === undefined ? null : createWebServer(options.webDir),
+    ...(options.slot === undefined ? {} : { slot: options.slot }),
     ready: async () => {
       const ok = await dbAlive()
       if (!ok) alerter.alert('DB_UNAVAILABLE')
@@ -929,7 +947,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     inbox: (app) =>
       registerInboxIntake(app, inbox, log, { clock, trustedProxies, address: connectionAddress, ...(options.inbox?.authLimits === undefined ? {} : { authLimits: options.inbox.authLimits }) }),
     appUpdates: (app) => registerAppUpdates(app, { dir: options.appUpdatesDir ?? null, origin: options.appOrigin }),
-    screen: (app) => registerScreenIntake(app, { token: options.screenWorkerToken === undefined ? null : options.screenWorkerToken.trim(), db, service, ...(options.screenReopenGraceMs === undefined ? {} : { reopenGraceMs: options.screenReopenGraceMs }) }),
+    // 서버 판: 이 자리가 도는 판(LIVEJJIM_COMMIT)을 알면 그것을, 모르면 배포가 남긴 파일(deployedCommit)을 — 두 자리가 같이 떠 있을 때 답하는 자리의 판이 나가게 (D-RETRO-35)
+    screen: (app) => registerScreenIntake(app, { token: options.screenWorkerToken === undefined ? null : options.screenWorkerToken.trim(), db, service, ...(options.screenReopenGraceMs === undefined ? {} : { reopenGraceMs: options.screenReopenGraceMs }), ...(options.slot === undefined ? {} : { commit: async () => options.slot?.().commit ?? (await deployedCommit()) }) }),
     receiptPage: (app) => {
       registerReceiptPage(app, { db, links: receiptLinks, closing, clock, parcels, appOrigin: options.appOrigin, writer, ledger })
       // KP1 공개 방송 일정 페이지 /s/<토큰> (화면 문서보다 먼저)
@@ -939,9 +958,15 @@ export function createServer(options: ServerOptions): LivejjimServer {
   registerVoiceRelay(app, voice)
   streamAudio.attach(voice)
   // 저장된 켜진 원천의 받아 오기 주기를 건다 (실패해도 서버는 뜬다 — 원천 실패는 판매를 멈추지 않는다, DP-0 5)
-  deposits.start()
   // 휴대폰 알림 받기 주기 정리 (처리 안 한 카드 24시간·은행 알림 줄 30일 — C-07·D-SMS3-17)
-  inbox.start()
+  // 대기로 만든 서버는 올릴 때(start) 건다 (D-RETRO-35)
+  let periodicPending = options.standby === true
+  const startPeriodic = () => {
+    deposits.start()
+    inbox.start()
+    if (options.standby === true) instagramModule.dms.start()
+  }
+  if (!periodicPending) startPeriodic()
   const stop = async () => {
     await Promise.all([youtube?.stop(), sealer.stop(), customerArchiver.stop(), parcels.stop(), ledgerSweeper.stop(), billingRechecker.stop()])
   }
@@ -987,6 +1012,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
     billingRechecker,
     ingestChat: (sellerId, input) => service.ingestChat(sellerId, input),
     start: () => {
+      if (periodicPending) {
+        periodicPending = false
+        startPeriodic()
+      }
       catalog.start()
       youtube?.start()
       sealer.start()
@@ -1007,6 +1036,10 @@ export function createServer(options: ServerOptions): LivejjimServer {
       void bandService.resume()
     },
     stop,
+    quiesce: async () => {
+      backups.stop()
+      await Promise.all([stop(), tiktokThanks?.close()])
+    },
     close: () => {
       catalog.close()
       streamAudio.close()

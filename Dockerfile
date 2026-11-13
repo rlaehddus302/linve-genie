@@ -65,6 +65,8 @@ RUN apt-get update \
   && chmod 0755 /usr/local/bin/yt-dlp
 
 FROM node:24.20.0-bookworm-slim AS runtime
+# 두 자리 교대(deploy/ec2/switch.sh)가 옛 앱 이미지만 골라 지울 때 쓰는 표시 (D-RETRO-35)
+LABEL kr.livegenie.app="1"
 # pg_dump(백업), ffmpeg(방송 소리 받기 LV1 D-LV1-02)
 RUN apt-get update \
   && apt-get install -y --no-install-recommends postgresql-client ffmpeg \

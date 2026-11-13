@@ -46,3 +46,6 @@ test-results/
 /apps/mobile/android/.kotlin/
 /apps/mobile/android/app/.cxx/
 /apps/mobile/android/local.properties
+
+# 두 자리 교대 연습 환경(scripts/deploy/practice)의 그때그때 만든 비밀값·결과 — 커밋하지 않는다
+/.practice-slots/
