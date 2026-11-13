@@ -3,6 +3,7 @@
 // 음성 설정과 기록은 방송 메뉴(VoiceSettingsSheet)로 옮겼다.
 import { useEffect, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
+import type { ListenSourceStore } from '../../lib/listen-source.ts'
 import type { VoiceSession } from '../../lib/voice-session.ts'
 import { RemoteVoicePanel, VoiceSettings } from './RemoteVoicePanel.tsx'
 import {
@@ -53,9 +54,16 @@ export function ListenMenuRow({ session, broadcastId, title, onDone }: { readonl
   )
 }
 
-export function VoicePanel({ session, broadcastId, title, seller, ended }: { readonly session: VoiceSession; readonly broadcastId: string; readonly title: string; readonly seller: boolean; readonly ended: boolean }) {
+/** listen: 고른 듣는 곳 (D-RETRO-70) — "라이브 소리"를 골랐으면 방송 화면을 열어도 휴대폰 마이크를 저절로 켜지 않는다. 없거나 서버 값을 모르면 예전 그대로 켠다 */
+export function VoicePanel({ session, broadcastId, title, seller, ended, listen }: { readonly session: VoiceSession; readonly broadcastId: string; readonly title: string; readonly seller: boolean; readonly ended: boolean; readonly listen?: ListenSourceStore }) {
   const view = useSyncExternalStore(session.subscribe, session.getView)
-  useEffect(() => { if (seller && !ended) void session.resumeIfConsented(broadcastId, title) }, [session, seller, ended, broadcastId, title])
+  useEffect(() => {
+    if (!seller || ended) return
+    if (listen === undefined) { void session.resumeIfConsented(broadcastId, title); return }
+    let stop = false
+    void listen.known().then((setting) => { if (!stop && setting?.source !== 'stream') void session.resumeIfConsented(broadcastId, title) })
+    return () => { stop = true }
+  }, [session, seller, ended, broadcastId, title, listen])
   if (!seller) return null
   const mine = view.broadcastId === broadcastId
   const stopped = view.state.kind === 'stopped' && mine

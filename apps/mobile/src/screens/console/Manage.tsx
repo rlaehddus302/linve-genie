@@ -16,6 +16,7 @@ import { LABEL_PRINT_TITLE, LabelPrintRows, type LabelPrintNav } from '../LabelP
 import { useConsoleApi } from './context.ts'
 import { EndBroadcastRow } from './EndBroadcast.tsx'
 import { LinkInfo, hasLinkedLive } from './LinkInfo.tsx'
+import { ListenSourceRow, ListenSourceSheet } from './ListenSource.tsx'
 import { MenuGroup, PLAIN, PlainRow } from './parts.tsx'
 import type { StreamAudio } from './StreamAudio.tsx'
 import type { MobileYoutube } from './YoutubeSection.tsx'
@@ -79,7 +80,7 @@ function ThanksExample() {
   )
 }
 
-type ManageSheet = 'none' | 'dock'
+type ManageSheet = 'none' | 'dock' | 'listen'
 
 export interface ConsoleManageProps {
   readonly broadcastId: string
@@ -127,8 +128,9 @@ function NicknameDisplaySwitch() {
 }
 
 /** 각 기능은 관리 화면에서 바로 열고, 사용할 수 있는 기능이 있는 묶음만 보여 준다. */
-export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink, stream, onClose, onShowLink, yt, labels, onEnded }: ConsoleManageProps) {
+export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, canLink, stream, onClose, onShowLink, yt, labels, onEnded }: ConsoleManageProps) {
   const api = useConsoleApi()
+  const services = useServices()
   const { p } = useKit()
   const [sheet, setSheet] = useState<ManageSheet>('none')
   const [thanksBusy, setThanksBusy] = useState(false)
@@ -150,6 +152,8 @@ export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink,
   const showThanks = seller && !closed && !rehearsal
   const showLabels = labels !== undefined && !rehearsal
   const showEnd = seller && !closed && onEnded !== undefined
+  // 소리 듣기 (D-RETRO-70): 듣기는 판매자 일이고, 끝난 라이브에는 들을 것이 없다
+  const showListen = seller && !closed
   return (
     <View style={{ marginHorizontal: -SPACE.lg }}>
       <View style={{ gap: SPACE.md, backgroundColor: p.background }}>
@@ -164,6 +168,7 @@ export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink,
           {seller ? <NicknameDisplaySwitch /> : null}
           {showThanks ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
           {thanksError !== null ? <View style={{ paddingHorizontal: PLAIN.side }}><Notice tone="danger" alert>{thanksError}</Notice></View> : null}
+          {showListen ? <ListenSourceRow session={services.voice} keep={services.streamKeep} broadcastId={broadcastId} stream={stream} onPress={() => setSheet('listen')} /> : null}
           {seller && !closed && stream.status?.phase === 'stopped' ? <PlainRow title="라이브 소리 다시 켜기" onPress={() => { onClose(); stream.retry() }} /> : null}
           <PlainRow title={DOCK_TITLE} value={dockLabel(dock)} testID="dock-choice" onPress={() => setSheet('dock')} />
         </MenuGroup>
@@ -185,6 +190,7 @@ export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink,
         {/* 토스식 고르기 목록 (D-UX4-76 아래 창 SheetChoices) */}
         <SheetChoices label={DOCK_TITLE} choices={DOCK_CHOICES} value={dock} onPick={(next) => { setDockChoice(next); close() }} />
       </BottomSheet>
+      {showListen ? <ListenSourceSheet visible={sheet === 'listen'} onClose={close} session={services.voice} keep={services.streamKeep} broadcastId={broadcastId} title={title} stream={stream} /> : null}
     </View>
   )
 }

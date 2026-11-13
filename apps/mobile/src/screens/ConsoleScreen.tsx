@@ -40,6 +40,7 @@ import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue
 import { VoicePanel } from './console/VoicePanel.tsx'
 import { useFollowScroll } from '../lib/use-follow-scroll.ts'
 import { HEARD_TAB, HeardTab, ListenLine, useKeptStream } from './console/StreamAudio.tsx'
+import { ListenSourceChip, ListenSourceSheet } from './console/ListenSource.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
 import { LiveTalk, TALK_TAB, TalkDock } from './console/LiveTalk.tsx'
 import { EndBroadcastRow } from './console/EndBroadcast.tsx'
@@ -141,7 +142,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const pageTop = usePageTop()
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
-  type SheetName = 'none' | 'youtube' | 'decide' | 'pending'
+  type SheetName = 'none' | 'youtube' | 'decide' | 'pending' | 'listen'
   const [sheet, setSheet] = useState<SheetName>('none')
   // 상품 추가·방송 관리 (D-UX4-57): 기기에서는 진짜 쌓인 화면(openAdd·openManage). 경로가 없을 때(시험·웹)만 이 화면 안에 겹쳐 그린다
   const [page, setPage] = useState<'none' | 'settings' | 'add'>('none')
@@ -550,7 +551,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
             <UnlistedClaims numbers={unlisted} onAdd={addAt} />
             {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
             <YoutubeWarning yt={yt} closed={closed} />
-            <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
+            <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} listen={services.streamKeep.listen} />
           </View>
           {/* 둘째 자식: 탭 바 — 위에 붙을 때 밑 목록이 비치지 않게 바탕을 칠하고 화면 끝까지 */}
           {/* 위 여백은 탭 바 안에(TABS_TOP) — 목록 줄 사이(gap)를 위로 지워, 맨 위에 있을 때와 올리다 붙었을 때 머리↔알약 여백이 같다 (D-UX4-110) */}
@@ -583,7 +584,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         </View>
         {/* 들린 말 창은 맨 아래 (D-UX4-53 — 옛 목록 위) */}
         {/* 맨 아래 창은 관리 "화면 아래 창"에서 고른 것 (D-UX4-71): 들린 말 · 채팅·문자 · 안 보기 */}
-        {live && dock === 'voice' ? <ListenLine session={services.voice} broadcastId={broadcastId} stream={stream} bottom={Math.max(inset, SPACE.sm)} /> : null}
+        {/* 음성 창 오른쪽 끝: 지금 듣는 쪽 표시 — 누르면 소리 듣기 고르는 판 (D-RETRO-72) */}
+        {live && dock === 'voice' ? <ListenLine session={services.voice} broadcastId={broadcastId} stream={stream} bottom={Math.max(inset, SPACE.sm)} source={<ListenSourceChip session={services.voice} keep={services.streamKeep} broadcastId={broadcastId} stream={stream} onPress={() => setSheet('listen')} />} /> : null}
         {live && dock === 'talk' ? <TalkDock bottom={Math.max(inset, SPACE.sm)} /> : null}
 
         {/* 상품 자세히 (D-UX4-30): 번호·품종·가격은 판 안 점선 칸이 보이므로 판 제목은 두지 않는다 */}
@@ -592,6 +594,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         <BottomSheet visible={sheet === 'decide'} onClose={close} title="정하기">
           {sheet === 'decide' && hostQueue !== null ? <DecisionsView queue={hostQueue} {...(decideFor === null || data.products.get(decideFor) === undefined ? {} : { product: data.products.get(decideFor) })} onQueued={close} /> : null}
         </BottomSheet>
+        {live ? <ListenSourceSheet visible={sheet === 'listen'} onClose={close} session={services.voice} keep={services.streamKeep} broadcastId={broadcastId} title={streamTitle} stream={stream} /> : null}
         <BottomSheet visible={sheet === 'pending'} onClose={close} title="보류 찜">
           <Txt step="caption" color="textSub">아직 상품이 없는 번호의 찜이에요. 그 번호 상품을 올리면 먼저 온 순서대로 정해져요.</Txt>
           {sheet === 'pending' ? <ClaimFeed only="PENDING" /> : null}
