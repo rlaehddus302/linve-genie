@@ -28,11 +28,12 @@ import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
 import { ConsoleManage, MANAGE_LABEL } from './console/Manage.tsx'
-import { ProductList, shownProducts } from './console/ProductBoard.tsx'
+import { ProductList, shownProducts, type RowNode } from './console/ProductBoard.tsx'
 import { ProductSheet } from './console/ProductEdit.tsx'
 import { AddFab, DIGIT_PAD_HEIGHT, NumberKeys, ProductAddPage } from './console/ProductAdd.tsx'
 import { SlidePage } from './console/parts.tsx'
 import { DecisionsView } from './console/Decisions.tsx'
+import { UnlistedClaims, unlistedNumbers } from './console/UnlistedClaims.tsx'
 
 import { Pill } from '../ui/day-pills.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
@@ -126,7 +127,12 @@ export const STICKY_TABS = [1]
 /** 탭 바 알약 위 여백 — 맨 위에 있을 때도, 올리다 위에 붙었을 때도 머리 아래 이만큼 (D-UX4-110, 사용자 지시 2026-11-10 "중간에 올릴 때 탭바와 상단영역 사이 여백과 끝까지 올렸을 때 여백이 달라") */
 export const TABS_TOP = SPACE.sm
 
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, openReviews, openLabels, openLink, openAdd, openManage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; readonly openManage?: () => void; readonly refresh?: number }) {
+/** 쌓인 상품 추가 화면이 닫힌 뒤 그 상품 자세히(아래 판)를 열기까지 — 화면 넘김이 끝난 뒤에 연다 (D-RETRO-22). 웹(시험)은 바로 */
+export const SHOW_AFTER_BACK_MS = 600
+/** "그 상품 보기"로 스크롤할 때 그 줄 위에 남기는 자리 (붙는 탭 바 아래에 줄이 보이게) */
+const ROW_PEEK = 64
+
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -138,6 +144,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const [sheet, setSheet] = useState<SheetName>('none')
   // 상품 추가·방송 관리 (D-UX4-57): 기기에서는 진짜 쌓인 화면(openAdd·openManage). 경로가 없을 때(시험·웹)만 이 화면 안에 겹쳐 그린다
   const [page, setPage] = useState<'none' | 'settings' | 'add'>('none')
+  // 번호를 채워 여는 상품 추가 (D-RETRO-23) — (+)로 열면 비운다
+  const [addNo, setAddNo] = useState<number | null>(null)
   // 본문 탭: 상품(번호·가격·예약) · 찜 기록(채팅찜·문자찜을 시간순으로, D-LIVETEST-07) · 채팅·문자(실시간으로 온 채팅·손님 문자, D-UX4-12)
   const [searchDigits, setSearchDigits] = useState('')
   const [searchPad, setSearchPad] = useState(false)
@@ -180,9 +188,54 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
     setSelected(key)
     scroll.current?.scrollTo({ y: 0, animated: true })
   }, [])
+  // 그 상품 보기 (D-RETRO-22): 상품 탭에서 검색을 풀고 그 줄로 스크롤해 잠깐 강조한다. 줄 자리는 목록(console-list) 안에서 재고, 목록이 스크롤 내용에서 시작하는 높이를 더한다
+  const rowNodes = useRef(new Map<string, RowNode>()).current
+  const listNode = useRef<RowNode>(null)
+  const listTop = useRef(0)
+  const showTimers = useRef(new Set<ReturnType<typeof setTimeout>>()).current
+  useEffect(() => () => {
+    for (const timer of showTimers) clearTimeout(timer)
+    showTimers.clear()
+  }, [showTimers])
+  const later = useCallback((work: () => void, ms: number) => {
+    const timer = setTimeout(() => {
+      showTimers.delete(timer)
+      work()
+    }, ms)
+    showTimers.add(timer)
+  }, [showTimers])
+  const onRow = useCallback((key: string, node: RowNode | null) => {
+    if (node === null) rowNodes.delete(key)
+    else rowNodes.set(key, node)
+  }, [rowNodes])
+  const showRow = useCallback((key: string) => {
+    setTab('products')
+    setSearchDigits('')
+    setSearchPad(false)
+    setSelected(key)
+    // 탭·검색이 바뀐 목록이 놓인 뒤에 잰다
+    later(() => {
+      const row = rowNodes.get(key)
+      const list = listNode.current
+      if (row === undefined || list === null) return
+      row.measureLayout(list, (_x, y) => scroll.current?.scrollTo({ y: Math.max(0, listTop.current + y - ROW_PEEK), animated: true }), () => undefined)
+    }, 60)
+  }, [later, rowNodes, scroll])
+  /** 열려 있는 상품 자세히에서 — 같은 판 안에서 그 상품으로 바꾼다 */
+  const showProduct = useCallback((key: string) => {
+    showRow(key)
+    setDetail(key)
+  }, [showRow])
+  /** 상품 추가 화면에서 — 그 화면이 닫힌 뒤에 자세히를 연다 (아이폰은 화면이 넘어가는 동안 판을 띄우지 못한다) */
+  const showProductAfterBack = useCallback((key: string) => {
+    showRow(key)
+    if (Platform.OS === 'web') setDetail(key)
+    else later(() => setDetail(key), SHOW_AFTER_BACK_MS)
+  }, [showRow, later])
   const onSignal = useCallback((signal: ConsoleSignal) => {
     if (signal.kind === 'added') showAdded(signal.key)
-  }, [showAdded])
+    else showProductAfterBack(signal.key)
+  }, [showAdded, showProductAfterBack])
   useConsoleSignals(broadcastId, onSignal)
   const [decideFor, setDecideFor] = useState<string | null>(null)
   // 방송자 조치 5초 대기·되돌리기 (정하기 창 — D-APPX-03). 화면이 내려가면 기다리던 조치는 보내지 않는다
@@ -391,6 +444,16 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const closePage = () => setPage('none')
   // 다육이 방송이면 상품 추가에서 품종도 묻는다 (D-UX4-31 — 판매 종류는 방송 제목에 들어 있다, NewBroadcastScreen)
   const askName = broadcast.title.includes('다육이')
+  // 등록 안 된 번호의 찜 (D-RETRO-23): 번호를 누르면 그 번호가 채워진 상품 추가 — 기기는 쌓인 화면, 경로가 없으면(시험·웹) 이 화면 안에
+  const unlisted = closed ? [] : unlistedNumbers(data, broadcastId)
+  const addAt = (no: number) => {
+    if (openAddAt !== undefined) openAddAt(no)
+    else if (openAdd !== undefined) openAdd()
+    else {
+      setAddNo(no)
+      setPage('add')
+    }
+  }
   const claimCount = [...data.claims.values()].filter((claim) => claim.broadcast === broadcastId && claim.status !== 'DUPLICATE').length
   const productCountNow = shownProducts(data, broadcastId).length
   const onAlert = (action: 'pending' | 'attention' | 'decide' | 'labels') => {
@@ -479,6 +542,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
                 <Txt step="body" weight="bold">{`${closed ? '총매출' : '현재 매출'} ${salesMoney(sales.total)} ›`}</Txt>
               </Tap>
             </View>
+            <UnlistedClaims numbers={unlisted} onAdd={addAt} />
             {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
             <YoutubeWarning yt={yt} closed={closed} />
             <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} />
@@ -491,9 +555,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
             </View>
           </View>
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
-          <View testID="console-list" style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
+          <View testID="console-list" ref={listNode} collapsable={false} onLayout={(event) => { listTop.current = event.nativeEvent.layout.y }} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
             <Appear instant={!listLate} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
-              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
+              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} onRow={onRow} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
             </Appear>
           </View>
           {/* (+) 단추에 마지막 줄이 가리지 않게 */}
@@ -510,7 +574,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
             </Animated.View>
           ) : null}
         </Animated.ScrollView>
-        {shownTab === 'products' && !closed && !searchPad ? <AddFab bottom={(docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => (openAdd === undefined ? setPage('add') : openAdd())} /> : null}
+        {shownTab === 'products' && !closed && !searchPad ? <AddFab bottom={(docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => { if (openAdd === undefined) { setAddNo(null); setPage('add') } else openAdd() }} /> : null}
         </View>
         {/* 들린 말 창은 맨 아래 (D-UX4-53 — 옛 목록 위) */}
         {/* 맨 아래 창은 관리 "화면 아래 창"에서 고른 것 (D-UX4-71): 들린 말 · 채팅·문자 · 안 보기 */}
@@ -519,7 +583,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
 
         {/* 상품 자세히 (D-UX4-30): 번호·품종·가격은 판 안 점선 칸이 보이므로 판 제목은 두지 않는다 */}
         {/* 고치기는 반 화면 판 · 확인 시 저장 (D-UX4-106) */}
-        <ProductSheet product={detailProduct} onClose={() => setDetail(null)} onKey={setDetail} {...(seller && !sealed && detailProduct !== undefined ? { onDecide: () => { setDecideFor(detailProduct.key); setDetail(null); setSheet('decide') } } : {})} />
+        <ProductSheet product={detailProduct} onClose={() => setDetail(null)} onKey={setDetail} onShow={showProduct} {...(seller && !sealed && detailProduct !== undefined ? { onDecide: () => { setDecideFor(detailProduct.key); setDetail(null); setSheet('decide') } } : {})} />
         <BottomSheet visible={sheet === 'decide'} onClose={close} title="정하기">
           {sheet === 'decide' && hostQueue !== null ? <DecisionsView queue={hostQueue} {...(decideFor === null || data.products.get(decideFor) === undefined ? {} : { product: data.products.get(decideFor) })} onQueued={close} /> : null}
         </BottomSheet>
@@ -535,6 +599,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
             closePage()
             showAdded(key)
           }}
+          onShow={(key) => {
+            closePage()
+            showProductAfterBack(key)
+          }}
+          {...(addNo === null ? {} : { startNo: addNo })}
         />
         {/* 방송 관리 (D-UX4-20 → D-UX4-57): 경로가 없을 때(시험·웹)만 이 화면 안에 겹쳐 그린다 — 라이브 정보·라벨 줄을 바로 두는 것(D-UX4-130)은 경로 화면만, 여기는 "라이브 연결 ›" 판으로 */}
         <SlidePage visible={page === 'settings'} onClose={closePage} title={MANAGE_LABEL} name={MANAGE_LABEL} testID="console-settings">

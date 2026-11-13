@@ -16,7 +16,8 @@ import { useKeptStream } from './StreamAudio.tsx'
 import { useMobileYoutube } from './YoutubeSection.tsx'
 
 /** 상품 추가 쌓인 화면 — 추가하면 방송 화면으로 돌아가며 그 상품을 강조하게 알린다 */
-export function ProductAddScreen({ broadcastId, onBack }: { readonly broadcastId: string; readonly onBack: () => void }) {
+/** startNo: 번호를 채워 연다 — 등록 안 된 번호의 찜 알림에서 (D-RETRO-23) */
+export function ProductAddScreen({ broadcastId, onBack, startNo }: { readonly broadcastId: string; readonly onBack: () => void; readonly startNo?: number }) {
   // 머리 ‹: 첫 단계(번호)가 아니면 앞 단계로, 첫 단계면 화면을 닫는다 (D-UX4-111)
   const stepBack = useRef<(() => boolean) | null>(null)
   return (
@@ -30,6 +31,12 @@ export function ProductAddScreen({ broadcastId, onBack }: { readonly broadcastId
               signalConsole(broadcastId, { kind: 'added', key })
               onBack()
             }}
+            // 이미 있는 번호의 [그 상품 보기] (D-RETRO-22): 방송 화면으로 돌아가며 그 상품을 열게 알린다
+            onShow={(key) => {
+              signalConsole(broadcastId, { kind: 'show', key })
+              onBack()
+            }}
+            {...(startNo === undefined ? {} : { startNo })}
           />
         )}
       </ScopeConsole>

@@ -6,7 +6,7 @@
 // 그 아래 찜·대기 손님 이름 알약(위 탭 알약 크기, 넘치면 아랫줄로) — 누르면 "찜을 삭제할까요?" 팝업. 판매 완료·찜 요약·"아직 찜이 없어요"·일시 중지·판매 종료 단추는 없앴고,
 // 토스 메뉴 줄로 [판매 시작](공개 전·멈춘 상품만) · [누가 살지 정하기](겹침·승계만) · [🗑 상품 삭제] — 삭제는 "상품을 삭제할까요?" 팝업 [닫기 | 삭제].
 import { displayNickname } from '@livejjim/core/format'
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
 import { Animated, Keyboard, LayoutAnimation, Platform, View } from 'react-native'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
 import { ProductLabelAction, QueueLabelButton } from '../ProductLabelAction.tsx'
@@ -30,6 +30,9 @@ export const FRESH_FADE_MS = 800
 // 앱 글꼴 16pt 실측: '999번' 약 45pt, '10,000,000원' 약 100pt. 숫자별 폭 차이와 반올림 여유를 둔다.
 const NUMBER_COLUMN = 48
 const PRICE_COLUMN = 104
+
+/** 상품 자세히: 값을 고쳐 이미 뽑은 라벨과 달라졌을 때 라벨 다시 인쇄 줄 위에 (D-RETRO-20) */
+export const REPRINT_HINT = '값이 바뀐 라벨이 있어요. 라벨을 다시 인쇄해 주세요.'
 
 /** 줄이 생기고·사라지고·커질 때 부드럽게 (D-UX4-29). 웹(시험)은 움직이지 않는다 */
 export function animateNextLayout(): void {
@@ -189,12 +192,17 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
   )
 })
 
+/** 상품 줄이 놓인 화면 요소 (자리를 재는 데 쓴다) */
+export type RowNode = ComponentRef<typeof View>
+
 /** 상품 전체 리스트 — 가장 최근에 말한(올린) 상품이 맨 위 (D-UX3-87). 처음 받은 상품은 강조하지 않고, 그 뒤에 올라온·고른 상품만 잠깐 초록 */
-export function ProductList({ onOpen, query, onQuery, numberSearch }: {
+export function ProductList({ onOpen, query, onQuery, numberSearch, onRow }: {
   readonly onOpen: (key: string) => void
   readonly query: string
   readonly onQuery: (value: string) => void
   readonly numberSearch: { open: () => void; submit: () => void }
+  /** 줄이 놓인 자리(상품 열쇠 → 줄) — 방송 화면이 "그 상품 보기"에서 그 줄로 스크롤한다 (D-RETRO-22) */
+  readonly onRow?: (key: string, node: RowNode | null) => void
 }) {
   const api = useConsoleApi()
   const products = shownProducts(api.data, api.b)
@@ -229,7 +237,9 @@ export function ProductList({ onOpen, query, onQuery, numberSearch }: {
       {matches.length === 0 ? <EmptyFill title="해당 번호의 상품이 없어요" /> : (
         <View role="list" aria-label="상품 목록" style={{ gap: SPACE.xs }}>
           {matches.map((product) => (
-            <ProductRow key={product.key} product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={onOpen} buyers={api.data.buyers} names={api.names} conflicts={conflictCounts.get(product.key) ?? 0} doubt={api.doubts?.get(product.no)} />
+            <View key={product.key} collapsable={false} ref={onRow === undefined ? undefined : (node) => onRow(product.key, node)}>
+              <ProductRow product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={onOpen} buyers={api.data.buyers} names={api.names} conflicts={conflictCounts.get(product.key) ?? 0} doubt={api.doubts?.get(product.no)} />
+            </View>
           ))}
         </View>
       )}
@@ -307,6 +317,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
     await api.command({ type: 'product.open', b: api.b, no: product.no })
   }, '판매를 시작하지 못했어요. 다시 눌러 주세요.')
   const productLine = [`${String(product.no)}번`, rowName(product), formatWon(product.price)].filter((part) => part !== '').join(' ')
+  const winnerLabels = api.productLabels?.filter((label) => label.kind === 'product' && label.broadcast === api.b && label.winner && label.claim !== null && claims.some((claim) => claim.id === label.claim)) ?? []
   return (
     <View role="group" aria-label="상품 자세히" style={{ gap: SPACE.lg }}>
       {fields}
@@ -327,7 +338,9 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
           <QueueLabelButton key={`${product.id}:${copy}`} action="direct" title="상품 라벨 인쇄" disabled={false}
             body={{ b: api.b, no: product.no, name: product.name, price: product.price }} onQueued={() => setCopy((n) => n + 1)} />
         ) : null}
-        {api.productLabels?.filter((label) => label.kind === 'product' && label.broadcast === api.b && label.winner && label.claim !== null && claims.some((claim) => claim.id === label.claim)).map((label) => (
+        {/* 가격·품종을 고쳐 뽑아 둔 라벨과 달라졌으면 먼저 알린다 (D-RETRO-20) — 서버가 "재출력 필요"로 본 라벨 */}
+        {winnerLabels.some((label) => label.reprintNeeded && label.canReprint) ? <Txt step="caption" weight="bold" color="warnText" role="note">{REPRINT_HINT}</Txt> : null}
+        {winnerLabels.map((label) => (
           <ProductLabelAction key={label.key} label={label} title={`${label.buyer.kind === 'youtube' ? displayNickname(label.buyer.name, api.names.hideSuffix) : '문자찜'} · ${label.canPrint ? '라벨 인쇄' : '라벨 다시 인쇄'}`} />
         ))}
         {!closed && (product.status === 'READY' || product.status === 'HOLD') ? <IconMenuRow emoji="▶️" tint="#E6F2EB" title="판매 시작" ariaLabel={`판매 시작 — ${String(product.no)}번`} onPress={() => void open()} /> : null}

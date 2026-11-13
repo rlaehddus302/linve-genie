@@ -11,11 +11,13 @@
 // 쓰기는 원문 칸(noText·priceText, SRV1 약속 2) — 가격은 "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 앱은 판정하지 않는다.
 import { useEffect, useRef, useState } from 'react'
 import { Animated, BackHandler, Easing, PanResponder, Platform, TextInput, View, useWindowDimensions, type GestureResponderEvent } from 'react-native'
+import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { productKey } from '../../lib/derive.ts'
+import { formatWon } from '../../lib/words.ts'
 import { tapHaptic } from '../../native/haptics.ts'
-import { BigButton, ErrorLine, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
+import { BigButton, ButtonRow, ErrorLine, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { edgeSwipeCloses, startsEdgeSwipe, useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
 import { useConsoleApi } from './context.ts'
@@ -46,6 +48,53 @@ export const PRICE_LIMIT = '가격은 9억 9,999만 9,999원까지 적을 수 �
 export const noLimitWords = (max: number): string => `번호는 ${String(max)}번까지 적을 수 있어요.`
 
 const won = (digits: string): string => `${Number(digits).toLocaleString('ko-KR')}원`
+
+/**
+ * 이미 있는 번호 안내 (D-RETRO-22, 11월 12일 라이브 복기 9.4 "이미 있어요만 뜬다"): 그 번호에 지금 있는 상품의 품종·가격을 같이 보여 주고,
+ * 단추 둘을 한 줄에 — 왼쪽 [닫기], 오른쪽 [그 상품 보기](상품 목록의 그 줄로 가서 자세히를 연다). 상품 추가와 상품 수정이 같이 쓴다.
+ */
+export const SAME_NUMBER_CLOSE = '닫기'
+export const SAME_NUMBER_SHOW = '그 상품 보기'
+export type SameNumber = Pick<Product, 'key' | 'no' | 'name' | 'price'>
+
+/** "지금 333번은 수박색금 50,000원이에요." — 품종이 비어 있으면 가격만 */
+export function sameNumberWords(product: Pick<Product, 'no' | 'name' | 'price'>): string {
+  const name = product.name.trim()
+  return `지금 ${String(product.no)}번은 ${name === '' ? '' : `${name} `}${formatWon(product.price)}이에요.`
+}
+
+/** 그 번호에 지금 있는(지우지 않은) 상품 — 없으면 null */
+export function liveProductAt(products: ReadonlyMap<string, Product>, b: string, no: number): Product | null {
+  const found = products.get(productKey(b, no))
+  return found === undefined || found.status === 'CLOSED' ? null : found
+}
+
+export function SameNumberLine({ product }: { readonly product: Pick<Product, 'no' | 'name' | 'price'> }) {
+  return (
+    <Txt step="body" weight="bold" role="note">
+      {sameNumberWords(product)}
+    </Txt>
+  )
+}
+
+export function SameNumberButtons({ onClose, onShow }: { readonly onClose: () => void; readonly onShow: () => void }) {
+  return (
+    <ButtonRow>
+      <BigButton kind="outline" label={SAME_NUMBER_CLOSE} onPress={onClose} />
+      <BigButton label={SAME_NUMBER_SHOW} onPress={onShow} />
+    </ButtonRow>
+  )
+}
+
+/**
+ * 번호를 채워 여는 상품 추가 (D-RETRO-23 — 등록 안 된 번호의 찜 알림에서): 쓸 수 있는 번호면 번호 칸을 채우고 가격부터 묻는다.
+ * 숫자가 아니거나 한도를 넘으면 빈 번호 칸부터, 그사이 그 번호 상품이 생겼으면 번호만 채우고 번호 칸에 머문다([다음]에서 이미 있다고 알린다)
+ */
+export function startOfAdd(startNo: number | undefined, maxNumber: number | null, taken: boolean): { readonly step: 'no' | 'price'; readonly no: string } {
+  if (startNo === undefined || !Number.isSafeInteger(startNo) || startNo < 1) return { step: 'no', no: '' }
+  if (startNo > (maxNumber ?? NO_FALLBACK_MAX)) return { step: 'no', no: '' }
+  return { step: taken ? 'no' : 'price', no: String(startNo) }
+}
 
 /** 확인 화면 글 묶음 위·아래 빈 자리 비율 — 1 : 2라 묶음이 화면 1/3 높이에 선다 (D-UX4-111) */
 export const CONFIRM_ABOVE = 1
@@ -529,32 +578,43 @@ export function useStepBack(stepBack: StepBack | undefined, back: () => boolean,
   return { swipe, edgeHandlers }
 }
 
-export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askName: boolean; readonly onAdded: (key: string) => void; readonly stepBack?: StepBack }) {
+/**
+ * startNo: 번호를 채워 연다 (D-RETRO-23). onShow: 이미 있는 번호일 때 [그 상품 보기] — 그 상품 열쇠 (D-RETRO-22). 없으면 단추를 두지 않는다
+ */
+export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: { readonly askName: boolean; readonly onAdded: (key: string) => void; readonly stepBack?: StepBack; readonly startNo?: number; readonly onShow?: (key: string) => void }) {
   const api = useConsoleApi()
   const { p } = useKit()
   const footer = useFooterInset()
-  const [step, setStep] = useState<Step>('no')
+  const maxNumber = (() => {
+    const value = api.data.broadcasts.get(api.b)?.settings['claim.maxNumber']
+    return typeof value === 'number' && value > 0 ? value : null
+  })()
+  // 처음 한 번만 정한다 — 열려 있는 동안 자료가 바뀌어도 단계가 저절로 바뀌지 않는다
+  const [start] = useState(() => startOfAdd(startNo, maxNumber, startNo !== undefined && liveProductAt(api.data.products, api.b, startNo) !== null))
+  const [step, setStep] = useState<Step>(start.step)
   // 번호·가격 칸과 넘쳐 친 횟수(흔들기)를 한 상태로 — 누름마다 앞 누름의 결과에서 이어 간다 (D-UX4-102)
-  const [typed, setTyped] = useState<{ readonly no: string; readonly price: string; readonly again: number }>({ no: '', price: '', again: 0 })
+  const [typed, setTyped] = useState<{ readonly no: string; readonly price: string; readonly again: number }>({ no: start.no, price: '', again: 0 })
   const { no, price, again } = typed
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // 이미 있는 번호의 상품 (D-RETRO-22) — 품종·가격과 [닫기 | 그 상품 보기]를 보인다
+  const [same, setSame] = useState<SameNumber | null>(null)
   const [busy, setBusy] = useState(false)
+  const clearProblem = () => {
+    setError(null)
+    setSame(null)
+  }
 
   // 뒤로 = 앞 단계로 (D-UX4-111, 사용자 지시 "맨 앞 입력 단계(번호)가 아닌 곳에서 뒤로가기 하면 이전 입력 단계로 … 스와이프로 뒤로가기해도")
   const back = () => {
     const previous = previousStep(step, askName)
     if (previous === null) return false
-    setError(null)
+    clearProblem()
     setStep(previous)
     return true
   }
   const { swipe, edgeHandlers } = useStepBack(stepBack, back, step === 'no')
 
-  const maxNumber = (() => {
-    const value = api.data.broadcasts.get(api.b)?.settings['claim.maxNumber']
-    return typeof value === 'number' && value > 0 ? value : null
-  })()
   // 넣는 동안 바로 알리는 말 (토스 "출금할 수 있는 돈이 …이에요." 사진, D-UX4-54): 칸 아래 빨간 글 + 칸이 좌우로 흔들리고 에러 진동, [다음]은 흐리게
   // D-UX4-61 (사용자 지시 2026-11-09): 자리 수를 넘는 한 자리도 칸에 보여 준다 — 그래야 넘친 걸 보고 한 자리를 지울 수 있다. 그보다 더 치면 받지 않고 다시 흔든다
   const digitLimit = (step: Step): number => (step === 'no' ? Math.max(String(maxNumber ?? NO_FALLBACK_MAX).length, 1) : PRICE_DIGITS)
@@ -566,7 +626,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
   }
   // D-UX4-102: 그린 때의 값(no·price)이 아니라 지금 값에 이어 붙인다 — 다음 그리기 전에 두 번 눌러도 앞 숫자가 덮이지 않는다
   const type = (value: string) => {
-    setError(null)
+    clearProblem()
     const field = step === 'no' ? 'no' : 'price'
     const limit = digitLimit(step)
     setTyped((now) => {
@@ -579,9 +639,12 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
     const value = Number(no)
     if (no === '' || !Number.isSafeInteger(value) || value < 1) return setError('상품 번호를 숫자로 적어 주세요.')
     if (maxNumber !== null && value > maxNumber) return setError(noLimitWords(maxNumber))
-    const existing = api.data.products.get(productKey(api.b, value))
-    if (existing !== undefined && existing.status !== 'CLOSED') return setError(`${String(value)}번은 이미 있어요. 다른 번호를 적어 주세요.`)
-    setError(null)
+    const existing = liveProductAt(api.data.products, api.b, value)
+    if (existing !== null) {
+      setSame(existing)
+      return setError(`${String(value)}번은 이미 있어요. 다른 번호를 적어 주세요.`)
+    }
+    clearProblem()
     setStep('price')
   }
   const nextFromPrice = () => {
@@ -592,7 +655,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
   const add = async () => {
     if (busy) return
     setBusy(true)
-    setError(null)
+    clearProblem()
     const value = Number(no)
     const key = productKey(api.b, value)
     const raw = { noText: no, priceText: `${price}원` }
@@ -605,7 +668,11 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
         await api.command({ type: 'product.open', b: api.b, no: value })
       } else {
         const result = await api.command({ type: 'product.register', b: api.b, ...raw, name: trimmed })
-        if (!result.changed) throw new Error(`${String(value)}번은 이미 있어요. 다른 번호로 다시 해 주세요.`)
+        if (!result.changed) {
+          // 그사이 다른 쪽에서 같은 번호를 올렸다 — 따라잡은 자료에서 그 상품을 찾아 같이 보인다 (D-RETRO-22)
+          setSame(liveProductAt((api.latest?.() ?? api.data).products, api.b, value))
+          throw new Error(`${String(value)}번은 이미 있어요. 다른 번호로 다시 해 주세요.`)
+        }
       }
       setBusy(false)
       onAdded(key)
@@ -624,6 +691,9 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
   const shownError = error ?? (step === 'name' || step === 'confirm' ? null : tooBig(step, active))
   // 잘못이 생기거나 바뀌면, 또 넘쳐 치면 큰 칸이 좌우로 흔들리고 진동한다 (D-UX3-51 흔들기, D-UX4-61)
   const shake = useWrongShake(step === 'name' || step === 'confirm' ? null : shownError, again)
+  // 이미 있는 번호 안내는 번호 칸과 확인 화면에서만 (D-RETRO-22)
+  const sameShown = same !== null && error !== null && (step === 'no' || step === 'confirm') ? same : null
+  const sameButtons = sameShown === null || onShow === undefined ? null : <SameNumberButtons onClose={() => setSame(null)} onShow={() => onShow(sameShown.key)} />
   if (step === 'confirm') {
     // D-UX4-111 (사용자 지시 2026-11-10): 번호 → 가격 → 품종 순(옛 번호 → 품종 → 가격), 묻는 말과 상품 줄 사이를 띄우고, 글 묶음은 화면 1/3 높이(옛 가운데)
     return (
@@ -646,7 +716,9 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
         </View>
         <View style={{ paddingHorizontal: SPACE.xl, paddingBottom: footer + SPACE.xs, gap: SPACE.sm }}>
           {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
-          <BigButton label="추가하기" busy={busy} disabled={busy} onPress={() => void add()} />
+          {sameShown !== null ? <SameNumberLine product={sameShown} /> : null}
+          {/* 그사이 같은 번호가 올라왔으면 [추가하기] 자리에 [닫기 | 그 상품 보기] (D-RETRO-22) */}
+          {sameButtons ?? <BigButton label="추가하기" busy={busy} disabled={busy} onPress={() => void add()} />}
         </View>
       </Animated.View>
     )
@@ -656,7 +728,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
   return (
     <Animated.View {...edgeHandlers} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
       <View style={{ flex: 1, paddingHorizontal: SPACE.xxl, paddingTop: SPACE.xxl, gap: SPACE.xxl }}>
-        {done.map((line) => <DoneLine key={line.step} label={line.label} value={line.value} onPress={() => { setError(null); setStep(line.step) }} />)}
+        {done.map((line) => <DoneLine key={line.step} label={line.label} value={line.value} onPress={() => { clearProblem(); setStep(line.step) }} />)}
         <View style={{ gap: SPACE.sm }}>
           {step === 'name' ? (
             <>
@@ -688,9 +760,15 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
             </Txt>
           ) : null}
           {shownError !== null ? <ErrorLine large>{shownError}</ErrorLine> : null}
+          {sameShown !== null ? <SameNumberLine product={sameShown} /> : null}
         </View>
       </View>
-      <NextButton onPress={onNext} disabled={active.trim() === '' || shownError !== null} />
+      {/* 이미 있는 번호면 [다음] 자리에 [닫기 | 그 상품 보기] — 다른 번호를 치면 [다음]으로 돌아온다 (D-RETRO-22) */}
+      {sameButtons !== null ? (
+        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.sm }}>{sameButtons}</View>
+      ) : (
+        <NextButton onPress={onNext} disabled={active.trim() === '' || shownError !== null} />
+      )}
       {step === 'name' ? null : (
         <View style={{ paddingBottom: footer }}>
           <NumberKeys doubleZero={step === 'price'} onKey={type} />
@@ -701,7 +779,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack }: { readonly askNam
 }
 
 /** 경로가 없을 때(시험·웹) 방송 화면 안에 겹쳐 그리는 상품 추가 화면 — 열 때마다 처음부터 */
-export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonly visible: boolean; readonly onClose: () => void; readonly askName: boolean; readonly onAdded: (key: string) => void }) {
+export function ProductAddPage({ visible, onClose, askName, onAdded, startNo, onShow }: { readonly visible: boolean; readonly onClose: () => void; readonly askName: boolean; readonly onAdded: (key: string) => void; readonly startNo?: number; readonly onShow?: (key: string) => void }) {
   const [round, setRound] = useState(0)
   useEffect(() => {
     if (visible) setRound((count) => count + 1)
@@ -709,7 +787,7 @@ export function ProductAddPage({ visible, onClose, askName, onAdded }: { readonl
   const stepBack = useRef<(() => boolean) | null>(null)
   return (
     <SlidePage visible={visible} onClose={() => { if (stepBack.current?.() !== true) onClose() }} title={ADD_TITLE} name={ADD_TITLE} scroll={false} testID="product-add">
-      <ProductAddFlow key={round} askName={askName} onAdded={onAdded} stepBack={stepBack} />
+      <ProductAddFlow key={round} askName={askName} onAdded={onAdded} stepBack={stepBack} {...(startNo === undefined ? {} : { startNo })} {...(onShow === undefined ? {} : { onShow })} />
     </SlidePage>
   )
 }

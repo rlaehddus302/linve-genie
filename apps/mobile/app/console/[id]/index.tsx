@@ -25,7 +25,7 @@ export default function ConsoleRoute() {
   return (
     // 상품 추가·방송 관리는 진짜 쌓인 화면이라(D-UX4-57) 방송 화면은 다른 경로처럼 상태 막대 아래에서 시작한다 (D-UX4-51 되돌림)
     <RouteFrame>
-        <ConsoleScreen broadcastId={id} seller onBack={home} justEnded={ended === '1'} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} openReviews={() => router.push(`/reviews?broadcast=${encodeURIComponent(id)}`)} openLabels={() => router.push('/labels?from=console')} openAdd={() => router.push({ pathname: '/console/[id]/add', params: { id } })} openManage={() => router.push({ pathname: '/console/[id]/manage', params: { id } })} />
+        <ConsoleScreen broadcastId={id} seller onBack={home} justEnded={ended === '1'} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} openReviews={() => router.push(`/reviews?broadcast=${encodeURIComponent(id)}`)} openLabels={() => router.push('/labels?from=console')} openAdd={() => router.push({ pathname: '/console/[id]/add', params: { id } })} openAddAt={(no) => router.push({ pathname: '/console/[id]/add', params: { id, no: String(no) } })} openManage={() => router.push({ pathname: '/console/[id]/manage', params: { id } })} />
       </RouteFrame>
   )
 }

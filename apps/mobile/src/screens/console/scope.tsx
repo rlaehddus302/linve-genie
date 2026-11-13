@@ -116,8 +116,11 @@ export function ScopeConsole({ broadcastId, waiting, children }: { readonly broa
   return <ConsoleContext.Provider value={api}>{children({ snapshot, store, broadcast })}</ConsoleContext.Provider>
 }
 
-/** 쌓인 화면 → 방송 화면 알림 (같은 방송끼리만): 상품을 추가했다 → 방송 화면이 그 상품을 강조한다 */
-export type ConsoleSignal = { readonly kind: 'added'; readonly key: string }
+/**
+ * 쌓인 화면 → 방송 화면 알림 (같은 방송끼리만): 상품을 추가했다(added) → 방송 화면이 그 상품을 강조한다.
+ * 이미 있는 번호의 [그 상품 보기](show, D-RETRO-22) → 방송 화면이 그 줄로 가서 자세히를 연다
+ */
+export type ConsoleSignal = { readonly kind: 'added' | 'show'; readonly key: string }
 const listeners = new Map<string, Set<(signal: ConsoleSignal) => void>>()
 
 export function signalConsole(broadcastId: string, signal: ConsoleSignal): void {

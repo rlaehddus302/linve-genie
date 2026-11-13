@@ -1,15 +1,22 @@
 // 상품 수정은 입력의 확인 버튼에서 저장한다. 창을 닫으면 입력 중인 값을 버린다.
+// 11월 12일 라이브 복기(6.2·9.4)에서 더한 물음 — 판정은 엔진이 하고, 앱은 보내기 전에 묻기만 한다:
+// - 가격 (D-RETRO-20): 그 상품에 확정된 찜이 있으면 "이미 찜한 손님 n명에게도 새 가격을 적용할까요?" [새 찜부터 | 찜한 손님도].
+//   옛: 묻지 않고 보내 서버 기본값(새 찜부터)이 되어, 확정 뒤 고친 가격 5건이 찜 금액에 반영되지 않았다.
+// - 번호 (D-RETRO-21): 번호를 바꾸면 엔진이 그 번호의 확정·대기·겹침 찜을 모두 거절한다(R-10) — "찜 n건이 사라져요. 바꿀까요?" [그대로 두기 | 바꾸기].
+//   지운 번호 자리로 바꿀 때는 "지운 번호예요. 이 번호로 다시 쓸까요?" [그대로 두기 | 다시 쓰기] 뒤 reuseClosed로 보낸다.
+// - 이미 있는 번호 (D-RETRO-22): 그 번호 상품의 품종·가격과 [닫기 | 그 상품 보기].
 import { useEffect, useRef, useState } from 'react'
 import { Animated, Keyboard, TextInput, View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
-import { productKey } from '../../lib/derive.ts'
+import { claimsOfProduct, productKey, productSlots } from '../../lib/derive.ts'
+import type { ScopeData } from '../../lib/scope-data.ts'
 import { formatWon } from '../../lib/words.ts'
-import { BigButton, BottomSheet, ErrorLine, Icon, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
+import { BigButton, BottomSheet, ErrorLine, Icon, PopupDialog, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
-import { BigNumber, NumberKeys, PRICE_LIMIT, noLimitWords, typeDigits } from './ProductAdd.tsx'
+import { BigNumber, NumberKeys, PRICE_LIMIT, SameNumberButtons, SameNumberLine, liveProductAt, noLimitWords, typeDigits, type SameNumber } from './ProductAdd.tsx'
 import { ProductDetail, rowName } from './ProductBoard.tsx'
 
 export type EditField = 'no' | 'name' | 'price'
@@ -23,6 +30,17 @@ export const EDIT_DONE = '확인'
 const NO_FALLBACK_MAX = 9999
 const PRICE_DIGITS = 9
 const NAME_MAX = 40
+
+// ── 저장 전 물음의 글 (D-RETRO-20·21) ──
+export const PRICE_SCOPE_NEW = '새 찜부터'
+export const PRICE_SCOPE_ALL = '찜한 손님도'
+export const priceScopeAsk = (buyers: number): string => `이미 찜한 손님 ${String(buyers)}명에게도 새 가격을 적용할까요?`
+export const RENUMBER_KEEP = '그대로 두기'
+export const RENUMBER_GO = '바꾸기'
+export const renumberAsk = (claims: number): string => `번호를 바꾸면 이 번호의 찜 ${String(claims)}건이 사라져요. 바꿀까요?`
+export const REUSE_ASK = '지운 번호예요. 이 번호로 다시 쓸까요?'
+export const REUSE_GO = '다시 쓰기'
+export const reuseNote = (no: number): string => `${String(no)}번은 지운 번호예요. 이 번호로 다시 써요.`
 
 export interface EditPlan {
   /** 바꿀 번호 (안 바꾸면 null) */
@@ -41,6 +59,38 @@ export function editPlan(product: Pick<Product, 'no' | 'name' | 'price'>, draft:
     name: name === null || name === '' || name === product.name.trim() ? null : name,
     price: price === null || price === product.price ? null : price,
   }
+}
+
+/** 가격 적용 범위를 물을 손님 수: 그 상품에 확정된 찜의 손님 (같은 손님은 한 번). 0이면 묻지 않는다 */
+export function claimedBuyers(product: Product): number {
+  return new Set(productSlots(product).winners).size
+}
+
+/** 번호를 바꾸면 사라지는 찜 수: 엔진이 거절하는 확정·대기·겹침 찜 (R-10). 보류 찜은 옛 번호에 그대로 남아 세지 않는다 */
+export function renumberLoses(data: ScopeData, product: Product): number {
+  return claimsOfProduct(data, product).filter((claim) => claim.status === 'CONFIRMED' || claim.status === 'WAITLISTED' || claim.status === 'CONFLICT').length
+}
+
+type Answer = 'yes' | 'no' | 'dismiss'
+
+/** 저장 전에 한 번 묻는 팝업. apart: 바깥을 누른 것을 왼쪽 단추와 따로 받는다(왼쪽 단추도 저장을 하는 가격 물음) */
+interface Question {
+  readonly message: string
+  readonly description: string | null
+  readonly cancelLabel: string
+  readonly confirmLabel: string
+  readonly apart: boolean
+}
+
+function renumberQuestion(from: number, to: number, lost: number, reuse: boolean): Question {
+  const move = `${String(from)}번 → ${String(to)}번`
+  if (lost > 0) return { message: renumberAsk(lost), description: reuse ? `${move}\n${reuseNote(to)}` : move, cancelLabel: RENUMBER_KEEP, confirmLabel: RENUMBER_GO, apart: false }
+  return { message: REUSE_ASK, description: move, cancelLabel: RENUMBER_KEEP, confirmLabel: REUSE_GO, apart: false }
+}
+
+function priceQuestion(product: Pick<Product, 'no' | 'name' | 'price'>, no: number, price: number, buyers: number, apart: boolean): Question {
+  const what = [`${String(no)}번`, rowName(product)].filter((part) => part !== '').join(' ')
+  return { message: priceScopeAsk(buyers), description: `${what} · ${formatWon(product.price)} → ${formatWon(price)}`, cancelLabel: PRICE_SCOPE_NEW, confirmLabel: PRICE_SCOPE_ALL, apart }
 }
 
 /** 번호·품종·가격 칸 하나 (점선 둥근 칸, 왼쪽 위 연필): 누르면 그 칸을 고친다. 원래 값을 보여 주고 지금 고치는 칸의 테두리를 강조한다 */
@@ -69,9 +119,10 @@ function FieldBox({ label, shown, active, flex, disabled, onPress }: { readonly 
 
 /**
  * 상품 자세히 아래 창 (D-UX4-30 → D-UX4-106). product가 없으면 닫힌다(닫히는 동안은 아래 창이 마지막 내용을 붙들고 있다 — D-UX4-103).
- * onClose: 창을 내린다(고친 것은 이미 보냈거나 버렸다). onKey: 번호를 바꿔 상품 열쇠가 바뀌었을 때. onDecide: 겹침·승계 정하기(판매자만)
+ * onClose: 창을 내린다(고친 것은 이미 보냈거나 버렸다). onKey: 번호를 바꿔 상품 열쇠가 바뀌었을 때. onDecide: 겹침·승계 정하기(판매자만).
+ * onShow: 이미 있는 번호의 [그 상품 보기] — 상품 목록의 그 줄로 가서 그 상품 자세히를 연다 (D-RETRO-22). 없으면 자세히만 바꾼다
  */
-export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly product: Product | undefined; readonly onClose: () => void; readonly onKey: (key: string) => void; readonly onDecide?: () => void }) {
+export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { readonly product: Product | undefined; readonly onClose: () => void; readonly onKey: (key: string) => void; readonly onDecide?: () => void; readonly onShow?: (key: string) => void }) {
   const api = useConsoleApi()
   const { p } = useKit()
   const closed = api.ended || api.sealed
@@ -81,16 +132,32 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
   const [original, setOriginal] = useState<Pick<Product, 'key' | 'no' | 'name' | 'price'> | null>(null)
   const [draft, setDraft] = useState<EditDraft>({})
   const [error, setError] = useState<string | null>(null)
+  // 이미 있는 번호의 상품 (D-RETRO-22)
+  const [same, setSame] = useState<SameNumber | null>(null)
   const [again, setAgain] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [question, setQuestion] = useState<Question | null>(null)
+  const answer = useRef<((value: Answer) => void) | null>(null)
   const saving = useRef(false)
   const lastKey = useRef(product?.key)
+  /** 물음을 띄우고 답을 기다린다 — 답한 뒤에도 팝업은 다음 물음이나 저장 시작까지 그대로 둔다(물음 둘 사이에 깜빡이지 않게) */
+  const ask = (next: Question) =>
+    new Promise<Answer>((resolve) => {
+      answer.current = resolve
+      setQuestion(next)
+    })
+  const reply = (value: Answer) => {
+    const resolve = answer.current
+    answer.current = null
+    resolve?.(value)
+  }
   const reset = () => {
     setHalf(false)
     setField(null)
     setDraft({})
     setOriginal(null)
     setError(null)
+    setSame(null)
   }
   // 다른 상품을 열면 처음부터 (번호를 바꿔 열쇠가 바뀐 것은 고친 뒤 닫히므로 같다)
   useEffect(() => {
@@ -102,31 +169,39 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     setDraft({})
     setOriginal(null)
     setError(null)
+    setSame(null)
+    // 저장 중에 우리가 번호를 바꿔 열쇠가 바뀐 것이면 이어지는 물음을 그대로 둔다
+    if (!saving.current) reply('dismiss')
   }, [product?.key, product])
+  // 창이 내려가면(다른 쪽에서 상품을 지움) 기다리던 물음을 끝낸다 — 답을 못 받아 저장이 잠긴 채 남지 않게
+  useEffect(() => {
+    if (!visible) reply('dismiss')
+  }, [visible])
 
+  const latest = (): ScopeData => api.latest?.() ?? api.data
   const maxNumber = (() => {
     const value = api.data.broadcasts.get(api.b)?.settings['claim.maxNumber']
     return typeof value === 'number' && value > 0 ? value : null
   })()
   const digitLimit = (which: EditField): number => (which === 'no' ? Math.max(String(maxNumber ?? NO_FALLBACK_MAX).length, 1) : PRICE_DIGITS)
-  /** 칸 값이 틀렸으면 그 까닭 (빈 칸은 안 바꿈이라 맞다) */
-  const wrong = (which: EditField, text: string | undefined): string | null => {
+  /** 칸 값이 틀렸으면 그 까닭 (빈 칸은 안 바꿈이라 맞다). same: 이미 그 번호에 있는 상품 */
+  const wrong = (which: EditField, text: string | undefined): { readonly message: string; readonly same?: SameNumber } | null => {
     if (product === undefined || text === undefined || text.trim() === '') return null
-    if (which !== 'name' && text.length > digitLimit(which)) return which === 'no' ? noLimitWords(maxNumber ?? NO_FALLBACK_MAX) : PRICE_LIMIT
+    if (which !== 'name' && text.length > digitLimit(which)) return { message: which === 'no' ? noLimitWords(maxNumber ?? NO_FALLBACK_MAX) : PRICE_LIMIT }
     if (which === 'no') {
       const to = Number(text)
-      if (!Number.isSafeInteger(to) || to < 1) return '번호를 숫자로 적어 주세요.'
-      if (maxNumber !== null && to > maxNumber) return `번호는 ${String(maxNumber)}번까지 적을 수 있어요.`
-      const other = api.data.products.get(productKey(api.b, to))
-      if (to !== product.no && other !== undefined && other.status !== 'CLOSED') return `${String(to)}번은 이미 있어요.`
+      if (!Number.isSafeInteger(to) || to < 1) return { message: '번호를 숫자로 적어 주세요.' }
+      if (maxNumber !== null && to > maxNumber) return { message: `번호는 ${String(maxNumber)}번까지 적을 수 있어요.` }
+      const other = to === product.no ? null : liveProductAt(api.data.products, api.b, to)
+      if (other !== null) return { message: `${String(to)}번은 이미 있어요.`, same: other }
     }
-    if (which === 'price' && Number(text) < 100) return '가격은 100원 이상으로 적어 주세요.'
+    if (which === 'price' && Number(text) < 100) return { message: '가격은 100원 이상으로 적어 주세요.' }
     return null
   }
-  const firstWrong = (values = draft): { readonly field: EditField; readonly message: string } | null => {
+  const firstWrong = (values = draft): { readonly field: EditField; readonly message: string; readonly same?: SameNumber } | null => {
     for (const which of ['no', 'name', 'price'] as const) {
-      const message = wrong(which, values[which])
-      if (message !== null) return { field: which, message }
+      const found = wrong(which, values[which])
+      if (found !== null) return { field: which, ...found }
     }
     return null
   }
@@ -135,6 +210,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     if (product === undefined) return
     if (!half) setOriginal({ key: product.key, no: product.no, name: product.name, price: product.price })
     setError(null)
+    setSame(null)
     setHalf(true)
     setField(which)
   }
@@ -142,6 +218,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     if (saving.current || field === null || field === 'name') return
     const which = field
     setError(null)
+    setSame(null)
     // 상품 추가와 같은 숫자판 규칙 — 00으로 넘겨도 친 것을 보여 주고, 이미 넘친 뒤에 더 치면 흔든다 (D-UX4-111)
     setDraft((was) => {
       const next = typeDigits(was[which] ?? '', key, digitLimit(which))
@@ -167,31 +244,97 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
     if (bad !== null) {
       setField(bad.field)
       setError(bad.message)
+      setSame(bad.same ?? null)
       setAgain(count => count + 1)
       return
     }
     saving.current = true
     Keyboard.dismiss()
     const plan = editPlan(product, values)
-    setBusy(true)
     try {
+      // ① 번호를 바꾸면 사라지는 찜·지운 번호 다시 쓰기 (D-RETRO-21). [그대로 두기]면 아무것도 보내지 않고 번호 칸으로
+      let reuse = false
+      if (plan.no !== null) {
+        reuse = api.data.products.get(productKey(api.b, plan.no))?.status === 'CLOSED'
+        const lost = renumberLoses(api.data, product)
+        if ((lost > 0 || reuse) && (await ask(renumberQuestion(product.no, plan.no, lost, reuse))) !== 'yes') {
+          setField('no')
+          return
+        }
+      }
+      // ② 가격을 어디까지 (D-RETRO-20). 번호도 같이 바꾸면 지금 찜은 번호를 바꿀 때 사라지므로 여기서 묻지 않는다
+      let applyTo: 'NEW_ONLY' | 'UNPAID_CLAIMS' | undefined
+      if (plan.no === null && plan.price !== null) {
+        const buyers = claimedBuyers(product)
+        if (buyers > 0) {
+          const chosen = await ask(priceQuestion(product, product.no, plan.price, buyers, true))
+          // 바깥을 눌렀으면 아무것도 저장하지 않는다 — 친 값은 그대로 남는다
+          if (chosen === 'dismiss') return
+          applyTo = chosen === 'yes' ? 'UNPAID_CLAIMS' : 'NEW_ONLY'
+        }
+      }
+      setQuestion(null)
+      setBusy(true)
       let no = product.no
       if (plan.no !== null) {
-        const result = await api.command({ type: 'product.renumber', b: api.b, from: product.no, to: plan.no, ...(api.data.products.get(productKey(api.b, plan.no))?.status === 'CLOSED' ? { reuseClosed: true } : {}) })
-        if (!result.changed) throw new Error('번호를 바꾸지 못했어요. 같은 번호 상품이 있는지 확인해 주세요.')
-        no = plan.no
+        const to = plan.no
+        const send = (reuseClosed: boolean) => api.command({ type: 'product.renumber', b: api.b, from: product.no, to, ...(reuseClosed ? { reuseClosed: true } : {}) })
+        let result = await send(reuse)
+        if (!result.changed) {
+          // 못 바꿨다 — 따라잡은 자료에서 그 번호 자리를 다시 본다: 그사이 올라온 상품이면 그 상품을 보여 주고, 지운 번호면 다시 쓸지 묻는다
+          const now = latest().products.get(productKey(api.b, to))
+          if (now !== undefined && now.status !== 'CLOSED') {
+            setSame(now)
+            setField('no')
+            throw new Error(`${String(to)}번은 이미 있어요.`)
+          }
+          if (now !== undefined && !reuse) {
+            setBusy(false)
+            if ((await ask(renumberQuestion(product.no, to, 0, true))) !== 'yes') {
+              setField('no')
+              return
+            }
+            setQuestion(null)
+            setBusy(true)
+            result = await send(true)
+          }
+          if (!result.changed) throw new Error('번호를 바꾸지 못했어요. 같은 번호 상품이 있는지 확인해 주세요.')
+        }
+        no = to
         onKey(productKey(api.b, no))
+        // 새 번호에서 기다리던 찜이 번호를 바꾸는 순간 확정됐을 수 있다 — 가격도 같이 바꾸는 중이면 그 손님에게도 적용할지 묻는다.
+        // 번호는 이미 바뀌었으므로 바깥을 눌러도 [새 찜부터]로 가격을 저장한다
+        if (plan.price !== null) {
+          const moved = latest().products.get(productKey(api.b, no))
+          const buyers = moved === undefined ? 0 : claimedBuyers(moved)
+          if (moved !== undefined && buyers > 0) {
+            setBusy(false)
+            applyTo = (await ask(priceQuestion(moved, no, plan.price, buyers, false))) === 'yes' ? 'UNPAID_CLAIMS' : 'NEW_ONLY'
+            setQuestion(null)
+            setBusy(true)
+          }
+        }
       }
       // 가격은 원문 칸으로 보낸다(SRV1 약속 2) — "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 품종도 같이 바뀌면 한 번에
-      if (plan.price !== null) await api.command({ type: 'product.update', b: api.b, noText: String(no), priceText: `${String(plan.price)}원`, ...(plan.name === null ? {} : { name: plan.name }) })
+      if (plan.price !== null) await api.command({ type: 'product.update', b: api.b, noText: String(no), priceText: `${String(plan.price)}원`, ...(plan.name === null ? {} : { name: plan.name }), ...(applyTo === undefined ? {} : { applyTo }) })
       else if (plan.name !== null) await api.command({ type: 'product.update', b: api.b, no, name: plan.name })
-      finish()
+      // 찜한 손님에게도 적용했고 이미 뽑은 라벨이 있으면 창을 닫지 않고 자세히로 — "라벨 다시 인쇄" 줄이 바로 보인다 (D-RETRO-20)
+      const winners = productSlots(product).winnerClaims
+      const printed = applyTo === 'UNPAID_CLAIMS' && api.productLabels?.some((label) => label.kind === 'product' && label.claim !== null && winners.includes(label.claim) && label.printed > 0) === true
+      if (printed) reset()
+      else finish()
     } catch (caught) {
       setError(isApiError(caught) ? caught.message : caught instanceof Error && caught.message !== '' ? caught.message : '바꾸지 못했어요. 다시 해 주세요.')
     } finally {
       saving.current = false
+      answer.current = null
+      setQuestion(null)
       setBusy(false)
     }
+  }
+  const show = (key: string) => {
+    if (onShow === undefined) onKey(key)
+    else onShow(key)
   }
 
   const shake = useWrongShake(field === null ? null : error, again)
@@ -206,6 +349,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
       {box('price', formatWon(before.price), 1.3)}
     </View>
   )
+  const sameShown = same !== null && field === 'no' && error !== null ? same : null
 
   // 고치는 칸: 상품 추가처럼 큰 칸(품종은 현재 이름, 숫자는 자리 글) → [확인] → 숫자판(번호·가격)
   const editor = before === undefined || field === null ? null : (
@@ -245,9 +389,11 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
           </Txt>
         ) : null}
         {error !== null ? <ErrorLine large>{error}</ErrorLine> : null}
+        {sameShown !== null ? <SameNumberLine product={sameShown} /> : null}
       </View>
       <View style={{ paddingHorizontal: SPACE.xl }}>
-        <BigButton label={EDIT_DONE} busy={busy} onPress={() => void apply()} />
+        {/* 이미 있는 번호면 [확인] 자리에 [닫기 | 그 상품 보기] — 다른 번호를 치면 [확인]으로 돌아온다 (D-RETRO-22) */}
+        {sameShown !== null ? <SameNumberButtons onClose={() => setSame(null)} onShow={() => show(sameShown.key)} /> : <BigButton label={EDIT_DONE} busy={busy} onPress={() => void apply()} />}
       </View>
       {field === 'name' ? null : <NumberKeys doubleZero={field === 'price'} onKey={type} />}
     </View>
@@ -266,6 +412,17 @@ export function ProductSheet({ product, onClose, onKey, onDecide }: { readonly p
             <ProductDetail product={product} fields={fields} onKey={onKey} onDone={discard} {...(onDecide === undefined ? {} : { onDecide })} />
           </>
         )}
+        {/* 저장 전 물음 (D-RETRO-20·21): 단추 둘은 한 줄 — 왼쪽 부정, 오른쪽 긍정. 가격 물음은 왼쪽도 저장이라 바깥 누름을 따로 받는다 */}
+        <PopupDialog
+          visible={question !== null}
+          message={question?.message ?? ''}
+          description={question?.description ?? null}
+          cancelLabel={question?.cancelLabel ?? ''}
+          confirmLabel={question?.confirmLabel ?? ''}
+          onCancel={() => reply('no')}
+          onConfirm={() => reply('yes')}
+          {...(question?.apart === true ? { onDismiss: () => reply('dismiss') } : {})}
+        />
       </BottomSheet>
   )
 }

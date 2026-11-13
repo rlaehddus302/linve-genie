@@ -513,6 +513,11 @@ export interface PopupDialogProps {
   readonly content?: ReactNode
   readonly onConfirm: () => void
   readonly onCancel: () => void
+  /**
+   * 바깥을 누르거나 뒤로 가기 — 없으면 부정 단추(onCancel)와 같다.
+   * 부정 단추도 저장을 하는 물음(가격을 "새 찜부터" 적용)에서만 따로 준다: 바깥을 잘못 눌러 저장되지 않게 (D-RETRO-20)
+   */
+  readonly onDismiss?: () => void
 }
 
 /**
@@ -559,19 +564,20 @@ function PopupButton({ label, kind, disabled, busy, onPress }: { readonly label:
   )
 }
 
-export function PopupDialog({ visible, confirmDisabled, busy, onConfirm, onCancel, ...look }: PopupDialogProps) {
+export function PopupDialog({ visible, confirmDisabled, busy, onConfirm, onCancel, onDismiss, ...look }: PopupDialogProps) {
   const { p } = useKit()
+  const dismiss = onDismiss ?? onCancel
   // 닫히는 동안은 열려 있던 마지막 글·단추 이름 그대로 (D-UX4-103) — 부르는 쪽이 닫으며 묻는 말을 비워도 빈 판이 사라지지 않게
   const { message, name, description, content, confirmLabel, cancelLabel, danger } = useHeldWhileClosing(visible, look)
   const { mounted, progress } = useSheetMotion(visible)
   const backdrop = progress.interpolate({ inputRange: [0, 1], outputRange: [0, POPUP_DIM] })
   const scale = progress.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] })
   return (
-    <Modal visible={mounted} transparent animationType="none" onRequestClose={onCancel} statusBarTranslucent>
+    <Modal visible={mounted} transparent animationType="none" onRequestClose={dismiss} statusBarTranslucent>
       <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: SPACE.xxl }}>
         <Animated.View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: p.backdrop, opacity: backdrop }}>
           {/* 누름 예외: 시트 바깥 (D-UX4-72) */}
-          <Pressable aria-label="팝업 닫기" role="button" onPress={onCancel} style={{ flex: 1 }} />
+          <Pressable aria-label="팝업 닫기" role="button" onPress={dismiss} style={{ flex: 1 }} />
         </Animated.View>
         <Animated.View
           role="alertdialog"
