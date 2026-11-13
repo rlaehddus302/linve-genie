@@ -1,5 +1,5 @@
 // 효과 (AC-S02-70~73): 확정버전, 효과 ID, 감사 문구, 확정 해제, 효과 보고·잠금, 늦은 보고.
-import { formatThanksText, formatWon, listClaims, listEffects, type EngineEffect, type EngineState } from '@livejjim/core'
+import { formatThanksHead, formatThanksText, formatWon, listClaims, listEffects, type EngineEffect, type EngineState } from '@livejjim/core'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { chat, host, play, register, type EventInput } from './engine-helpers.ts'
@@ -52,6 +52,20 @@ describe('감사 문구 (AC-S02-71)', () => {
     expect(formatThanksText({ no: 15, name: '   ', price: 8000, buyerName: '홍길동' })).toBe('15번 8,000원 홍길동님 구매 감사합니다')
     expect(formatThanksText({ no: 18, name: ' 방울복랑 금 ', price: 15000, buyerName: '김철수' })).toBe('18번 방울복랑 금 15,000원 김철수님 구매 감사합니다')
     expect(formatThanksText({ no: 1, name: '미니마', price: 0, buyerName: 'x' })).toBe('1번 미니마 0원 x님 구매 감사합니다')
+  })
+
+  it('앞머리(D-RETRO-02): 구매자 이름 앞까지이고 끝에 공백 하나 — 전체 문구 = 앞머리 + `{구매자}님 구매 감사합니다`', () => {
+    expect(formatThanksHead({ no: 15, name: '핑크프릴', price: 10000 })).toBe('15번 핑크프릴 10,000원 ')
+    expect(formatThanksHead({ no: 15, name: '  ', price: 8000 })).toBe('15번 8,000원 ')
+    expect(formatThanksHead({ no: 31, name: '수건', price: 10000, optionText: '흰색/대형', qty: 2 })).toBe('31번 수건 흰색/대형 2개 20,000원 ')
+    for (const input of [
+      { no: 15, name: '', price: 8000 },
+      { no: 18, name: ' 방울복랑 금 ', price: 15000 },
+      { no: 31, name: '수건', price: 10000, optionText: '흰색/대형', qty: 2 },
+    ]) {
+      expect(formatThanksText({ ...input, buyerName: '홍길동' })).toBe(`${formatThanksHead(input)}홍길동님 구매 감사합니다`)
+    }
+    expect(() => formatThanksHead({ no: 1, name: 'x', price: 1, qty: 0 })).toThrow(RangeError)
   })
 
   it('금액: 800원·10,000원·1,000,000원, 음수는 앞에 -, 정수가 아니면 RangeError', () => {

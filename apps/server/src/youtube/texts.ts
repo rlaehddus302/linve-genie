@@ -70,6 +70,17 @@ export function commentText(effectText: string): string {
   return truncate(cleanPostText(effectText), COMMENT_MAX)
 }
 
+/**
+ * 게시 직전의 감사 문구 (R-13 "게시 전 감사 문구", D-RETRO-02): 지금 엔진 상태의 효과 문구를 효과 ID로 찾는 표.
+ * 아직 게시되지 않은 감사는 판매자가 고친 품종·가격을 따라간 문구다. 발송함 행에 적힌 효과(나온 때의 문구)는 기록이라 바꾸지 않고
+ * (재생 대조, 여러 계정의 같은 감사 견주기 — D-YT-SRV-22), 글을 만들 때만 이 표를 먼저 본다. 표에 없으면 행의 문구를 쓴다
+ */
+export function currentThanksTexts(effects: readonly { readonly id: string; readonly kind: string; readonly text: string | null }[]): Map<string, string> {
+  const texts = new Map<string, string>()
+  for (const effect of effects) if (effect.kind === 'POST_THANKS' && effect.text !== null) texts.set(effect.id, effect.text)
+  return texts
+}
+
 export interface BatchItem {
   /** 발송함 행 ID (나눈 메시지마다 어느 행이 들었는지) */
   readonly id: number

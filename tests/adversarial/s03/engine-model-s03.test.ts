@@ -70,6 +70,8 @@ interface MEffect {
   no: number
   status: 'PENDING' | 'DONE' | 'CANCELLED'
   text: string | null
+  /** 감사 문구의 구매자 이름 — 효과가 나온 때의 것 (게시 전 문구를 다시 만들 때도 그대로, D-RETRO-02) */
+  buyerName: string | null
 }
 interface MBuyer {
   kind: 'youtube' | 'sms'
@@ -303,7 +305,7 @@ class Model {
   }
 
   emit(c: MClaim, kind: string, target: string | null, version: number, text: string | null, no: number): void {
-    this.effects.push({ id: `${c.id}:${kind}:${target ?? '-'}:${String(version)}`, kind, claim: c, version, no, status: 'PENDING', text })
+    this.effects.push({ id: `${c.id}:${kind}:${target ?? '-'}:${String(version)}`, kind, claim: c, version, no, status: 'PENDING', text, buyerName: text === null ? null : this.thanksName(c) })
   }
 
   thanksName(c: MClaim): string {
@@ -478,6 +480,14 @@ class Model {
           const reprice = price !== undefined && e.applyTo === 'UNPAID_CLAIMS' && c.price !== price && this.received(this.root(c.buyer), DATE) === 0
           if (reprice) c.price = price
           if ((reprice || name !== undefined) && this.printed(c)) c.reprint = true
+          // D-RETRO-02 (R-13 "게시 전 감사 문구"): 고침 따라가기(thanks.followEdits)를 켠 방송에서 지금 확정의 아직 실행 전인 감사 문구는
+          // 고친 품종·그 찜의 지금 가격으로 다시 만든다. 이름은 효과가 나온 때의 것. 완료·취소된 효과와 앞 확정의 효과, 켜지 않은 방송은 그대로
+          if (this.set['thanks.followEdits'] === true && (reprice || name !== undefined)) {
+            for (const x of this.effects) {
+              if (x.claim !== c || x.kind !== 'POST_THANKS' || x.status !== 'PENDING' || x.version !== c.version || x.buyerName === null) continue
+              x.text = formatThanksText({ no: x.no, name: p.name, price: c.price as number, buyerName: x.buyerName })
+            }
+          }
         }
         if (stock !== undefined) {
           const added = stock - p.stock
@@ -872,6 +882,8 @@ const settingsArb: fc.Arbitrary<SettingsOverride> = fc.record({
   'print.autoOnConfirm': fc.boolean(),
   'thanks.liveChat': fc.boolean(),
   'thanks.videoComment': fc.constantFrom('OFF', 'PER_SALE'),
+  // D-RETRO-02: 게시 전 감사 문구가 고침을 따라가는 방송과 아닌 방송을 섞는다
+  'thanks.followEdits': fc.boolean(),
   'shipping.freeThreshold': fc.constantFrom(null, 15000),
 })
 

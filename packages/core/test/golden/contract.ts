@@ -228,6 +228,7 @@ export const SETTING_CHECKS: Readonly<Record<string, ValueCheck>> = {
   'thanks.liveChat': bool,
   'thanks.videoComment': oneOf(['OFF', 'PER_SALE', 'SUMMARY']),
   'thanks.batchWindowSec': intRange(0, 600),
+  'thanks.followEdits': bool, // D-RETRO-02 — 적지 않으면 아니요(스냅샷에 넣지 않음)
 }
 
 // ── 이벤트 종류와 필드 (README "이벤트 종류와 필드") ─────────────────────

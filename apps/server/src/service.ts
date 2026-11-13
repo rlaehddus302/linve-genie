@@ -150,7 +150,14 @@ export const INHERITED_BLOCK_REASON = '이전 방송에서 차단한 시청자'
 
 /** 운영 판매자 기본값 — 판매자가 고르지 않은 칸에 엔진 기본값(DEFAULT_SETTINGS)보다 먼저. 감사 채팅은 판매자가 켠 뒤에만 (D-YT-SRV-23). 운영 기동(main.ts)이 넣는다 */
 // 등록 전에 들어온 찜은 시간이 지나도 날리지 않는다 — 등록하는 순간 먼저 온 순서대로 판정 (D-PEND-01)
-export const SELLER_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze({ 'thanks.liveChat': false, 'claim.preOpenExpire': false })
+// 감사 채팅은 확정 뒤 10초 기다렸다 보내고(묶음 창 10초, D-RETRO-01), 그사이 고친 품종·찜에 적용한 가격이 아직 올라가지 않은 감사 글에 들어간다(D-RETRO-02).
+// 둘 다 새로 시작하는 방송부터다(설정은 방송을 시작할 때 굳는다). 엔진 기본값(묶음 0초·따라가지 않음)은 그대로 — 옛 방송을 다시 재생해도 같다
+export const SELLER_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze({
+  'thanks.liveChat': false,
+  'claim.preOpenExpire': false,
+  'thanks.batchWindowSec': 10,
+  'thanks.followEdits': true,
+})
 
 const TITLE_MAX = 100
 /** 메시지 조회 개수 기본·상한 (AC-S05-20 — 그날 메시지 전체를 한 번에 주는 길은 없다) */

@@ -27,7 +27,7 @@ import {
   type RunnerRow,
 } from '../youtube/outbox-store.ts'
 import { activeLink, isInvitedLink, latestLinkOfVideo, ownAuthorChannels, type LinkRow } from '../youtube/store.ts'
-import { batchMessages } from '../youtube/texts.ts'
+import { batchMessages, currentThanksTexts } from '../youtube/texts.ts'
 import type { Timer } from '../youtube/timer.ts'
 import { activeBindings, activeToken, addLaneFail, bindingOfBroadcast, bindingOfVideo, lanesOf, postEnabledAt, readLane, writeLane, writePostEnabled, youtubeChannelOf } from './store.ts'
 
@@ -252,8 +252,9 @@ export class ExtensionThanks {
       // 글 사이 3초
       const gapUntil = (lane?.lastDoneAt?.getTime() ?? 0) + POST_GAP_MS
       if (gapUntil > now.getTime()) return { kind: 'none', afterMs: gapUntil - now.getTime(), channel: expected }
-      const rows = await this.#ready(sellerId, b, enabledAt, connection === null ? enabledAt : connection.consentLiveChatAt, link?.chatEndedAt ?? null, now)
-      const [message] = batchMessages(rows.map((row) => ({ id: row.id, text: effectText(row) })))
+      const { rows, current } = await this.#ready(sellerId, b, enabledAt, connection === null ? enabledAt : connection.consentLiveChatAt, link?.chatEndedAt ?? null, now)
+      // 문구는 방금 읽은 엔진 상태의 것 — 기다리는 동안 고친 품종·가격이 들어간다 (R-13 "게시 전 감사 문구", D-RETRO-02)
+      const [message] = batchMessages(rows.map((row) => ({ id: row.id, text: current.get(row.effectId) ?? effectText(row) })))
       if (message === undefined) return { kind: 'none', afterMs: 2000, channel: expected }
       const members = rows.filter((row) => message.ids.includes(row.id))
       const ids = members.map((row) => row.id)
@@ -277,8 +278,8 @@ export class ExtensionThanks {
     })
   }
 
-  /** 가져갈 수 있는 행: 기한·동의·스위치·채팅 끝남·지금 엔진 상태를 다시 보고 나머지는 끝낸다 (R-13 실행 직전) */
-  async #ready(sellerId: string, b: string, enabledAt: Date, consentAt: Date | null, chatEndedAt: Date | null, now: Date): Promise<RunnerRow[]> {
+  /** 가져갈 수 있는 행과 그 감사의 지금 엔진 문구: 기한·동의·스위치·채팅 끝남·지금 엔진 상태를 다시 보고 나머지는 끝낸다 (R-13 실행 직전) */
+  async #ready(sellerId: string, b: string, enabledAt: Date, consentAt: Date | null, chatEndedAt: Date | null, now: Date): Promise<{ rows: RunnerRow[]; current: ReadonlyMap<string, string> }> {
     const { db, writer } = this.#deps
     let rows = await extensionWaitingRows(db, sellerId, b)
     const end = async (list: readonly RunnerRow[], state: string, reason: string | null, extra: RowChange = {}) => {
@@ -293,13 +294,17 @@ export class ExtensionThanks {
     await end(rows.filter((row) => !row.manual && enabledAt.getTime() > row.createdAt.getTime()), 'FAILED', 'EXT_OFF')
     if (chatEndedAt !== null) await end(rows, 'FAILED', 'CHAT_ENDED')
     const dates = [...new Set(rows.map((row) => row.date))]
+    // 한 회차의 행은 한 날짜 범위다(효과 ID는 범위 안에서만 유일, R-13) — 범위가 여럿이면 문구 표를 섞지 않고 행의 문구를 쓴다
+    let current: ReadonlyMap<string, string> = new Map()
     for (const date of dates) {
-      const statuses = new Map(listEffects((await writer.read(sellerId, date, false)).state).map((effect) => [effect.id, effect.status]))
+      const effects = listEffects((await writer.read(sellerId, date, false)).state)
+      const statuses = new Map(effects.map((effect) => [effect.id, effect.status]))
       const ofDate = rows.filter((row) => row.date === date)
       await end(ofDate.filter((row) => statuses.get(row.effectId) === 'CANCELLED'), 'SKIPPED', 'CANCELLED', { groupId: null })
       await end(ofDate.filter((row) => statuses.get(row.effectId) === 'DONE'), 'SENT', null, { reported: true, groupId: null })
+      if (dates.length === 1) current = currentThanksTexts(effects)
     }
-    return rows
+    return { rows, current }
   }
 
   // ── 결과 (AC16·AC17) ─────────────────────────────────────────────────

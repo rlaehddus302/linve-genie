@@ -215,7 +215,7 @@ expect:
 ## 설정 키 (형식 계약)
 
 `settings`(시나리오의 `settings`와 `broadcast.start`의 `settings`)의 키는 DOMAIN_RULES 설정표의 키만 쓴다. 값도 표의 선택지와 "설정값 범위"(DOMAIN_RULES 설정표 아래, S04, D-071) 안의 값만 쓴다. 밖이면 읽기 오류다.
-`claim.parseMode`(`STRICT`·`LOOSE`·`OPTIONS` — `OPTIONS`와 `contention.policy: RECEIVED_TIME`을 함께 쓰면 읽기 오류, O1), `claim.maxQuantity`(정수 1~99, O1), `claim.multiNumber`, `claim.maxNumber`, `claim.ignoreOwner`, `claim.preOpenWindowSec`, `waitlist.max`, `cancel.buyerChat`, `cancel.succession`, `contention.policy`, `contention.sameMinuteTieBreaker`, `price.unit`, `shipping.baseFee`, `shipping.freeThreshold`(정수 또는 `null`), `settlement.groupBy`, `print.autoOnConfirm`, `thanks.liveChat`, `thanks.videoComment`, `thanks.batchWindowSec`.
+`claim.parseMode`(`STRICT`·`LOOSE`·`OPTIONS` — `OPTIONS`와 `contention.policy: RECEIVED_TIME`을 함께 쓰면 읽기 오류, O1), `claim.maxQuantity`(정수 1~99, O1), `claim.multiNumber`, `claim.maxNumber`, `claim.ignoreOwner`, `claim.preOpenWindowSec`, `waitlist.max`, `cancel.buyerChat`, `cancel.succession`, `contention.policy`, `contention.sameMinuteTieBreaker`, `price.unit`, `shipping.baseFee`, `shipping.freeThreshold`(정수 또는 `null`), `settlement.groupBy`, `print.autoOnConfirm`, `thanks.liveChat`, `thanks.videoComment`, `thanks.batchWindowSec`, `thanks.followEdits`(예/아니요 — 적지 않으면 아니요, 게시 전 감사 문구가 품종·가격 고침을 따라감, D-RETRO-02).
 
 ## `expect` 비교 규칙 (형식 계약)
 
@@ -242,7 +242,7 @@ expect:
 | `settlements.<키>@<날짜>` | (구매자, 날짜) 정산 묶음. 키는 지금의 구매자로 푼다. 품목도 입금·환불 기록도 없는 묶음은 금액 전부 0, `payment: UNPAID`. 품목이 없어도 받은 금액이 있으면 엔진이 그 묶음을 보여 준다(최종 0, 과입금 — DOMAIN_RULES R-12, D-058) |
 | └ `subtotal`·`shipping`·`adjustments`·`total`·`refundDue` | 정수 원. `refundDue`는 `OVERPAID`일 때 차액, 아니면 0 |
 | └ `payment` | `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID` |
-| `effects` | 적은 항목마다, 지금까지 나온 효과(실행·취소 여부 무관) 중 적은 필드가 모두 같은 것이 **서로 다른 효과로 하나씩** 있어야 함. 순서 무관. 효과의 상품 키·문구는 효과가 나온 때의 것이다(번호를 바꿔도 그대로, `VOID_LABEL`은 폐기할 라벨과 같은 상품 키). 효과의 구매자는 지금의 구매자로 푼다 |
+| `effects` | 적은 항목마다, 지금까지 나온 효과(실행·취소 여부 무관) 중 적은 필드가 모두 같은 것이 **서로 다른 효과로 하나씩** 있어야 함. 순서 무관. 효과의 상품 키·문구는 효과가 나온 때의 것이다(번호를 바꿔도 그대로, `VOID_LABEL`은 폐기할 라벨과 같은 상품 키). 단 `thanks.followEdits`를 켠 방송에서 아직 게시되지 않은(실행 대상인) 지금 확정의 감사 문구는 품종 고침과 그 찜에 적용된 가격 고침을 따라간다 — 비교하는 `text`는 그 시점 엔진 상태의 문구다(이름은 효과가 나온 때의 것, 게시·취소된 효과는 그대로 — R-13, D-RETRO-02, G-ENG-134~136). 효과의 구매자는 지금의 구매자로 푼다 |
 | `effectCounts` | 종류별로 지금까지 나온 효과 수가 정확히 같음(0이면 하나도 없어야 함) |
 | `pendingEffects` | 아직 실행 대상인 효과(나왔고, 취소·SKIPPED가 아니고, 실행 완료 보고가 없는 것) **전체**와 적은 필드 기준으로 정확히 같은 목록. 순서 무관. `VOID_LABEL`은 엔진에 완료 보고 이벤트가 없어 나온 뒤 계속 실행 대상이다 — 폐기 표시의 실행 기록은 서버 출력 대기열이 가진다(I1, D-I1-02). 엔진은 `NOTIFY`·`PRINT_PACKING_LABEL`을 내지 않는다(D-044, D-I1-02) |
 | `claims` | 적은 항목마다 (상품 키, 구매자)의 **가장 최근** 찜의 `status`와 (적었으면) `reason`. 상품 키는 상품이 아직 없어도 된다(보류 찜). 찜의 상품 키는 지금의 상품 키다(번호를 바꾸면 그 상품의 찜은 새 번호로, 원래 번호에 남은 보류 찜은 원래 번호로 — D-056). 구매자는 지금의 구매자로 풀어 비교하므로, 합친 구매자의 찜은 합친 쪽의 키로도 찾힌다(가장 최근 = 가장 나중에 생긴 찜). O1: 찜의 상품 키는 옵션을 가진 찜이면 변형 키, 옵션이 없는 찜(옵션 상품을 가리킨 번호만의 보류 찜 포함)이면 상품 키다(D-O1-02). 선택 `qty`(1 이상 정수)를 적으면 그 찜의 수량도 비교한다 |

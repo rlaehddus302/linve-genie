@@ -691,15 +691,17 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 // SMS3 D-SMS3-09: parser/sms-text.yaml 새 파일(문서 6 · 사례 129, suite sms-text) — +1·+129·+0·+129 = 파일 40 · 파서 934 · 엔진 159 · 통과 1093.
 // SMS3 D-SMS3-15(spec 324e8c8b): 사례 12 `775,776,777` → {}(금액 모양)로 고침, `15,28,31` 사례 하나 더함 — +0·+1·+0·+1 = 파일 40 · 파서 935 · 엔진 159 · 통과 1094.
 // D-YT-SRV-24: engine/15-broadcast.yaml G-ENG-178(방송 중 감사 켜기·끄기 broadcast.thanks) — +0·+0·+1·+1 = 파일 40 · 파서 935 · 엔진 160 · 통과 1095.
+// D-RETRO-02: engine/12-product-edit.yaml G-ENG-134~137(thanks.followEdits를 켠 방송의 게시 전 감사 문구가 품종·가격 고침을 따라감, 켜지 않은 방송은 그대로)
+//   — +0·+0·+4·+4 = 파일 40 · 파서 935 · 엔진 164 · 통과 1099 (새 시나리오만 — 기존 골든은 바꾸지 않았다).
 describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 + O3 + O2 + O4 + FB1 + V3 + SMS3 합계)', () => {
-  it('파일 40 · 파서 935 · 엔진 160 · 통과 1095, 나머지 0', () => {
+  it('파일 40 · 파서 935 · 엔진 164 · 통과 1099, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 40,
       parserCases: 935,
-      scenarios: 160,
-      pass: 1095,
+      scenarios: 164,
+      pass: 1099,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

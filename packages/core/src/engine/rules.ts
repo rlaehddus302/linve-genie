@@ -4,7 +4,7 @@
 // 판정 단위는 판정 자리(Unit)다: 옵션 없는 상품이면 번호 자신, 옵션 상품이면 변형 하나(R-19 "판정 단위는 변형이다").
 // 확정·대기·승계 결정 필요·충돌·대기 한도는 자리마다, 확정버전·보류 찜·상품 상태는 번호(상품)마다다.
 // 수량(R-19 "수량"): "확정 찜 수 < 재고"는 "수량 ≤ 남은 수량"으로 읽는다. 대기 찜은 늘 수량 1이다(INV-O1).
-import { formatThanksText } from '../format.ts'
+import { formatThanksHead, formatThanksText } from '../format.ts'
 import { indexesOfText, unitPriceOf } from '../options.ts'
 import { CorruptStateError, Unit, unitKeyOf, variantActiveKey, type ClaimDraft, type Draft, type SlotDraft } from './draft.ts'
 import { receivedOf } from './ledger.ts'
@@ -231,6 +231,29 @@ export function confirm(d: Draft, claim: ClaimDraft, unit: Unit, product: Produc
   const text = formatThanksText({ no: unit.no, name: product.name, price, buyerName: thanksName(d, claim), optionText: claim.variant, qty: claim.qty })
   if (settings['thanks.liveChat']) emit(d, claim, 'POST_THANKS', 'LIVE_CHAT', version, text, unit)
   if (settings['thanks.videoComment'] === 'PER_SALE') emit(d, claim, 'POST_THANKS', 'VIDEO_COMMENT', version, text, unit)
+}
+
+/**
+ * R-13 "게시 전 감사 문구" (D-RETRO-02): 확정 찜의 지금 확정(확정버전)에서 나온 감사 효과 중 아직 실행 전인 것(취소·완료 아님)의
+ * 문구를 고친 품종·그 찜의 지금 단가로 다시 만든다. 부르는 쪽(상품 수정)이 고치기 전·후의 품종과 그 찜의 단가를 넘기고,
+ * 그 방송이 고침 따라가기(thanks.followEdits)를 켰을 때만 부른다.
+ * - 구매자 이름은 효과가 나온 때의 것 그대로다. 효과에는 이름이 따로 없으므로 다시 계산하지 않고(그 뒤 닉네임이 바뀌었을 수 있다),
+ *   문구의 앞머리(번호·품종·옵션 글·수량·금액)만 바꾸고 그 뒤(`{구매자}님 구매 감사합니다`)는 글자 그대로 둔다.
+ * - 번호는 효과가 나온 때의 것이다(D-056 — 번호를 바꾸면 확정이 풀리므로 지금 확정의 효과는 늘 지금 번호다).
+ * - 문구가 고치기 전 값으로 만든 앞머리로 시작하지 않으면 건드리지 않는다 — 이름 자리를 짐작해 자르지 않는다
+ *   (켠 방송에서는 처음부터 따라가므로 생기지 않는 경우다).
+ */
+export function retextThanks(d: Draft, claim: AnyClaim, before: { readonly name: string; readonly price: number }, after: { readonly name: string; readonly price: number }): void {
+  for (const id of claim.effects) {
+    const effect = d.readEffect(id)
+    if (effect === undefined) throw new CorruptStateError(`찜 ${claim.id}의 효과 ${id}가 없다`)
+    if (effect.kind !== 'POST_THANKS' || effect.status !== 'PENDING' || effect.version !== claim.version || effect.text === null) continue
+    const shape = { no: effect.no, optionText: claim.variant, qty: claim.qty }
+    const oldHead = formatThanksHead({ ...shape, ...before })
+    if (!effect.text.startsWith(oldHead)) continue
+    const text = `${formatThanksHead({ ...shape, ...after })}${effect.text.slice(oldHead.length)}`
+    if (text !== effect.text) d.effect(effect).text = text
+  }
 }
 
 /** 지금 확정의 상품 라벨 출력 완료 보고가 있는지 */

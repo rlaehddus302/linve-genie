@@ -458,7 +458,13 @@ export class InstagramDms {
         return null
       }
       const igsid = channel.slice('ig:'.length)
-      const text = dmText(batch.map((row) => row.line))
+      // 줄은 방금 읽은 엔진 상태의 문구로 — 보내기 전에 고친 품종·가격이 들어간다 (R-13 "게시 전 감사 문구", D-RETRO-02). 없으면 행에 적힌 줄
+      const text = dmText(
+        batch.map((row) => {
+          const current = effects.get(row.effectId)?.text
+          return current === null || current === undefined ? row.line : dmLine(current)
+        }),
+      )
       const sendId =
         active?.id ?? (await insertSend(tx, { sellerId: group.sellerId, scopeId: group.scopeId, date: group.date, broadcastId: group.broadcastId, comment: group.comment, igsid, manual: false, now }))
       await updateSend(tx, group.sellerId, sendId, { state: 'SENDING', reason: null, text, startedAt: now, leaseUntil: new Date(now.getTime() + SEND_LEASE_MS), nextAt: null, igsid }, now)

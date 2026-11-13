@@ -17,6 +17,7 @@ import {
   containsPhoneRun,
   looksLikePhoneId,
   compareRank,
+  formatThanksHead,
   initEngine,
   isInvalidEvent,
   listBuyers,
@@ -118,6 +119,7 @@ const settingsArb: fc.Arbitrary<SettingsOverride> = fc.record({
   'print.autoOnConfirm': fc.boolean(),
   'thanks.liveChat': fc.boolean(),
   'thanks.videoComment': fc.constantFrom('OFF', 'PER_SALE'),
+  'thanks.followEdits': fc.boolean(),
   'shipping.freeThreshold': fc.constantFrom(null, 15000),
 })
 
@@ -142,6 +144,7 @@ const startSettingsArb: fc.Arbitrary<SettingsOverride> = fc.record(
     'thanks.liveChat': fc.boolean(),
     'thanks.videoComment': fc.constantFrom('OFF', 'PER_SALE', 'SUMMARY'),
     'thanks.batchWindowSec': fc.integer({ min: 0, max: 600 }),
+    'thanks.followEdits': fc.boolean(),
   },
   { requiredKeys: [] },
 )
@@ -752,6 +755,25 @@ function checkStep(scenario: Scenario, prev: EngineState, event: EngineEvent, ne
   const prevStatus = new Map(prevEffects.map((e) => [e.id, e.status]))
   for (const effect of nextEffects) if (prevStatus.get(effect.id) === 'DONE') expect(effect.status).toBe('DONE')
   expect(nextEffects.filter((e) => e.status === 'DONE' && prevStatus.get(e.id) !== 'DONE').length).toBeLessThanOrEqual(event.type.startsWith('effect.') ? 1 : 0)
+
+  // 게시 전 감사 문구 (R-13, D-RETRO-02): 문구가 바뀌는 것은 고침 따라가기(thanks.followEdits)를 켠 방송의 상품 수정(product.update)에서
+  // 실행 전이던 감사 효과뿐이다 — 완료·취소된 효과와 켜지 않은 방송의 효과 문구는 그대로.
+  // 켠 방송에서 지금 확정(확정버전)의 실행 전 감사 문구는 늘 지금 품종·그 찜의 지금 단가로 만든 앞머리로 시작하고 끝말은 그대로다
+  const prevEffect = new Map(prevEffects.map((e) => [e.id, e]))
+  const productByKey = new Map(listProducts(next).map((p) => [p.key, p]))
+  for (const effect of nextEffects) {
+    const was = prevEffect.get(effect.id)
+    const claim = claims.get(effect.claim)
+    const follows = claim !== undefined && settingsOf(next, claim.broadcast)['thanks.followEdits'] === true
+    if (was !== undefined && was.text !== effect.text) {
+      expect([event.type, was.status, effect.status, effect.kind, follows], `${where}: 효과 ${effect.id}의 문구가 바뀌었다`).toEqual(['product.update', 'PENDING', 'PENDING', 'POST_THANKS', true])
+    }
+    if (!follows || effect.kind !== 'POST_THANKS' || effect.status !== 'PENDING' || claim.status !== 'CONFIRMED' || claim.confirmVersion !== effect.confirmVersion) continue
+    const product = productByKey.get(claim.product)
+    const head = formatThanksHead({ no: claim.no, name: product?.name ?? '', price: claim.price as number, optionText: claim.variant, qty: claim.qty })
+    expect((effect.text ?? '').startsWith(head), `${where}: 효과 ${effect.id}의 문구 '${String(effect.text)}'가 지금 품종·단가 '${head}'로 시작하지 않는다`).toBe(true)
+    expect((effect.text ?? '').endsWith('님 구매 감사합니다'), `${where}: 효과 ${effect.id}의 끝말`).toBe(true)
+  }
 
   // 개인정보: 효과·찜 ID·구매자 ID·조회 결과에 메모·전체 전화번호·전화번호 키가 없다 (AC-S03-12, AC-S03b-03)
   const nextBuyers = listBuyers(next)

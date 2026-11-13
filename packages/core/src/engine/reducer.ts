@@ -41,6 +41,7 @@ import {
   releaseConflict,
   resolveKeep,
   resolveSwitch,
+  retextThanks,
   settleAwaiting,
   stockOf,
   confirmedUnits,
@@ -545,6 +546,7 @@ function update(d: Draft, e: ProductUpdateEvent): void {
   // 변형 판정 자리: 남는 변형은 그대로, 새 변형은 빈 자리 (빼는 바꾸기는 찜이 없을 때만 받았다)
   target.units = withPendingUnits(d, target, variants.map(({ text }) => target.units.find((unit) => unit.text === text) ?? { ...emptyUnit(text), winners: [], waitlist: [] }))
   const next = target.product
+  const followEdits = d.settingsOf(e.b)['thanks.followEdits'] === true
   // 지금 확정 찜: UNPAID_CLAIMS면 입금 전(묶음 받은 금액 0) 찜의 단가를 새 단가로, 출력된 라벨이 있으면 재출력 필요
   for (const unit of unitsOf(target)) {
     for (const id of unit.winners) {
@@ -555,11 +557,14 @@ function update(d: Draft, e: ProductUpdateEvent): void {
       const changed = newPrice !== unitPrice(product, record.variant)
       const reprice = changed && e.applyTo === 'UNPAID_CLAIMS' && record.price !== newPrice && groupReceived(d, record) === 0
       if (!reprice && name === undefined) continue
+      // 아직 게시되지 않은 감사 문구는 고친 품종·그 찜의 지금 단가를 따라간다 (R-13, D-RETRO-02). NEW_ONLY면 찜 단가가 그대로라 금액도 그대로.
+      // 그 방송의 설정 스냅샷 thanks.followEdits가 참일 때만 — 이 칸이 없던 옛 방송은 다시 재생해도 문구가 그대로다
+      const from = record.price as number
+      if (followEdits && record.price !== null) retextThanks(d, record, { name: product.name, price: from }, { name: next.name, price: reprice ? newPrice : from })
       const printed = labelPrinted(d, record)
       if (!reprice && !printed) continue
       const claim = d.claim(id)
       if (reprice) {
-        const from = claim.price as number
         claim.price = newPrice
         claim.priceHistory.push({ from, to: newPrice, ...change })
         d.knownBuyer(claim.buyer).subtotal += (newPrice - from) * claim.qty

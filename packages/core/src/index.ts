@@ -25,7 +25,7 @@ export {
   type SmsTextOptions,
   type SmsTextResult,
 } from './parser.ts'
-export { formatWon, formatThanksText, type ThanksTextInput } from './format.ts'
+export { formatWon, formatThanksHead, formatThanksText, type ThanksHeadInput, type ThanksTextInput } from './format.ts'
 export { normalizeText } from './text.ts'
 export {
   OPTION_LIMITS,

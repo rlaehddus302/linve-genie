@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS, parseAmount, parseChat, parseQuickInput, resolveSettings, type SettingsOverride } from '@livejjim/core'
+import { DEFAULT_SETTINGS, checkSettings, parseAmount, parseChat, parseQuickInput, resolveSettings, type SettingsOverride } from '@livejjim/core'
 
 const SRC = fileURLToPath(new URL('../../src/', import.meta.url))
 
@@ -15,7 +15,9 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe('DEFAULT_SETTINGS — DOMAIN_RULES 판매 규칙 설정표 기본값', () => {
-  it('설정표의 19개 키와 기본값 (O1: claim.maxQuantity 10)', () => {
+  // D-PEND-01: claim.preOpenExpire(엔진 기본 예)가 설정표에 더해졌는데 이 표에 빠져 있었다(그 결정이 "새 설정 시험은 나중"으로 남긴 것) — 19개 → 20개.
+  // 감사 묶음 시간의 엔진 기본값은 0 그대로다(운영 10초는 서버 판매자 기본값, D-RETRO-01). thanks.followEdits는 기본값이 없는 칸이다(D-RETRO-02, 아래)
+  it('설정표의 20개 키와 기본값 (O1: claim.maxQuantity 10, D-PEND-01: claim.preOpenExpire 예)', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       'claim.parseMode': 'STRICT',
       'claim.maxQuantity': 10,
@@ -23,6 +25,7 @@ describe('DEFAULT_SETTINGS — DOMAIN_RULES 판매 규칙 설정표 기본값', 
       'claim.maxNumber': 999,
       'claim.ignoreOwner': true,
       'claim.preOpenWindowSec': 30,
+      'claim.preOpenExpire': true,
       'waitlist.max': 5,
       'cancel.buyerChat': 'REQUEST',
       'cancel.succession': 'AUTO',
@@ -83,6 +86,16 @@ describe('resolveSettings', () => {
   it('설정표에 없는 키는 무시한다', () => {
     const resolved = resolveSettings({ 'claim.unknown': 1 } as unknown as SettingsOverride)
     expect(Object.keys(resolved)).toEqual(Object.keys(DEFAULT_SETTINGS))
+  })
+
+  it('thanks.followEdits(D-RETRO-02)는 기본값이 없다 — 적었을 때만 들어가고, 적지 않은 설정은 이 칸이 없던 때와 글자까지 같다(옛 방송 재생, D-072)', () => {
+    expect(Object.hasOwn(DEFAULT_SETTINGS, 'thanks.followEdits')).toBe(false)
+    expect(Object.hasOwn(resolveSettings({}), 'thanks.followEdits')).toBe(false)
+    expect(Object.hasOwn(resolveSettings({ 'thanks.followEdits': undefined }), 'thanks.followEdits')).toBe(false)
+    expect(resolveSettings({ 'thanks.followEdits': true })).toEqual({ ...DEFAULT_SETTINGS, 'thanks.followEdits': true })
+    expect(resolveSettings({ 'thanks.followEdits': false })).toEqual({ ...DEFAULT_SETTINGS, 'thanks.followEdits': false })
+    expect(checkSettings({ 'thanks.followEdits': true })).toEqual([])
+    expect(checkSettings({ 'thanks.followEdits': 'yes' })).toEqual([{ key: 'thanks.followEdits', message: '예나 아니오로만 정할 수 있어요' }])
   })
 })
 

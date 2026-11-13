@@ -175,8 +175,10 @@ export interface BuyerDraft extends Omit<Mutable<BuyerRecord>, 'id' | 'n' | 'kin
   dates: string[]
 }
 
-export interface EffectDraft extends Omit<EffectRecord, 'status'> {
+export interface EffectDraft extends Omit<EffectRecord, 'status' | 'text'> {
   status: EffectRecord['status']
+  /** 감사 문구 — 게시 전이면 품종·가격 고침을 따라 바뀐다 (R-13, D-RETRO-02) */
+  text: EffectRecord['text']
 }
 
 export interface MessageDraft extends Omit<MessageRecord, 'converted'> {

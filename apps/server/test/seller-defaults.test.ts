@@ -22,14 +22,18 @@ afterEach(async () => {
   world = null
 })
 
+/** 운영 판매자 기본값 전부 (D-YT-SRV-23 · D-PEND-01 · D-RETRO-01 · D-RETRO-02) */
+const ALL_SELLER_DEFAULTS = { 'thanks.liveChat': false, 'claim.preOpenExpire': false, 'thanks.batchWindowSec': 10, 'thanks.followEdits': true }
+
 describe('D-YT-SRV-23 감사 채팅 기본 끔', () => {
   it('운영 설정은 판매자 기본값으로 감사 채팅 끔을 넣는다 — 엔진 기본값은 그대로 켬', async () => {
-    expect(SELLER_DEFAULTS).toEqual({ 'thanks.liveChat': false })
+    // 판매자 기본값은 그 뒤 결정으로 늘었다: 보류 찜 만료 끔(D-PEND-01), 감사 묶음 10초(D-RETRO-01), 게시 전 감사 문구가 고침을 따라감(D-RETRO-02)
+    expect(SELLER_DEFAULTS).toEqual(ALL_SELLER_DEFAULTS)
     expect(DEFAULT_SETTINGS['thanks.liveChat']).toBe(true)
     const database = await openTestDb()
     const assembled = productionServerOptions({ LIVEJJIM_MASTER_KEY: generateMasterKey(), LIVEJJIM_APP_ORIGIN: ORIGIN }, database)
     expect(assembled.ok).toBe(true)
-    if (assembled.ok) expect(assembled.options.sellerDefaults).toEqual({ 'thanks.liveChat': false })
+    if (assembled.ok) expect(assembled.options.sellerDefaults).toEqual(ALL_SELLER_DEFAULTS)
     await database.close()
   })
 
@@ -47,6 +51,40 @@ describe('D-YT-SRV-23 감사 채팅 기본 끔', () => {
     expect((await startSettings(world, second.id))['thanks.liveChat']).toBe(true)
     // 먼저 연 방송은 그대로
     expect((await startSettings(world, first.id))['thanks.liveChat']).toBe(false)
+  })
+})
+
+// 라이브 복기 2026-11-12 (사용자 결정 "감사 채팅을 10초 늦춰 보낸다"): 운영 판매자 기본값으로 감사 묶음 10초·게시 전 감사 문구가 고침을 따라감
+describe('D-RETRO-01·D-RETRO-02 감사 10초 늦춤과 고침 따라가기는 운영 판매자 기본값', () => {
+  it('엔진 기본값은 그대로다 (묶음 0초, 고침 따라가기 칸 없음) — 옛 방송을 다시 재생해도 같다', () => {
+    expect(DEFAULT_SETTINGS['thanks.batchWindowSec']).toBe(0)
+    expect(Object.hasOwn(DEFAULT_SETTINGS, 'thanks.followEdits')).toBe(false)
+  })
+
+  it('새 판매자의 설정과 새 방송 스냅샷에 10초·고침 따라가기가 들어가고, 판매자가 0초로 저장하면 다음 방송부터 0초(고침 따라가기는 그대로)', async () => {
+    world = await newWorld({ sellerDefaults: SELLER_DEFAULTS })
+    const seller = await addSeller(world)
+    const api = client(world, seller.cookie)
+    const settings = (await expectOk(api.get('/api/settings'))).body.settings as Record<string, unknown>
+    expect([settings['thanks.batchWindowSec'], settings['thanks.followEdits']]).toEqual([10, true])
+    const first = await createBroadcast(world, seller)
+    const started = await startSettings(world, first.id)
+    expect([started['thanks.batchWindowSec'], started['thanks.followEdits']]).toEqual([10, true])
+    await expectOk(api.patch('/api/settings', { settings: { 'thanks.batchWindowSec': 0 } }))
+    const second = await createBroadcast(world, seller, { title: '다음 방송' })
+    const next = await startSettings(world, second.id)
+    expect([next['thanks.batchWindowSec'], next['thanks.followEdits']]).toEqual([0, true])
+    // 먼저 연 방송은 그대로
+    expect((await startSettings(world, first.id))['thanks.batchWindowSec']).toBe(10)
+  })
+
+  it('판매자 기본값이 없는 서버(시험·연습)의 새 방송 스냅샷에는 고침 따라가기 칸이 없다', async () => {
+    world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    const started = await startSettings(world, b.id)
+    expect(started['thanks.batchWindowSec']).toBe(0)
+    expect(Object.hasOwn(started, 'thanks.followEdits')).toBe(false)
   })
 })
 

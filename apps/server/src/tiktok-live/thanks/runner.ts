@@ -18,7 +18,7 @@ import { errorKind, type LogSink } from '../../log.ts'
 import type { ScopeWriter } from '../../writer.ts'
 import { ChatSendError } from '../../youtube/chat-send/sender.ts'
 import { TT_LEASE_OWNER, tiktokDueRows, tiktokLapsedRows, tiktokUnreportedRows, updateTiktokRows, type RowChange, type RunnerRow } from '../../youtube/outbox-store.ts'
-import { batchMessages } from '../../youtube/texts.ts'
+import { batchMessages, currentThanksTexts } from '../../youtube/texts.ts'
 import type { Timer } from '../../youtube/timer.ts'
 import { latestTiktokLink } from '../store.ts'
 import { TT_COMMENT_MAX, type TikTokChatSender } from './browser-sender.ts'
@@ -175,8 +175,14 @@ export class TikTokThanks {
       rows.filter((row) => !row.manual && row.deadlineAt !== null && row.deadlineAt.getTime() <= now.getTime()),
       { state: 'FAILED', reason: 'EXPIRED' },
     )
-    for (const date of new Set(rows.map((row) => row.date))) {
-      const statuses = new Map(listEffects((await writer.read(sellerId, date, false)).state).map((effect) => [effect.id, effect.status]))
+    // 게시 직전의 문구 — 기다리는 동안 고친 품종·가격이 들어간다 (R-13 "게시 전 감사 문구", D-RETRO-02).
+    // 효과 ID는 날짜 범위 안에서만 유일하므로 범위가 하나일 때만 쓴다(한 회차의 행은 한 범위다), 아니면 행의 문구
+    const dates = new Set(rows.map((row) => row.date))
+    let current: ReadonlyMap<string, string> = new Map()
+    for (const date of dates) {
+      const effects = listEffects((await writer.read(sellerId, date, false)).state)
+      const statuses = new Map(effects.map((effect) => [effect.id, effect.status]))
+      if (dates.size === 1) current = currentThanksTexts(effects)
       const ofDate = rows.filter((row) => row.date === date)
       await end(
         ofDate.filter((row) => statuses.get(row.effectId) === 'CANCELLED'),
@@ -198,7 +204,7 @@ export class TikTokThanks {
       return
     }
     const [message] = batchMessages(
-      rows.map((row) => ({ id: row.id, text: effectText(row) })),
+      rows.map((row) => ({ id: row.id, text: current.get(row.effectId) ?? effectText(row) })),
       TT_COMMENT_MAX,
     )
     if (message === undefined) return

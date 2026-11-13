@@ -57,7 +57,7 @@ import {
 } from './outbox-store.ts'
 import type { QuotaMeter } from './quota.ts'
 import { activeLink, fillLinkLiveChatId, fillLinkPoster, insertOwnMessage, isInvitedLink, latestLink, markChatEnded, markSummaryDone, summaryCandidates, type LinkRow } from './store.ts'
-import { SUMMARY_KIND, batchMessages, commentText, liveChatText, summaryComments, type SummaryLine } from './texts.ts'
+import { SUMMARY_KIND, batchMessages, commentText, currentThanksTexts, liveChatText, summaryComments, type SummaryLine } from './texts.ts'
 import type { Timer } from './timer.ts'
 import { winnerClaimsOf } from '../winners.ts'
 
@@ -610,10 +610,14 @@ export class OutboxRunner {
     }
     while (rows.length > 0) {
       this.#check()
-      // 2. 지금 엔진 상태 (R-13 실행 직전 — 메시지마다 새로 읽는다): 취소 → 건너뜀, 완료 → 게시됨
+      // 2. 지금 엔진 상태 (R-13 실행 직전 — 메시지마다 새로 읽는다): 취소 → 건너뜀, 완료 → 게시됨.
+      //    같은 상태에서 게시 직전의 문구도 읽는다 — 기다리는 동안 판매자가 고친 품종·가격이 글에 들어간다 (D-RETRO-02)
+      let current: ReadonlyMap<string, string> = new Map()
       if (first.kind === 'POST_THANKS') {
-        rows = await this.#engineCheck(rows, (await this.#options.writer.read(sellerId, date, false)).state)
+        const state = (await this.#options.writer.read(sellerId, date, false)).state
+        rows = await this.#engineCheck(rows, state)
         if (rows.length === 0) return
+        current = currentThanksTexts(listEffects(state))
       }
       // 3. 연결·동의·권한·이은 방송·채팅·할당량
       const open = await this.#gate(rows, target)
@@ -629,11 +633,13 @@ export class OutboxRunner {
         rows = await this.#sharedSkip(rows, link)
         if (rows.length === 0) return
       }
-      // 4. 문구와 메시지 — 남은 항목으로 다시 만들고(AC-Y1-42) 첫 메시지 하나만 보낸다. 나머지는 위의 직전 확인부터 다시
+      // 4. 문구와 메시지 — 남은 항목으로 다시 만들고(AC-Y1-42) 첫 메시지 하나만 보낸다. 나머지는 위의 직전 확인부터 다시.
+      //    문구는 방금 읽은 엔진 상태의 것(고친 품종·가격, D-RETRO-02), 상태에 없으면 행에 적힌 나온 때의 문구
+      const textOf = (row: RunnerRow): string => current.get(row.effectId) ?? effectOf(row)?.text ?? row.postText ?? ''
       let members: RunnerRow[]
       let text: string
       if (target === 'LIVE_CHAT') {
-        const [message] = batchMessages(rows.map((row) => ({ id: row.id, text: effectOf(row)?.text ?? row.postText ?? '' })))
+        const [message] = batchMessages(rows.map((row) => ({ id: row.id, text: textOf(row) })))
         if (message === undefined) return
         members = rows.filter((row) => message.ids.includes(row.id))
         if (members.length === 0) return
@@ -641,7 +647,7 @@ export class OutboxRunner {
       } else {
         const head = rows[0] as RunnerRow
         members = [head]
-        text = target === 'SUMMARY' ? (head.postText ?? '') : commentText(effectOf(head)?.text ?? head.postText ?? '')
+        text = target === 'SUMMARY' ? (head.postText ?? '') : commentText(textOf(head))
       }
       await this.#attempt(members, text, link, target)
       rows = rows.filter((row) => !members.includes(row))
@@ -667,6 +673,8 @@ export class OutboxRunner {
     const skip: RunnerRow[] = []
     const keep: RunnerRow[] = []
     for (const row of rows) {
+      // 견주는 값은 효과가 나온 때의 문구다(행에 적힌 것) — 계정마다 같은 찜에서 같은 글이 나온다. 게시 직전에 고친 문구(D-RETRO-02)로 견주면
+      // 한 계정에서만 고친 감사가 다른 글로 보여 두 번 올라간다
       const text = effectOf(row)?.text ?? row.postText ?? ''
       const key = `${link.videoId}\n${text}`
       const held = this.#videoThanks.get(key)

@@ -211,3 +211,139 @@ describe('AC-S03-33 번호 변경', () => {
     expect(listEffects(state).filter((e) => e.kind === 'VOID_LABEL').map((e) => [e.product, e.confirmVersion])).toEqual([['b1/51', 1]])
   })
 })
+
+describe('D-RETRO-02 아직 게시되지 않은 감사 문구는 품종 고침과 찜에 적용된 가격 고침을 따라간다 (R-13, 설정 thanks.followEdits)', () => {
+  /** 그 방송의 설정 스냅샷에서 고침 따라가기를 켠다 (운영은 서버 판매자 기본값으로 켠다) */
+  const follow = (events: readonly EventInput[], settings: Parameters<typeof play>[1] = {}) => play(events, { 'thanks.followEdits': true, ...settings })
+  const sent = (claim: string, version = 1, target = 'LIVE_CHAT'): EventInput => ({ type: 'effect.thanksSent', effectId: `${claim}:POST_THANKS:${target}:${String(version)}` })
+  const thanks = (state: ReturnType<typeof play>['state']) =>
+    listEffects(state)
+      .filter((e) => e.kind === 'POST_THANKS')
+      .map((e) => [e.id, e.status, e.text])
+
+  it('품종 고침: 실행 전 감사 문구(실시간 채팅·영상 댓글 둘 다)가 새 품종으로, 효과 ID·상태·수는 그대로이고 새 효과는 없다', () => {
+    const { state, emitted } = follow([register(15), chat('A', '15'), update(15, { name: '라울' })], { 'thanks.videoComment': 'PER_SALE' })
+    expect(emitted[2]).toEqual([])
+    expect(thanks(state)).toEqual([
+      ['c1:POST_THANKS:LIVE_CHAT:1', 'PENDING', '15번 라울 10,000원 A님 구매 감사합니다'],
+      ['c1:POST_THANKS:VIDEO_COMMENT:1', 'PENDING', '15번 라울 10,000원 A님 구매 감사합니다'],
+    ])
+  })
+
+  it('이미 게시된 감사 문구는 바뀌지 않는다 — 대상마다 따로 (게시된 실시간 채팅은 그대로, 아직인 영상 댓글만 바뀐다)', () => {
+    const { state } = follow([register(15), chat('A', '15'), sent('c1'), update(15, { name: '라울', price: 9000, applyTo: 'UNPAID_CLAIMS' })], { 'thanks.videoComment': 'PER_SALE' })
+    expect(thanks(state)).toEqual([
+      ['c1:POST_THANKS:LIVE_CHAT:1', 'DONE', '15번 핑크프릴 10,000원 A님 구매 감사합니다'],
+      ['c1:POST_THANKS:VIDEO_COMMENT:1', 'PENDING', '15번 라울 9,000원 A님 구매 감사합니다'],
+    ])
+  })
+
+  it('품종이 비어 있다가 생기면 품종 자리가 들어가고, 지우면 자리째 빠진다', () => {
+    const filled = follow([register(15, { name: '' }), chat('A', '15'), update(15, { name: '라울' })])
+    expect(thanks(filled.state)).toEqual([['c1:POST_THANKS:LIVE_CHAT:1', 'PENDING', '15번 라울 10,000원 A님 구매 감사합니다']])
+    const emptied = follow([register(15), chat('A', '15'), update(15, { name: '' })])
+    expect(thanks(emptied.state)).toEqual([['c1:POST_THANKS:LIVE_CHAT:1', 'PENDING', '15번 10,000원 A님 구매 감사합니다']])
+  })
+
+  it('UNPAID_CLAIMS 가격 고침: 단가가 바뀐 찜의 실행 전 문구 금액이 바뀐다. 입금된 묶음의 찜은 단가가 그대로라 문구도 그대로', () => {
+    const { state } = follow([register(15, { stock: 2 }), chat('A', '15'), chat('B', '15'), pay('B', 1), update(15, { price: 7000, applyTo: 'UNPAID_CLAIMS' })])
+    expect(listClaims(state).map((c) => c.price)).toEqual([7000, 10000])
+    expect(thanks(state)).toEqual([
+      ['c1:POST_THANKS:LIVE_CHAT:1', 'PENDING', '15번 핑크프릴 7,000원 A님 구매 감사합니다'],
+      ['c2:POST_THANKS:LIVE_CHAT:2', 'PENDING', '15번 핑크프릴 10,000원 B님 구매 감사합니다'],
+    ])
+  })
+
+  it('NEW_ONLY(기본) 가격 고침: 확정 찜의 금액이 그대로라 문구도 그대로. 품종을 함께 고치면 품종만 바뀐다', () => {
+    const priceOnly = follow([register(15), chat('A', '15'), update(15, { price: 7000 })])
+    expect(thanks(priceOnly.state)).toEqual([['c1:POST_THANKS:LIVE_CHAT:1', 'PENDING', '15번 핑크프릴 10,000원 A님 구매 감사합니다']])
+    expect(priceOnly.state.effects).toBe(priceOnly.states[2]?.effects)
+    const explicit = follow([register(15), chat('A', '15'), update(15, { price: 7000, applyTo: 'NEW_ONLY' })])
+    expect(thanks(explicit.state)).toEqual(thanks(priceOnly.state))
+    const withName = follow([register(15), chat('A', '15'), update(15, { price: 7000, name: '라울' })])
+    expect(thanks(withName.state)).toEqual([['c1:POST_THANKS:LIVE_CHAT:1', 'PENDING', '15번 라울 10,000원 A님 구매 감사합니다']])
+  })
+
+  it('확정이 풀린 찜의 효과(취소됨)는 건드리지 않는다 — 승계로 확정된 찜의 문구만 따라간다', () => {
+    const { state } = follow([register(15), chat('A', '15'), chat('B', '15'), host('host.cancel', 15, 'A'), update(15, { name: '라울', price: 7000, applyTo: 'UNPAID_CLAIMS' })])
+    expect(thanks(state)).toEqual([
+      ['c1:POST_THANKS:LIVE_CHAT:1', 'CANCELLED', '15번 핑크프릴 10,000원 A님 구매 감사합니다'],
+      ['c2:POST_THANKS:LIVE_CHAT:2', 'PENDING', '15번 라울 7,000원 B님 구매 감사합니다'],
+    ])
+  })
+
+  it('같은 찜이 다시 확정되면 지금 확정(확정버전)의 문구만 바뀐다 — 앞 확정의 취소된 효과는 그대로', () => {
+    // A 확정(1) → B로 교체(A는 대기 1순위, B 확정 2) → B 취소 → 자동 승계로 A가 같은 찜 c1로 다시 확정(3)
+    const { state } = follow([
+      register(15),
+      chat('A', '15'),
+      chat('B', '안녕'),
+      { type: 'host.assign', b: 'b1', no: 15, buyer: 'B', reason: '교체', replace: 'A', replaceTo: 'WAITLIST' },
+      host('host.cancel', 15, 'B'),
+      update(15, { name: '라울' }),
+    ])
+    expect(claimOf(state, 'c1')).toMatchObject({ status: 'CONFIRMED', confirmVersion: 3 })
+    expect(thanks(state)).toEqual([
+      ['c1:POST_THANKS:LIVE_CHAT:1', 'CANCELLED', '15번 핑크프릴 10,000원 A님 구매 감사합니다'],
+      ['c2:POST_THANKS:LIVE_CHAT:2', 'CANCELLED', '15번 핑크프릴 10,000원 B님 구매 감사합니다'],
+      ['c1:POST_THANKS:LIVE_CHAT:3', 'PENDING', '15번 라울 10,000원 A님 구매 감사합니다'],
+    ])
+  })
+
+  it('구매자 이름은 효과가 나온 때의 것 그대로 — 그 뒤 닉네임이 바뀌어도, 이름에 금액·끝말 같은 글자가 있어도 글자 그대로 둔다', () => {
+    const renamedBuyer = follow([register(15), chat('A', '15', { nick: '홍길동' }), chat('A', '안녕하세요', { nick: '길동이' }), update(15, { name: '라울' })])
+    expect(getBuyer(renamedBuyer.state, 'A')?.display).toBe('길동이')
+    expect(thanks(renamedBuyer.state)).toEqual([['c1:POST_THANKS:LIVE_CHAT:1', 'PENDING', '15번 라울 10,000원 홍길동님 구매 감사합니다']])
+    const tricky = '10,000원 핑크프릴님 구매 감사합니다 15번'
+    const odd = follow([register(15), chat('A', '15', { nick: tricky }), update(15, { name: '라울', price: 9000, applyTo: 'UNPAID_CLAIMS' })])
+    expect(thanks(odd.state)).toEqual([['c1:POST_THANKS:LIVE_CHAT:1', 'PENDING', `15번 라울 9,000원 ${tricky}님 구매 감사합니다`]])
+  })
+
+  it('여러 번 고쳐도 마지막 값을 따라가고, 게시 보고 뒤의 고침은 더 따라가지 않는다', () => {
+    const { state } = follow([register(15), chat('A', '15'), update(15, { name: '라울' }), update(15, { price: 8000, applyTo: 'UNPAID_CLAIMS' }), update(15, { name: '성미인' }), sent('c1'), update(15, { name: '미니마', price: 1000, applyTo: 'UNPAID_CLAIMS' })])
+    expect(thanks(state)).toEqual([['c1:POST_THANKS:LIVE_CHAT:1', 'DONE', '15번 성미인 8,000원 A님 구매 감사합니다']])
+    expect(claimOf(state, 'c1')?.price).toBe(1000)
+  })
+
+  it('번호 변경은 그대로다 (D-056): 그 번호의 확정이 풀려 감사 효과는 취소되고 문구는 나온 때의 번호 그대로', () => {
+    const { state } = follow([register(15), chat('A', '15'), renumber(15, 16), update(16, { name: '라울' })])
+    expect(thanks(state)).toEqual([['c1:POST_THANKS:LIVE_CHAT:1', 'CANCELLED', '15번 핑크프릴 10,000원 A님 구매 감사합니다']])
+  })
+
+  it('재고만 고치는 수정·같은 값 수정은 문구를 건드리지 않는다', () => {
+    const { state, states } = follow([register(15), chat('A', '15'), chat('B', '15'), update(15, { stock: 1, name: '핑크프릴' }), update(15, { stock: 2 })])
+    expect(states[4]).toBe(states[3])
+    expect(thanks(state)).toEqual([
+      ['c1:POST_THANKS:LIVE_CHAT:1', 'PENDING', '15번 핑크프릴 10,000원 A님 구매 감사합니다'],
+      ['c2:POST_THANKS:LIVE_CHAT:2', 'PENDING', '15번 핑크프릴 10,000원 B님 구매 감사합니다'],
+    ])
+  })
+
+  it('설정을 적지 않은 방송(옛 방송 포함)은 그대로다 — 품종·가격을 고쳐도 이미 나온 효과의 문구는 바뀌지 않고 상태에 이 칸도 없다(재생 검사 D-072)', () => {
+    const { state, states } = play([register(15), chat('A', '15'), update(15, { name: '라울', price: 9000, applyTo: 'UNPAID_CLAIMS' })])
+    expect(thanks(state)).toEqual([['c1:POST_THANKS:LIVE_CHAT:1', 'PENDING', '15번 핑크프릴 10,000원 A님 구매 감사합니다']])
+    expect(state.effects).toBe(states[2]?.effects)
+    expect(JSON.stringify(state)).not.toContain('followEdits')
+    const off = play([register(15), chat('A', '15'), update(15, { name: '라울' })], { 'thanks.followEdits': false })
+    expect(thanks(off.state)).toEqual([['c1:POST_THANKS:LIVE_CHAT:1', 'PENDING', '15번 핑크프릴 10,000원 A님 구매 감사합니다']])
+  })
+
+  it('방송마다 따로다: 켠 방송의 상품만 따라가고 같은 엔진의 다른 방송은 그대로', () => {
+    const start = (b: string, settings: Record<string, unknown>): EventInput => ({ type: 'broadcast.start', b, date: '2026-10-18', title: b, settings }) as EventInput
+    const { state } = play(
+      [
+        start('on', { 'thanks.followEdits': true }),
+        start('off', {}),
+        register(15, { b: 'on' }),
+        register(15, { b: 'off' }),
+        chat('A', '15', { b: 'on' }),
+        chat('A', '15', { b: 'off' }),
+        { type: 'product.update', b: 'on', no: 15, name: '라울' },
+        { type: 'product.update', b: 'off', no: 15, name: '라울' },
+      ],
+      {},
+      [],
+    )
+    expect(thanks(state).map(([, , text]) => text)).toEqual(['15번 라울 10,000원 A님 구매 감사합니다', '15번 핑크프릴 10,000원 A님 구매 감사합니다'])
+  })
+})

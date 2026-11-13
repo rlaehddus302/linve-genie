@@ -41,7 +41,16 @@ export interface SaleSettings {
   'print.autoOnConfirm': boolean
   'thanks.liveChat': boolean
   'thanks.videoComment': 'OFF' | 'PER_SALE' | 'SUMMARY'
+  /**
+   * 감사 메시지 묶음 시간(초, 0 = 한 건씩 바로). 엔진 기본값은 0 — 운영은 서버 판매자 기본값으로 10초(확정 뒤 10초 기다렸다 보낸다, D-RETRO-01).
+   */
   'thanks.batchWindowSec': number
+  /**
+   * 아직 게시되지 않은 감사 문구가 품종 고침과 찜에 적용된 가격 고침을 따라가나 (R-13 "게시 전 감사 문구", D-RETRO-02).
+   * 적지 않으면 따라가지 않는다(아니요). 다른 칸과 달리 적지 않은 방송의 스냅샷에는 이 칸을 넣지 않는다 — 이 칸이 없던 옛 방송 시작 이벤트를
+   * 다시 재생한 상태가 그때 저장한 상태와 글자까지 같게(재생 검사 D-072). 운영은 서버 판매자 기본값으로 참을 넣는다.
+   */
+  'thanks.followEdits'?: boolean
 }
 
 export type SettingKey = keyof SaleSettings
@@ -74,10 +83,13 @@ export const DEFAULT_SETTINGS: Readonly<SaleSettings> = Object.freeze({
 })
 
 const SETTING_KEYS = Object.freeze(Object.keys(DEFAULT_SETTINGS) as SettingKey[])
+/** 기본값이 없는 칸 — 적었을 때만 스냅샷에 들어간다(적지 않으면 아니요로 읽는다). 옛 방송의 재생 상태가 달라지지 않게 (D-RETRO-02, D-072) */
+const OPTIONAL_SETTING_KEYS = Object.freeze(['thanks.followEdits'] as const satisfies readonly SettingKey[])
 
 /**
  * 기본값 위에 덮어쓴 새 설정 객체를 돌려준다. 넘긴 객체는 바꾸지 않는다.
  * - 덮어쓰는 값은 객체 자신의 속성만 본다(상속된 속성은 무시). 값이 `undefined`인 키는 기본값을 쓴다.
+ * - 기본값이 없는 칸(`thanks.followEdits`)은 적었을 때만 넣는다.
  * - 값의 범위 검사는 하지 않는다 — 검사는 checkSettings가 한다(엔진의 broadcast.start·initEngine, 서버 설정 저장, D-071).
  */
 export function resolveSettings(override?: SettingsOverride | null): SaleSettings {
@@ -85,6 +97,11 @@ export function resolveSettings(override?: SettingsOverride | null): SaleSetting
   if (override === null || typeof override !== 'object') return resolved
   const target = resolved as unknown as Record<SettingKey, unknown>
   for (const key of SETTING_KEYS) {
+    if (!Object.hasOwn(override, key)) continue
+    const value: unknown = override[key]
+    if (value !== undefined) target[key] = value
+  }
+  for (const key of OPTIONAL_SETTING_KEYS) {
     if (!Object.hasOwn(override, key)) continue
     const value: unknown = override[key]
     if (value !== undefined) target[key] = value
@@ -134,6 +151,7 @@ const SETTING_RULES: Readonly<Record<SettingKey, SettingRule>> = {
   'thanks.liveChat': YES_NO,
   'thanks.videoComment': choice('OFF', 'PER_SALE', 'SUMMARY'),
   'thanks.batchWindowSec': int(0, 600),
+  'thanks.followEdits': YES_NO,
 }
 
 /** 세 자리마다 쉼표 (실행 환경의 언어 설정과 무관하게) */
