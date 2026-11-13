@@ -28,6 +28,9 @@ class RegistrationTest(unittest.TestCase):
                 self.assertEqual(rows_of(json.dumps(answer), transcript)[0]["price"], expected)
 
     def test_conflicting_guess_is_held_until_supported(self):
+        # 스펙이 바뀐 곳만 고쳤다(기대는 그대로 — 충돌하는 낮은 확신의 답은 보류, 번호표가 보이면 등록):
+        #  - D-SCR-13: 가격은 판매자가 말한 금액과 같을 때(또는 답 두 번) 보낸다 → 받아쓴 줄에 금액("7만원")을 넣었다.
+        #  - D-SCR-14: 333/334처럼 한 자리만 다른 번호는 숫자 쌍 판정으로 넘어갔다(test_reg_rules의 333 시험) → 여기는 두 자리가 다른 361로 본다.
         for later_tag in (False, True):
             with self.subTest(later_tag=later_tag), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
@@ -45,7 +48,7 @@ class RegistrationTest(unittest.TestCase):
                     sec = 5 * line
                     for t in range(sec, sec + 5):
                         append("screen.jsonl", {"sec": t, "t": [[displayed, .4, .4, .1, .1]]})
-                    append("transcript.jsonl", {"start_sec": sec, "end_sec": sec + 4, "text": f"{number}번"})
+                    append("transcript.jsonl", {"start_sec": sec, "end_sec": sec + 4, "text": f"{number}번 7만원"})
                     answer = json.dumps({"line": line, "no": number, "price": 70000, "confidence": confidence})
                     with patch("sw.llm_b6.ask", return_value=answer):
                         worker.tick()
@@ -54,13 +57,13 @@ class RegistrationTest(unittest.TestCase):
                         worker.tick()
 
                 scene(0, 334, 334, "high")
-                scene(1, 334, 333, "low")
+                scene(1, 334, 361, "low")
                 self.assertEqual([r["screen_no"] for r in events if r["kind"] == "LLM번호충돌보류"], [334])
                 if later_tag:
-                    scene(2, 333, 333, "low")
+                    scene(2, 361, 361, "low")
                 worker.finish()
                 posted = [(call.args[0]["no"], call.args[0]["price"]) for call in poster.send.call_args_list]
-                self.assertEqual(posted, [(334, 70000), (333, 70000)] if later_tag else [(334, 70000)])
+                self.assertEqual(posted, [(334, 70000), (361, 70000)] if later_tag else [(334, 70000)])
 
     def test_reoffered_price_is_fixed_after_two_sure_answers(self):
         # D-SCR-09: 393 손톱 2만원으로 보낸 뒤 30분 뒤 "393번 손톱 만원" — 확실한 답 두 번이면 금액 고치기 한 번

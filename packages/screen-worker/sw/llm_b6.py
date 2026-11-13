@@ -44,32 +44,61 @@ def ask_claude(user, sys_path=None, model=None, effort=None):
     raise RuntimeError(f"claude 실패: {r.stderr[-300:]}")
 
 
-def ask(user, sys_path=None, model=None, effort=None):
+# codex 호출의 군더더기 빼기(개선 계획 B-2의 L3, D-SCR-16): 호출마다 붙던 1만6천 토큰(사용자 설정·규칙 파일·세션 기록)을 빼고 답 모양을 고정한다.
+#   --ephemeral(세션을 디스크에 남기지 않음) --ignore-user-config(~/.codex/config.toml의 도구·플러그인 설정을 읽지 않음) --ignore-rules(AGENTS.md 등 규칙 파일을 읽지 않음)
+#   --output-schema <파일>(마지막 답을 그 JSON 모양으로) — 맥 미니의 codex 0.167.1 기준.
+# 이 옵션을 모르는 판이면 한 번 실패한 뒤 옵션 없이 바로 다시 묻고, 그 뒤로는 쓰지 않는다(등록이 멈추지 않게).
+# 라이브 등록(sw.llm_live)만 켠다. 끄기: LLM_CODEX_LEAN=0, LLM_CODEX_SCHEMA=0
+LEAN_FLAGS = ("--ephemeral", "--ignore-user-config", "--ignore-rules")
+SCHEMA_FILE = os.path.join(HERE, "prompts", "reg_answer.schema.json")
+_UNSUPPORTED = set()                                      # 이 codex 판이 모르는 것으로 드러난 옵션 묶음("lean"·"schema")
+_BAD_ARG = re.compile(r"unexpected argument|unrecognized|unknown (?:option|argument|flag)|invalid value|wasn't expected|Usage:", re.I)
+
+
+def codex_cmd(out_p, sys_path=None, model=None, effort=None, lean=False, schema=None):
+    """codex exec 명령줄(목록). lean = 군더더기 빼는 옵션, schema = 답 모양 파일 경로(없으면 안 붙임)"""
+    cmd = ["codex"] + (["--search"] if os.environ.get("WEB_SEARCH") else []) + [
+        "exec", "-m", model or MODEL, "-c", f"model_reasoning_effort={effort or EFFORT}", "-c", f"model_instructions_file={sys_path or SYS}",
+        "--skip-git-repo-check", "-s", "read-only"]
+    if lean and "lean" not in _UNSUPPORTED:
+        cmd += list(LEAN_FLAGS)
+    if schema and "schema" not in _UNSUPPORTED:
+        cmd += ["--output-schema", schema]
+    return cmd + ["-o", out_p, "-"]
+
+
+def ask(user, sys_path=None, model=None, effort=None, lean=False, schema=None):
     """시스템 프롬프트 파일·모델·노력은 안 주면 이 모듈 설정(환경변수)대로 — sw.llm_live가 지식판2로 부름"""
     if os.environ.get("BACKEND") == "claude":
         return ask_claude(user, sys_path, model, effort)
     os.makedirs(EMPTY, exist_ok=True)
-    for k in range(4):
+    k = 0
+    while k < 4:
         with tempfile.NamedTemporaryFile("r", suffix=".txt", delete=False) as f:
             out_p = f.name
-        r = subprocess.run(["codex"] + (["--search"] if os.environ.get("WEB_SEARCH") else []) + ["exec", "-m", model or MODEL, "-c", f"model_reasoning_effort={effort or EFFORT}", "-c", f"model_instructions_file={sys_path or SYS}",
-                            "--skip-git-repo-check", "-s", "read-only", "-o", out_p, "-"],
-                           input=user, text=True, capture_output=True, cwd=EMPTY, timeout=900)
+        r = subprocess.run(codex_cmd(out_p, sys_path, model, effort, lean, schema), input=user, text=True, capture_output=True, cwd=EMPTY, timeout=900)
         out = open(out_p, encoding="utf-8").read() if os.path.exists(out_p) else ""
         os.unlink(out_p)
         if r.returncode == 0:
             return out
+        extra = [g for g, on in (("lean", lean), ("schema", schema)) if on and g not in _UNSUPPORTED]
+        if extra and _BAD_ARG.search(r.stderr or ""):
+            _UNSUPPORTED.update(extra)                    # 옵션을 모르는 판: 기다리지 않고 옵션 없이 다시 묻는다
+            print(f"           codex가 새 옵션({'·'.join(extra)})을 받지 않아 옵션 없이 물어요: {(r.stderr or '').strip()[-200:]}", flush=True)
+            continue
         time.sleep(10 * (k + 1))
+        k += 1
     raise RuntimeError(f"codex 실패: {r.stderr[-300:]}")
 
 
-def shorthand_price(quote, text):
-    """모델이 판매가로 지목한 원문이 그 줄에 독립된 한두 자리 수로 있을 때만 만원으로 환산한다."""
-    if not isinstance(quote, str) or not text:
+def shorthand_price(quote, text, unit=10000, wide=False):
+    """모델이 판매가로 지목한 원문이 그 줄에 독립된 한두 자리 수로 있을 때만 판매자 단위(기본 만원)로 환산한다.
+    wide = 10으로 나누어떨어지는 세 자리("130", "230")도 읽는다(D-SCR-13 — 2026-11-12 방송 222번 "130에" → 1,300,000)"""
+    if not isinstance(quote, str) or not text or not unit:
         return None
     digits = "일이삼사오육칠팔구"
     raw = "".join(quote.split())
-    if re.fullmatch(r"[1-9][0-9]?", raw):
+    if re.fullmatch(r"[1-9][0-9]?", raw) or (wide and re.fullmatch(r"[1-9][0-9]0", raw)):
         value = int(raw)
     elif re.fullmatch(r"[일이삼사오육칠팔구]?십[일이삼사오육칠팔구]?|[일이삼사오육칠팔구]", raw):
         tens, sep, ones = raw.partition("십")
@@ -82,12 +111,14 @@ def shorthand_price(quote, text):
     # 숫자의 일부, '35 번', '35,000원', '35 개', '35 센티' 등은 금액 근거가 될 수 없다.
     literal = re.escape(quote.strip())
     if re.search(r"(?<![\w.,])" + literal + r"(?![0-9]|[.,][0-9]|\s*(?:번|원|천|백|만|개|호|센티|cm|프로|%|명|분|초|세트))(?=$|[\s.,!?]|까지|에|짜리|입니다|예요|이고)", text, re.I):
-        return value * 10000
+        return value * unit
     return None
 
 
-def rows_of(out, L):
-    """답 → [{t, line, no, price, name, no_from, confidence, why}] (B.parse와 같은 거름 + 나머지 칸)"""
+def rows_of(out, L, unit=10000, wide=False):
+    """답 → [{t, line, no, price, name, no_from, confidence, why}] (B.parse와 같은 거름 + 나머지 칸)
+    답이 JSON 줄들이든 --output-schema 모양({"products": [...]})이든 안쪽 상품 줄을 하나씩 읽는다.
+    unit = 단위 없는 판매가에 곱할 값(만원 10000 · 천원 1000 · 없음 None), wide = 세 자리 단위 생략 가격도(shorthand_price)"""
     ids = {i: t for i, t, _ in L}
     texts = {i: text for i, _, text in L}
     got = []
@@ -107,8 +138,9 @@ def rows_of(out, L):
         p = int(str(p).replace(",", "")) if p is not None and str(p).replace(",", "").isdigit() and int(str(p).replace(",", "")) > 0 else None
         price_line = str(d.get("price_line", "")).lstrip("Ll")
         if p is not None and price_line.isdigit():
-            spoken = shorthand_price(d.get("price_short"), texts.get(int(price_line)))
-            if spoken is not None and p in (spoken // 10000, spoken // 10):
+            spoken = shorthand_price(d.get("price_short"), texts.get(int(price_line)), unit, wide)
+            # 모델이 그 수를 그대로·천원·만원 단위로 적었으면 판매자 단위로 맞춘다(만원 단위 판매자의 "35": 35 · 35,000 → 350,000)
+            if spoken is not None and p != spoken and p in (spoken // unit, spoken // unit * 1000, spoken // unit * 10000):
                 p = spoken
         if no is None and p is None:
             continue

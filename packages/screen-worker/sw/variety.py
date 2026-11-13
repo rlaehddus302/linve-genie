@@ -3,6 +3,7 @@
 #  - 사전 = 라이브지니 품종 사전(2,084개 + 별칭) + 채팅·방송 제목에서 거둔 이름(sw/harvest.py)
 #  - 소리 비슷한 정도 = 한글을 자모로 풀어 편집 거리 비율(rapidfuzz). 받아쓰기가 "유나스쿨"을 "은하스쿨"로 적어도 잡힌다
 #  - "레오파드색금"처럼 이름 뒤에 금·색금·철화 등이 붙으면 앞부분을 사전과 맞추고 뒤를 그대로 붙인다
+import collections
 import json
 import os
 import re
@@ -34,7 +35,9 @@ def norm(s):
 
 
 class Dictionary:
-    def __init__(self, exclude_src=None, harvest=True):
+    def __init__(self, exclude_src=None, harvest=True, seller=False):
+        """seller=True: 판매자가 손으로 고친 이름·별칭(data/varieties_seller.json)도 읽는다 — 라이브 LLM 등록의 품종 고르기(pick_name)만 켠다.
+        옛 규칙 길(decide_name·variety_regress)은 그대로라 지난 시험 점수가 바뀌지 않는다"""
         names = {}
         for v in json.load(open(os.path.join(HERE, "..", "data", "varieties.ko.json"), encoding="utf-8"))["varieties"]:
             for n in [v["name"]] + v.get("aliases", []):
@@ -47,6 +50,14 @@ class Dictionary:
                 if exclude_src and set(info["src"]) <= {exclude_src}:
                     continue
                 names.setdefault(norm(n), n)
+        sp = os.path.join(HERE, "..", "data", "varieties_seller.json")
+        if seller and os.path.exists(sp):
+            for v in json.load(open(sp, encoding="utf-8"))["names"]:
+                if exclude_src and set(v.get("src", ())) <= {exclude_src}:
+                    continue
+                names.setdefault(norm(v["name"]), v["name"])
+                for n in v.get("aliases", []):          # 별칭은 받아쓰기가 틀린 모양이라 다른 사전의 같은 글자보다 앞선다
+                    names[norm(n)] = names[norm(v["name"])]
         self.names = names
         self.keys = list(names)
         self.jkeys = [jamo(k) for k in self.keys]
@@ -257,3 +268,127 @@ def decide_name(raw, no, lines, dic):
     if sent and raw and norm(clean(raw)).startswith(norm(sent)):
         sent = None
     return snap(sent or raw, dic, lines=lines), ("번호 문장" if sent else "LLM")
+
+
+# ---------- 라이브 LLM 등록의 품종 고르기 (D-SCR-15, 개선 계획 D-2의 V1·V3~V7) ----------
+# LLM이 적은 이름과 사전 규칙(받아쓴 말에서 사전과 맞는 이름)을 견줘, 둘이 같으면 그 이름, 다르면
+#   (a) LLM 이름이 사전에 있으면 LLM  (b) 사전 이름이 그 상품의 받아쓰기에 여러 번 나오면 사전  (c) 그 밖에는 빈 이름
+# 틀린 이름보다 빈 이름이 낫다 — 판매자가 채우기 쉽고, 틀린 이름은 감사 채팅·라벨로 나간다(2026-11-12 방송: 세검·녹음에지는·손님 닉네임).
+NOT_NAMES = {"재고", "제고", "재구", "베개", "서비스", "특가", "제곱", "통채", "통째", "통으로", "자구", "한개", "두개", "세개", "하나", "상품", "화분", "다육", "다육이",
+             "사이즈", "대품", "중품", "소품", "고급종", "저렴이", "커팅", "실생", "선물", "가격", "번호", "마지막", "오프닝", "이벤트", "득템", "쿠폰", "행복"}
+GENERIC = {"색금", "녹금", "금", "철화", "종자", "산반", "복륜"}          # 이름이라기보다 무늬·종류를 이르는 말 — 다른 이름이 있으면 그쪽이 먼저
+MENTIONS = 2                                                              # (b): 사전 이름이 받아쓰기에 이만큼 나와야 한다
+_COUNT_TAIL = re.compile(r"\s*(?:\d+|한|두|세|네|다섯)\s*(?:개|포기|두|촉|장|세트|번)\s*$")
+_ONLY_COUNT = re.compile(r"^\s*(?:\d+|한|두|세|네|다섯|여러)\s*(?:개|포기|두|촉|장|세트|번|가지|종류)?\s*$")
+_GREET = re.compile(r"감사|고맙|고마워|축하|안녕|어서\s?오|반갑|잡으셨|잡아요|잡으세요|들어오세요|수고|사랑해|땡큐")
+# 받아쓰기·LLM이 '색금'을 적는 모양(2026-11-12 방송: 세금 62 · 새껌 8 · 3금 6 · 새금 6 · 세 끔 6 · 새 끔 6 · 새꿈 3 · 색급 3 · 세크 1, LLM 첫 답 세검·새검)
+_SAEK_LIVE = re.compile(r"(?:세|새|색|섹|쌕)\s?(?:금|끔|껌|꿈|검|급|컴|김)|세크|(?<=[가-힣A-Za-z])\s?3\s?금|^3\s?금")
+AFFIX = ("복륜금", "색금종자", "색금", "창금", "녹금", "철화", "산반", "복륜", "종자", "무지", "금")   # 이름 뒤에 붙는 말 — 앞 이름만 사전과 맞추고 그대로 붙인다
+PREFIX = ("창",)                                                          # 이름 앞에 붙는 말("창녹금")
+
+
+def tidy(name):
+    """LLM·받아쓰기가 적은 이름 다듬기: 앞 군말·뒤 수량("로라클론 4개") 떼기, 색금 바로잡기"""
+    name = _COUNT_TAIL.sub("", clean(name))
+    return _SAEK_LIVE.sub("색금", name).strip()
+
+
+def not_a_name(name, nicks=()):
+    """품종이 아닌 말이면 까닭, 품종일 수 있으면 None"""
+    key = norm(name)
+    if len(key) < 2:
+        return "너무 짧음"
+    if key in NOT_NAMES or _ONLY_COUNT.match(name):
+        return "품종이 아닌 말"
+    if "○" in name or _GREET.search(name):
+        return "인사 구절"
+    jn = jamo(key)
+    for nick in nicks:
+        nk = norm(nick)
+        if len(nk) >= 2 and (fuzz.ratio(jamo(nk), jn) >= 85 or key.startswith(nk)):
+            return "손님 닉네임"
+    return None
+
+
+def canon(name, dic, cutoff=88):
+    """다듬은 이름 → (정식 이름, 사전에 있는가). 통째로 사전에 있거나(철자 바로잡기 포함), 앞 이름이 사전에 있고 뒤에 색금·금·철화…가 붙은 꼴"""
+    key = norm(name)
+    if key in dic.names:
+        return dic.names[key], True
+    memo = dic.__dict__.setdefault("_canon", {})           # 같은 말을 여러 번 견주므로(받아쓰기 n-그램) 사전마다 기억해 둔다
+    if (name, cutoff) not in memo:
+        memo[(name, cutoff)] = _canon(name, key, dic, cutoff)
+    return memo[(name, cutoff)]
+
+
+def _canon(name, key, dic, cutoff):
+    if len(key) >= 3:
+        hit = dict_name(name, dic, cutoff)
+        if hit:
+            return hit, True
+    for suf in AFFIX:
+        if key.endswith(suf) and len(key) - len(suf) >= 2:
+            base = key[: -len(suf)]
+            for pre in ("",) + PREFIX:
+                if pre and not base.startswith(pre):
+                    continue
+                stem = base[len(pre):]
+                head = dic.names.get(stem) or (dict_name(stem, dic, cutoff) if len(stem) >= 3 else None)
+                if head and len(stem) >= 2:
+                    return pre + head + suf, True
+            break
+    return name, False
+
+
+def said_counts(lines, dic, nicks=(), cutoff=90):
+    """그 상품의 받아쓰기 [(초, 글)]에서 사전 이름이 나온 횟수 Counter(정식 이름). 한 줄에서 겹치는 말은 긴 쪽 하나만 센다"""
+    count = collections.Counter()
+    for _, x in lines:
+        ws = [w for w in (_JOSA.sub("", raw) if len(raw) > 2 else raw for raw in re.findall(r"[가-힣A-Za-z0-9]+", _SAEK_LIVE.sub(" 색금 ", x))) if w]
+        found = []
+        for n in (3, 2, 1):
+            for i in range(len(ws) - n + 1):
+                ph = "".join(ws[i:i + n])
+                if len(norm(ph)) < 2 or ph in _STOP or not_a_name(ph, nicks):
+                    continue
+                name, known = canon(ph, dic, cutoff)
+                if known and not any(i < j + m and j < i + n for j, m, _ in found):
+                    found.append((i, n, name))
+        for name in {name for _, _, name in found}:
+            count[name] += 1
+    return count
+
+
+STRONG_MENTIONS = 3                                                       # 사전 이름이 이만큼 나왔으면 굳은 이름(뒤 답으로 바꾸지 않는다)
+
+
+def pick_name(llm_names, lines, dic, nicks=(), detail=False):
+    """→ (서버로 보낼 품종 이름 또는 "", 까닭). llm_names = 그 번호에 LLM이 적은 이름들(답한 순서), lines = 그 상품의 받아쓰기 [(초, 글)]
+    detail=True면 (이름, 까닭, 굳은 이름인가) — LLM과 사전이 같거나 사전 이름이 STRONG_MENTIONS번 넘게 나온 이름"""
+    name, why, strong = _pick_name(llm_names, lines, dic, nicks)
+    return (name, why, strong) if detail else (name, why)
+
+
+def _pick_name(llm_names, lines, dic, nicks):
+    nicks = set(nicks) | nicknames(lines)
+    votes, known_of, order = collections.Counter(), {}, {}
+    for k, raw in enumerate(llm_names):
+        name = tidy(raw) if raw else ""
+        if not name or not_a_name(name, nicks):
+            continue
+        name, known = canon(name, dic)
+        key = norm(name)
+        votes[key] += 1
+        known_of[key] = (name, known)
+        order[key] = k
+    llm = max(votes, key=lambda k: (votes[k], known_of[k][1], order[k])) if votes else None
+    said = said_counts(lines, dic, nicks)
+    # 사전 1순위: 많이 나온 이름, 같으면 무늬 말(색금·녹금)보다 이름, 그다음 긴 이름
+    top = max(said, key=lambda n: (said[n], norm(n) not in GENERIC, len(norm(n)))) if said else None
+    if llm and top and llm == norm(top):
+        return known_of[llm][0], "LLM과 사전이 같음", True
+    if llm and known_of[llm][1]:
+        return known_of[llm][0], "LLM 이름이 사전에 있음", False
+    if top and said[top] >= MENTIONS:
+        return top, f"사전 이름이 받아쓰기에 {said[top]}번", said[top] >= STRONG_MENTIONS
+    return "", "모름", False

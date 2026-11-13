@@ -64,9 +64,12 @@ cd packages/screen-worker
 - 관리자(`sw.serve`)가 30초마다 `GET /internal/screen/live`로 지금 이어진 영상 목록을 묻고, 새 영상은 일꾼을 띄우고(동시 최대 2개), 목록에서 빠지면 멈춘다(SIGTERM, 20초 뒤 강제). 일꾼이 스스로 끝나면 목록에 남아 있는 동안 60초 뒤 다시 띄운다.
 - 일꾼 하나만 손으로: `.venv/bin/python -m sw "https://www.youtube.com/watch?v=<영상>" --post https://livegenie.kr --token-file ~/.lg_screen_token`
 - **등록 방식(기본 `--register llm`, 2026-11-12)**: 새 받아쓰기 줄에 숫자·번·만·천·원이 있거나 화면에 크게 보인 번호표가 바뀌면 **바로** 최근 1분(`LLM_REG_WINDOW`)의 줄과 화면 번호표를 지식판2 프롬프트(`sw/prompts/sales_instruct_system_regstt8k2.txt`, `gpt-5.6-sol` 추론 low(`LLM_REG_EFFORT`), codex CLI)에 묻는다(동시에 4개까지 `LLM_REG_PAR`, 이벤트 없이 1분 지나면 한 번 — 안전망). 줄 모양·화면 표시는 끝난 방송 시험(`sw.llm_b6`)과 같다.
-  - 언제 보내나: 어느 답이든 번호와 가격을 함께 적으면 그 번호를 **바로 한 번** 보낸다(첫 답의 가격·품종, 서버는 같은 번호를 바꾸지 않음). 9방송에서 첫 답으로 보내도 가격 95.8% → 95.5%. 방송이 끝나면 남은 줄을 한 번 더 묻고 아직 안 보낸 번호를 보낸다. 금액 없는 상품은 안 보냄.
+  - 언제 보내나(2026-11-13, D-SCR-12~16 — 근거는 `DECISIONS.md`): 첫 답으로 바로 보내지 않고 번호마다 답을 모아, **번호 근거**(판매자가 말한 번호이고 그 방송 번호대 안이거나, 화면에 온전히 3장 넘게 읽힌 번호표)와 **가격 근거**(판매자가 말한 금액과 LLM 금액이 같거나, 서로 다른 호출의 답이 두 번 같음)가 다 있을 때 한 번 보낸다. 받아쓴 수와 10배·100배 다른 금액, 그 방송 가격대를 벗어난 금액은 보내지 않고 20초 뒤 `LLM확인요청` 이벤트로 남긴다(뒤에 맞는 답이 오면 그때 보낸다). 품종은 LLM 이름과 품종 사전이 맞을 때만 넣고 아니면 비워 보낸다. 방송이 끝나면 남은 줄을 한 번 더 묻고, 그래도 정해지지 않은 것은 보내지 않는다. 금액 없는 상품은 안 보냄.
+  - 판매자 설정(환경변수): `LLM_PRICE_UNIT`=`만`(기본)·`천`·`없음` — 단위 없이 말한 "35"를 35만원·3만5천원으로 읽을지. 나머지 값(`LLM_TAG_FRAMES` 3, `LLM_OUT_FRAMES` 5, `LLM_PRICE_AGREE` 2, `LLM_PRICE_WAIT` 20 …)은 `sw/llm_live.py` 위쪽에 있다. `LLM_REG_SAFE=0`이면 2026-11-12 방송 때처럼 첫 답으로 바로 보낸다(되돌리기용).
+  - 재현 시험: `.venv/bin/python -m sw.replay_live <실행 폴더>... --truth <정답 products.json>` — 끝난 방송의 일꾼 기록에 남은 LLM 답을 다시 흘려(LLM을 부르지 않음) 고치기 전·후 로직이 무엇을 언제 보냈을지 견준다. 판정 로직을 바꿀 때마다 돌린다. 기록에는 손님 닉네임이 있으니 저장소에 넣지 않는다.
+  - 단위 시험: `uv venv -p 3.12 .venv && uv pip install -p .venv/bin/python rapidfuzz requests pytest` 뒤 `TZ=Pacific/Honolulu .venv/bin/python -m pytest tests -q` (mlx·whisper 없이 돈다).
   - 필요: `codex` 설치 + `codex login`(gpt-5.6-sol을 쓸 수 있는 계정). 운영 맥에서 먼저 `.venv/bin/python -m sw.doctor --server https://livegenie.kr --token-file ~/.lg_screen_token` 로 점검(서버에 등록하지 않음).
-  - 기록: `llm_live.jsonl`(물을 때마다 글·답·걸린 초·까닭), `llm_상품.csv`(상품별 보낸 첫 답 값과 다수결 값·보내기까지 걸린 초), `events.jsonl`의 `LLM등록`(줄을 읽은 시각·보낸 시각).
+  - 기록: `llm_live.jsonl`(물을 때마다 글·답·걸린 초·까닭), `llm_상품.csv`(상품별 보낸 값과 다수결 값·보내기까지 걸린 초), `events.jsonl`의 `LLM등록`(줄을 읽은 시각·보낸 시각·번호/가격/품종을 정한 까닭)·`LLM확인요청`·`LLM번호보류`·`LLM앞번호표보류`·`LLM번호쌍판정`.
   - 예전 규칙을 비교할 때는 `--post` 없이 `--register rule`로 실행한다. 서버에는 지식판2 결과만 보낸다.
 - 다시 보내기: 방송이 아직 안 이어짐(404)·이어진 방송이 여럿(409)·서버 저장 실패(5xx)·네트워크 오류는 10분까지. requestId가 `screen-<영상>-<번호>`라 몇 번 보내도 한 번만 등록된다.
 - 기록: 관리자 화면(시각 붙음), 영상마다 `<out-root>/<영상>-<시각>/worker.log`·`post.jsonl`(보낸 결과). 토큰은 어디에도 찍지 않는다. 토큰 파일 대신 환경변수 `LG_SCREEN_TOKEN_FILE`도 된다.

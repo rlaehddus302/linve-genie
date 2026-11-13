@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["products"],
+  "properties": {
+    "products": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["line", "no", "no_from", "price", "price_short", "price_line", "name", "confidence", "why"],
+        "properties": {
+          "line": {"type": "integer"},
+          "no": {"type": ["integer", "null"]},
+          "no_from": {"type": ["string", "null"], "enum": ["말", "화면", "말+화면", null]},
+          "price": {"type": ["integer", "null"]},
+          "price_short": {"type": ["string", "null"]},
+          "price_line": {"type": ["integer", "null"]},
+          "name": {"type": ["string", "null"]},
+          "confidence": {"type": "string", "enum": ["high", "low"]},
+          "why": {"type": "string"}
+        }
+      }
+    }
+  }
+}

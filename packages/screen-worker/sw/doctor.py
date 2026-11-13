@@ -64,12 +64,14 @@ def main():
 
     def sol():
         from . import llm_b6
-        out = llm_b6.ask("L0 [0:00:01] (화면: 7 크게 3초) 자 7번 청개구리 3만원에 드릴게요", llm_live.SYS, llm_live.MODEL, llm_live.EFFORT)
+        # 라이브 등록과 같은 길로 묻는다(D-SCR-16: codex의 군더더기 빼는 옵션·답 모양 고정이 이 판에서 되는지도 여기서 드러난다)
+        out = llm_live.ask_llm("L0 [0:00:01] (화면: 7 크게 3초) 자 7번 청개구리 3만원에 드릴게요")
         rows = llm_b6.rows_of(out, [(0, 1.0, "")])
         if not rows or rows[0]["no"] != 7:
             raise RuntimeError(f"답이 이상함: {out[:200]}")
         r = rows[0]
-        return f"{llm_live.MODEL} {llm_live.EFFORT} 답: {r['no']}번 {r['price']}원 {r['variety']}"
+        off = "·".join(sorted(llm_b6._UNSUPPORTED))
+        return f"{llm_live.MODEL} {llm_live.EFFORT} 답: {r['no']}번 {r['price']}원 {r['variety']}" + (f" (codex가 {off} 옵션을 받지 않아 옵션 없이 물음)" if off else "")
 
     def token():
         from . import post
