@@ -7,6 +7,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { labelPaper } from '../lib/label-paper.ts'
 import { wireDockChoice } from '../lib/dock-choice.ts'
+import { wireFeedView } from '../lib/feed-view.ts'
 import { Modal, PermissionsAndroid, Platform, ScrollView } from 'react-native'
 import { BleManager } from 'react-native-ble-plx'
 import { getAudioCapture } from '@livejjim/mobile-audio/native'
@@ -113,6 +114,8 @@ export function installProductionNative(): void {
   void wirePrinterMemory(device, (value) => printer.restoreDeviceMemory(value), AsyncStorage)
   // 방송 화면 아래 창 고르기 (D-UX4-71) — 이 휴대폰에만
   void wireDockChoice(AsyncStorage)
+  // 찜 기록 보기·정렬·글자 크기 (D-RETRO-50~52) — 이 휴대폰에만
+  void wireFeedView(AsyncStorage)
   setNativeModules({ audio: new LiveNativeAudio(getAudioCapture), ble: printer })
   // 휴대폰 알림 받기 (SMS3 AC-SMS3-29) — 모듈이 없는 빌드(Expo Go·웹)는 null: 설정 칸이 "쓸 수 없어요"
   // 알림 받기를 뺀 빌드(LIVEGENIE_NOTICE=off)는 매니페스트에 서비스가 없으므로 끼우지 않는다

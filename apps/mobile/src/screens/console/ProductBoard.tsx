@@ -5,6 +5,7 @@
 // 자세히(아래 판, D-UX4-30, 사용자 지시 2026-11-09): 번호·품종·가격을 한 줄에 점선 둥근 칸으로 — 왼쪽 위 연필. 누르면 반 화면 판에서 고친다(D-UX4-106, ProductEdit).
 // 그 아래 찜·대기 손님 이름 알약(위 탭 알약 크기, 넘치면 아랫줄로) — 누르면 "찜을 삭제할까요?" 팝업. 판매 완료·찜 요약·"아직 찜이 없어요"·일시 중지·판매 종료 단추는 없앴고,
 // 토스 메뉴 줄로 [판매 시작](공개 전·멈춘 상품만) · [누가 살지 정하기](겹침·승계만) · [🗑 상품 삭제] — 삭제는 "상품을 삭제할까요?" 팝업 [닫기 | 삭제].
+// D-RETRO-54 (복기 F7): 메뉴 줄 [찜 넣기] — 누르면 메뉴 자리에 손님 이름·전화번호 끝 네 자리 칸이 나오고 [닫기 | 찜 넣기]로 그 상품에 문자찜을 넣는다(ClaimAdd). 옵션 상품·끝난 라이브는 없다.
 import { displayNickname } from '@livejjim/core/format'
 import { memo, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
 import { Animated, Keyboard, LayoutAnimation, Platform, View } from 'react-native'
@@ -18,8 +19,10 @@ import type { ScopeData } from '../../lib/scope-data.ts'
 import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, formatWon } from '../../lib/words.ts'
 import { EmptyFill, ErrorLine, PopupDialog, Txt, useKit, Tap } from '../../ui/kit/index.ts'
 import { MAX_FONT_SCALE, RADIUS, SPACE, TYPE, pressedFill } from '../../ui/kit/tokens.ts'
+import { Notice } from '../../ui/parts.tsx'
 import { ACTIVE_CLAIM, deleteClaim, deleteProduct } from './claim-actions.ts'
-import { feedBuyerName } from './ClaimFeed.tsx'
+import { CLAIM_ADD, ClaimAddForm, type ClaimAdded } from './ClaimAdd.tsx'
+import { feedBuyerName } from './feed-rows.ts'
 import { useConsoleApi } from './context.ts'
 import { IconMenuRow, NamePill, TRASH_TINT, type PillTone } from './parts.tsx'
 
@@ -278,6 +281,14 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
   const [askProduct, setAskProduct] = useState(false)
   const [busy, setBusy] = useState(false)
   const [copy, setCopy] = useState(0)
+  // 찜 넣기 (D-RETRO-54): 칸을 연 동안은 메뉴 줄 대신 칸을 보인다. added: 넣은 결과 한 줄
+  const [adding, setAdding] = useState(false)
+  const [added, setAdded] = useState<ClaimAdded | null>(null)
+  // 다른 상품으로 바뀌면(번호를 바꿔 열쇠가 바뀐 때 포함) 넣던 칸·결과 줄을 치운다
+  useEffect(() => {
+    setAdding(false)
+    setAdded(null)
+  }, [product.key])
   const claims = detailClaims(api.data, product)
   useAnimatedChange(claims.map((claim) => claim.id).join('|'))
   const fail = (caught: unknown, fallback: string) => setError(isApiError(caught) ? caught.message : caught instanceof Error && caught.message !== '' ? caught.message : fallback)
@@ -332,6 +343,10 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
           })}
         </View>
       )}
+      {added !== null ? <Notice tone={added.tone}>{added.text}</Notice> : null}
+      {adding && !closed ? (
+        <ClaimAddForm product={product} onClose={() => setAdding(false)} onAdded={(line) => { animateNextLayout(); setAdded(line); setAdding(false) }} />
+      ) : (
       <View role="group" aria-label="상품 메뉴" style={{ gap: SPACE.xs }}>
         {api.labelsOff ? <Txt color="textSub">라벨을 인쇄하려면 관리에서 ‘라벨 뽑기’를 켜 주세요.</Txt> : null}
         {api.productLabels !== undefined && productSlots(product).winnerClaims.length === 0 ? (
@@ -344,9 +359,11 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
           <ProductLabelAction key={label.key} label={label} title={`${label.buyer.kind === 'youtube' ? displayNickname(label.buyer.name, api.names.hideSuffix) : '문자찜'} · ${label.canPrint ? '라벨 인쇄' : '라벨 다시 인쇄'}`} />
         ))}
         {!closed && (product.status === 'READY' || product.status === 'HOLD') ? <IconMenuRow emoji="▶️" tint="#E6F2EB" title="판매 시작" ariaLabel={`판매 시작 — ${String(product.no)}번`} onPress={() => void open()} /> : null}
+        {!closed && !product.hasOptions ? <IconMenuRow emoji="✍️" tint="#F8E3A3" title={CLAIM_ADD} ariaLabel={`${CLAIM_ADD} — ${String(product.no)}번`} onPress={() => { setError(null); setAdded(null); setAdding(true) }} /> : null}
         {undecided(product) && onDecide !== undefined ? <IconMenuRow emoji="🙋" tint="#FFF4E5" title="누가 살지 정하기" onPress={onDecide} /> : null}
         {!closed ? <IconMenuRow emoji="🗑️" tint={TRASH_TINT} title="상품 삭제" ariaLabel={`상품 삭제 — ${String(product.no)}번`} onPress={() => setAskProduct(true)} /> : null}
       </View>
+      )}
       <PopupDialog
         visible={askClaim !== null}
         message="찜을 삭제할까요?"

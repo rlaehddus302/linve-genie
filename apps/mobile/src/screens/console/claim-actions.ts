@@ -4,9 +4,16 @@
 //   승계 설정이 ASK라 "다음 손님을 정해야 해요"로 남으면, 판매자가 "삭제"를 누른 뜻대로 대기 1을 1등으로 올린다(겹친 상품·옵션 상품은 정하기 창에 둔다).
 // - 상품 삭제 = 그 상품의 살아 있는 찜을 모두 취소한 뒤 판매 종료(CLOSED, 소프트 삭제 R-2). 대기·보류·겹침을 먼저, 1등을 맨 나중에 —
 //   1등을 먼저 지우면 대기가 승계로 1등이 되고 라벨·감사가 나간 뒤 다시 지워진다.
+// D-RETRO-53 (복기 F6 "취소하거나 되돌리거나 여러 가지로"): 찜으로 올리기 · 찜 되돌리기 — 엔진에 이미 있는 승계(host.promote)·직접 배정(host.assign, 교체는 대기 1번으로)만 보낸다.
+// - 찜으로 올리기(대기 찜): 자리가 비었으면 승계, 찼고 1등이 한 명이면 그 1등을 대기 1번으로 내리는 교체 배정.
+// - 찜 되돌리기(취소·안 된 찜): 그 손님을 다시 배정한다. 자리가 찼고 1등이 한 명이면 같은 교체. 엔진에 "취소를 무르는" 이벤트는 없다 — 새 찜이 생기고 지워진 찜 기록은 그대로 남는다.
+// - 옵션 상품·겹친 상품·판매 중이 아닌 상품·1등이 여럿인 꽉 찬 상품·차단한 손님은 하지 않는다(상품 자세히·정하기 창에서 한다).
+// D-RETRO-54 (복기 F7 "상품을 눌러 임의로 문자찜 등록"): 찜 넣기 = 문자찜(sms) 쓰기 — 음성 문자찜과 같은 길(이름은 메모, 끝 네 자리는 last4, 고른 손님은 buyer).
+//   전화번호 전체는 받지도 보내지도 않는다. 판정(찜·대기)은 서버가 받은 순서대로 한다.
 import { useEffect, useRef } from 'react'
 import { Platform } from 'react-native'
-import type { Claim, Product } from '@livejjim/web/src/api/types.ts'
+import type { Claim, Product, WriteResult } from '@livejjim/web/src/api/types.ts'
+import { isApiError } from '../../api/client.ts'
 import { claimsOfProduct, productSlots } from '../../lib/derive.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import type { ConsoleApi } from './context.ts'
@@ -50,6 +57,125 @@ export async function deleteProduct(api: ConsoleApi, product: Product): Promise<
   const result = await api.command({ type: 'product.close', b: product.broadcast, no: product.no })
   const after = latestOf(api).products.get(product.key)
   if (!result.changed && after !== undefined && after.status !== 'CLOSED') throw new Error(PRODUCT_DELETE_RACE)
+}
+
+// ── 찜으로 올리기 · 찜 되돌리기 (D-RETRO-53) ─────────────────────────
+
+export const CLAIM_RAISE_REASON = '판매자가 대기 손님을 찜으로 올렸어요'
+export const CLAIM_RESTORE_REASON = '판매자가 지워진 찜을 되돌렸어요'
+/** 보냈지만 바뀐 것이 없을 때 (그사이 상태가 달라졌다) — 되돌리기 띠와 같은 문장 */
+export const CLAIM_NOT_APPLIED = '적용되지 않았어요. 지금 상태를 확인해 주세요.'
+
+/** 끝난 찜 (취소됨·안 됨) — 되돌릴 수 있는지 볼 찜 */
+export const ENDED_CLAIM: ReadonlySet<Claim['status']> = new Set(['CANCELLED', 'REJECTED'])
+
+export interface RaisePlan {
+  /** promote: 대기 찜을 찜으로 올리기 · restore: 끝난 찜 되돌리기 */
+  readonly kind: 'promote' | 'restore'
+  /** 자리를 내주고 대기 1번으로 내려갈 지금 1등 (자리가 비어 있으면 null) */
+  readonly replace: string | null
+}
+
+/**
+ * 이 찜을 찜(1등)으로 올리거나 되돌릴 수 있는지와 방법. 할 수 없으면 null.
+ * 앱이 판정하는 것이 아니라 "보내도 아무 일도 없는 조치"(R-9)를 단추로 내놓지 않으려는 것 — 실제 결과는 엔진이 정한다.
+ */
+export function raisePlan(data: ScopeData, claim: Claim): RaisePlan | null {
+  const kind = claim.status === 'WAITLISTED' ? 'promote' : ENDED_CLAIM.has(claim.status) ? 'restore' : null
+  if (kind === null) return null
+  const product = data.products.get(claim.product)
+  // 판정받은 그 상품이 그 번호로 판매 중일 때만 (번호를 옮겼거나 상품 없이 끝난 찜은 아님)
+  if (product === undefined || claim.productId !== product.id || product.no !== claim.no) return null
+  if (product.hasOptions || (product.status !== 'OPEN' && product.status !== 'SOLD')) return null
+  const slots = productSlots(product)
+  if (slots.conflict) return null
+  if (data.buyers.get(claim.currentBuyer)?.blocked === true) return null
+  if (kind === 'restore') {
+    // 그 손님이 그 상품에 이미 살아 있는 찜이 있으면 되돌릴 것이 없다
+    for (const other of data.claims.values()) if (other.product === claim.product && other.currentBuyer === claim.currentBuyer && ACTIVE_CLAIM.has(other.status)) return null
+  }
+  if (slots.winners.length < product.stock) return { kind, replace: null }
+  // 자리가 찼다: 1등이 한 명일 때만 그 1등을 대기 1번으로 내린다 (여럿이면 누구를 내릴지 앱이 고르지 않는다)
+  const winner = slots.winners[0]
+  const winnerClaim = slots.winnerClaims[0] === undefined ? undefined : data.claims.get(slots.winnerClaims[0])
+  if (slots.winners.length !== 1 || winner === undefined || winner === claim.currentBuyer) return null
+  // 대기로 내려가지 못하는 1등(차단·수량 2 이상)은 건드리지 않는다 (R-9 D-049, R-19 D-O1-05)
+  if (data.buyers.get(winner)?.blocked === true || (winnerClaim !== undefined && winnerClaim.qty > 1)) return null
+  if (kind === 'restore') {
+    // 되돌리면 대기가 한 명 는다 — 대기 한도를 넘겨 맨 끝 대기 손님이 밀려나는 일은 만들지 않는다
+    const max = data.broadcasts.get(claim.broadcast)?.settings['waitlist.max']
+    if (typeof max === 'number' && slots.waitlist.length >= max) return null
+  }
+  return { kind, replace: winner }
+}
+
+/** 찜으로 올리기·되돌리기를 보낸다. 그사이 상태가 달라져 할 수 없거나 바뀐 것이 없으면 CLAIM_NOT_APPLIED */
+export async function raiseClaim(api: ConsoleApi, claim: Claim): Promise<void> {
+  const latest = latestOf(api)
+  const now = latest.claims.get(claim.id) ?? claim
+  const plan = raisePlan(latest, now)
+  if (plan === null) throw new Error(CLAIM_NOT_APPLIED)
+  const reason = plan.kind === 'promote' ? CLAIM_RAISE_REASON : CLAIM_RESTORE_REASON
+  const result = plan.kind === 'promote' && plan.replace === null
+    ? await api.command({ type: 'host.promote', b: now.broadcast, no: now.no, buyer: now.currentBuyer, reason })
+    : await api.command({ type: 'host.assign', b: now.broadcast, no: now.no, buyer: now.currentBuyer, reason, ...(plan.replace === null ? {} : { replace: plan.replace, replaceTo: 'WAITLIST' }) })
+  if (!result.changed) throw new Error(CLAIM_NOT_APPLIED)
+}
+
+// ── 찜 넣기 (D-RETRO-54) ────────────────────────────────────────────
+
+export interface SmsClaimInput {
+  /** 손님 이름 (문자 손님의 표시 이름 "문자찜(이름)"이 된다). 비우면 빈 글 */
+  readonly name: string
+  /** 전화번호 끝 네 자리 (숫자 4개) 또는 빈 글 — 전체 번호는 받지 않는다 */
+  readonly last4: string
+  /** 이미 있는 손님을 골랐으면 그 손님 ID (이름·끝 네 자리 대신) */
+  readonly buyer: string | null
+  /** 끝 네 자리가 같은 손님이 있어도 새 손님으로 넣기 */
+  readonly newBuyer?: boolean
+}
+
+/** 끝 네 자리가 같은 손님 후보 (서버 409 BUYER_AMBIGUOUS — 손님 ID·찜한 번호만) */
+export interface SmsCandidate {
+  readonly buyer: string
+  readonly claims: readonly number[]
+}
+
+export type SmsClaimOutcome =
+  | { readonly kind: 'ok'; readonly result: WriteResult }
+  | { readonly kind: 'ambiguous'; readonly message: string; readonly candidates: readonly SmsCandidate[] }
+
+/** 보낼 문자찜 쓰기 — 고른 손님이면 buyer만, 아니면 이름(memo)·끝 네 자리(last4). 빈 칸은 넣지 않는다 */
+export function smsClaimEvent(product: Pick<Product, 'broadcast' | 'no'>, input: SmsClaimInput): Readonly<Record<string, unknown>> {
+  const base = { type: 'sms', b: product.broadcast, no: product.no }
+  if (input.buyer !== null) return { ...base, buyer: input.buyer }
+  const name = input.name.trim()
+  return { ...base, ...(name === '' ? {} : { memo: name }), ...(input.last4 === '' ? {} : { last4: input.last4, ...(input.newBuyer === true ? { newBuyer: true } : {}) }) }
+}
+
+function candidatesOf(value: unknown): SmsCandidate[] {
+  if (!Array.isArray(value)) return []
+  const out: SmsCandidate[] = []
+  for (const item of value as readonly unknown[]) {
+    if (item === null || typeof item !== 'object') continue
+    const { buyer, claims } = item as { readonly buyer?: unknown; readonly claims?: unknown }
+    if (typeof buyer !== 'string') continue
+    out.push({ buyer, claims: Array.isArray(claims) ? (claims as readonly unknown[]).filter((no): no is number => typeof no === 'number') : [] })
+  }
+  return out
+}
+
+/** 그 상품에 문자찜을 넣는다. 끝 네 자리가 같은 손님이 여럿이면(또는 이름이 다르면) 고르기 후보를 돌려준다 */
+export async function addSmsClaim(api: ConsoleApi, product: Pick<Product, 'broadcast' | 'no'>, input: SmsClaimInput, requestId?: string): Promise<SmsClaimOutcome> {
+  try {
+    return { kind: 'ok', result: await api.command(smsClaimEvent(product, input), requestId) }
+  } catch (caught) {
+    if (isApiError(caught) && caught.code === 'BUYER_AMBIGUOUS') {
+      const candidates = candidatesOf(caught.details.candidates)
+      if (candidates.length > 0) return { kind: 'ambiguous', message: caught.message, candidates }
+    }
+    throw caught
+  }
 }
 
 /** 메뉴 판이 다 닫힌 뒤 다음 판을 연다 — 판 닫힘(SHEET_OUT_MS 200) + 아이폰이 판을 내리는 시간 (D-UX3-26) */
