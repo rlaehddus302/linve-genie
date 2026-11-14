@@ -12,6 +12,18 @@
 #          PRICE_WAIT초가 지나도 정해지지 않으면 "LLM확인요청"(번호 근거가 없으면 "LLM번호보류") 이벤트를 남기고, 뒤에 맞는 답이 오면 그때 보낸다.
 #   품종 — LLM 이름과 품종 사전(sw.variety.pick_name)이 같거나, LLM 이름이 사전에 있거나, 사전 이름이 받아쓰기에 여러 번 나올 때만. 아니면 빈 이름.
 #   서버는 같은 번호를 다시 받아도 바꾸지 않는다(R-2). LLM_REG_SAFE=0 이면 2026-11-12 방송 때처럼 첫 답으로 바로 보낸다(재현 비교·되돌리기용).
+#
+# 임시 등록 (D-SCR-18~22, 계약서 docs/retro/tentative-contract.md): 서버가 "확인 중" 상품을 받으면(sw.post의 tentative_ok — 켜질 때와 5분마다 묻는다)
+#   다 모일 때까지 들고 기다리지 않고 먼저 임시로 올린다. 임시 상품은 손님 찜은 받지만 감사 채팅·라벨은 확정 뒤에만 나간다.
+#   올리기 — ① 받아쓴 한 줄에 'N번'과 단위를 말한 금액이 하나씩 있으면 LLM 답을 기다리지 않고(규칙, LLM_TENTATIVE_RULE)
+#            ② LLM 답의 번호 근거는 섰는데 가격을 아직 못 정했거나, 숫자 쌍이 어긋나 기다릴 때(두 번호 후보를 실어 판매자가 고르게)
+#            번호 근거와 가격이 첫 답에서 다 맞으면 임시를 거치지 않고 지금처럼 바로 등록한다.
+#   확정 — 위 "보내기"의 조건(번호 근거 + 가격)이 맞으면 /internal/screen/confirm (번호가 화면 번호로 옮겨졌으면 to). 확정 전에는 금액·이름을 바로 고쳐 보낸다.
+#   거두기 — 규칙으로 올렸는데 그 줄을 본 LLM 답이 그 번호를 적지 않을 때, 숫자 쌍의 화면 번호가 이미 보낸 상품일 때,
+#            확정하려는 번호가 화면에 한 번도 안 보이고 내내 보인 다른 번호가 임시로 올라가 있을 때(잘못 들은 번호 — 답을 그 상품에 합친다).
+#   두기 — 번호 근거는 섰는데 HOLD_MAX까지 못 정한 것과 방송 끝에 남은 것은 거두지 않는다(판매자가 앱에서 확정). 뒤에 근거가 모이면 일꾼이 확정한다.
+#   판매자가 먼저 확정·수정·거둔 상품은 서버가 그대로 두고(skip·kept) 일꾼도 그 칸을 더 고치지 않는다. 다시 켠 일꾼은 앞 실행의 임시 등록을 이어받는다.
+#   LLM_TENTATIVE=0 이거나 서버가 받지 않으면(옛 서버) 위 "보내기" 그대로 돈다.
 # 기록(결과 폴더): llm_live.jsonl(물을 때마다 글·답·걸린 초·까닭), llm_상품.csv(끝날 때: 보낸 값과 다수결 값), events.jsonl에 "LLM등록" 등
 import collections
 import concurrent.futures as cf
@@ -79,6 +91,23 @@ NAME_PRE, NAME_POST = 30, 20                                   # 품종 사전�
 CODEX_LEAN = os.environ.get("LLM_CODEX_LEAN", "1") != "0"      # codex exec에 --ephemeral --ignore-user-config --ignore-rules
 CODEX_SCHEMA = os.environ.get("LLM_CODEX_SCHEMA", "1") != "0"  # codex exec에 --output-schema(답 JSON 모양 고정)
 
+# ---------- 임시 등록 (D-SCR-18~22) ----------
+TENTATIVE = os.environ.get("LLM_TENTATIVE", "1") != "0"        # 0 = 임시 등록을 쓰지 않는다(다 모일 때까지 들고 기다렸다 바로 등록 — D-SCR-12~16 그대로)
+TENT_RULE = os.environ.get("LLM_TENTATIVE_RULE", "1") != "0"   # 받아쓴 한 줄에 'N번'과 단위를 말한 금액이 하나씩 있으면 LLM 답을 기다리지 않고 임시 등록(B2·L1)
+TENT_KEEP = os.environ.get("LLM_TENTATIVE_KEEP", "1") != "0"   # HOLD_MAX가 지나도 못 정한 임시 등록: 번호 근거가 선 것은 두고 판매자가 확정(0 = 모두 거둔다)
+RULE_MISS = int(os.environ.get("LLM_TENTATIVE_RULE_MISS", 2))  # 규칙 임시 등록: 그 줄을 본 LLM 답이 이만큼(번) 그 번호를 적지 않으면 거둔다
+TENT_FIX_MAX = 5                                               # 확정 전 금액·이름 고쳐 보내기: 칸마다 이만큼(번)까지
+TENT_FIX_BASE = 100                                            # 확정 전 고치기의 요청 번호는 여기서부터 센다(확정 뒤 고치기 1, 2, 3…과 겹치지 않게)
+SERVER_UNITS = {"TEN_THOUSAND": 10000, "WON": None}            # 서버 priceUnit 가운데 판매자가 분명히 고른 값만 따른다(D-SCR-21) — THOUSAND는 "고르지 않음"과 같아 따르지 않는다
+
+
+def unit_from_server(value, default):
+    """서버가 알려 준 이 방송의 가격 단위(priceUnit) → (일꾼이 쓸 단위, 서버 값을 따랐나).
+    TEN_THOUSAND(만 원)·WON(원 — 단위 없이 말한 수를 금액으로 읽지 않는다)만 따르고, THOUSAND·AUTO·없음은 default(환경변수 LLM_PRICE_UNIT) 그대로"""
+    if isinstance(value, str) and value in SERVER_UNITS:
+        return SERVER_UNITS[value], True
+    return default, False
+
 
 def ask_llm(user, sys_path=None):
     """라이브 등록이 LLM에 한 번 묻기(sw.doctor도 같은 길로 시험한다)"""
@@ -107,6 +136,11 @@ def prompt_for_unit(unit, out):
 def prior_sent(out, video_id):
     """같은 방송의 앞선 실행(다시 켜기 전)이 서버로 보낸 번호 [{no, price, name, fixes}] — 결과 폴더 옆의 <영상>-* 폴더 events.jsonl에서.
     다시 켠 일꾼이 앞 번호표를 보고 이미 있는 번호를 다른 값으로 또 보내지 않게(2026-11-12 방송: 325·328·334번)"""
+    return prior_from_events(prior_events(out, video_id))
+
+
+def prior_events(out, video_id):
+    """같은 방송의 앞선 실행들이 남긴 일꾼 이벤트(시간순) — 결과 폴더 옆의 <영상>-* 폴더 events.jsonl"""
     if not video_id:
         return []
     here = os.path.abspath(out)
@@ -121,7 +155,7 @@ def prior_sent(out, video_id):
                     events.append(json.loads(line))
                 except ValueError:
                     pass
-    return prior_from_events(events)
+    return events
 
 
 def prior_from_events(events):
@@ -140,6 +174,39 @@ def prior_from_events(events):
             if not e.get("drop"):
                 by.setdefault(e.get("to"), dict(src, no=e.get("to")))
     return list(by.values())
+
+
+def prior_tentative(events):
+    """일꾼 이벤트(시간순) → 앞선 실행이 임시로 올려 두고 끝내지 못한 등록 [{no, rid, price, name, ok, pair, rule, nprice, nname, confirm?, withdraw?}] (D-SCR-22).
+    서버가 받았다고 답한 것("LLM임시결과" up)만 센다. 확정·거두기를 보냈지만 답을 못 받은 것은 confirm·withdraw에 그 값을 실어 준다(다시 켠 일꾼이 같은 요청 번호로 다시 보낸다)"""
+    by = {}
+    for e in events:
+        kind, rid = e.get("kind"), e.get("rid")
+        if not rid:
+            continue
+        t = by.get(rid)
+        if kind == "LLM임시등록" and e.get("sent") and isinstance(e.get("no"), int):
+            by[rid] = {"no": e["no"], "rid": rid, "price": e.get("price"), "name": e.get("name"), "state": "sending", "ok": bool(e.get("ok_no")),
+                       "pair": e.get("pair"), "rule": bool(e.get("rule")) and not e.get("agreed"), "nprice": 0, "nname": 0, "start_sec": e.get("start_sec")}
+        elif t is None:
+            continue
+        elif kind == "LLM임시결과":
+            if e.get("state") == "up":
+                t["state"] = "up"
+            else:
+                del by[rid]
+        elif kind == "LLM임시고치기":
+            field = "price" if e.get("field") == "price" else "name"
+            t[field], t["n" + field] = e.get("to"), t["n" + field] + 1
+        elif kind == "LLM임시맞음":
+            t["rule"], t["ok"] = False, t["ok"] or bool(e.get("ok_no"))
+        elif kind == "LLM등록" and e.get("via") == "확정":
+            t["confirm"] = {"to": e.get("no"), "price": e.get("price"), "name": e.get("name")}
+        elif kind == "LLM거두기":
+            t["withdraw"] = e.get("why") or "앞선 실행이 거두려던 것"
+        elif kind in ("LLM확정결과", "LLM거두기결과") and not e.get("error"):
+            del by[rid]
+    return [t for t in by.values() if t["state"] == "up"]
 
 
 def read_nicks(out):
@@ -182,7 +249,7 @@ def conflicting_tag(number, start, end, candidates, mains):
 
 
 class LlmRegister:
-    def __init__(self, out, poster=None, video_id=None, emit=None, par=PAR, prior=None, safe=None):
+    def __init__(self, out, poster=None, video_id=None, emit=None, par=PAR, prior=None, safe=None, prior_tent=None):
         self.out = out
         self.poster, self.video_id = poster, video_id
         self.emit = emit or (lambda d: None)                 # events.jsonl에 쓰는 함수(일꾼 것)
@@ -209,6 +276,9 @@ class LlmRegister:
         # ---- 안전 규칙 (D-SCR-12~16) ----
         self.safe = SAFE if safe is None else safe
         self.unit = PRICE_UNIT
+        self.server_unit = None                              # 서버가 알려 준 가격 단위(마지막으로 본 값)
+        if self.safe:
+            self._follow_unit(first=True)
         self.sys = prompt_for_unit(self.unit, out) if self.safe else SYS
         self.pend = {}                                       # 번호 → 답을 모으는 중인 상품(아직 안 보냄)
         self.skipped = set()                                 # 묻지 않기로 한 줄 번호(이벤트 없음 + 이미 정해진 번호의 줄) — 재현 도구가 줄인 호출을 센다
@@ -220,8 +290,19 @@ class LlmRegister:
         self.nicks = read_nicks(out)                         # 손님 닉네임(있으면)
         self.log = open(os.path.join(out, "llm_live.jsonl"), "a", encoding="utf-8")
         self.lock = threading.Lock()
+        # ---- 임시 등록 (D-SCR-18~22) ----
+        self.tents = {}                                      # 서버에 임시로 올린 번호 → 그 임시 등록 {rid, no, price, name, state, …} (끝나면 뺀다)
+        self.left = {}                                       # 번호 → 기다림을 접었지만 서버에 둔 임시 등록(판매자가 확정하거나, 근거가 다시 모이면 일꾼이 확정)
+        self.inbox = collections.deque()                     # 서버 응답 [(종류, 임시 등록, 응답)] — 보내는 뒤 스레드가 넣고 tick이 꺼낸다
+        self.resume = []                                     # 앞선 실행이 확정·거두기를 보내다 만 임시 등록(첫 tick에 다시 보낸다)
+        self.tent_rids = set()                               # 임시 등록에 쓴 요청 번호(같은 번호로 바로 등록을 또 보내면 서버가 "이미 받은 것"으로 넘긴다)
+        self.waiting = 0                                     # 서버 답을 기다리는 임시 등록·확정·거두기 수
+        self.rule_dropped = set()                            # 규칙으로 올렸다가 LLM이 적지 않아 거둔 번호 — 같은 말이 되풀이돼도 규칙으로는 다시 올리지 않는다
         if self.safe:
-            self.adopt(prior_sent(out, video_id) if prior is None else prior)
+            events = prior_events(out, video_id) if prior is None or prior_tent is None else []
+            self.adopt(prior_from_events(events) if prior is None else prior)
+            if TENTATIVE:
+                self.adopt_tentative(prior_tentative(events) if prior_tent is None else prior_tent)
 
     def adopt(self, prior):
         """같은 방송의 앞선 실행이 보낸 번호를 이미 보낸 것으로 이어받는다(D-SCR-12c) — 번호표가 다시 보이고 확실한 새 소개일 때만 다시 보낸다"""
@@ -235,6 +316,39 @@ class LlmRegister:
                 self.prices.setdefault(no, {"now": d["price"], "votes": [], "fixes": int(d.get("fixes") or 0)})
                 self.sent_prices.append(d["price"])
             self.order.append(no)
+
+    def adopt_tentative(self, prior):
+        """같은 방송의 앞선 실행이 임시로 올려 두고 끝내지 못한 등록을 이어받는다(D-SCR-22): 그 번호의 답이 다시 모이면 같은 요청 번호로 확정하고,
+        번호 근거 없이 올라간 것은 HOLD_MAX 뒤 거둔다. 확정·거두기를 보내다 만 것은 첫 tick에 같은 요청 번호로 다시 보낸다"""
+        for d in prior:
+            no, rid = d.get("no"), d.get("rid")
+            if not isinstance(no, int) or not rid:
+                continue
+            t = {"no": no, "rid": rid, "n": str(rid).rsplit("-", 1)[-1], "price": d.get("price"), "name": d.get("name") or "", "state": "up", "ok": bool(d.get("ok")),
+                 "pair": tuple(d["pair"]) if d.get("pair") else None, "rule": bool(d.get("rule")), "nprice": int(d.get("nprice") or 0), "nname": int(d.get("nname") or 0),
+                 "prior": True, "until": None, "tries": 0}
+            self.tent_rids.add(rid)
+            if d.get("confirm") or d.get("withdraw"):
+                self.resume.append((t, d.get("confirm"), d.get("withdraw")))
+            elif no not in self.tents and no not in self.sent:
+                self.tents[no] = self.left[no] = t
+
+    # ---------- 가격 단위 (D-SCR-21) ----------
+    def _follow_unit(self, first=False):
+        """서버가 알려 준 이 방송의 가격 단위를 따른다: 판매자가 분명히 고른 값(만 원·원)만 LLM_PRICE_UNIT 대신 쓰고, 그 밖에는 환경변수 그대로"""
+        value = getattr(self.poster, "price_unit", None)
+        value = value if isinstance(value, str) else None
+        if value == self.server_unit:
+            return
+        self.server_unit = value
+        unit, used = unit_from_server(value, PRICE_UNIT)
+        changed = unit != self.unit
+        self.unit = unit
+        if changed and not first:
+            self.sys = prompt_for_unit(unit, self.out)
+        self.emit({"kind": "LLM가격단위", "server": value, "unit": unit, "from_server": used, "changed": changed})
+        name = {10000: "만 원", 1000: "천 원", None: "없음(말한 금액만)"}.get(unit, unit)
+        print(f"           가격 단위: 서버 {value or '모름'} → {name}" + ("" if used else " (환경변수 그대로)"), flush=True)
 
     # ---------- 입력: 일꾼이 쓰는 파일을 이어 읽는다 ----------
     def _read_more(self, name, pos):
@@ -285,12 +399,18 @@ class LlmRegister:
         cand, mains = self._load()
         tr = self.tr
         ends = [e for _, e, _ in tr]
+        if self.safe:
+            self._follow_unit()
+            self._drain()
+        tent = self._tent_on()
         # 1) 새 줄에서 이벤트 찾기 — 화면 읽기가 그 줄 끝까지 왔거나 SCREEN_WAIT초 지난 줄만 본다
         while self.checked < len(tr):
             i = self.checked
             t, e, x = tr[i]
             if not final and self.screen_top < e and time.time() - self.seen.get(i, 0) < SCREEN_WAIT:
                 break
+            if tent and TENT_RULE:
+                self._rule(i, cand, mains)                   # 번호와 금액을 한 줄에 또렷이 말했으면 LLM 답을 기다리지 않고 임시로 올린다
             tag = main_tag(i, t, ends, mains)
             why = "숫자" if CUE.search(x) else ("번호표 바뀜" if tag is not None and tag != self.prev_tag else None)
             if tag is not None:
@@ -316,22 +436,26 @@ class LlmRegister:
         # 3) 답이 온 것을 받아 번호+가격이 나온 상품을 보낸다(안전 규칙: 모아서 / 옛 로직: 첫 답으로 바로)
         for item in [f for f in self.flying if f[5].done() or final]:
             upto, L, user, asked_at, why, fut = item
+            failed = False
             try:
                 out = fut.result()
             except Exception as err:                         # codex 4번 실패: 이 창은 빈 답으로 두고 기록
-                out = ""
+                out, failed = "", True
                 self.emit({"kind": "LLM등록오류", "upto": upto, "error": str(err)[:300]})
             self.flying.remove(item)
             rows = llm_b6.rows_of(out, L, self.unit, wide=True) if self.safe else llm_b6.rows_of(out, L)
             self.log.write(json.dumps({"upto": upto, "why": why, "user": user, "answer": out, "at": time.strftime("%H:%M:%S"),
                                        "sec": round(time.time() - asked_at, 1)}, ensure_ascii=False) + "\n")
             self.log.flush()
+            named = set()                                    # 이 답이 적은 번호(숫자 쌍으로 바꾸기 전·후 모두)
             for r in sorted(rows, key=lambda r: r["t"]):
                 if r["no"] is None:
                     continue
                 start, end, _ = self.tr[r["line"]]
+                named.add(r["no"])
                 if self.safe:
                     r = self._pair(r, start, end, cand, mains)
+                    named.add(r["no"])
                 tag = conflicting_tag(r["no"], start, end, cand, mains) if r["confidence"] == "low" and not r.get("pair_wait") else None
                 if tag is not None:
                     self.emit({"kind": "LLM번호충돌보류", "no": r["no"], "screen_no": tag,
@@ -362,8 +486,12 @@ class LlmRegister:
                             self._send(r)
                         elif not diff or again:              # 값이 다른데 다시 내놓은 것이 아니면 다시 보내지 않는다(금액·품종 고치기 투표로만 따라간다)
                             self._pend_add(r, upto, cand, (upto, asked_at))
+            if self.safe and not failed:
+                self._rule_seen(L, named)
         if self.safe:
             self._settle(cand, mains, final and not self.flying and not self.want)
+            if self.left:
+                self._sweep(final and not self.flying and not self.want)
             if not final and not self.want and not self.flying and tr:
                 self._want_confirm(len(tr) - 1)              # 다음 번 돌 때 묻는다
         self._check_numbers(cand, mains)
@@ -400,8 +528,9 @@ class LlmRegister:
             return
 
     # ---------- 안전 규칙: 번호 ----------
-    def _pair(self, r, start, end, cand, mains):
-        """말한 번호와 화면의 큰 번호표가 한 자리만 다를 때 숫자 쌍으로 어느 쪽인지 정한다(D-SCR-14). 번호를 바꾼 줄(또는 기다릴 줄)을 돌려준다"""
+    def _pair(self, r, start, end, cand, mains, by=None):
+        """말한 번호와 화면의 큰 번호표가 한 자리만 다를 때 숫자 쌍으로 어느 쪽인지 정한다(D-SCR-14). 번호를 바꾼 줄(또는 기다릴 줄)을 돌려준다.
+        by = LLM 답이 아닌 줄(규칙 임시 등록)일 때 그 이름 — 이벤트에 적는다"""
         no, li = r["no"], r["line"]
         texts = [self.tr[j][2] for j in range(max(0, li - 1), min(len(self.tr), li + 2))]
         secs = range(int(start) - 5, int(min(self.screen_top, end + 10)) + 1)
@@ -432,8 +561,9 @@ class LlmRegister:
             return dict(r, pair_wait=(said, screen))
         to = said if verdict == "말" else screen
         if to != no:
-            self.emit({"kind": "LLM번호쌍판정", "said": said, "screen": screen, "pair": pair, "to": to, "frames": frames, "line": li, "start_sec": start})
-            print(f"           번호 쌍 판정 말 {said}번 / 화면 {screen}번({frames}장) → {to}번 ({pair})", flush=True)
+            if by is None:                                   # 규칙 줄의 판정은 뒤따르는 LLM 답에서 한 번 더 나오므로 따로 적지 않는다
+                self.emit({"kind": "LLM번호쌍판정", "said": said, "screen": screen, "pair": pair, "to": to, "frames": frames, "line": li, "start_sec": start})
+                print(f"           번호 쌍 판정 말 {said}번 / 화면 {screen}번({frames}장) → {to}번 ({pair})", flush=True)
             return dict(r, no=to, pair_from=no)
         return r
 
@@ -508,10 +638,17 @@ class LlmRegister:
         no, li, now = r["no"], r["line"], time.time()
         p = self.pend.get(no)
         if p is None:
-            p = self.pend[no] = {"no": no, "t0": now, "last": now, "t": r["t"], "line": li, "rows": [], "votes": {}, "explicit": set(), "short": set(),
-                                 "spoken": False, "pair": None, "flag": False, "confirm": False}
+            p = self._pend_new(no, r)
+        elif p.get("rule") and not p["rows"]:
+            # 규칙이 먼저 올린 상품에 LLM의 첫 답이 왔다 — 줄·시각은 LLM이 고른 줄로 맞춘다(번호 근거·품종·지연 계산이 임시 등록 없는 흐름과 같게)
+            p["t"], p["line"], p["t0"] = r["t"], li, now
+        t = p.get("tent")
+        if t and t.get("rule"):                              # 규칙만으로 올린 임시 등록을 LLM도 그 번호로 읽었다
+            t["rule"] = False
+            self.emit({"kind": "LLM임시맞음", "no": t["no"], "rid": t["rid"], "line": li, "price": r["price"]})
         p["rows"].append(r)
         p["last"] = now
+        p["dirty"] = True
         p["votes"].setdefault(r["price"], set()).add(call)
         if r.get("pair_wait"):
             p["pair"] = r["pair_wait"]
@@ -520,6 +657,18 @@ class LlmRegister:
         p["explicit"] |= explicit
         p["short"] |= short
 
+    def _pend_new(self, no, r):
+        """그 번호의 모음을 새로 만든다. 서버에 남겨 둔 임시 등록(기다림을 접었거나 앞선 실행이 올린 것)이 그 번호(또는 그 숫자 쌍의 다른 번호)에 있으면 이어 붙인다"""
+        now = time.time()
+        p = self.pend[no] = {"no": no, "t0": now, "last": now, "t": r["t"], "line": r["line"], "rows": [], "votes": {}, "explicit": set(), "short": set(),
+                             "spoken": False, "pair": None, "flag": False, "confirm": False, "tent": None, "rule": False, "miss": 0, "agree": 0, "dirty": True}
+        t = self.left.get(no) or next((x for x in self.left.values() if no in (x.get("pair") or ())), None)
+        if t is not None and t["state"] in ("sending", "up"):
+            del self.left[t["no"]]
+            t.pop("until", None)
+            p["tent"] = t
+        return p
+
     def _band(self):
         return R.band_of(self.order[-R.BAND_RECENT:] + [g["img"] for g in self.segs if g["reads"].get(g["img"], 0) >= BAND_SEG_FRAMES][-R.BAND_RECENT:])
 
@@ -527,8 +676,10 @@ class LlmRegister:
         """모아 둔 상품마다 번호 근거와 가격이 정해졌는지 보고, 정해졌으면 보낸다. 상한을 넘기면 확인요청·번호보류를 한 번 남긴다"""
         if not self.pend:
             return
-        now, band = time.time(), self._band()
+        now, band, tent_on = time.time(), self._band(), self._tent_on()
         for no, p in list(self.pend.items()):
+            if self.pend.get(no) is not p:
+                continue                                     # 이번 돌기에서 다른 번호의 숫자 쌍 옮기기가 이 모음을 합쳤다
             secs = range(int(p["t"]) - 5, int(min(self.screen_top, p["t"] + 60)) + 1)
             if p["pair"]:
                 said, screen = p["pair"]
@@ -542,10 +693,36 @@ class LlmRegister:
             p["ok_no"] = ok
             votes = {price: len(calls) for price, calls in p["votes"].items()}
             price, why_price, blocked = R.price_choice(votes, p["explicit"], p["short"], self.sent_prices, PRICE_AGREE)
+            t = p.get("tent")
             if ok and price is not None:
+                twin = self._screen_twin(p, cand, mains) if tent_on else None
+                if twin is not None:
+                    self._twin_merge(p, *twin)               # 화면에 내내 보인 다른 번호가 임시로 올라가 있다 — 잘못 들은 번호로 보고 그 상품에 합친다
+                    continue
+                if t is not None and t["state"] == "sending":
+                    continue                                 # 임시 등록의 서버 답을 기다린다(곧 온다) — 답을 본 뒤 확정한다
                 del self.pend[no]
-                self._send_pending(p, price, why_no, why_price)
+                if t is not None and t["state"] == "up":
+                    self._confirm(p, price, why_no, why_price)
+                else:                                        # 임시 등록이 없거나 서버에 올라가지 못했다(이미 있는 번호·판매자가 지운 번호·서버가 받지 않음) — 지금 방식으로
+                    self._send_pending(p, price, why_no, why_price)
                 continue
+            if t is None:
+                # 번호 근거가 섰거나(가격만 못 정함) 숫자 쌍을 기다리는 중이면 먼저 임시로 올린다. 이미 보낸 번호(다시 내놓은 상품)는 올리지 않는다
+                if tent_on and (ok or p["pair"]) and no not in self.sent and no not in self.tents:
+                    self._tent_send(p, ok, why_no, price, votes, blocked, band, secs, cand)
+            elif t["state"] == "up":
+                if t.get("rule") and not p["votes"] and not p["agree"] and p["miss"] >= RULE_MISS:
+                    del self.pend[no]                        # 규칙이 읽은 번호를 그 줄을 본 LLM이 거듭 적지 않았다 — 잘못 읽은 것으로 보고 거둔다
+                    self.rule_dropped.add(t["no"])
+                    self._withdraw(t, f"그 줄을 본 LLM 답 {p['miss']}번이 이 번호를 적지 않음")
+                    continue
+                self._tent_follow(p, price, votes, blocked)
+            if not p["votes"]:
+                if final or now - p["last"] >= HOLD_MAX:
+                    del self.pend[no]
+                    self._tent_expire(p, final)
+                continue                                     # 규칙만으로 올린 것(LLM 답 없음)은 확인요청을 남기지 않는다
             if not p["flag"] and (final or now - p["t0"] >= PRICE_WAIT):
                 p["flag"] = True
                 rec = {"kind": "LLM확인요청" if ok else "LLM번호보류", "no": no, "why": why_price if ok else why_no, "line": p["line"], "start_sec": p["t"],
@@ -555,15 +732,20 @@ class LlmRegister:
                 print(f"           {'확인요청' if ok else '번호 보류'} {no:>4}번  {rec['why']}  (답: {', '.join(f'{k:,}원 {v}번' for k, v in votes.items())})", flush=True)
             if final or now - p["last"] >= HOLD_MAX:
                 del self.pend[no]
+                self._tent_expire(p, final)
 
     def _pair_move(self, p, said, screen):
-        """기다리던 숫자 쌍: 화면 번호표가 충분히 보였다 — 화면 번호로 옮긴다"""
+        """기다리던 숫자 쌍: 화면 번호표가 충분히 보였다 — 화면 번호로 옮긴다.
+        말한 번호로 임시 등록을 올려 두었으면 새로 등록하지 않고 확정할 때 화면 번호로 옮긴다(to). 화면 번호가 이미 보낸 상품이면 임시 등록을 거둔다"""
         del self.pend[p["no"]]
         to = screen
         pair = "↔".join(R.digit_pair(said, screen))
         self.emit({"kind": "LLM번호쌍판정", "said": said, "screen": screen, "pair": pair, "to": to, "line": p["line"], "start_sec": p["t"], "waited": True})
         p["pair"] = None
+        t = p.get("tent")
         if to in self.sent:
+            if t is not None:
+                self._withdraw(t, f"화면 번호 {to}번은 이미 보낸 상품")
             return                                           # 화면 번호는 이미 보낸 상품이다
         q = self.pend.get(to)
         for r in p["rows"]:
@@ -577,6 +759,354 @@ class LlmRegister:
         q["rows"] += p["rows"]
         q["explicit"] |= p["explicit"]
         q["short"] |= p["short"]
+        q["dirty"] = True
+        if t is not None:
+            if q.get("tent") is None and to not in self.tents:
+                q["tent"] = t                                # 화면 번호 쪽에는 임시 등록이 없다 — 이 임시 등록을 확정할 때 옮긴다
+            else:
+                self._withdraw(t, f"같은 상품의 임시 등록이 화면 번호 {to}번에 따로 있음")
+
+    def _screen_twin(self, p, cand, mains):
+        """확정하려는 번호가 화면에 한 번도 안 보이고 다른 번호표가 내내 크게 보였는데, 그 번호가 이 일꾼이 임시로 올려 두고 아직 모으는 중인 상품이면
+        → (그 상품의 모음, 장수). 번호 바로잡기(D-SCR-06)와 같은 조건(말한 뒤 FIX_MIN초, FIX_FRAMES장)을 확정 전에 본다 —
+        임시 등록이 그 번호를 차지하고 있어 확정 뒤의 번호 바꾸기는 서버가 받지 않는다(TARGET_EXISTS)"""
+        no, start, now = p["no"], p["t"], self.screen_top
+        if now - start < FIX_MIN or no in self.sent:         # 이미 보낸 번호(다시 내놓은 상품)는 여기서 다루지 않는다
+            return None
+        secs = range(int(start) - 5, int(now) + 1)
+        if any(no in cand.get(x, ()) for x in secs):
+            return None
+        seen = collections.Counter(mains[x] for x in secs if mains.get(x) is not None and mains[x] != no)
+        if not seen:
+            return None
+        tag, frames = seen.most_common(1)[0]
+        q = self.pend.get(tag)
+        if frames < FIX_FRAMES or q is None or q is p or (q.get("tent") or {}).get("state") not in ("sending", "up"):
+            return None
+        return q, frames
+
+    def _twin_merge(self, p, q, frames):
+        """잘못 들은 번호의 답을 화면 번호의 모음에 합치고, 잘못 들은 번호로 올린 임시 등록은 거둔다(그 번호는 판매 중이 된 적이 없다)"""
+        no, to = p["no"], q["no"]
+        del self.pend[no]
+        self.emit({"kind": "LLM번호화면판정", "said": no, "screen": to, "frames": frames, "line": p["line"], "start_sec": p["t"]})
+        print(f"           번호 화면 판정 말 {no}번 / 화면 {to}번({frames}장, {no}번은 안 보임) → {to}번에 합침", flush=True)
+        for r in p["rows"]:
+            r.update(no=to, pair_from=no)                    # self.found의 같은 줄도 바뀐다 — 품종·들은 말 찾기가 따라온다
+        for price, calls in p["votes"].items():
+            # 잘못 들은 번호의 줄은 판매자가 따로 한 말이다 — 같은 호출의 답이어도 화면 번호의 답과 따로 센다("306번 3만원"과 "313번 3만원입니다")
+            q["votes"].setdefault(price, set()).update((call, no) for call in calls)
+        q["rows"] += p["rows"]
+        q["explicit"] |= p["explicit"]
+        q["short"] |= p["short"]
+        q["last"], q["dirty"] = time.time(), True
+        if p.get("tent") is not None:
+            self._withdraw(p["tent"], f"화면에는 {to}번만 보임 — 같은 상품을 잘못 들은 번호")
+        # 잘못 들은 번호는 본 것으로 남겨 같은 말을 다시 받아도 또 올리지 않는다(화면에 그 번호가 보이면 새 장면으로만 — 번호 바로잡기 D-SCR-06과 같다)
+        self.rule_dropped.add(no)
+        self.sent[no] = {"no": no, "price": None, "name": None, "sent": False, "skip": f"화면 번호 {to}번에 합침", "fixed_to": to, "start_sec": p["t"]}
+
+    # ---------- 임시 등록 (D-SCR-18~22) ----------
+    def _tent_on(self):
+        """임시 등록 흐름을 쓰나: 안전 규칙이 켜져 있고, LLM_TENTATIVE가 0이 아니고, 서버가 임시 등록·확정·거두기를 모두 받는다고 답했다(E11)"""
+        if not (self.safe and TENTATIVE and self.poster):
+            return False
+        ok = getattr(self.poster, "tentative_ok", None)
+        return callable(ok) and ok() is True
+
+    def _rule(self, i, cand, mains):
+        """받아쓴 줄 하나에 'N번'과 단위를 말한 금액이 하나씩이면(B2 "번호와 가격이 한 구절에 또렷") LLM 답을 기다리지 않고 그 번호의 모음을 만든다.
+        번호 근거가 서면 이번 돌기의 _settle이 임시로 올리고, LLM 답이 같은 금액을 적으면 확정한다. 이미 보낸 번호·모으는 중인 번호·번호대 밖 번호는 하지 않는다"""
+        start, end, text = self.tr[i]
+        beon = set(R.numbers_with_beon(text))
+        if len(beon) != 1:
+            return
+        explicit, _ = R.spoken_amounts(text, self.unit, exclude=beon)
+        if len(explicit) != 1:
+            return
+        price = next(iter(explicit))
+        if price < 1000 or price % 500:
+            return                                           # "만오" → 10,005원처럼 받아쓰기가 흐린 금액은 규칙으로 올리지 않는다(LLM 답을 기다린다)
+        r = self._pair({"t": start, "line": i, "no": next(iter(beon)), "price": price, "variety": None, "confidence": None}, start, end, cand, mains, by="규칙")
+        no = r["no"]
+        if no in self.sent or no in self.pend or no in self.tents or no in self.rule_dropped or not R.in_band(no, self._band()):
+            return
+        p = self._pend_new(no, r)
+        p["rule"], p["rule_price"] = True, price
+        p["spoken"] = no in R.spoken_numbers(self.tr[j][2] for j in range(max(0, i - 1), min(len(self.tr), i + 2)))
+        if r.get("pair_wait"):
+            p["pair"] = r["pair_wait"]
+        if r.get("pair_from") is not None:
+            p["pair_from"] = r["pair_from"]
+        p["explicit"], p["short"] = self._said_amounts(r, i, cand)
+        p["explicit"].add(price)
+
+    def _rule_seen(self, L, named):
+        """LLM 답 하나가 왔다: 규칙만으로 올린 상품의 줄을 그 답이 봤는데 그 번호를 적지 않았으면 센다(RULE_MISS번이면 거둔다)"""
+        lines = {i for i, _, _ in L}
+        for p in self.pend.values():
+            if p.get("rule") and not p["votes"] and p["line"] in lines:
+                t = p.get("tent")
+                if p["no"] in named or (t is not None and t["no"] in named):
+                    p["agree"] += 1
+                else:
+                    p["miss"] += 1
+
+    def _tent_price(self, p, votes, blocked):
+        """임시로 보일 금액(아직 정해지지 않았을 때 가장 그럴듯한 값 — 판매자가 그대로 [공개]하면 이 값으로 확정된다):
+        판매자가 말한 금액과 같은 LLM 답(많은 쪽) → 규칙이 번호와 함께 읽은 금액 → LLM 답이 받아쓴 금액과 10배·100배 어긋나면 받아쓴 금액(판매자 단위)
+        → 막히지 않은 LLM 답(많은 쪽) → 아무 답"""
+        said = p["explicit"] | p["short"]
+        ranked = sorted((x for x in votes if x is not None), key=lambda x: votes[x], reverse=True)
+        heard = [x for x in ranked if x in said and x not in blocked]
+        if heard:
+            return heard[0]
+        if p.get("rule_price") is not None:
+            return p["rule_price"]
+        for x in ranked:
+            other = R.magnitude_conflict(x, said)
+            if other is not None:
+                return other
+        free = [x for x in ranked if x not in blocked]
+        return free[0] if free else (ranked[0] if ranked else None)
+
+    def _name_candidates(self, no, p, name):
+        """품종 후보: 고른 이름 + LLM이 그 번호에 적은 이름 가운데 사전에 있는 것(손님 닉네임·품종 아닌 말이 후보로 나가지 않게)"""
+        out = [name] if name else []
+        if not NAME_DICT:
+            return out
+        from . import variety
+        for f in self.found:
+            if f["no"] == no and abs(f["t"] - p["t"]) <= WINDOW and f["variety"] and not f.get("leftover"):
+                tidy = variety.tidy(f["variety"])
+                if not tidy or variety.not_a_name(tidy, self.nicks):
+                    continue
+                canon, known = variety.canon(tidy, self._dic())
+                if known and canon not in out:
+                    out.append(canon)
+        return out
+
+    def _tent_send(self, p, ok, why_no, price, votes, blocked, band, secs, cand):
+        """그 번호를 임시로 올린다(계약서 2.1): 지금까지의 금액·품종·번호 후보와 까닭 낱말을 싣는다. 서버 답은 뒤 스레드가 inbox에 넣는다"""
+        from . import post
+        no, now = p["no"], time.time()
+        shown = price if price is not None else self._tent_price(p, votes, blocked)
+        if shown is None:
+            return
+        name, why_name, _ = self._name(no, p)
+        said = p["explicit"] | p["short"]
+        reasons, nos = [], [no]
+        if p["pair"]:
+            reasons.append("NUMBER_MISMATCH")
+            nos += [x for x in p["pair"] if x != no]
+        else:
+            moved = [r["pair_from"] for r in p["rows"] if r.get("pair_from") is not None] + ([p["pair_from"]] if p.get("pair_from") is not None else [])
+            if moved:
+                reasons.append("NUMBER_MISMATCH")
+                nos += moved
+            elif not (p["spoken"] and R.full_frames(no, secs, cand, band) >= TAG_FRAMES):
+                reasons.append("NUMBER_SINGLE_SOURCE")
+        if not R.in_band(no, band):
+            reasons.append("NUMBER_OUT_OF_RANGE")
+        if price is None:
+            if any(x not in p["explicit"] and R.out_of_range(x, self.sent_prices) for x in votes):
+                reasons.append("PRICE_OUT_OF_RANGE")
+            if len(votes) > 1 or any(R.magnitude_conflict(x, said) is not None for x in votes):
+                reasons.append("PRICE_DISAGREE")
+            elif "PRICE_OUT_OF_RANGE" not in reasons:
+                reasons.append("PRICE_SINGLE_SOURCE")
+        if not name:
+            reasons.append("NAME_UNSURE")
+        prices = [shown] + sorted(votes, key=lambda x: votes[x], reverse=True) + sorted(said)
+        tentative = post.make_tentative(reasons or ["NUMBER_SINGLE_SOURCE"], nos, prices, self._name_candidates(no, p, name))
+        line = p["line"]
+        lines = [f["line"] for f in self.found if f["no"] == no and abs(f["t"] - p["t"]) <= WINDOW and not f.get("leftover")] or [line]
+        rule = bool(p.get("rule")) and not p["votes"]
+        ruled = shown in said
+        first = next((r for r in p["rows"] if r["price"] == shown), None)
+        conf = 0.9 if ruled and not rule else CONF.get(str((first or {}).get("confidence")).lower(), 0.6 if rule else 0.7)
+        body = post.make_body(self.video_id, no, shown, name or "", self._heard(lines), conf, tentative=tentative)
+        if body is None:
+            return
+        seen = self.seen.get(line, now)
+        observed = int(seen * 1000)
+        while f"screen-{self.video_id}-{no}-{observed}" in self.tent_rids:
+            observed += 1                                    # 같은 줄에서 다시 올릴 때(거둔 뒤)도 요청 번호가 겹치지 않게
+        rid = f"screen-{self.video_id}-{no}-{observed}"
+        body.update(observedAt=observed, requestId=rid)
+        self.tent_rids.add(rid)
+        t = {"no": no, "rid": rid, "n": str(observed), "price": shown, "name": name or "", "state": "sending", "ok": bool(ok), "pair": p["pair"], "rule": rule,
+             "nprice": 0, "nname": 0, "sent_wall": now, "tries": 0, "t": p["t"]}
+        p["tent"] = self.tents[no] = t
+        p["dirty"] = False
+        self.emit({"kind": "LLM임시등록", "no": no, "start_sec": p["t"], "start_hms": B.hms(p["t"]), "price": shown, "name": name, "rid": rid,
+                   "reasons": tentative["reasons"], "candidates": tentative["candidates"], "line": line, "line_seen_wall": round(seen, 2), "sent_wall": round(now, 2),
+                   "wait_sec": round(now - seen, 1), "ok_no": bool(ok), "why_no": why_no, "why_name": why_name, "pair": list(p["pair"]) if p["pair"] else None,
+                   "rule": rule, "answers": sum(votes.values()), "sent": True})
+        print(f"           임시 등록 {no:>4}번  {shown:,}원  {name or '품종 모름'}  (줄을 읽고 {round(now - seen, 1)}초, {'규칙' if rule else 'LLM'}: {', '.join(tentative['reasons'])})", flush=True)
+        self.waiting += 1
+        self.poster.send(body, on_result=lambda res, t=t: self.inbox.append(("임시", t, res)))
+
+    def _tent_follow(self, p, price, votes, blocked):
+        """확정 전: 임시로 보이는 금액·이름이 지금 가장 그럴듯한 값과 다르면 바로 고쳐 보낸다(확인 중 상품도 금액·이름 고치기 입구가 받는다 — 계약서 5절).
+        판매자가 그 상품을 [공개]로 확정하면 그때의 값이 나가므로, 확인 중에도 가장 그럴듯한 값을 보여 둔다"""
+        t, no = p["tent"], p["no"]
+        best = price if price is not None else self._tent_price(p, votes, blocked)
+        if best is not None and best != t["price"] and t["nprice"] < TENT_FIX_MAX and not t.get("kept_price"):
+            t["nprice"] += 1
+            old, t["price"] = t["price"], best
+            self.emit({"kind": "LLM임시고치기", "no": t["no"], "rid": t["rid"], "field": "price", "from": old, "to": best, "n": TENT_FIX_BASE + t["nprice"]})
+            print(f"           임시 등록 금액 고치기 {t['no']}번 {old:,}원 → {best:,}원", flush=True)
+            self.poster.reprice(self.video_id, t["no"], best, TENT_FIX_BASE + t["nprice"])
+        if p.get("dirty"):
+            p["dirty"] = False
+            name = self._name(no, p)[0]
+            if name and name != t["name"] and t["nname"] < TENT_FIX_MAX:
+                t["nname"] += 1
+                old, t["name"] = t["name"], name
+                self.emit({"kind": "LLM임시고치기", "no": t["no"], "rid": t["rid"], "field": "name", "from": old, "to": name, "n": TENT_FIX_BASE + t["nname"]})
+                print(f"           임시 등록 이름 고치기 {t['no']}번 {old or '(없음)'} → {name}", flush=True)
+                self.poster.rename(self.video_id, t["no"], name, TENT_FIX_BASE + t["nname"])
+
+    def _confirm(self, p, price, why_no, why_price):
+        """임시로 올린 상품의 번호 근거와 가격이 정해졌다 — 확정한다(계약서 2.2). 그 뒤의 금액·이름·번호 고치기는 지금 입구 그대로"""
+        self._send_pending(p, price, why_no, why_price, tent=p["tent"])
+
+    def _post_confirm(self, t):
+        t["tries"] += 1
+        self.waiting += 1
+        self.poster.confirm(self.video_id, t["no"], t["rid"], to=t.get("to"), price=t.get("final_price"), name=t.get("final_name"), n=t["n"],
+                            on_result=lambda res, t=t: self.inbox.append(("확정", t, res)))
+
+    def _withdraw(self, t, why):
+        """임시 등록을 거둔다(계약서 2.3). 서버 답을 아직 못 받았으면 답을 본 뒤에. 판매자가 손댄 상품은 서버가 거두지 않는다"""
+        if t["state"] == "sending":
+            t["then"] = why
+            return
+        if t["state"] != "up":
+            return
+        t["state"] = "withdrawing"
+        t["tries"] += 1
+        if self.tents.get(t["no"]) is t:
+            del self.tents[t["no"]]
+        if self.left.get(t["no"]) is t:
+            del self.left[t["no"]]
+        self.emit({"kind": "LLM거두기", "no": t["no"], "rid": t["rid"], "why": why, "sent": True})
+        print(f"           임시 등록 거두기 {t['no']}번 ({why})", flush=True)
+        self.waiting += 1
+        self.poster.withdraw(self.video_id, t["no"], t["rid"], n=t["n"], on_result=lambda res, t=t: self.inbox.append(("거두기", t, res)))
+
+    def _leave(self, t, why):
+        """임시 등록을 서버에 둔다 — 판매자가 앱에서 확정하거나 지운다. 그 번호의 답이 다시 모이면 일꾼이 이어서 확정한다"""
+        t.pop("until", None)
+        self.left[t["no"]] = t
+        if not t.get("noted"):
+            t["noted"] = True
+            self.emit({"kind": "LLM임시남김", "no": t["no"], "rid": t["rid"], "why": why, "price": t["price"], "name": t["name"]})
+            print(f"           임시 등록 {t['no']}번은 그대로 둬요 — 판매자가 확정 ({why})", flush=True)
+
+    def _tent_expire(self, p, final):
+        """기다림을 접는 자리(HOLD_MAX·방송 끝): 올려 둔 임시 등록을 거둘지 둘지 정한다.
+        방송 끝 → 둔다(계약서 2.5). 규칙만으로 올렸는데 LLM이 보고도 그 번호를 적지 않았다 → 거둔다. 번호 근거가 섰거나 숫자 쌍을 기다리던 것 → 둔다(LLM_TENTATIVE_KEEP=0이면 거둔다)"""
+        t = p.get("tent")
+        if t is None or t["state"] not in ("sending", "up"):
+            return
+        if final:
+            self._leave(t, "방송 끝")
+        elif t.get("rule") and not p["votes"] and not p["agree"] and p["miss"]:
+            self.rule_dropped.add(t["no"])
+            self._withdraw(t, "그 줄을 본 LLM 답이 이 번호를 적지 않음")
+        elif TENT_KEEP and (p.get("ok_no") or p["pair"] or t.get("ok") or t.get("pair")):
+            self._leave(t, "가격을 정하지 못함" if p.get("ok_no") else "번호를 정하지 못함")
+        else:
+            self._withdraw(t, "번호 근거를 끝내 얻지 못함")
+
+    def _sweep(self, final):
+        """앞선 실행에서 이어받은 임시 등록 가운데 이번 실행에서 답이 다시 모이지 않은 것: HOLD_MAX 뒤 번호 근거가 섰던 것은 두고(판매자가 확정) 아니면 거둔다.
+        규칙만으로 올리고 LLM 답을 받지 못한 것도 둔다 — 이번 실행의 LLM은 그 줄을 볼 수 없으니 "LLM이 보고도 적지 않은 것"이 아니다"""
+        now = time.time()
+        for t in list(self.left.values()):
+            if "until" not in t:
+                continue
+            if t["until"] is None:
+                t["until"] = now + HOLD_MAX                  # 이번 실행이 돌기 시작한 때부터 잰다
+            if not final and now < t["until"]:
+                continue
+            if final or (TENT_KEEP and (t.get("ok") or t.get("pair"))):
+                self._leave(t, "방송 끝" if final else "앞선 실행이 올린 것 — 이번 실행에서 근거가 더 모이지 않음")
+            else:
+                self._withdraw(t, "앞선 실행이 올린 것 — 번호 근거가 없거나 두지 않기로 함")
+
+    def _hands_off(self, no, fields):
+        """판매자가 먼저 손댄 칸은 일꾼이 더 고치지 않는다: price → 금액 고치기, name → 이름 고치기, no → 번호 바로잡기"""
+        if "price" in fields and no in self.prices:
+            self.prices[no]["fixes"] = PRICE_MAX_FIX
+        if "name" in fields and no in self.names:
+            self.names[no]["fixes"] = NAME_MAX_FIX
+        if "no" in fields:
+            self.watch.pop(no, None)
+
+    def _drain(self):
+        """서버 응답(임시 등록·확정·거두기)을 받아 적는다. 방송마다의 changed·skip·kept를 그대로 이벤트로 남기고 따른다"""
+        if self.resume and self._tent_on():
+            todo, self.resume = self.resume, []
+            for t, confirm, withdraw in todo:                # 앞선 실행이 보내다 만 확정·거두기를 같은 요청 번호로 다시(서버는 한 번만 받는다)
+                if confirm:
+                    t.update(to=confirm.get("to") if confirm.get("to") != t["no"] else None, final_price=confirm.get("price"), final_name=confirm.get("name"),
+                             final_no=confirm.get("to") or t["no"], state="confirming")
+                    self.emit({"kind": "LLM확정다시", "no": t["no"], "rid": t["rid"], "to": t["final_no"]})
+                    self._post_confirm(t)
+                else:
+                    self._withdraw(t, withdraw)
+        while self.inbox:
+            kind, t, res = self.inbox.popleft()
+            self.waiting -= 1
+            res = res if isinstance(res, dict) else {}
+            rows = [r for r in res.get("broadcasts") or [] if isinstance(r, dict)]
+            brief = [{k: r[k] for k in ("changed", "duplicate", "tentative", "skip", "kept") if k in r} for r in rows]
+            skips = {r["skip"] for r in rows if r.get("skip")}
+            kept = sorted({k for r in rows for k in (r.get("kept") or ())})
+            error = None if res.get("ok") else str(res.get("error") or "응답 없음")
+            if kind == "임시":
+                if error:
+                    state = "failed"
+                elif res.get("changed") or any(r.get("changed") for r in rows):
+                    state = "up"
+                else:
+                    state = "closed" if "CLOSED" in skips else "exists"   # 판매자가 지운 번호 / 이미 있는 번호(판매자 손 등록·다른 등록)
+                self.emit({"kind": "LLM임시결과", "no": t["no"], "rid": t["rid"], "state": state, "broadcasts": brief, **({"error": error} if error else {})})
+                if t["state"] != "sending":
+                    continue
+                t["state"] = state
+                if state != "up":
+                    if self.tents.get(t["no"]) is t:
+                        del self.tents[t["no"]]
+                    if self.left.get(t["no"]) is t:
+                        del self.left[t["no"]]
+                elif t.get("then"):
+                    self._withdraw(t, t.pop("then"))
+            elif kind == "확정":
+                no = t.get("final_no", t["no"])
+                if error and error != "UNSUPPORTED" and t["tries"] < 3:
+                    self._post_confirm(t)                    # 서버에 닿지 못했다 — 같은 요청 번호로 다시
+                    continue
+                self.emit({"kind": "LLM확정결과", "no": t["no"], "to": no, "rid": t["rid"], "changed": bool(res.get("changed")), "broadcasts": brief,
+                           "skips": sorted(skips), "kept": kept, **({"error": error} if error else {})})
+                t["state"] = "done"
+                if "TARGET_EXISTS" in skips and not res.get("changed"):
+                    # 옮길 번호에 상품이 이미 있다(판매자가 먼저 넣었다) — 잘못 들은 번호의 임시 등록이므로 거둔다
+                    t["state"] = "up"
+                    self._withdraw(t, f"옮길 번호 {no}번에 상품이 이미 있음")
+                # 판매자가 먼저 확정·수정·거둔 상품(skip)과 판매자 값으로 남은 칸(kept)은 일꾼이 더 건드리지 않는다
+                self._hands_off(no, set(kept) if res.get("changed") else {"price", "name", "no"} if skips or error else set())
+            elif kind == "거두기":
+                if error and error != "UNSUPPORTED" and t["tries"] < 3:
+                    t["state"] = "up"
+                    self._withdraw(t, "다시 보냄")
+                    continue
+                self.emit({"kind": "LLM거두기결과", "no": t["no"], "rid": t["rid"], "changed": bool(res.get("changed")), "broadcasts": brief,
+                           "skips": sorted(skips), **({"error": error} if error else {})})
+                t["state"] = "done"
 
     # ---------- 안전 규칙: 품종 ----------
     def _product_lines(self, no, p):
@@ -608,15 +1138,16 @@ class LlmRegister:
         name, why, strong = variety.pick_name(names, self._product_lines(no, p), self._dic(), self.nicks, detail=True)
         return name or None, why, strong
 
-    def _send_pending(self, p, price, why_no, why_price):
+    def _send_pending(self, p, price, why_no, why_price, tent=None):
+        """번호 근거와 가격이 정해진 상품을 보낸다. tent = 그 상품의 임시 등록(서버에 올라가 있음) — 새로 등록하지 않고 확정한다"""
         no = p["no"]
         first = next(r for r in p["rows"] if r["price"] == price)
         name, why_name, locked = self._name(no, p)
         ruled = price in p["explicit"] or price in p["short"]
         conf = 0.9 if ruled else CONF.get(str(first.get("confidence")).lower(), 0.7)
         r = dict(first, no=no, t=p["t"], line=p["line"], variety=name)
-        self._send(r, picked=True, conf=conf, note={"why_no": why_no, "why_price": why_price, "why_name": why_name, "name_locked": locked,
-                                                    "answers": sum(len(c) for c in p["votes"].values()), "flagged": p["flag"]})
+        self._send(r, picked=True, conf=conf, tent=tent, note={"why_no": why_no, "why_price": why_price, "why_name": why_name, "name_locked": locked,
+                                                               "answers": sum(len(c) for c in p["votes"].values()), "flagged": p["flag"]})
 
     # ---------- 고치기 (D-SCR-06·07·09) ----------
     def _vote_name(self, r):
@@ -702,6 +1233,10 @@ class LlmRegister:
                 del self.watch[no]
                 continue
             other = self.sent.get(tag)
+            if other is None and tag in self.tents:
+                # 화면의 그 번호는 이 일꾼이 임시로 올려 둔 상품이다(D-SCR-20) — 이미 등록한 번호처럼 다룬다: 그 번호로 옮기지 않고(서버도 거절한다),
+                # 이 번호를 말한 뒤에 올린 것일 때만 이 번호를 지운다
+                other = {"sent": True, "start_sec": self.tents[tag].get("t", -1)}
             drop = other is not None
             if drop and not (other.get("sent") and "fixed_from" not in other and other.get("start_sec", -1) >= start - 5):
                 continue
@@ -724,6 +1259,12 @@ class LlmRegister:
             time.sleep(1)
             self.tick(final=True)
         self.ex.shutdown(wait=True)
+        if self.safe and self.waiting > 0:
+            # 방금 보낸 임시 등록·확정·거두기의 서버 답을 잠깐 기다려 기록에 남긴다(다시 켠 일꾼이 이어받을 때 본다)
+            deadline = time.time() + 15
+            while self.waiting > 0 and time.time() < deadline:
+                time.sleep(0.2)
+                self._drain()
         if not self.safe:
             for g in self.products():
                 if g["no"] not in self.sent:
@@ -757,12 +1298,15 @@ class LlmRegister:
         want = set(lines)
         return " ".join(dict.fromkeys(B.mask(x) for i, (_, _, x) in enumerate(self.tr) if i in want))
 
-    def _send(self, r, picked=False, conf=None, note=None):
+    def _send(self, r, picked=False, conf=None, note=None, tent=None):
         """r = LLM 줄 하나(번호·가격이 있는 답). 옛 로직: 품종이 비었으면 이미 받은 줄에서 그 번호의 품종을 찾는다.
-        picked = 안전 규칙이 품종까지 정했다(빈 이름이면 빈 채로 보낸다), conf·note = 그때의 확신과 까닭"""
+        picked = 안전 규칙이 품종까지 정했다(빈 이름이면 빈 채로 보낸다), conf·note = 그때의 확신과 까닭.
+        tent = 서버에 올라가 있는 그 상품의 임시 등록 — 등록을 새로 보내지 않고 확정을 보낸다(번호가 옮겨졌으면 to). 뒷일(고치기·번호 바로잡기 준비)은 같다"""
         no, price, name = r["no"], r["price"], r["variety"]
         if not name and not picked:
             name = next((f["variety"] for f in reversed(self.found) if f["no"] == no and abs(f["t"] - r["t"]) <= WINDOW and f["variety"]), None)
+        if tent is not None and not name and tent.get("name"):
+            name = tent["name"]                              # 확정은 빈 이름으로 덮지 않는다 — 임시로 보인 이름이 서버에 남는다(기록도 그 이름으로)
         if conf is None:
             conf = CONF.get(str(r.get("confidence")).lower(), 0.7)
         lines = [f["line"] for f in self.found if f["no"] == no and abs(f["t"] - r["t"]) <= WINDOW and not f.get("leftover")] or [r["line"]]
@@ -779,12 +1323,24 @@ class LlmRegister:
         elif self.poster:
             from . import post
             body = post.make_body(self.video_id, no, price, name or "", self._heard(lines), conf)
-            if body is not None:
+            if body is not None and tent is None:
                 observed = int(self.seen.get(line, now) * 1000)
+                while f"screen-{self.video_id}-{no}-{observed}" in self.tent_rids:
+                    observed += 1                            # 그 요청 번호는 (올라가지 못했거나 거둔) 임시 등록이 썼다 — 서버가 "이미 받은 것"으로 넘기지 않게
                 body.update(observedAt=observed, requestId=f"screen-{self.video_id}-{no}-{observed}")
                 rec["rid"] = body["requestId"]
             if body is None:
                 why = "보낼 수 없는 값"
+                if tent is not None:
+                    self._leave(tent, "확정할 값을 보낼 수 없음")
+            elif tent is not None:
+                # 임시 등록을 확정한다(계약서 2.2). rid는 그 임시 등록의 요청 번호 — 번호 바로잡기(D-SCR-06)도 이 번호로 "이 일꾼의 등록"임을 보인다
+                rec.update(rid=tent["rid"], via="확정", tent_no=tent["no"], tent_price=tent["price"],
+                           tent_sec=round(now - tent["sent_wall"], 1) if tent.get("sent_wall") else None)
+                tent.update(to=no if no != tent["no"] else None, final_no=no, final_price=price, final_name=name or None, state="confirming")
+                if self.tents.get(tent["no"]) is tent:
+                    del self.tents[tent["no"]]
+                self._post_confirm(tent)
             else:
                 self.poster.send(body)
         rec["sent"] = bool(self.poster) and why is None
