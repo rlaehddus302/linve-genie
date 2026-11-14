@@ -108,6 +108,7 @@ NOPRICE_RULE = os.environ.get("LLM_NOPRICE_RULE", "1") != "0"      # LLM이 번�
 TAG_RULE = int(os.environ.get("LLM_TAG_RULE", 20))                 # 말하지 않은 번호표가 이만큼(장) 넘게 크게 보이고 그동안 말한 금액이 하나뿐이면 임시로 올린다(0 = 끔) — 124번
 NAME_MODE = os.environ.get("LLM_NAME_MODE", "shop")                 # shop = LLM 이름을 가게 장부에 맞추고 장부에 없으면 확인 중 품종으로(D-SCR-29~32) · dict = 전국 사전으로 거르기(D-SCR-15)
 SHOP_LEDGER = os.environ.get("LLM_SHOP_LEDGER")                     # 가게 품종 장부 파일(없으면 빈 장부 — 처음 오는 가게)
+CUE_WAIT, CUE_BACK = 30.0, 90.0                                    # 거둔다는 말: 이만큼(방송 초) 기다렸다가, 그 말보다 이만큼 앞까지 소개를 시작한 상품 가운데 가장 나중 것에 붙인다
 WITHDRAW_CUE = re.compile(r"번호\s?(?:떼|때|빼)")                    # 판매자가 상품을 거둔다는 말("번호 떼") — 153번
 SERVER_UNITS = {"TEN_THOUSAND": 10000, "WON": None}            # 서버 priceUnit 가운데 판매자가 분명히 고른 값만 따른다(D-SCR-21) — THOUSAND는 "고르지 않음"과 같아 따르지 않는다
 
@@ -311,6 +312,7 @@ class LlmRegister:
         self.waiting = 0                                     # 서버 답을 기다리는 임시 등록·확정·거두기 수
         self.name_info = {}                                  # 번호 → 고른 품종의 {unsure: 확인 중 품종인가, pattern, form, qty}(D-SCR-30·31)
         self.latest = None                                   # 가장 나중에 처음 올라온 상품 번호 — 그 뒤의 금액 고치기는 이 번호일 때만 저절로 한다(D-SCR-24)
+        self.cues = []                                       # 판매자가 상품을 거둔다고 말한 줄 [(줄, 방송 초)] — CUE_WAIT초 뒤 그때 소개하던 상품에 카드를 남긴다(D-SCR-28)
         self.cards = set()                                   # 남긴 확인 카드 (종류, 번호, 값) — 같은 것을 두 번 남기지 않는다
         self.noprice = {}                                    # 번호 → LLM이 가격 없이 적은 답 {t, line, calls}(D-SCR-27)
         self.tag_tried = set()                               # 번호표 규칙으로 한 번 본 번호(D-SCR-27)
@@ -430,7 +432,7 @@ class LlmRegister:
                 self._rule(i, cand, mains)                   # 번호와 금액을 한 줄에 또렷이 말했으면 LLM 답을 기다리지 않고 임시로 올린다
             tag = main_tag(i, t, ends, mains)
             if self.safe and WITHDRAW_CUE.search(x):
-                self._withdraw_cue(i, t, tag)
+                self.cues.append((i, t))                     # 그 말을 한 상품은 아직 등록 전일 수 있다(등록은 말보다 늦다) — 조금 뒤에 고른다
             why = "숫자" if CUE.search(x) else ("번호표 바뀜" if tag is not None and tag != self.prev_tag else None)
             if tag is not None:
                 self.prev_tag = tag
@@ -521,6 +523,8 @@ class LlmRegister:
             if not final and not self.want and not self.flying and tr:
                 self._want_confirm(len(tr) - 1)              # 다음 번 돌 때 묻는다
         self._check_numbers(cand, mains)
+        if self.safe:
+            self._withdraw_cues(final)
 
     # ---------- 안전 규칙: 묻기 줄이기 (B-2의 L2) ----------
     def _quiet(self, tag, text, why, t=None):
@@ -1312,14 +1316,29 @@ class LlmRegister:
         self.emit({"kind": "LLM가격확인카드", "no": no, "from": now, "to": to, "why": why, "line": r.get("line"), "start_sec": r.get("t")})
         print(f"           가격 확인 카드 {no}번 {now:,}원 → {to:,}원? ({why})", flush=True)
 
-    def _withdraw_cue(self, i, t, tag):
-        """판매자가 "번호 떼"처럼 상품을 거둔다고 말했다(D-SCR-28) — 지우지 않고 물을 것을 남긴다. 화면의 번호가 이미 올라간 상품이면 그 번호, 아니면 가장 나중 상품"""
-        no = tag if tag is not None and (tag in self.tents or (self.sent.get(tag) or {}).get("sent")) else self.latest
-        if no is None or ("withdraw", no) in self.cards:
+    def _withdraw_cues(self, final=False):
+        """판매자가 "번호 떼"처럼 상품을 거둔다고 말했다(D-SCR-28) — 지우지 않고 물을 것을 남긴다.
+        그 말을 한 때 소개하던 상품 = 그 말 앞 CUE_BACK초 안에 소개를 시작한(처음 말한) 상품 가운데 가장 나중 것. 등록이 말보다 늦으므로 CUE_WAIT초 뒤에 고른다"""
+        if not self.cues or not self.tr:
             return
-        self.cards.add(("withdraw", no))
-        self.emit({"kind": "LLM거두기확인카드", "no": no, "line": i, "start_sec": t})
-        print(f"           거두기 확인 카드 {no}번 (판매자가 번호를 뗀다고 말함)", flush=True)
+        now = self.tr[-1][0]
+        keep = []
+        for i, t in self.cues:
+            if not final and now - t < CUE_WAIT:
+                keep.append((i, t))
+                continue
+            starts = {no: rec.get("start_sec") for no, rec in self.sent.items() if rec.get("sent") and rec.get("start_sec") is not None}
+            starts.update({no: x.get("t") for no, x in self.tents.items() if x.get("t") is not None})
+            near = [(s0, no) for no, s0 in starts.items() if t - CUE_BACK <= s0 <= t + 3]
+            if not near:
+                continue
+            no = max(near)[1]
+            if ("withdraw", no) in self.cards:
+                continue
+            self.cards.add(("withdraw", no))
+            self.emit({"kind": "LLM거두기확인카드", "no": no, "line": i, "start_sec": t})
+            print(f"           거두기 확인 카드 {no}번 (판매자가 번호를 뗀다고 말함)", flush=True)
+        self.cues = keep
 
     # ---------- 근거가 모자란 상품도 임시로 (D-SCR-27) ----------
     def _amounts_between(self, lo, hi, cand, no):

@@ -146,12 +146,18 @@ class RenumberTest(unittest.TestCase):
 
 
 class WithdrawCueTest(unittest.TestCase):
-    def test_seller_taking_the_tag_off_is_asked(self):
-        # 153번: 등록 직후 "번호 떼" — 지우지 않고 물을 것을 남긴다(D-SCR-28)
+    def test_seller_taking_the_tag_off_is_asked_about_the_product_being_introduced(self):
+        # 153번: "손톱 2만원" 직후 "번호 떼". 그 말이 들릴 때 153번은 아직 등록 전이고 앞 상품 140번만 올라가 있었다 —
+        # 조금 기다렸다가 그 말 직전에 소개를 시작한 상품(153번)에 묻는다. 앞 상품(140번)에 붙이지 않는다(D-SCR-28)
         st = Stage(self)
-        st.show(0, 30, 153)
-        st.say(0, "153번 손톱 2만원", row(0, 153, 20000, "손톱", no_from="말+화면"))
-        st.say(8, "아니 이거 샤샤예요 번호 떼")
+        st.show(0, 20, 140)
+        st.say(0, "140번 5만원", row(0, 140, 50000, None, no_from="말+화면"))
+        st.show(100, 160, 153)
+        st.say(100, "153번 손톱 2만원")                                     # LLM 답이 아직 없다
+        st.say(105, "아니 이거 샤샤예요 번호 떼 번호 떼")
+        self.assertEqual(st.kinds("LLM거두기확인카드"), [])
+        st.say(110, "153번 손톱 2만원 맞죠", row(1, 153, 20000, "손톱", no_from="말+화면"))
+        st.say(140, "자 다음 갑니다")
         self.assertEqual([e["no"] for e in st.kinds("LLM거두기확인카드")], [153])
 
 
