@@ -20,6 +20,8 @@ from datetime import datetime, timedelta, timezone
 KST = timezone(timedelta(hours=9))
 VIDEO_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 RETRY_FOR = 600          # 처음 넣은 뒤 이만큼(초)까지 다시 보낸다
+RENUMBER_WAIT = 30       # 번호 바로잡기: 그 번호의 등록 답을 이만큼(초)까지 기다렸다 보낸다(D-SCR-23)
+RENUMBER_AGAIN, RENUMBER_GAP = 2, 2.0   # 서버가 "그런 상품 없음"이라 하면 이만큼(초) 뒤 다시, 이만큼(번)까지
 NAME_MAX, HEARD_MAX = 60, 300
 RETRYABLE = {401, 404, 408, 409, 425, 429}
 CAPS_EVERY = float(os.environ.get("LG_SCREEN_CAPS_EVERY", 300))   # 서버 능력·가격 단위를 다시 묻는 간격(초)
@@ -151,6 +153,7 @@ class Poster:
         self.retry_for = retry_for
         self.backoff = backoff
         self.items = []                # [{body, first, tries, next}]
+        self.registering = set()       # 서버 답을 아직 못 받은 등록의 요청 번호 — 번호 바로잡기는 그 등록의 답을 본 뒤에 보낸다(D-SCR-23)
         self.busy = 0
         self.cv = threading.Condition()
         self.closed = False
@@ -234,8 +237,15 @@ class Poster:
         """on_result(서버 응답 dict) — 끝났을 때 뒤 스레드에서 한 번 부른다. 못 보냈으면 {"ok": False, "error": 까닭}"""
         now = time.time()
         with self.cv:
+            if body.get("requestId"):
+                self.registering.add(body["requestId"])
             self.items.append({"body": body, "first": now, "tries": 0, "next": now, "cb": on_result})
             self.cv.notify()
+
+    def _registered(self, b):
+        """등록 하나가 끝났다(받았거나 포기) — 그 등록을 기다리던 번호 바로잡기가 나간다"""
+        with self.cv:
+            self.registering.discard(b.get("requestId"))
 
     def renumber(self, vid, frm, to, rid, drop=False):
         """잘못 들은 번호 바로잡기(D-SCR-06): from → to를 뒤 스레드에서 한 번 보낸다(네트워크 오류면 3번까지). 서버가 지금 상태로 다시 보고 안전할 때만 바꾼다"""
@@ -250,6 +260,12 @@ class Poster:
             return
 
         def go():
+            # 그 번호의 등록이 서버에 닿기 전에 바로잡기가 먼저 닿으면 "그런 상품 없음"으로 헛돈다(2026-11-13 방송 620·107번) —
+            # 등록의 답을 본 뒤에 보내고, 그래도 "그런 상품 없음"이면 조금 뒤 다시 보낸다(D-SCR-23)
+            end = time.time() + RENUMBER_WAIT
+            while rid in self.registering and time.time() < end and not self.closed:
+                time.sleep(0.1)
+            missing = 0
             for wait in (0, 5, 15):
                 time.sleep(wait)
                 try:
@@ -258,6 +274,11 @@ class Poster:
                     log(f"번호 바로잡기 {frm}→{to} → 토큰 파일을 못 읽음({type(e).__name__})")
                     return
                 status, res = http_json("POST", base + "/renumber", token, body)
+                while (status == 200 and isinstance(res, dict) and not res.get("changed") and missing < RENUMBER_AGAIN
+                       and any(r.get("skip") == "NO_PRODUCT" for r in res.get("broadcasts", []) if isinstance(r, dict))):
+                    missing += 1
+                    time.sleep(RENUMBER_GAP)
+                    status, res = http_json("POST", base + "/renumber", token, body)
                 if status == 200 and isinstance(res, dict):
                     skips = [r.get("skip") for r in res.get("broadcasts", []) if r.get("skip")]
                     log(f"번호 바로잡기 {frm}번 → {to}번: " + (("지움" if drop else "바꿈") if res.get("changed") else f"그대로({', '.join(skips) or '바뀐 것 없음'})"))
@@ -384,6 +405,7 @@ class Poster:
             # 임시 등록을 받지 않는 서버가 됐다(되돌림) — 확인 없는 등록으로 바꿔 보내지 않는다. 일꾼이 근거를 다 모은 뒤 지금 방식으로 보낸다
             log(f"서버 보냄  {b['no']:>4}번 {won} → 서버가 아직 받지 않는 요청이라 보내지 않음")
             self._record(b, "dropped", None, "UNSUPPORTED")
+            self._registered(b)
             tell({"ok": False, "error": "UNSUPPORTED"})
             return
         try:
@@ -398,6 +420,7 @@ class Poster:
             what = "이미 받은 것" if res.get("duplicate") else (new if res.get("changed") else "이미 있는 번호라 그대로")
             log(f"서버 보냄  {b['no']:>4}번 {won} → {what}")
             self._record(b, "ok", status, "duplicate" if res.get("duplicate") else (("tentative" if res.get("tentative") else "changed") if res.get("changed") else "unchanged"))
+            self._registered(b)
             tell(res)
             return
         why = code or (res if status is None else f"HTTP {status}")
@@ -414,4 +437,5 @@ class Poster:
             return
         log(f"서버 보냄  {b['no']:>4}번 {won} → 포기({why}{', 10분 넘음' if retry else ''})")
         self._record(b, "dropped", status, why)
+        self._registered(b)
         tell({"ok": False, "error": str(why)})

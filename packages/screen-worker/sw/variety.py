@@ -392,3 +392,189 @@ def _pick_name(llm_names, lines, dic, nicks):
     if top and said[top] >= MENTIONS:
         return top, f"사전 이름이 받아쓰기에 {said[top]}번", said[top] >= STRONG_MENTIONS
     return "", "모름", False
+
+
+# ---------- 가게 장부로 품종 고르기 (D-SCR-29~32, 2026-11-13 방송 복기 뒤 — 개선 단계표 B단계) ----------
+# 전국 사전으로 거르던 D-SCR-15는 맞는 이름을 버렸다(11-13 방송: 틀린 이름 21개를 막고 맞는 이름 47개를 버림 — 그 가게 품종 118가지 중 64가지가 사전에 없었다).
+# 바꾼 것: LLM이 적은 이름을 기본으로 쓰고, 그 가게가 파는 품종 목록(장부)에서 소리가 가장 가까운 이름으로 철자를 맞춘다.
+#   장부에 없는 이름은 버리지 않고 "확인 중 품종"(unsure)으로 보낸다 — 판매자가 확정하면 장부에 더해진다. 품종이 아닌 말(닉네임·인사·재고)만 거른다.
+#   이름은 품종 / 무늬 / 형태 / 개수로 나눈다: "은갈치퍼플"·"밀레창"·"황소윗동"처럼 옆 말이 붙은 것과 "테라로사색금"을 "색금"으로 줄이던 것을 막는다.
+PATTERNS = ("복륜금", "색금종자", "녹색금", "창녹금", "창색금", "창금", "색금", "녹금", "찐녹", "철화", "산반", "복륜", "수박", "힘줄", "종자", "무지", "금")   # 무늬·종류를 이르는 말(긴 것부터)
+PATTERN_ONLY = set(PATTERNS) | {"SP", "창", "녹색", "창녹", "창색"}
+FORMS = ("군생", "윗동", "아랫동", "커팅", "자구", "통째", "통채", "통으로", "대품", "중품", "소품")                                  # 모양·파는 꼴을 이르는 말
+_QTY = re.compile(r"\s*((?:\d+|한|두|세|네|다섯)\s*(?:개|포기|두|촉|장|세트)|통째|통채|통으로)\s*$")
+LEDGER_CUT = float(os.environ.get("LLM_LEDGER_CUT", 72))                  # 장부 이름과 자모 편집 거리 비율이 이만큼 넘으면 그 이름으로 맞춘다
+LEDGER_CUT_SHORT = float(os.environ.get("LLM_LEDGER_CUT_SHORT", 80))      # 두 글자쯤의 짧은 이름은 더 엄하게("청수"가 청춘에, "산마"가 삼광에 붙지 않게)
+_NOK_TAIL = re.compile(r"(?:노금|녹음|녹급)$")                              # 받아쓰기가 이름 끝의 '녹금'을 적는 모양(11-13 방송: 녹음 41 · 노금 6 · 녹급 4)
+LEDGER_PREFIX = 3                                                          # 장부 이름이 앞·뒤에 통째로 들어 있을 때("은갈치퍼플"의 은갈치)는 이만큼(글자) 넘는 이름만
+
+
+# 받아쓰기가 흔히 바꿔 적는 소리는 한 소리로 접어 견준다: 쉘/셀, 홍/용, 혜/애, 쿠/구, 뱅/벵 — 좁은 가게 목록 안에서만 쓴다(전국 사전에서는 다른 품종끼리 붙는다)
+_FOLD = str.maketrans({"ㅛ": "ㅗ", "ㅜ": "ㅗ", "ㅠ": "ㅗ", "ㅑ": "ㅏ", "ㅕ": "ㅓ", "ㅖ": "ㅐ", "ㅒ": "ㅐ", "ㅔ": "ㅐ", "ㅞ": "ㅐ", "ㅙ": "ㅐ", "ㅚ": "ㅐ", "ㅢ": "ㅣ", "ㅟ": "ㅣ", "ㅘ": "ㅏ", "ㅝ": "ㅓ",
+                       "ㅋ": "ㄱ", "ㄲ": "ㄱ", "ㅌ": "ㄷ", "ㄸ": "ㄷ", "ㅍ": "ㅂ", "ㅃ": "ㅂ", "ㅊ": "ㅈ", "ㅉ": "ㅈ", "ㅆ": "ㅅ", "ㅎ": "ㅇ"})
+
+
+def sjamo(s):
+    """자모로 풀고 헷갈리는 소리를 접은 글"""
+    return jamo(s).translate(_FOLD)
+
+
+class Ledger:
+    """가게 품종 장부: 그 가게가 파는 품종 이름과 틀리게 들리는 모양(별칭), 가게 말버릇.
+    파일 모양 {"names": [{"name": "쿠스", "aliases": ["코스", "구스"]}], "habits": {"색금": "SP"}} — 영수증·손 수정·확정에서 쌓는다(손님 이름은 넣지 않는다)"""
+
+    def __init__(self, path=None, names=(), habits=None):
+        rows = [{"name": n} for n in names]
+        self.habits = dict(habits or {})
+        if path and os.path.exists(path):
+            d = json.load(open(path, encoding="utf-8"))
+            rows += d.get("names", [])
+            self.habits.update(d.get("habits") or {})
+        self.names = {}                                                    # norm(이름·별칭) → 정식 이름
+        for v in rows:
+            name = " ".join(str(v.get("name") or "").split())
+            if len(norm(name)) < 2:
+                continue
+            self.names.setdefault(norm(name), name)
+            for a in v.get("aliases", ()):
+                if len(norm(a)) >= 2:
+                    self.names[norm(a)] = name
+        self.keys = list(self.names)
+        self.jkeys = [sjamo(k) for k in self.keys]
+
+    def __bool__(self):
+        return bool(self.keys)
+
+    def near(self, name, cutoff=None):
+        """→ (장부의 정식 이름 또는 None, 점수). 글자가 같으면 100, 아니면 자모 편집 거리 비율이 가장 큰 이름(cutoff 넘을 때)"""
+        key = norm(name)
+        if key in self.names:
+            return self.names[key], 100.0
+        if len(key) < 2 or not self.keys:
+            return None, 0.0
+        folded = sjamo(key)
+        if cutoff is None:
+            cutoff = LEDGER_CUT_SHORT if len(folded) <= 5 else LEDGER_CUT
+        hit = process.extractOne(folded, self.jkeys, scorer=fuzz.ratio, score_cutoff=cutoff)
+        return (self.names[self.keys[hit[2]]], hit[1]) if hit else (None, 0.0)
+
+    def inside(self, name):
+        """이름의 앞이나 뒤에 통째로 들어 있는 장부 이름(가장 긴 것) — "은갈치퍼플" → 은갈치, "만화손톱" → 손톱"""
+        key = norm(name)
+        best = None
+        for k in self.keys:
+            if LEDGER_PREFIX <= len(k) < len(key) and (key.startswith(k) or key.endswith(k)) and (best is None or len(k) > len(best)):
+                best = k
+        if best is None:                                                   # 두 글자 이름은 앞에 있고 나머지가 무늬·형태 말일 때만("밀레창", "황소윗동")
+            for k in self.keys:
+                if len(k) == 2 and key.startswith(k) and (key[2:] in PATTERN_ONLY or key[2:] in FORMS):
+                    best = k
+        return self.names[best] if best else None
+
+
+def split_parts(name):
+    """LLM이 적은 이름 → (품종, 무늬, 형태, 개수). "테라로사 색금" → (테라로사, 색금, "", ""), "채홍 3개" → (채홍, "", "", 3개), "색금" → ("", 색금, "", "")"""
+    text = clean(name)
+    qty = ""
+    m = _QTY.search(text)
+    if m:
+        qty, text = "".join(m.group(1).split()), text[:m.start()]
+    text = _SAEK_LIVE.sub("색금", text).strip()
+    key = _NOK_TAIL.sub("녹금", norm(text))
+    form = ""
+    for f in FORMS:
+        if key.endswith(f) and len(key) > len(f):
+            form, key = f, key[:-len(f)]
+            break
+    if key.upper() in PATTERN_ONLY or key in PATTERN_ONLY:
+        return "", key, form, qty
+    pat = ""
+    for suf in PATTERNS:
+        if key.endswith(suf) and len(key) - len(suf) >= 2:
+            pat, key = suf, key[:-len(suf)]
+            break
+    if key in PATTERN_ONLY:                                                # "힘줄색금"처럼 무늬 말만 겹친 것
+        return "", key + pat, form, qty
+    return key, pat, form, qty
+
+
+def join_parts(base, pat):
+    return base + pat if pat and not norm(base).endswith(pat) else base
+
+
+def shop_name(raw, ledger, dic=None):
+    """LLM 이름 하나 → (정식 이름, 무늬, 형태, 개수, 장부에 있나, 전국 사전에 있나). 품종이 없으면 이름은 ""."""
+    base, pat, form, qty = split_parts(raw)
+    whole = norm(_QTY.sub("", clean(raw)))
+    if ledger and whole in ledger.names:                                   # "황제수박"·"홍등힘줄"처럼 무늬 말로 끝나는 이름이 장부에 통째로 있다
+        return ledger.names[whole], "", form, qty, True, False
+    if not base:
+        return "", pat, form, qty, False, False
+    if ledger:
+        hit, _ = ledger.near(base)
+        hit = hit or ledger.inside(base)
+        if hit:
+            return hit, pat, form, qty, True, False
+    if dic is not None:
+        fixed, known = canon(base, dic)
+        if known:
+            return fixed, pat, form, qty, False, True
+    return base, pat, form, qty, False, False
+
+
+def pick_shop(llm_names, lines, dic, ledger=None, nicks=()):
+    """→ (서버로 보낼 품종 이름 또는 "", 까닭, 굳은 이름인가, 확인 중 품종인가, {"pattern", "form", "qty"})
+    llm_names = 그 번호에 LLM이 적은 이름들(답한 순서), lines = 그 상품의 받아쓰기 [(초, 글)]"""
+    nicks = set(nicks) | nicknames(lines)
+    votes, info, order = collections.Counter(), {}, {}
+    pats, forms, qtys, only = collections.Counter(), collections.Counter(), collections.Counter(), collections.Counter()
+    for k, raw in enumerate(llm_names):
+        if not raw:
+            continue
+        cleaned = tidy(raw)
+        if not cleaned or not_a_name(cleaned, nicks):
+            continue
+        name, pat, form, qty, in_ledger, in_dic = shop_name(raw, ledger, dic)
+        if form:
+            forms[form] += 1
+        if qty:
+            qtys[qty] += 1
+        if not name:
+            if pat:
+                only[pat] += 1
+            continue
+        if not_a_name(name, nicks):
+            continue
+        key = norm(name)
+        votes[key] += 1
+        order[key] = k
+        info[key] = (name, in_ledger, in_dic)
+        if pat:
+            pats[(key, pat)] += 1
+    extra = {"form": forms.most_common(1)[0][0] if forms else "", "qty": qtys.most_common(1)[0][0] if qtys else ""}
+    top = max(votes, key=lambda k: (votes[k], info[k][1], info[k][2], order[k])) if votes else None
+    if top is not None and sum(only.values()) > votes[top]:
+        top = None                                                         # 이름을 적은 답보다 무늬 말만 적은 답이 많다 — 이름 없는 상품으로 본다(옆 상품 이름·잘못 들은 말 한 번에 끌려가지 않게)
+    if top is not None:
+        name, in_ledger, in_dic = info[top]
+        mine = {p: n for (k, p), n in pats.items() if k == top}
+        pat = max(mine, key=mine.get) if mine and max(mine.values()) * 2 >= votes[top] else ""
+        extra["pattern"] = pat
+        sure = in_ledger or (in_dic and votes[top] >= 2)
+        why = "가게 장부에 있는 이름" if in_ledger else "전국 사전에 있는 이름" if in_dic else "LLM이 적은 이름(장부에 없음)"
+        return join_parts(name, pat), f"{why} · 답 {votes[top]}번", in_ledger and votes[top] >= 2, not sure, extra
+    said = said_counts(lines, dic, nicks) if dic is not None else collections.Counter()
+    generic = {n: c for n, c in said.items() if norm(n) in GENERIC}
+    if only or generic:                                                    # 이름 없이 무늬 말만: 가게 말버릇(예: 색금만 말하면 SP)
+        pat = only.most_common(1)[0][0] if only else max(generic, key=generic.get)
+        if only or generic[pat] >= MENTIONS:
+            extra["pattern"] = pat
+            habit = ledger.habits.get(pat) if ledger is not None else None
+            return habit or pat, "무늬 말만 들림" + (f" → 가게 말버릇 {habit}" if habit else ""), False, False, extra
+    extra["pattern"] = ""
+    if said and not votes:                                                 # LLM이 이름을 적지 않았다: 받아쓰기에 여러 번 나온 장부·사전 이름(D-SCR-15의 (b)와 같다)
+        best = max(said, key=lambda n: (said[n], norm(n) not in GENERIC, len(norm(n))))
+        if said[best] >= MENTIONS:
+            hit = ledger.near(best)[0] if ledger is not None and ledger else None
+            return hit or best, f"받아쓰기에 {said[best]}번 나온 이름", said[best] >= STRONG_MENTIONS, False, extra
+    return "", "모름", False, False, extra

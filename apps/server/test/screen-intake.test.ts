@@ -220,6 +220,34 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
     expect((await products(world, connected.seller.cookie, b.date)).find((p) => p.no === 371)).toMatchObject({ name: '프랭크 3번' })
   })
 
+  it('D-SCR-33 번호를 옮긴 상품도 일꾼이 금액을 고칠 수 있다: 6번을 17번으로 옮긴 뒤 17번 금액 고치기 — 옮기기 전에 판매자가 고친 금액은 그대로', async () => {
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    const connected = await connectSeller(world)
+    const { b, live } = await linkedBroadcast(world, connected)
+    const call = async (path: string, body: unknown) => {
+      const response = await world.server.app.request(`/internal/screen/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify(body) })
+      return { status: response.status, body: (await response.json()) as Record<string, unknown> }
+    }
+    // 일꾼이 6번으로 등록 → 화면 번호 17번으로 옮김 → 17번 금액을 고친다(2026-11-13 방송: NOT_SCREEN으로 거절됐다)
+    expect((await post(world, { videoId: live.videoId, no: 6, price: 600000, name: '종자', requestId: 'screen-v-6-1' })).body).toMatchObject({ changed: true })
+    expect((await call('renumber', { videoId: live.videoId, from: 6, to: 17, requestId: 'screen-v-fix-6-17', registerRequestId: 'screen-v-6-1' })).body).toMatchObject({ changed: true })
+    const fixed = await call('reprice', { videoId: live.videoId, no: 17, price: 900000, requestId: 'screen-v-price-17-1' })
+    expect(fixed.body, JSON.stringify(fixed.body)).toMatchObject({ ok: true, changed: true })
+    expect((await products(world, connected.seller.cookie, b.date)).find((p) => p.no === 17)?.price).toBe(900000)
+    expect((await call('rename', { videoId: live.videoId, no: 17, name: '채홍', requestId: 'screen-v-name-17-1' })).body).toMatchObject({ changed: true })
+
+    // 옮기기 전에 판매자가 금액을 고친 상품은 옮긴 뒤에도 덮어쓰지 않는다
+    expect((await post(world, { videoId: live.videoId, no: 20, price: 30000, requestId: 'screen-v-20-1' })).body).toMatchObject({ changed: true })
+    await expectOk(writeEvent(world, connected.seller, { type: 'product.update', b: b.id, no: 20, price: 120000 }))
+    expect((await call('renumber', { videoId: live.videoId, from: 20, to: 21, requestId: 'screen-v-fix-20-21', registerRequestId: 'screen-v-20-1' })).body).toMatchObject({ changed: true })
+    expect((await call('reprice', { videoId: live.videoId, no: 21, price: 50000, requestId: 'screen-v-price-21-1' })).body).toMatchObject({ changed: false, broadcasts: [{ skip: 'SELLER_PRICED' }] })
+
+    // 판매자가 손으로 등록한 상품을 판매자가 옮긴 것은 여전히 일꾼 상품이 아니다
+    await expectOk(writeEvent(world, connected.seller, { type: 'product.register', b: b.id, no: 30, name: '손톱', price: 40000 }))
+    await expectOk(writeEvent(world, connected.seller, { type: 'product.renumber', b: b.id, from: 30, to: 31 }))
+    expect((await call('reprice', { videoId: live.videoId, no: 31, price: 70000, requestId: 'screen-v-price-31-1' })).body).toMatchObject({ changed: false, broadcasts: [{ skip: 'NOT_SCREEN' }] })
+  })
+
   it('D-SCR-11 판매자가 지운 번호는 지운 직후(60초 안) 도착한 일꾼 등록으로 다시 열지 않는다: 394 리마인드 삭제 7초 뒤 로라클론 7만원', async () => {
     const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
     const connected = await connectSeller(world)

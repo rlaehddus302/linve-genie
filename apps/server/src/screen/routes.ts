@@ -10,7 +10,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getBroadcast, getProduct, type ProductInfo } from '@livejjim/core'
-import { and, desc, eq, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm'
 import type { Context, Hono } from 'hono'
 import { bearerMatches } from '../app.ts'
 import type { Db } from '../db/database.ts'
@@ -427,9 +427,35 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
         sellerId, date: broadcast.date, rehearsal: false, createScope: false, requestId,
         guard: async (tx, runtime) => {
           if (runtime.scopeId === null) return null
-          const ofNo = and(eq(events.sellerId, sellerId), eq(events.scopeId, runtime.scopeId), sql`${events.body}::jsonb->>'b' = ${broadcastId}`, sql`${events.body}::jsonb->>'no' = ${String(no)}`)
-          const [reg] = await tx.select({ requestId: events.requestId }).from(events)
-            .where(and(ofNo, eq(events.type, 'product.register'), eq(events.changed, true))).orderBy(desc(events.seq)).limit(1)
+          const inBroadcast = and(eq(events.sellerId, sellerId), eq(events.scopeId, runtime.scopeId), sql`${events.body}::jsonb->>'b' = ${broadcastId}`)
+          // 그 번호의 상품을 만든 등록을 찾는다. 번호를 옮긴 상품(번호 바로잡기 6 → 17)은 등록 이벤트가 옛 번호에 있다 —
+          // 옮긴 길을 거슬러 올라가 만든 등록과 판매자 고침을 본다(D-SCR-33: 2026-11-13 방송 17번, 옮긴 뒤 금액 고치기가 NOT_SCREEN으로 거절됨)
+          const numbers = [no]
+          let reg: { requestId: string | null } | undefined
+          let before: number | null = null
+          for (let hop = 0; hop < 8; hop++) {
+            const current = String(numbers[numbers.length - 1])
+            const older: SQL | undefined = before === null ? undefined : sql`${events.seq} < ${before}`
+            const [made] = await tx.select({ requestId: events.requestId, seq: events.seq }).from(events)
+              .where(and(inBroadcast, older, eq(events.type, 'product.register'), eq(events.changed, true), sql`${events.body}::jsonb->>'no' = ${current}`)).orderBy(desc(events.seq)).limit(1)
+            const [moved]: { seq: number; body: string }[] = await tx.select({ seq: events.seq, body: events.body }).from(events)
+              .where(and(inBroadcast, older, eq(events.type, 'product.renumber'), eq(events.changed, true), sql`${events.body}::jsonb->>'to' = ${current}`)).orderBy(desc(events.seq)).limit(1)
+            let from: unknown
+            if (moved !== undefined && (made === undefined || moved.seq > made.seq)) {
+              try {
+                from = (JSON.parse(moved.body) as Record<string, unknown>)['from']
+              } catch {
+                from = undefined
+              }
+            }
+            if (typeof from !== 'number' || !Number.isInteger(from) || numbers.includes(from)) {
+              reg = made
+              break
+            }
+            numbers.push(from)
+            before = moved?.seq ?? null
+          }
+          const ofNo = and(inBroadcast, or(...numbers.map((n) => sql`${events.body}::jsonb->>'no' = ${String(n)}`)))
           // 일꾼 등록: 일꾼이 직접(screen-), 또는 계정을 처음 맞출 때 다른 계정의 일꾼 값을 옮겨 넣은 등록(D-RETRO-10 — 그 계정에서도 일꾼이 계속 고친다)
           byScreen = reg?.requestId?.startsWith('screen-') === true || (await carriedBy(tx, reg?.requestId, field)) === 'worker'
           // 판매자 고침: 판매자 계정이 직접, 또는 상품 목록이 판매자 고침을 다른 방송에 옮긴 것(요청 번호 catalog-). 처음 맞출 때 옮긴 일꾼 금액은 판매자 고침이 아니다

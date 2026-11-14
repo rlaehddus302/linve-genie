@@ -320,6 +320,13 @@ class PriceRuleTest(unittest.TestCase):
 
 
 class NameAndCallTest(unittest.TestCase):
+    def setUp(self):
+        # D-SCR-29(2026-11-13 방송 복기)로 품종 고르기의 기본값이 "가게 장부"(shop)가 됐다. 이 묶음의 사전 시험 셋은
+        # 옛 방식 스위치(LLM_NAME_MODE=dict, D-SCR-15)가 그대로 도는지 본다. 새 방식은 tests/test_retro13.py
+        mode = patch("sw.llm_live.NAME_MODE", "dict")
+        mode.start()
+        self.addCleanup(mode.stop)
+
     def test_name_is_fixed_only_to_a_dictionary_name(self):
         # 이름 고치기(D-SCR-07)도 사전을 거친다: 확실하다는 답이 여러 번이어도 사전에 없는 이름으로는 고치지 않는다
         st = Stage(self)
