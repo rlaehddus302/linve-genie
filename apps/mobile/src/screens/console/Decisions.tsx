@@ -177,9 +177,10 @@ function CancelBody({ request, count, queueHost }: { readonly request: CancelReq
         </View>
         {picked === undefined ? <Hint>찜을 고르면 "고른 찜 취소"를 누를 수 있어요.</Hint> : null}
         {note !== null ? <Notice tone="warning">{note}</Notice> : null}
+        {/* 부정은 왼쪽, 긍정은 오른쪽 (규칙 8, D-UX4-146) */}
         <Row>
-          <BigButton danger label="고른 찜 취소" disabled={picked === undefined} onPress={() => (picked === undefined ? undefined : queueHost(`${label} ${picked.variant ?? ''} ${name} 취소 승인`.replace(/\s+/g, ' '), { type: 'host.approveCancel', b, no, buyer: request.currentBuyer, ...claimOptionsField(picked) }))} />
           <BigButton label="취소하지 않기" onPress={() => queueHost(`${label} ${name} 취소하지 않기`, { type: 'host.dismissCancel', b, no, buyer: request.currentBuyer, ...(first === undefined ? {} : claimOptionsField(first)) })} />
+          <BigButton danger label="고른 찜 취소" disabled={picked === undefined} onPress={() => (picked === undefined ? undefined : queueHost(`${label} ${picked.variant ?? ''} ${name} 취소 승인`.replace(/\s+/g, ' '), { type: 'host.approveCancel', b, no, buyer: request.currentBuyer, ...claimOptionsField(picked) }))} />
         </Row>
       </View>
     )
@@ -199,8 +200,8 @@ function CancelBody({ request, count, queueHost }: { readonly request: CancelReq
       <Body>{`지금 상태: ${claim === undefined ? '알 수 없음' : claimWord(api.data, claim)}`}</Body>
       {note !== null ? <Notice tone="warning">{note}</Notice> : null}
       <Row>
-        <BigButton danger label="취소 승인" onPress={() => decide('host.approveCancel')} />
         <BigButton label="요청 무시" onPress={() => decide('host.dismissCancel')} />
+        <BigButton danger label="취소 승인" onPress={() => decide('host.approveCancel')} />
       </Row>
     </View>
   )
@@ -259,8 +260,8 @@ function SuccessionBody({ unit, queueHost }: { readonly unit: DecisionUnit; read
           </View>
           <Field label="사유" value={reason} onChangeText={setReason} problem={problem} />
           <Row>
-            <BigButton primary={asking.kind === 'promote'} danger={asking.kind === 'reopen'} label={asking.kind === 'promote' ? '1등으로 올리기' : '다시 판매하기'} onPress={submit} />
             <BigButton label="안 바꾸기" onPress={() => setAsking(null)} />
+            <BigButton primary={asking.kind === 'promote'} danger={asking.kind === 'reopen'} label={asking.kind === 'promote' ? '1등으로 올리기' : '다시 판매하기'} onPress={submit} />
           </Row>
         </View>
       )}

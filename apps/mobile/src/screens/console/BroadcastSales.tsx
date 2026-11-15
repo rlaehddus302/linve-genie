@@ -18,7 +18,7 @@ import { ExportRows, EXPORT_FAILED, type ExportKind } from '../order-export.tsx'
 import { nativeShareFile } from '../../native/index.ts'
 import { wait, SHEET_GAP_MS } from '../../lib/receipt-sms-flow.ts'
 import { LOAD_FAILED, STATEMENT_INFO_TITLE, StatementInfoSheet } from '../StatementInfo.tsx'
-import { StatementPages, StatementPhoto, shareStatementPhoto, statementPages } from './StatementPhoto.tsx'
+import { StatementPages, StatementPhoto, shareStatementPhoto, statementPages, statementScreenPages } from './StatementPhoto.tsx'
 import { BuyerOrderPaper } from './BuyerOrderPaper.tsx'
 
 type Sales = ReturnType<typeof broadcastSales>
@@ -59,6 +59,8 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   const tab = products ? 'products' : 'buyers'
   const rows = useMemo(() => statementRows(sales, tab, id => names.name(id)), [tab, sales, names])
   const buyerRows = useMemo(() => statementRows(sales, 'buyers', id => names.name(id)), [sales, names])
+  // 화면은 한 장으로 잇고, 사진만 A4 장으로 나눈다 (D-UX4-145)
+  const screenPages = useMemo(() => statementScreenPages(rows, tab), [rows, tab])
   const pages = useMemo(() => statementPages(rows, tab), [rows, tab])
   const sheet = { tab, date, shop: shop?.name ?? title, total: sales.total, qty: sales.qty } as const
   const paperWidth = Math.min(windowWidth - 2 * GUTTER, 480)
@@ -100,7 +102,7 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
       if (kind === 'photo') {
         setMenu(false)
         await wait(SHEET_GAP_MS)
-        // 화면에 보이는 그 그림을 찍는다. 여러 장이면 몇 번째 장인지 고른다
+        // A4 한 장에 들면 화면에 보이는 그 그림을 찍는다(같은 그림). 여러 장이면 몇 번째 장인지 고른다
         if (pages.length > 1) setPhoto(true)
         else await shareStatementPhoto(papers.current[0] ?? null, sheet, pages[0]!, 0, 1)
       } else {
@@ -167,7 +169,7 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
         </View>
         {doneNote ? <Txt color="textSub">{doneNote}</Txt> : null}
       </View>
-      <StatementPages key={tab} pages={pages} sheet={sheet} width={paperWidth} refs={papers}
+      <StatementPages key={tab} pages={screenPages} sheet={sheet} width={paperWidth} refs={papers}
         {...(products ? {} : { onRow: (key: string) => withInfo(() => select(key)), rowLabel: row => `${row.label} 정산서 · ${salesMoney(row.money)} · ${row.qty}개${sent.includes(row.key) ? ` · ${SENT_WORD}` : ''}` })} />
     </ScrollView>
     <View style={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: inset + SPACE.sm, gap: SPACE.sm }}>

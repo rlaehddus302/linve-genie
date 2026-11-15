@@ -1,7 +1,7 @@
 // 정산 내역서 그림 (D-RETRO-62, 판매자 요청 2026-11-12 "앱 화면에 보이는 정산서를 그대로 사진으로 … 사진이 화면과 다르면 당황스럽다"):
 // 화면의 상품별·구매자별 표와 내보내는 사진이 같은 그림 하나(StatementPaper)에서 나온다 — 화면에 보이는 그 그림을 그대로 찍는다.
 // 옛: 화면은 목록(글자 줄), 사진은 따로 그린 그림(₩ 기호·다른 칸 폭)이라 둘이 달랐다.
-// 줄이 많으면 장으로 나눈다. 화면에는 모든 장을 이어 보이고, 사진은 한 장씩 저장한다(여러 장이면 몇 번째 장인지 고르는 판).
+// 화면에는 장을 나누지 않고 한 장으로 잇는다. 사진으로 내보낼 때만 A4 비율로 나눠 한 장씩 저장한다(여러 장이면 몇 번째 장인지 고르는 판) (D-UX4-145).
 import { forwardRef, useRef, useState } from 'react'
 import { View } from 'react-native'
 import Svg, { G, Line, Rect, Text as Ink } from 'react-native-svg'
@@ -23,8 +23,10 @@ const SIDE = 10
 const LINE = 20
 const ROW_PAD = 10
 const BAND_HEIGHT = 36
-/** 한 장에 담는 줄 높이 합 — 넘으면 다음 장 */
-const PAGE_ROWS_MAX = 1400
+/** 사진 한 장의 높이 — A4 비율(가로:세로 = 210:297) (D-UX4-145) */
+export const STATEMENT_A4_HEIGHT = Math.round(STATEMENT_WIDTH * 297 / 210)
+/** 사진 한 장에 담는 줄 높이 합 — 머리(가게 한 줄)·머리 띠·총계 띠·장 번호 자리를 빼고 남는 만큼. 넘으면 다음 장 */
+const PAGE_ROWS_MAX = STATEMENT_A4_HEIGHT - (34 + LINE + 6) - 2 * BAND_HEIGHT - 22
 export const STATEMENT_EMPTY = '판매가 확정된 상품이 없어요.'
 
 const modeWord = (tab: StatementTab) => (tab === 'products' ? '상품별' : '구매자별')
@@ -36,14 +38,17 @@ export interface StatementPageRow {
   readonly height: number
 }
 
-/** 줄을 장으로 나눈다 (줄이 없어도 한 장) */
-export function statementPages(rows: readonly StatementRow[], tab: StatementTab): StatementPageRow[][] {
+/**
+ * 줄을 장으로 나눈다 (줄이 없어도 한 장). 기본은 사진용 A4 장.
+ * 화면은 maxRows = Infinity로 한 장에 모두 담는다 (D-UX4-145)
+ */
+export function statementPages(rows: readonly StatementRow[], tab: StatementTab, maxRows = PAGE_ROWS_MAX): StatementPageRow[][] {
   const pages: StatementPageRow[][] = [[]]
   let y = 0
   for (const row of rows) {
     const words = wrap(row.label, tab === 'products' ? 10 : 13)
     const height = words.length * LINE + 2 * ROW_PAD
-    if (y > 0 && y + height > PAGE_ROWS_MAX) {
+    if (y > 0 && y + height > maxRows) {
       pages.push([])
       y = 0
     }
@@ -130,8 +135,11 @@ export async function shareStatementPhoto(svg: Svg | null, sheet: Pick<Statement
   await nativeShareFile()(bytes, statementPhotoName(sheet.date, sheet.tab, pageNo, pageCount), 'image/png')
 }
 
+/** 화면용: 모든 줄을 한 장에 (D-UX4-145) */
+export const statementScreenPages = (rows: readonly StatementRow[], tab: StatementTab): StatementPageRow[][] => statementPages(rows, tab, Number.POSITIVE_INFINITY)
+
 /**
- * 화면에 보이는 정산 내역서 — 모든 장을 이어 그린다. 구매자별 표는 줄을 누르면 그 손님 정산서가 열린다(그림 위에 투명한 누름 자리).
+ * 화면에 보이는 정산 내역서 — 화면에서는 statementScreenPages로 한 장만 넘긴다(여러 장을 주면 이어 그린다). 구매자별 표는 줄을 누르면 그 손님 정산서가 열린다(그림 위에 투명한 누름 자리).
  * refs: 장마다 그림(사진을 찍을 때 쓴다). 그림 위에는 아무것도 덧그리지 않는다 — 화면과 사진이 같아야 한다
  */
 export function StatementPages({ pages, sheet, width, refs, onRow, rowLabel }: {
@@ -153,7 +161,7 @@ export function StatementPages({ pages, sheet, width, refs, onRow, rowLabel }: {
   </View>
 }
 
-/** 여러 장일 때: 몇 번째 장을 사진으로 저장할지 고른다 — 보이는 그림은 화면과 같은 StatementPaper */
+/** 사진이 여러 장일 때: 몇 번째 장을 사진으로 저장할지 고른다 — 보이는 그림은 화면과 같은 StatementPaper */
 export function StatementPhoto({ pages, sheet, width, onClose, onError }: {
   readonly pages: readonly (readonly StatementPageRow[])[]; readonly sheet: StatementSheet; readonly width: number; readonly onClose: () => void; readonly onError: () => void
 }) {

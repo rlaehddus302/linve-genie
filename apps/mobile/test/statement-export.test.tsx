@@ -3,7 +3,7 @@ import { nativeShareFile, setNativeModules } from '../src/native/index.ts'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { it, expect, vi, onTestFinished } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
-import { statementGeometry, statementPages, StatementPages, STATEMENT_WIDTH } from '../src/screens/console/StatementPhoto.tsx'
+import { statementGeometry, statementPages, statementScreenPages, StatementPages, STATEMENT_A4_HEIGHT, STATEMENT_WIDTH } from '../src/screens/console/StatementPhoto.tsx'
 import type { StatementRow } from '../src/lib/broadcast-sales.ts'
 import { makeWorld } from './screen-support.tsx'
 import { buyer, claim, product, fullView, BROADCAST } from './support.ts'
@@ -59,18 +59,28 @@ it('양쪽 탭에서 화면에 보이는 표를 그대로 사진으로 내보낸
 
 const manyRows = (count: number): StatementRow[] => Array.from({ length: count }, (_, i) => ({ key: `k${i}`, no: null, label: `손님${i + 1}`, money: 10000, qty: 1 }))
 
-it('줄이 많으면 장으로 나누고 총계는 마지막 장에만, 줄이 없어도 한 장을 그린다', () => {
+// 옛 기대: 장 높이 1,600 이하(긴 띠). 새 기대(D-UX4-145, 사용자 2026-11-16 "앱 안에선 그냥 하나로 … 내보내기 할 때는 적당히 A4 사이즈로"):
+// 사진 장은 A4 비율(210:297) 안, 화면용은 줄이 아무리 많아도 한 장
+it('사진은 A4 비율 장으로 나누고 총계는 마지막 장에만, 화면용은 한 장, 줄이 없어도 한 장을 그린다', () => {
   const pages = statementPages(manyRows(80), 'buyers')
   expect(pages.length).toBeGreaterThan(1)
   expect(pages.flat().map(row => row.row.key)).toEqual(manyRows(80).map(row => row.key))
+  expect(STATEMENT_A4_HEIGHT).toBe(Math.round(STATEMENT_WIDTH * 297 / 210))
+  pages.forEach((page, i) => {
+    expect(statementGeometry(page, '용용다육', i === pages.length - 1, false).height).toBeLessThanOrEqual(STATEMENT_A4_HEIGHT)
+  })
   const first = statementGeometry(pages[0]!, '용용다육', false, false)
   const last = statementGeometry(pages[pages.length - 1]!, '용용다육', true, false)
-  expect(first.height).toBeLessThanOrEqual(1600)
   expect(last.height - last.rowsEnd).toBeGreaterThan(first.height - first.rowsEnd)
+  const screenPages = statementScreenPages(manyRows(300), 'buyers')
+  expect(screenPages).toHaveLength(1)
+  expect(screenPages[0]!.map(row => row.row.key)).toEqual(manyRows(300).map(row => row.key))
   expect(statementPages([], 'products')).toEqual([[]])
 })
 
-it('여러 장이면 화면에 모든 장을 이어 보이고, 사진은 고른 장을 화면과 같은 그림으로 저장한다', async () => {
+// 옛 기대: 화면에도 장(1/2, 2/2)이 나뉘어 이어 보이고, 고르는 판의 장 = 화면의 장.
+// 새 기대(D-UX4-145, 사용자 2026-11-16): 화면은 머리·총계가 한 번씩인 한 장, 사진만 A4 장으로 나눠 고른다
+it('줄이 많아도 화면은 한 장으로 잇고, 사진만 A4 장으로 나눠 고른 장을 저장한다', async () => {
   const world = makeWorld()
   const { shareFile } = sharing()
   const names = Array.from({ length: 45 }, (_, i) => `손님${String(i + 1).padStart(2, '0')}`)
@@ -82,19 +92,25 @@ it('여러 장이면 화면에 모든 장을 이어 보이고, 사진은 고른 
   render(world.wrap(<ConsoleScreen broadcastId="b1" seller justEnded onBack={() => {}} />))
   await screen.findAllByText('용용다육')
   const onScreen = [...document.querySelectorAll(`svg[viewBox^="0 0 ${STATEMENT_WIDTH} "]`)]
-  expect(onScreen.length).toBeGreaterThan(1)
-  expect(onScreen.map(svg => svg.textContent).join('')).toContain('손님45')
-  // 총계는 마지막 장에만
-  expect(onScreen.filter(svg => svg.textContent?.includes('총계'))).toHaveLength(1)
-  expect(onScreen[onScreen.length - 1]!.textContent).toContain('450,000원')
+  expect(onScreen).toHaveLength(1)
+  const paper = onScreen[0]!.textContent ?? ''
+  for (const name of ['손님01', '손님45']) expect(paper).toContain(name)
+  // 머리·총계는 한 번씩, 장 번호(1/2)는 없다
+  expect(paper.split('정산 내역서 · 구매자별')).toHaveLength(2)
+  expect(paper.split('총계')).toHaveLength(2)
+  expect(paper).toContain('450,000원')
+  expect(paper).not.toMatch(/\d+\/\d+/)
   fireEvent.click(screen.getByRole('button', { name: '내보내기' }))
   fireEvent.click(screen.getByRole('button', { name: '사진으로 저장하기' }))
   const sheet = await screen.findByRole('dialog', { name: '구매자별 정산 사진' })
-  // 고르는 판의 그림은 화면의 첫 장과 같은 글이다
+  // 고르는 판의 첫 장: 앞 손님만, 총계 없음, A4 비율
   const preview = sheet.querySelector('svg')!
-  expect(preview.textContent).toBe(onScreen[0]!.textContent)
+  expect(preview.textContent).toContain('손님01')
+  expect(preview.textContent).not.toContain('손님45')
+  expect(preview.textContent).not.toContain('총계')
+  expect(Number(preview.getAttribute('viewBox')!.split(' ')[3])).toBeLessThanOrEqual(STATEMENT_A4_HEIGHT)
   fireEvent.click(within(sheet).getByRole('button', { name: '다음 장' }))
-  expect(sheet.querySelector('svg')!.textContent).toBe(onScreen[1]!.textContent)
+  expect(sheet.querySelector('svg')!.textContent).not.toContain('손님01')
   fireEvent.click(within(sheet).getByRole('button', { name: '이 장 사진 저장' }))
   await waitFor(() => expect(shareFile).toHaveBeenCalledWith(expect.any(Uint8Array), '정산내역서-2026-11-12-구매자별-2.png', 'image/png'))
 }, 20_000)
