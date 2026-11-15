@@ -36,16 +36,19 @@ describe('상품 줄 (D-UX4-105)', () => {
     expect(getComputedStyle(fill).backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
   })
 
-  it('번호와 금액의 기준 폭이 작은 값과 최대값에서 같고, 남은 칸에는 품종을 가운데에 표시한다', async () => {
+  // D-UX4-148로 바뀐 기대 (사용자 2026-11-16 "번호·품종·가격을 왼쪽 정렬로 사이에 ·"; 옛: 번호 48·가격 104 고정 칸, 품종 가운데·가격 오른쪽 맞춤)
+  it('번호 · 품종 · 가격을 왼쪽부터 한 줄로 — 고정 칸 없이, 품종만 줄어들고 가격은 늘 다 보인다', async () => {
     await open(makeWorld({ products: [product(8, { name: '창금', price: 2000 }), product(999, { name: '삼광수박금', price: 10_000_000 })] }))
     for (const [no, name, price] of [[8, '창금', '2,000원'], [999, '삼광수박금', '10,000,000원']] as const) {
       const row = within(screen.getByRole('button', { name: `상품 자세히 — ${no}번` }))
-      expect(getComputedStyle(row.getByTestId('product-row-no')).width).toBe('48px')
-      expect(getComputedStyle(row.getByTestId('product-row-price')).width).toBe('104px')
-      expect(getComputedStyle(row.getByTestId('product-row-name')).flexGrow).toBe('1')
-      expect(getComputedStyle(row.getByText(`${no}번`)).textAlign).toBe('center')
-      expect(getComputedStyle(row.getByText(name)).textAlign).toBe('center')
-      expect(getComputedStyle(row.getByText(price)).textAlign).toBe('right')
+      expect(row.getByTestId('product-row-line').textContent).toBe(`${no} · ${name} · ${price}`)
+      expect(row.getByTestId('product-row-line').getAttribute('aria-label')).toBe(`${no} · ${name} · ${price}`)
+      expect(getComputedStyle(row.getByTestId('product-row-no')).width).not.toBe('48px')
+      expect(getComputedStyle(row.getByTestId('product-row-price')).width).not.toBe('104px')
+      expect(getComputedStyle(row.getByTestId('product-row-name')).flexGrow).not.toBe('1')
+      expect(getComputedStyle(row.getByTestId('product-row-name')).flexShrink).toBe('1')
+      expect(getComputedStyle(row.getByTestId('product-row-price')).flexShrink).toBe('0')
+      for (const text of [String(no), name, price]) expect(['', 'left', 'start']).toContain(getComputedStyle(row.getByText(text)).textAlign)
     }
   })
 })

@@ -91,7 +91,8 @@ describe('찜 된 것만 (D-UX4-141)', () => {
     expect(toggle.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(toggle)
     expect(screen.getByRole('switch', { name: CLAIMED_ONLY }).getAttribute('aria-checked')).toBe('true')
-    expect(rowLabels()).toEqual(['상품 자세히 — 218번', '상품 자세히 — 15번'])
+    // D-UX4-150으로 바뀐 기대 (옛 D-UX3-87 최근 올린 218번이 위): 기본 번호 작은순
+    expect(rowLabels()).toEqual(['상품 자세히 — 15번', '상품 자세히 — 218번'])
     fireEvent.focus(screen.getByLabelText('상품 번호 검색'))
     typePad('1')
     expect(rowLabels()).toEqual(['상품 자세히 — 15번'])

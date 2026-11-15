@@ -1,0 +1,45 @@
+// 방송 화면 상품 목록 정렬 (D-UX4-150, 사용자 2026-11-16 "정렬 기능"): 화면 없는 순수 함수 — 시계·난수 없이 받은 상품만 다시 세운다.
+// 기본은 번호 작은순. 같은 값끼리는 번호 작은순 → 나중에 올린 상품 먼저(늘 같은 차례가 나오게).
+import type { Product } from '@livejjim/web/src/api/types.ts'
+import { productOrder } from './derive.ts'
+
+export type ProductSort = 'no-asc' | 'no-desc' | 'recent' | 'oldest' | 'price-asc' | 'price-desc'
+
+/** 고르는 판에 보이는 차례 */
+export const PRODUCT_SORTS: readonly ProductSort[] = ['no-asc', 'no-desc', 'recent', 'oldest', 'price-asc', 'price-desc']
+
+export const DEFAULT_PRODUCT_SORT: ProductSort = 'no-asc'
+
+/** 고르는 판 제목·정렬 단추 이름 */
+export const SORT_TITLE = '목록 순서'
+
+const WORDS: Readonly<Record<ProductSort, string>> = {
+  'no-asc': '번호 작은순',
+  'no-desc': '번호 큰순',
+  recent: '최근 등록순',
+  oldest: '오래된 등록순',
+  'price-asc': '가격 낮은순',
+  'price-desc': '가격 높은순',
+}
+
+/** 정렬 이름 (쉬운 말 — 단추 글자·고르는 판 줄) */
+export const sortWord = (sort: ProductSort): string => WORDS[sort]
+
+type Sortable = Pick<Product, 'id' | 'no' | 'price'>
+
+const byNo = (a: Sortable, b: Sortable): number => a.no - b.no
+const byRecent = (a: Sortable, b: Sortable): number => productOrder(b) - productOrder(a)
+
+const COMPARE: Readonly<Record<ProductSort, (a: Sortable, b: Sortable) => number>> = {
+  'no-asc': (a, b) => byNo(a, b) || byRecent(a, b),
+  'no-desc': (a, b) => byNo(b, a) || byRecent(a, b),
+  recent: (a, b) => byRecent(a, b) || byNo(a, b),
+  oldest: (a, b) => byRecent(b, a) || byNo(a, b),
+  'price-asc': (a, b) => a.price - b.price || byNo(a, b) || byRecent(a, b),
+  'price-desc': (a, b) => b.price - a.price || byNo(a, b) || byRecent(a, b),
+}
+
+/** 정렬한 새 배열 (받은 배열은 그대로) */
+export function sortProducts<T extends Sortable>(products: readonly T[], sort: ProductSort): T[] {
+  return [...products].sort(COMPARE[sort])
+}

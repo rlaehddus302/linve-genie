@@ -127,6 +127,7 @@ describe('상품 추가 (D-UX4-111)', () => {
       await flush()
     })
     const row = within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 12번' })
-    expect(row.textContent).toBe('12번1,200원')
+    // D-UX4-148로 바뀐 기대 (옛: '12번1,200원' — 번호 칸·가격 칸): 품종이 없으면 나눔도 하나만 "12 · 1,200원"
+    expect(row.textContent).toBe('12 · 1,200원')
   })
 })

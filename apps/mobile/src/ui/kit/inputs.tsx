@@ -1,6 +1,6 @@
 // 입력 조각: TextField(큰 라벨·도움말·오류), NumberPad(큰 숫자판).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Animated, Easing, Platform, Text, TextInput, View, type TextInputInstance, type TextInputProps } from 'react-native'
+import { Animated, Easing, Platform, Pressable, Text, TextInput, View, type TextInputInstance, type TextInputProps } from 'react-native'
 import { errorHaptic } from '../../native/haptics.ts'
 import { LINE, RADIUS, SPACE, TOUCH, TYPE, WEIGHT } from './tokens.ts'
 import { Txt, useKit } from './theme.tsx'
@@ -218,16 +218,22 @@ export function AlertMark({ color, size = 16 }: { readonly color?: string; reado
   )
 }
 
-/** 입력 칸 오른쪽 동그란 지우기 (회색 원 + 흰 ×, 누르면 둘레가 진해진다) */
+/**
+ * 입력 칸 오른쪽 동그란 지우기 (회색 원 + 흰 ×). 누르면 뒤로 ‹처럼 동그라미 색만 연해진다 — 커지거나 줄거나 바탕이 생기지 않는다
+ * (D-UX4-147, 사용자 2026-11-16 "X 버튼 누를 때 뒤로가기처럼 색만 연해지게" — 옛: 누르면 둘레에 회색 바탕이 생기고 조금 줄었다)
+ */
 export function ClearButton({ label, onPress }: { readonly label: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
-    <Tap role="button" aria-label={label} onPress={onPress} hitSlop={8} style={({ pressed }) => ({ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-      <View aria-hidden style={{ width: 22, height: 22, borderRadius: 11, borderCurve: 'continuous', backgroundColor: p.clearCircle, alignItems: 'center', justifyContent: 'center' }}>
-        <View style={{ position: 'absolute', width: 11, height: 2, borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.surface, transform: [{ rotate: '45deg' }] }} />
-        <View style={{ position: 'absolute', width: 11, height: 2, borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.surface, transform: [{ rotate: '-45deg' }] }} />
-      </View>
-    </Tap>
+    // 누름 예외: 지우기 — 뒤로 가기처럼 줄어들지 않고 색만 연해진다 (D-UX4-147)
+    <Pressable role="button" aria-label={label} onPress={onPress} hitSlop={8} style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}>
+      {({ pressed }) => (
+        <View aria-hidden testID="clear-circle" style={{ width: 22, height: 22, borderRadius: 11, borderCurve: 'continuous', backgroundColor: pressed ? p.clearPressed : p.clearCircle, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ position: 'absolute', width: 11, height: 2, borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.surface, transform: [{ rotate: '45deg' }] }} />
+          <View style={{ position: 'absolute', width: 11, height: 2, borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.surface, transform: [{ rotate: '-45deg' }] }} />
+        </View>
+      )}
+    </Pressable>
   )
 }
 

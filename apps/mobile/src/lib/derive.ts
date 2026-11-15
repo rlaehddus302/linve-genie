@@ -10,7 +10,8 @@ import { claimStatusWord } from './words.ts'
 /** 상품 키 `<방송>/<번호>` */
 export const productKey = (b: string, no: number): string => `${b}/${String(no)}`
 
-function productOrder(product: Product): number {
+/** 상품 등록 차례 (클수록 나중에 올림) — 상품 ID 끝 숫자 */
+export function productOrder(product: Pick<Product, 'id'>): number {
   const n = Number(product.id.replace(/^\D+/, ''))
   return Number.isFinite(n) ? n : 0
 }

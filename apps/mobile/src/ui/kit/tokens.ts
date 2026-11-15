@@ -57,6 +57,8 @@ export interface Palette {
   readonly iconPressed: string
   /** 입력 칸 [지우기] 동그라미 (장식 — 이름은 aria-label) */
   readonly clearCircle: string
+  /** 누르는 동안의 [지우기] 동그라미 — 뒤로 ‹처럼 바탕·크기는 그대로, 색만 연하게 (D-UX4-147) */
+  readonly clearPressed: string
   /** 내용 위에 뜬 아래 탭 바탕 — 은은한 반투명 흰색(흐림 위에 얹는다, D-UX3-13) */
   readonly glass: string
   /** 흐림이 없을 때(안드로이드) 아래 탭 바탕 — 흐림 없이 0.82면 뒤 글자가 또렷이 비쳐 거의 불투명하게 (D-UX3-68) */
@@ -131,6 +133,7 @@ const LIGHT: Palette = {
   placeholder: '#8B95A1',
   iconPressed: '#B0B8C1',
   clearCircle: '#B0B8C1',
+  clearPressed: '#DDE1E6',
   glass: 'rgba(255,255,255,0.82)',
   glassNoBlur: 'rgba(255,255,255,0.96)',
   /** 아래 탭 테두리 (토스처럼 또렷한 얇은 회색 선, D-UX3-42) */

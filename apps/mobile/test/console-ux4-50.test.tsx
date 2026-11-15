@@ -258,7 +258,8 @@ describe('진짜 쌓인 화면 (D-UX4-57)', () => {
     fireEvent.click(within(page).getByRole('button', { name: '추가하기' }))
     await waitFor(() => expect(back).toBe(1))
     expect(world.events[0]?.body).toMatchObject({ type: 'product.register', b: 'b1', noText: '16', priceText: '15000원' })
-    await waitFor(() => expect(within(screen.getByRole('list', { name: '상품 목록' })).getByText('16번')).toBeTruthy())
+    // D-UX4-148로 바뀐 기대 (옛: 줄 첫 칸 '16번'): 줄 첫째 줄은 "16 · 품종 · 가격"
+    await waitFor(() => expect(within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 16번' })).toBeTruthy())
   })
 
   it('쌓인 라이브 관리 화면: 같은 메뉴가 있고, 여기서 여는 아래 판도 이 화면 위에 뜬다', async () => {
