@@ -66,8 +66,12 @@ describe('ConsoleScreen', () => {
     fireEvent.pointerDown(within(pad()!).getByRole('button', { name: '1' }))
     fireEvent.pointerUp(within(pad()!).getByRole('button', { name: '1' }))
     typePad('15')
-    expect(screen.queryByRole('button', { name: '상품 번호 검색 지우기' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '검색' }))
+    // D-UX4-143으로 바뀐 기대 (사용자 메모 11-13 "검색 버튼 없애고 원래대로 x 버튼으로"; 옛: 숫자가 있으면 [검색] 단추·지우기 없음, [검색]을 눌러 숫자판을 닫음):
+    // [검색]은 없고 동그란 지우기(x)가 있으며, 치는 대로 바로 걸러진다. 숫자판은 칸·숫자판 밖을 눌러 닫는다
+    expect(screen.queryByRole('button', { name: '검색' })).toBeNull()
+    expect(screen.getByRole('button', { name: '상품 번호 검색 지우기' })).toBeTruthy()
+    expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual(['상품 자세히 — 15번', '상품 자세히 — 151번'])
+    fireEvent.pointerUp(screen.getByRole('list', { name: '상품 목록' }))
     expect(pad()).toBeNull()
     expect(rows().map((row) => row.getAttribute('aria-label'))).toEqual(['상품 자세히 — 15번', '상품 자세히 — 151번'])
     fireEvent.focus(search)
@@ -95,6 +99,14 @@ describe('ConsoleScreen', () => {
     for (let i = 0; i < 3; i++) fireEvent.click(erase)
     expect(rows()).toHaveLength(3)
     expect(screen.queryByRole('button', { name: '검색' })).toBeNull()
+    // 지우기(x)는 한 번에 비우고 전체 목록으로 — 숫자판은 열린 채 새 번호를 친다 (D-UX4-143)
+    expect(screen.queryByRole('button', { name: '상품 번호 검색 지우기' })).toBeNull()
+    typePad('25')
+    expect(rows()).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '상품 번호 검색 지우기' }))
+    expect((search as HTMLInputElement).value).toBe('')
+    expect(rows()).toHaveLength(3)
+    expect(pad()).toBeTruthy()
   })
 
   // D-UX3-81로 바뀐 기대 (사용자 지시 2026-11-09 "상품, 찜기록은 위로 정렬, 채팅문자는 아래로 정렬"): 옛 D-UX3-77 "모두 아래"

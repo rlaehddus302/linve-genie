@@ -4,7 +4,7 @@
 import type { ReactNode } from 'react'
 import { ActivityIndicator, TextInput, View, type TextInputProps } from 'react-native'
 import Svg, { Circle, Path } from 'react-native-svg'
-import { ClearButton, SoftChip, font, Icon, RADIUS, SPACE, TOUCH, TYPE, Txt, useKit, WEIGHT, type Tone, Tap } from '../ui/kit/index.ts'
+import { ClearButton, font, Icon, RADIUS, SPACE, TOUCH, TYPE, Txt, useKit, WEIGHT, type Tone, Tap } from '../ui/kit/index.ts'
 import type { TxtColor } from '../ui/kit/theme.tsx'
 
 /** 돋보기 (장식 — 칸 이름은 aria-label) */
@@ -19,12 +19,16 @@ function SearchGlyph({ color }: { readonly color: string }) {
   )
 }
 
-/** 흰 둥근 찾기 칸 (토스 찾기처럼): 돋보기 · 회색 안내 글 · 글이 있으면 동그란 지우기 */
+/**
+ * 흰 둥근 찾기 칸 (토스 찾기처럼): 돋보기 · 회색 안내 글 · 글이 있으면 동그란 지우기.
+ * numberSearch(상품 번호 검색): 앱 숫자판으로 치고 칠 때마다 바로 걸러진다. 오른쪽은 다른 찾기 칸과 같은 동그란 지우기 —
+ * D-UX4-143(사용자 메모 11-13 "검색 버튼 없애고 원래대로 x 버튼으로")이 2026-11-12 [검색] 단추(87df35a9)를 되돌렸다. 숫자판은 칸·숫자판 밖을 누르거나 목록을 밀면 닫힌다.
+ */
 export function SearchField({ label, value, onChangeText, placeholder, keyboardType, numberSearch }: { readonly label: string; readonly value: string; readonly onChangeText: (text: string) => void; readonly placeholder?: string; readonly keyboardType?: TextInputProps['keyboardType']; readonly numberSearch?: { open: () => void; submit: () => void } }) {
   const { p, fontScale, forced } = useKit()
   const size = TYPE.bodyLarge * (forced ? fontScale : 1)
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: TOUCH.min + 2, paddingLeft: SPACE.lg, paddingRight: numberSearch && value !== '' ? SPACE.lg : SPACE.xs, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surface }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: TOUCH.min + 2, paddingLeft: SPACE.lg, paddingRight: SPACE.xs, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surface }}>
       <SearchGlyph color={p.placeholder} />
       <TextInput
         aria-label={label}
@@ -44,7 +48,7 @@ export function SearchField({ label, value, onChangeText, placeholder, keyboardT
         maxFontSizeMultiplier={2}
         style={{ flex: 1, minHeight: TOUCH.min, fontSize: size, ...font(WEIGHT.book), color: p.text, padding: 0 }}
       />
-      {value === '' ? null : numberSearch ? <SoftChip center label="검색" onPress={numberSearch.submit} /> : <ClearButton label={`${label} 지우기`} onPress={() => onChangeText('')} />}
+      {value === '' ? null : <ClearButton label={`${label} 지우기`} onPress={() => onChangeText('')} />}
     </View>
   )
 }

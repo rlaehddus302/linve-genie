@@ -317,7 +317,8 @@ describe('이미 있는 번호 안내 (D-RETRO-22, 개선 계획표 F5)', () => 
     const rows = () => within(screen.getByRole('list', { name: '상품 목록' })).getAllByRole('button').map((row) => row.getAttribute('aria-label'))
     fireEvent.focus(screen.getByLabelText('상품 번호 검색'))
     typePad('12')
-    fireEvent.click(screen.getByRole('button', { name: '검색' }))
+    // D-UX4-143으로 바뀐 기대 (옛: [검색]을 눌러 숫자판을 닫음): [검색]은 없어졌다 — 칸 밖(목록)을 눌러 숫자판을 닫는다
+    fireEvent.pointerUp(screen.getByRole('list', { name: '상품 목록' }))
     expect(rows()).toEqual(['상품 자세히 — 123번'])
     fireEvent.click(screen.getByRole('button', { name: '상품 자세히 — 123번' }))
     fireEvent.click(within(await screen.findByRole('group', { name: '상품 자세히' })).getByRole('button', { name: '번호 고치기' }))

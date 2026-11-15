@@ -5,6 +5,7 @@
 // 자세히(아래 판, D-UX4-30, 사용자 지시 2026-11-09): 번호·품종·가격을 한 줄에 점선 둥근 칸으로 — 왼쪽 위 연필. 누르면 반 화면 판에서 고친다(D-UX4-106, ProductEdit).
 // 그 아래 찜·대기 손님 이름 알약(위 탭 알약 크기, 넘치면 아랫줄로) — 누르면 "찜을 삭제할까요?" 팝업. 판매 완료·찜 요약·"아직 찜이 없어요"·일시 중지·판매 종료 단추는 없앴고,
 // 토스 메뉴 줄로 [판매 시작](공개 전·멈춘 상품만) · [누가 살지 정하기](겹침·승계만) · [🗑 상품 삭제] — 삭제는 "상품을 삭제할까요?" 팝업 [닫기 | 삭제].
+// D-UX4-141·142 (사용자 메모 11-13, 개선 계획 E4): 목록 위 [찜 된 것만] 켜고 끄기, 대기가 차 대기 밖이 된 찜도 줄 꼬리표(흐리게)·자세히("대기 밖 n명")에 보인다.
 // D-RETRO-54 (복기 F7): 메뉴 줄 [찜 넣기] — 누르면 메뉴 자리에 손님 이름·전화번호 끝 네 자리 칸이 나오고 [닫기 | 찜 넣기]로 그 상품에 문자찜을 넣는다(ClaimAdd). 옵션 상품·끝난 라이브는 없다.
 import { displayNickname } from '@livejjim/core/format'
 import { memo, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
@@ -27,6 +28,7 @@ import { feedBuyerName } from './feed-rows.ts'
 import { useConsoleApi } from './context.ts'
 import { IconMenuRow, NamePill, TRASH_TINT, type PillTone } from './parts.tsx'
 import { TentativePanel } from './TentativeCard.tsx'
+import { OUTSIDE_DIM, OutsideWait, outsideBuyers, soldOutClaims } from './OutsideWait.tsx'
 
 /** 방금 올라온 상품을 연한 초록으로 두는 시간, 흰색으로 돌아오는 시간 (D-UX4-29) */
 export const FRESH_HOLD_MS = 2500
@@ -84,8 +86,8 @@ export function rowAttention(product: Product, conflictClaims: number): RowAtten
 /** 줄 첫째 줄의 품종 — 비어 있으면 아무것도 쓰지 않는다 (D-UX3-78 "-" → D-UX4-111, 사용자 지시 2026-11-10 "품종 없으면 - 했는데 그냥 아무것도 넣지 말자") */
 export const rowName = (product: Pick<Product, 'name'>): string => product.name.trim()
 
-/** 줄 아래 꼬리표: 1등(금색) → 손님 꼬리표(입금 늦음 주의·단골) → 대기 손님(회색), 순서는 서버 순서 그대로 (D-UX3-78) */
-export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, 'kind' | 'phoneLast4'> | undefined, nameOfBuyer: (id: string) => string, badge?: string): { readonly tags: ProductTag[]; readonly keep: number } {
+/** 줄 아래 꼬리표: 1등(금색) → 손님 꼬리표(입금 늦음 주의·단골) → 대기 손님(회색) → 대기 밖 손님(흐리게, D-UX4-142), 순서는 서버 순서 그대로 (D-UX3-78) */
+export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, 'kind' | 'phoneLast4'> | undefined, nameOfBuyer: (id: string) => string, badge?: string, outside: readonly string[] = []): { readonly tags: ProductTag[]; readonly keep: number } {
   const slots = productSlots(product)
   const tags: ProductTag[] = slots.winners.map((id) => ({ kind: 'win', text: buyerTagText(buyerOf(id), nameOfBuyer(id), true) }))
   let keep = tags.length === 0 ? 0 : 1
@@ -94,6 +96,7 @@ export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, '
     keep = 2
   }
   for (const id of slots.waitlist) tags.push({ kind: 'wait', text: buyerTagText(buyerOf(id), nameOfBuyer(id), false) })
+  for (const id of outside) tags.push({ kind: 'out', text: buyerTagText(buyerOf(id), nameOfBuyer(id), false) })
   return { tags, keep }
 }
 
@@ -103,8 +106,10 @@ export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, '
  * 찜도 대기도 없으면 아래 줄을 그리지 않는다. 확인이 필요한 상품은 꼬리표 대신 주황 글 한 줄.
  * freshAt: 방금 올라온 시각(아니면 0) — 그때부터 잠깐 연한 초록, 그 뒤 흰색으로 (D-UX4-29)
  */
-const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, conflicts, waiting, buyers, names }: {
+const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, conflicts, waiting, outside, buyers, names }: {
   readonly product: Product
+  /** 대기 밖 손님 (D-UX4-142) — 대기 뒤에 흐린 꼬리표 */
+  readonly outside: readonly string[]
   readonly freshAt: number
   readonly onOpen: (key: string) => void
   readonly doubt?: string
@@ -118,7 +123,7 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
   const [width, setWidth] = useState(0)
   // 확인 중 상품은 주황 줄 "확인 중 · 기다리는 찜 n건 · 눌러서 확정하기" (D-RETRO-90)
   const attention = tentativeAttention(product, waiting) ?? rowAttention(product, conflicts)
-  const { tags, keep } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id))
+  const { tags, keep } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id), undefined, outside)
   const fit = fitTags(tags, width, TYPE.note * Math.min(fontScale, MAX_FONT_SCALE), keep)
   const glow = useRef(new Animated.Value(0)).current
   useEffect(() => {
@@ -178,8 +183,8 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
               const fill = tag.kind === 'win' ? p.goldBg : p.soft
               const ink = tag.kind === 'win' ? p.goldText : p.textSub
               return (
-                <View key={`${tag.kind}-${String(index)}`} role="listitem" style={tagStyle(fill)}>
-                  <Txt step="note" weight={tag.kind === 'wait' ? 'medium' : 'bold'} ink={ink} numberOfLines={1}>
+                <View key={`${tag.kind}-${String(index)}`} role="listitem" {...(tag.kind === 'out' ? { 'aria-label': `${tag.text} 대기 밖` } : {})} style={[tagStyle(fill), tag.kind === 'out' ? { opacity: OUTSIDE_DIM } : null]}>
+                  <Txt step="note" weight={tag.kind === 'wait' || tag.kind === 'out' ? 'medium' : 'bold'} ink={ink} numberOfLines={1}>
                     {tag.text}
                   </Txt>
                 </View>
@@ -203,11 +208,30 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
 /** 상품 줄이 놓인 화면 요소 (자리를 재는 데 쓴다) */
 export type RowNode = ComponentRef<typeof View>
 
+/** 목록 위 걸러 보기 단추 (D-UX4-141) */
+export const CLAIMED_ONLY = '찜 된 것만'
+/** 찜 된 것만 켰는데 맞는 상품이 없을 때 */
+export const NO_CLAIMED_YET = '찜 된 상품이 아직 없어요'
+
+/**
+ * 찜 된 상품인가 (D-UX4-141): 살아 있는 찜(1등·대기·겹침·보류)이 하나라도 있거나, 확인 중 상품에 그 번호로 기다리는 찜이 있다.
+ * 대기 밖(품절로 끝난) 찜만 있는 상품은 없다 — 대기가 찼다는 것은 1등이 있다는 뜻이다.
+ */
+export function hasClaims(data: ScopeData, b: string, product: Product): boolean {
+  const slots = productSlots(product)
+  if (slots.winners.length > 0 || slots.waitlist.length > 0) return true
+  if (claimsOfProduct(data, product).some((claim) => ACTIVE_CLAIM.has(claim.status))) return true
+  return isTentative(product) && waitingAt(data, b, product.no) > 0
+}
+
 /** 상품 전체 리스트 — 가장 최근에 말한(올린) 상품이 맨 위 (D-UX3-87). 처음 받은 상품은 강조하지 않고, 그 뒤에 올라온·고른 상품만 잠깐 초록 */
-export function ProductList({ onOpen, query, onQuery, numberSearch, onRow }: {
+export function ProductList({ onOpen, query, onQuery, claimedOnly = false, onClaimedOnly, numberSearch, onRow }: {
   readonly onOpen: (key: string) => void
   readonly query: string
   readonly onQuery: (value: string) => void
+  /** 찜 된 것만 보기 (D-UX4-141) — 방송 화면이 들고 있다("그 상품 보기"에서 푼다) */
+  readonly claimedOnly?: boolean
+  readonly onClaimedOnly?: (on: boolean) => void
   readonly numberSearch: { open: () => void; submit: () => void }
   /** 줄이 놓인 자리(상품 열쇠 → 줄) — 방송 화면이 "그 상품 보기"에서 그 줄로 스크롤한다 (D-RETRO-22) */
   readonly onRow?: (key: string, node: RowNode | null) => void
@@ -222,6 +246,17 @@ export function ProductList({ onOpen, query, onQuery, numberSearch, onRow }: {
     }
     return counts
   }, [claims])
+  // 대기 밖 손님 (D-UX4-142) — 같은 손님들이면 앞 배열을 그대로 넘겨 줄(memo)이 괜히 다시 그려지지 않게
+  const lastOutside = useRef(new Map<string, readonly string[]>())
+  const soldOut = useMemo(() => soldOutClaims({ claims }), [claims])
+  const outsideOf = new Map<string, readonly string[]>()
+  for (const product of products) {
+    const now = outsideBuyers(api.data, product, soldOut)
+    if (now.length === 0) continue
+    const before = lastOutside.current.get(product.key)
+    outsideOf.set(product.key, before !== undefined && before.join('|') === now.join('|') ? before : now)
+  }
+  lastOutside.current = outsideOf
   const seen = useRef<Map<string, number> | null>(null)
   const lastSelected = useRef<string | null>(api.selected)
   if (seen.current === null) seen.current = new Map(products.map((product) => [product.key, 0]))
@@ -231,27 +266,44 @@ export function ProductList({ onOpen, query, onQuery, numberSearch, onRow }: {
     lastSelected.current = api.selected
     if (api.selected !== null && seen.current.has(api.selected)) seen.current.set(api.selected, now)
   }
-  useAnimatedChange(products.map((product) => `${product.key}:${String(productSlots(product).winners.length + productSlots(product).waitlist.length)}:${product.conflict ? 1 : 0}`).join('|'))
+  const shown = claimedOnly ? products.filter((product) => hasClaims(api.data, api.b, product)) : products
+  useAnimatedChange(shown.map((product) => `${product.key}:${String(productSlots(product).winners.length + productSlots(product).waitlist.length)}:${String(outsideOf.get(product.key)?.length ?? 0)}:${product.conflict ? 1 : 0}`).join('|'))
   if (products.length === 0 && query === '') return <EmptyFill title={NO_PRODUCTS_YET} body={NO_PRODUCTS_YET_BODY} />
   const prefix = query.replace(/^0+(?=\d)/, '')
-  const matches = prefix === '' ? products : products
+  const matches = prefix === '' ? shown : shown
     .filter((product) => String(product.no).startsWith(prefix))
     .sort((a, b) => Number(b.no === Number(prefix)) - Number(a.no === Number(prefix)))
   return (
     <View style={{ flexGrow: 1, gap: SPACE.sm }}>
-      <View onTouchEnd={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}>
-        <SearchField label="상품 번호 검색" value={query} numberSearch={numberSearch} onChangeText={text => onQuery(text.normalize('NFKC').replace(/\D/g, ''))} />
+      {/* 걸러 보기 줄 (D-UX4-141): 번호 검색칸 오른쪽에 [찜 된 것만] — 위 탭 알약과 같은 켜고 끄는 알약 */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+        <View style={{ flex: 1, minWidth: 0 }} onTouchEnd={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}>
+          <SearchField label="상품 번호 검색" value={query} numberSearch={numberSearch} onChangeText={text => onQuery(text.normalize('NFKC').replace(/\D/g, ''))} />
+        </View>
+        {onClaimedOnly === undefined ? null : <FilterPill on={claimedOnly} label={CLAIMED_ONLY} onPress={() => { animateNextLayout(); onClaimedOnly(!claimedOnly) }} />}
       </View>
-      {matches.length === 0 ? <EmptyFill title="해당 번호의 상품이 없어요" /> : (
+      {matches.length === 0 ? <EmptyFill title={prefix === '' && claimedOnly ? NO_CLAIMED_YET : '해당 번호의 상품이 없어요'} /> : (
         <View role="list" aria-label="상품 목록" style={{ gap: SPACE.xs }}>
           {matches.map((product) => (
             <View key={product.key} collapsable={false} ref={onRow === undefined ? undefined : (node) => onRow(product.key, node)}>
-              <ProductRow product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={onOpen} buyers={api.data.buyers} names={api.names} conflicts={conflictCounts.get(product.key) ?? 0} waiting={isTentative(product) ? waitingAt(api.data, api.b, product.no) : 0} doubt={api.doubts?.get(product.no)} />
+              <ProductRow product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={onOpen} buyers={api.data.buyers} names={api.names} conflicts={conflictCounts.get(product.key) ?? 0} outside={outsideOf.get(product.key) ?? NO_OUTSIDE} waiting={isTentative(product) ? waitingAt(api.data, api.b, product.no) : 0} doubt={api.doubts?.get(product.no)} />
             </View>
           ))}
         </View>
       )}
     </View>
+  )
+}
+
+const NO_OUTSIDE: readonly string[] = []
+
+/** 켜고 끄는 알약 (D-UX4-141): 켜면 주색 바탕·흰 글자, 끄면 흰 바탕·테두리 — 탭 알약(day-pills Pill)과 같은 생김새, 검색칸 높이에 맞춘다 */
+function FilterPill({ on, label, onPress }: { readonly on: boolean; readonly label: string; readonly onPress: () => void }) {
+  const { p } = useKit()
+  return (
+    <Tap role="switch" aria-label={label} aria-checked={on} onPress={onPress} style={({ pressed }) => ({ flexShrink: 0, minHeight: 44, paddingHorizontal: SPACE.md + 1, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: on ? p.primary : p.outline, backgroundColor: pressed ? pressedFill(p, on ? p.primary : p.surface) : on ? p.primary : p.surface })}>
+      <Txt step="body" weight="bold" color={on ? 'onPrimary' : 'text'} numberOfLines={1}>{label}</Txt>
+    </Tap>
   )
 }
 
@@ -352,6 +404,8 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
           })}
         </View>
       )}
+      {/* 대기 밖 n명 (D-UX4-142) — 판정은 그대로, 눌러 흐린 이름을 펼친다 */}
+      <OutsideWait key={product.key} product={product} />
       {added !== null ? <Notice tone={added.tone}>{added.text}</Notice> : null}
       {adding && !closed ? (
         <ClaimAddForm product={product} onClose={() => setAdding(false)} onAdded={(line) => { animateNextLayout(); setAdded(line); setAdding(false) }} />
