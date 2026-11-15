@@ -676,7 +676,9 @@ describe('ConsoleScreen', () => {
     expect(await screen.findByRole('button', { name: /정산서 · 115,000원/ })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '상품별' }))
     expect(await screen.findByText('색금')).toBeTruthy()
-    expect(screen.getByText('판매 수량 3개 · 구매자 1명')).toBeTruthy()
+    // 옛 기대: 맨 위 작은 글 "판매 수량 3개 · 구매자 1명". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "판매 수량 97개 · 구매자 36 텍스트 지우고 … 표 맨 아래에 총계에"): 총계 카드의 한 줄
+    expect(screen.queryByText('판매 수량 3개 · 구매자 1명')).toBeNull()
+    expect(screen.getByTestId('statement-total').textContent).toContain('구매자 1명 · 3개')
     expect(screen.getAllByText('115,000원')).toHaveLength(2)
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { claims: [{ ...sold, status: 'CANCELLED' }] }) }))
     await act(async () => {
@@ -703,7 +705,8 @@ describe('ConsoleScreen', () => {
     const popup = await screen.findByRole('alertdialog', { name: '라이브 연결을 끊을까요?' })
     fireEvent.click(within(popup).getByRole('button', { name: '끊기' }))
     await waitFor(() => expect(home).toBe(1))
-    expect(await screen.findByText('정산 내역서')).toBeTruthy()
+    // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
+    expect(await screen.findByText('정산서')).toBeTruthy()
     expect(screen.getByText('판매가 확정된 상품이 없어요.')).toBeTruthy()
     expect(screen.getByText('총계')).toBeTruthy()
     expect(screen.getByText('0원')).toBeTruthy()

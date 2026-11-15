@@ -112,7 +112,8 @@ describe('정산 내역서 ↔ 라이브 기록 (D-UX4-157)', () => {
     await start(world, <ConsoleScreen broadcastId="b1" seller onBack={() => {}} openRecord={() => opened++} />)
     fireEvent.click(await screen.findByRole('button', { name: '라이브 기록' }))
     expect(opened).toBe(1)
-    expect(screen.getByText('정산 내역서')).toBeTruthy()
+    // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
+    expect(screen.getByText('정산서')).toBeTruthy()
     expect(screen.queryByText('끝난 라이브')).toBeNull()
   })
   it('쌓인 라이브 기록(startPage=record)은 정산 내역서 없이 열리고, 뒤로·매출 캡슐은 정산 내역서로(onBack)', async () => {
@@ -120,7 +121,8 @@ describe('정산 내역서 ↔ 라이브 기록 (D-UX4-157)', () => {
     let back = 0
     await start(world, <ConsoleScreen broadcastId="b1" seller onBack={() => back++} startPage="record" />)
     expect(await screen.findByText('끝난 라이브')).toBeTruthy()
-    expect(screen.queryByText('정산 내역서')).toBeNull()
+    // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
+    expect(screen.queryByText('정산서')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '정산 내역서로' }))
     expect(back).toBe(1)
   })
@@ -131,7 +133,8 @@ describe('정산 내역서 ↔ 라이브 기록 (D-UX4-157)', () => {
     fireEvent.click(await screen.findByRole('button', { name: '라이브 기록' }))
     expect(screen.getByText('끝난 라이브')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '정산 내역서로' }))
-    expect(await screen.findByText('정산 내역서')).toBeTruthy()
+    // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
+    expect(await screen.findByText('정산서')).toBeTruthy()
     expect(home).toBe(0)
     // 정산 내역서에서 뒤로는 지금처럼 홈
     fireEvent.click(screen.getByRole('button', { name: '뒤로' }))

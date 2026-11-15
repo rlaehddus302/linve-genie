@@ -1,49 +1,77 @@
-// 방송 정산 화면 (D-RETRO-60~64, 판매자 요청 2026-11-12 "방송이 끝나면 바로 한 화면에서 정산 정보를 보고 … 화면에 보이는 정산서를 그대로 사진으로"):
-// 총 매출 · 구매자별/상품별 표 · 내보내기(사진·CSV·엑셀) · 구매자별 정산서 · 모두에게 보내기.
-// - 표는 사진과 같은 그림(StatementPaper)이다 — 화면에 보이는 그 그림을 찍어 내보낸다 (D-RETRO-62).
+// 방송 정산 화면 "정산서" (D-RETRO-60~64, 판매자 요청 2026-11-12 "방송이 끝나면 바로 한 화면에서 정산 정보를 보고 …"):
+// 구매자별/상품별 탭 · 카드 줄 정산서와 총계 · [보내기](문자·사진·엑셀·CSV) · 구매자별 정산서 · 모두에게 보내기.
+// D-UX4-170~175 (사용자 지시 2026-11-16 "정산 내역서 화면 피드백"):
+// - 맨 위 작은 글 "판매 수량 n개 · 구매자 n명"을 지우고 구매자 수는 맨 아래 총계에 (170).
+// - 화면은 svg 직사각형 표 대신 흰 둥근 카드 줄(StatementList) — 머리 "정산 내역서 · 구매자별"·가게 이름·날짜는 화면에서 뺀다. 사진은 A4 그림 그대로(미리 보기를 거친다) (171).
+// - 탭 바는 머리 바로 아래 붙고, 손으로 내리면 숨고 올리면 보인다 — 라이브 화면과 같은 tabHide·붙는 머리(D-UX4-155) (171).
+// - [가게 이름]·[정산 정보] 단추를 합쳐 탭 바 아래 떠 있는 연한 빨강 캡슐 "! 정산서에 넣을 정보를 알려 주세요" — 정보가 빠졌을 때만 (172).
+// - [내보내기]·[모두에게 보내기]를 합쳐 아래에 떠 있는 [보내기] 캡슐 → "정산서 보내기" 아래 창: 문자 · 사진 · 엑셀 · CSV (173).
+// - 문자로 보내기 판은 못 보내는 구매자를 까닭별 소제목 아래 " · "로 잇고, [보내기 시작]은 번호를 아는 구매자만 차례로 (174).
 // - 정산 정보(계좌·전화번호·배송비)를 한 번도 정하지 않았으면 방송을 끝낸 직후와 정산서를 처음 만들 때 한 번 묻는다. 건너뛸 수 있다 (D-RETRO-60).
 // - 모두에게 보내기(D-RETRO-64): 문자는 판매자 휴대폰의 문자 앱으로 한 명씩 보낸다(앱이 대신 보내지 않는다) — 보내면 다음 손님으로 바로 넘어가고 보낸 손님을 표시한다.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ScrollView, View, useWindowDimensions } from 'react-native'
-import type Svg from 'react-native-svg'
-import { getBytes, put, isApiError, withRetry } from '../../api/client.ts'
-import { rememberCached, useCachedGet } from '../../lib/cached-get.ts'
-import { type broadcastSales, salesMoney, statementName, statementRows } from '../../lib/broadcast-sales.ts'
+import { Animated, ScrollView, View, useWindowDimensions } from 'react-native'
+import type { ReceiptBuyers } from '@livejjim/web/src/api/types.ts'
+import { getBytes, withRetry } from '../../api/client.ts'
+import { useCachedGet } from '../../lib/cached-get.ts'
+import { type broadcastSales, salesMoney, statementInfoMissing, statementName, statementRows, type StatementRow } from '../../lib/broadcast-sales.ts'
 import type { BuyerNames } from '../../lib/derive.ts'
 import { markBuyerSent, markStatementInfoAsked, sentBuyers, shouldAskStatementInfo, useStatementInfo } from '../../lib/statement-info.ts'
-import { BigButton, BottomSheet, ButtonRow, SmallButton, TextField, Txt } from '../../ui/kit/index.ts'
+import { BigButton, BottomSheet, SmallButton, Txt, useKit } from '../../ui/kit/index.ts'
 import { GUTTER, SPACE } from '../../ui/kit/tokens.ts'
 import { Pill } from '../../ui/day-pills.tsx'
-import { ExportRows, EXPORT_FAILED, type ExportKind } from '../order-export.tsx'
+import { EXPORT_FAILED, EXPORT_LABEL, type ExportKind } from '../order-export.tsx'
+import { MenuRow } from '../order-parts.tsx'
 import { nativeShareFile } from '../../native/index.ts'
 import { wait, SHEET_GAP_MS } from '../../lib/receipt-sms-flow.ts'
-import { LOAD_FAILED, STATEMENT_INFO_TITLE, StatementInfoSheet } from '../StatementInfo.tsx'
-import { StatementPages, StatementPhoto, shareStatementPhoto, statementPages, statementScreenPages } from './StatementPhoto.tsx'
+import { LOAD_FAILED } from '../StatementInfo.tsx'
+import { StatementPhoto, statementPages } from './StatementPhoto.tsx'
 import { BuyerOrderPaper } from './BuyerOrderPaper.tsx'
+import { StatementList } from './StatementList.tsx'
+import { InfoPill, SendPill, STATEMENT_PILL_HEIGHT } from './StatementPills.tsx'
+import { StatementSetupSheet } from './StatementSetup.tsx'
+import { BLOCK_TITLE, NAME_JOIN, sendGroups } from './statement-send.ts'
+import { useTabBarHide } from './tab-hide.ts'
 
 type Sales = ReturnType<typeof broadcastSales>
 
-export const SEND_ALL_LABEL = '모두에게 보내기'
+/** 붙는 머리: 목록의 첫째 자식(탭 바) */
+export const STATEMENT_STICKY = [0]
+
+/** [보내기] 아래 창 (D-UX4-173) */
+export const SEND_SHEET_TITLE = '정산서 보내기'
+export const SMS_ALL_ROW = '구매자에게 문자로 보내기'
+export const SMS_ALL_REHEARSAL = '연습 라이브는 문자를 보내지 않아요'
+export const SMS_ALL_NOBODY = '아직 구매자가 없어요'
 export const SEND_ALL_TITLE = '모두에게 정산서 보내기'
 export const SEND_ALL_BODY = '한 명씩 문자 앱이 열려요. 보내고 돌아오면 다음 손님으로 넘어가요.'
-export const SEND_ALL_DONE = '모두에게 보냈어요. 다시 보내려면 표에서 손님을 눌러 주세요.'
+export const SEND_ALL_DONE = '모두에게 보냈어요. 다시 보내려면 목록에서 손님을 눌러 주세요.'
+export const SEND_ALL_NOBODY = '지금은 문자를 보낼 수 있는 구매자가 없어요.'
+export const PHONE_CHECKING = '휴대폰 번호를 확인하고 있어요.'
+export const PHONE_CHECK_FAILED = '휴대폰 번호를 확인하지 못했어요. 보낼 때 번호를 물어볼 수 있어요.'
 export const SENT_WORD = '보냄'
 export const NOT_SENT_WORD = '아직'
 export const sendAllProgress = (total: number, sent: number): string => `구매자 ${total}명 가운데 ${sent}명에게 보냈어요.`
+
+/** 줄 이름 (화면 읽기·시험) — 구매자별은 누르면 그 손님 정산서 */
+function rowLabel(row: StatementRow, sent: boolean): string {
+  if (row.no !== null) return `${row.no}번 ${row.label} · ${salesMoney(row.money)} · ${row.qty}개`
+  return `${row.label} 정산서 · ${salesMoney(row.money)} · ${row.qty}개${sent ? ` · ${SENT_WORD}` : ''}`
+}
 
 export function BroadcastSalesList({ broadcastId, title, date, sales, names, buyer, select, inset, rehearsal, sealed, justEnded = false }: {
   broadcastId: string; title: string; date: string; sales: Sales; names: BuyerNames; buyer: string | null; select: (id: string | null) => void; inset: number; rehearsal: boolean; sealed: boolean
   /** 이 화면을 보는 동안 방송이 끝났다 — 정산 정보가 비어 있으면 한 번 묻는다 */
   justEnded?: boolean
 }) {
+  const { p } = useKit()
   const path = `/api/broadcasts/${encodeURIComponent(broadcastId)}/order-shop`
   const { data: shop, reload } = useCachedGet<{ name: string }>(path)
   const statement = useStatementInfo()
   const { width: windowWidth } = useWindowDimensions()
+  const tabHide = useTabBarHide()
+  const [tabsHeight, setTabsHeight] = useState(0)
   const [products, setProducts] = useState(false)
-  const [draft, setDraft] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
   const [menu, setMenu] = useState(false)
   const [photo, setPhoto] = useState(false)
   const [saving, setSaving] = useState<ExportKind | null>(null)
@@ -53,22 +81,29 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   const afterAsk = useRef<(() => void) | null>(null)
   const [sendAll, setSendAll] = useState(false)
   const [queue, setQueue] = useState(false)
+  /** 연속 보내기 차례 — 시작할 때 번호를 아는 구매자만 (D-UX4-174) */
+  const [queueKeys, setQueueKeys] = useState<readonly string[]>([])
   const [sent, setSent] = useState<readonly string[]>(() => sentBuyers(broadcastId))
   const [doneNote, setDoneNote] = useState('')
-  const papers = useRef<(Svg | null)[]>([])
   const tab = products ? 'products' : 'buyers'
   const rows = useMemo(() => statementRows(sales, tab, id => names.name(id)), [tab, sales, names])
   const buyerRows = useMemo(() => statementRows(sales, 'buyers', id => names.name(id)), [sales, names])
-  // 화면은 한 장으로 잇고, 사진만 A4 장으로 나눈다 (D-UX4-145)
-  const screenPages = useMemo(() => statementScreenPages(rows, tab), [rows, tab])
+  // 사진만 A4 장으로 나눈다 (D-UX4-145)
   const pages = useMemo(() => statementPages(rows, tab), [rows, tab])
-  const sheet = { tab, date, shop: shop?.name ?? title, total: sales.total, qty: sales.qty } as const
+  const sheet = { tab, date, shop: shop?.name || title, total: sales.total, qty: sales.qty } as const
   const paperWidth = Math.min(windowWidth - 2 * GUTTER, 480)
-  const sentCount = buyerRows.filter(row => sent.includes(row.key)).length
-  const firstUnsent = buyerRows.find(row => !sent.includes(row.key))
+  // 휴대폰 번호를 아는지 — 문자로 보내기 판을 열었거나 보내는 동안만 받는다 (번호 끝 4자리만 오고, 번호 자체는 오지 않는다)
+  const receiptsPath = (sendAll || queue) && !rehearsal ? `/api/days/${date}/receipt-buyers` : null
+  const { data: receipts, error: receiptsError } = useCachedGet<ReceiptBuyers>(receiptsPath)
+  const checking = receiptsPath !== null && receipts === null && receiptsError === null
+  const groups = useMemo(() => sendGroups(buyerRows, receipts, !sealed), [buyerRows, receipts, sealed])
+  const sentCount = groups.sendable.filter(row => sent.includes(row.key)).length
+  const firstUnsent = groups.sendable.find(row => !sent.includes(row.key))
 
   // 방송을 끝낸 직후: 정산 정보가 비어 있으면 한 번 묻는다 (연습 방송은 묻지 않는다)
   const { info, editable } = statement
+  // 정산서에 넣을 정보가 빠졌다 — 가게 이름이 비었거나 계좌·전화번호를 아직 모른다 (D-UX4-172)
+  const needInfo = (shop !== null && shop.name.trim() === '') || (editable && info !== null && statementInfoMissing(info))
   useEffect(() => {
     if (!justEnded || rehearsal || asking) return
     if (!shouldAskStatementInfo('end', broadcastId, { info, editable })) return
@@ -88,121 +123,166 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
       setAsking(true)
     } else run()
   }
+  const openInfo = () => { afterAsk.current = null; setAsking(true) }
   const closeAsk = () => {
     setAsking(false)
     const run = afterAsk.current
     afterAsk.current = null
     run?.()
   }
+  /** [보내기]: 가게 이름이 비어 있으면 막지 않고 정보 판으로 이끈다 — 이름 없는 정산서가 나가지 않게 (D-UX4-175) */
+  const openSend = () => {
+    setShareError('')
+    if (shop !== null && shop.name.trim() === '') openInfo()
+    else setMenu(true)
+  }
   const exportFile = async (kind: ExportKind) => {
     if (saving) return
-    setSaving(kind)
     setShareError('')
+    if (kind === 'photo') {
+      // 사진은 저장될 A4 그림을 먼저 보여 주고 거기서 저장한다 (D-UX4-171)
+      setMenu(false)
+      await wait(SHEET_GAP_MS)
+      setPhoto(true)
+      return
+    }
+    setSaving(kind)
     try {
-      if (kind === 'photo') {
-        setMenu(false)
-        await wait(SHEET_GAP_MS)
-        // A4 한 장에 들면 화면에 보이는 그 그림을 찍는다(같은 그림). 여러 장이면 몇 번째 장인지 고른다
-        if (pages.length > 1) setPhoto(true)
-        else await shareStatementPhoto(papers.current[0] ?? null, sheet, pages[0]!, 0, 1)
-      } else {
-        const { bytes, type } = await withRetry(() => getBytes(`/api/broadcasts/${encodeURIComponent(broadcastId)}/statement/${tab}/${kind}`))
-        setMenu(false)
-        await wait(SHEET_GAP_MS)
-        await nativeShareFile()(bytes, `정산내역서-${date}-${products ? '상품별' : '구매자별'}.${kind}`, type.split(';')[0]!)
-      }
+      const { bytes, type } = await withRetry(() => getBytes(`/api/broadcasts/${encodeURIComponent(broadcastId)}/statement/${tab}/${kind}`))
+      setMenu(false)
+      await wait(SHEET_GAP_MS)
+      await nativeShareFile()(bytes, `정산내역서-${date}-${products ? '상품별' : '구매자별'}.${kind}`, type.split(';')[0]!)
     } catch { setMenu(false); setShareError(EXPORT_FAILED) }
     finally { setSaving(null) }
   }
-  const order = sales.orders.find(row => row.id === buyer)
-  const save = async () => {
-    if (!draft?.trim() || busy) return
-    setBusy(true)
-    try {
-      const result = await put<{ name: string }>(path, { name: draft.trim() })
-      rememberCached(path, result)
-      setDraft(null)
-    } catch (e) { setError(isApiError(e) ? e.message : '가게 이름을 저장하지 못했어요.') }
-    finally { setBusy(false) }
+  const openSendAll = async () => {
+    setMenu(false)
+    await wait(SHEET_GAP_MS)
+    setSendAll(true)
   }
-  /** 연속 보내기: 지금 손님 다음의 아직 보내지 않은 손님으로. 없으면 표로 돌아간다 */
+  const order = sales.orders.find(row => row.id === buyer)
+  /** 연속 보내기: 차례에서 지금 손님 다음의 아직 보내지 않은 손님으로. 없으면 목록으로 돌아간다 */
   const nextBuyer = (current: string, sentNow: readonly string[]) => {
-    const at = buyerRows.findIndex(row => row.key === current)
-    const next = buyerRows.slice(at + 1).find(row => !sentNow.includes(row.key))
-    if (next !== undefined) { select(next.key); return }
+    const at = queueKeys.indexOf(current)
+    const next = queueKeys.slice(at + 1).find(key => !sentNow.includes(key))
+    if (next !== undefined) { select(next); return }
     setQueue(false)
-    setDoneNote(`모두에게 보내기를 마쳤어요. ${sendAllProgress(buyerRows.length, buyerRows.filter(row => sentNow.includes(row.key)).length)}`)
+    setDoneNote(`모두에게 보내기를 마쳤어요. ${sendAllProgress(queueKeys.length, queueKeys.filter(key => sentNow.includes(key)).length)}`)
     select(null)
   }
   const startSendAll = () => {
     setSendAll(false)
     if (firstUnsent === undefined) return
     const first = firstUnsent.key
-    withInfo(() => { setDoneNote(''); setQueue(true); select(first) })
+    const keys = groups.sendable.map(row => row.key)
+    withInfo(() => { setDoneNote(''); setQueueKeys(keys); setQueue(true); select(first) })
   }
-  const askSheet = <StatementInfoSheet visible={asking} info={editable ? info : null} onLater={closeAsk} onSaved={closeAsk} />
+  const askSheet = <StatementSetupSheet visible={asking} shopPath={path} shopName={shop?.name ?? null} info={editable ? info : null} onLater={closeAsk} onSaved={closeAsk} />
 
   if (buyer !== null) {
     if (!order) return <Txt>현재 확정된 주문이 없어요.</Txt>
-    if (!shop?.name) return <View style={{ padding: GUTTER, gap: SPACE.md }}><Txt>정산서의 가게 이름을 불러오는 중이에요.</Txt><SmallButton label="다시 불러오기" onPress={() => void reload()} /></View>
+    if (!shop?.name) {
+      return <View style={{ padding: GUTTER, gap: SPACE.md }}>
+        {shop !== null
+          ? <InfoPill onPress={openInfo} />
+          : <><Txt>정산서의 가게 이름을 불러오는 중이에요.</Txt><SmallButton label="다시 불러오기" onPress={() => void reload()} /></>}
+        {askSheet}
+      </View>
+    }
     // 정산 정보를 모르면 만들지 않는다 — 받지 않기로 한 배송비가 붙은 정산서가 손님에게 나가지 않게
     if (info === null) return <View style={{ padding: GUTTER, gap: SPACE.md }}><Txt>{statement.failed ? LOAD_FAILED : '정산 정보를 불러오는 중이에요.'}</Txt><SmallButton label="다시 불러오기" onPress={statement.reload} /></View>
-    const at = buyerRows.findIndex(row => row.key === order.id)
-    const lastInQueue = buyerRows.slice(at + 1).every(row => sent.includes(row.key))
+    const at = queueKeys.indexOf(order.id)
+    const inQueue = queue && at >= 0
+    const lastInQueue = queueKeys.slice(at + 1).every(key => sent.includes(key))
     return <>
       <BuyerOrderPaper key={order.id} {...{ order, date, shop: shop.name, buyerName: statementName(names.name(buyer)), inset, rehearsal, sealed, info }}
         onSent={() => setSent(markBuyerSent(broadcastId, order.id))}
-        queue={queue ? { position: at + 1, total: buyerRows.length, last: lastInQueue, next: () => nextBuyer(order.id, sentBuyers(broadcastId)) } : undefined} />
+        queue={inQueue ? { position: at + 1, total: queueKeys.length, last: lastInQueue, next: () => nextBuyer(order.id, sentBuyers(broadcastId)) } : undefined} />
       {askSheet}
     </>
   }
+  const pick = (next: boolean) => {
+    setProducts(next)
+    // 탭을 바꾸면 탭 바는 늘 보인다 (D-UX4-155와 같다)
+    tabHide.show()
+  }
+  /** [보내기] 캡슐의 아래 자리 (방송 화면 (+) 단추와 같은 높이) */
+  const sendBottom = Math.max(inset, SPACE.md) + SPACE.md
   return <View style={{ flex: 1 }}>
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingBottom: SPACE.md, gap: SPACE.md }}>
-      <View style={{ gap: SPACE.sm, paddingTop: SPACE.md }}>
-        <Txt step="caption" color="textSub">{`판매 수량 ${sales.qty}개 · 구매자 ${sales.buyers}명`}</Txt>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm }}>
-          <Pill label="구매자별" ariaLabel="구매자별" on={!products} onPress={() => setProducts(false)} />
-          <Pill label="상품별" ariaLabel="상품별" on={products} onPress={() => setProducts(true)} />
-          <View style={{ flexGrow: 1 }} />
-          <SmallButton label="가게 이름" onPress={() => { setError(''); setDraft(shop?.name ?? '') }} />
-          {editable ? <SmallButton label={STATEMENT_INFO_TITLE} onPress={() => { afterAsk.current = null; setAsking(true) }} /> : null}
-        </View>
-        {doneNote ? <Txt color="textSub">{doneNote}</Txt> : null}
+    <ScrollView style={{ flex: 1 }} testID="statement-scroll"
+      // 탭 바 반고정 (D-UX4-171 — 라이브 화면 D-UX4-155와 같은 방식): 첫째 자식(탭 바)이 휴대폰 붙는 머리로 맨 위에 붙고, 손으로 내리면 숨고 올리면 보인다
+      stickyHeaderIndices={STATEMENT_STICKY}
+      // 당겨도 늘어나지 않는다 (D-UX4-108과 같다) — 탭 바가 맨 위에서 끌려 내려오지 않게
+      bounces={false}
+      overScrollMode="never"
+      onScrollBeginDrag={() => tabHide.drag(true)}
+      onScrollEndDrag={() => tabHide.drag(false)}
+      onMomentumScrollBegin={() => tabHide.glide(true)}
+      onMomentumScrollEnd={() => tabHide.glide(false)}
+      scrollEventThrottle={16}
+      onScroll={event => tabHide.track(event.nativeEvent.contentOffset.y)}
+      contentContainerStyle={{ paddingHorizontal: GUTTER, paddingBottom: sendBottom + STATEMENT_PILL_HEIGHT + SPACE.xl, gap: SPACE.md }}>
+      {/* 붙는 머리 칸과 그 안에서 위로 밀려 숨는 탭 바 — 칸은 누름을 받지 않는다(box-none), 숨은 자리 밑의 줄이 눌린다 */}
+      <View testID="statement-tabs-slot" collapsable={false} pointerEvents="box-none"
+        onLayout={event => { tabHide.onLayout(event); setTabsHeight(event.nativeEvent.layout.height) }}
+        style={{ marginHorizontal: -GUTTER, pointerEvents: 'box-none' }}>
+        <Animated.View testID="statement-tabs" style={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.sm, backgroundColor: p.background, transform: [{ translateY: tabHide.offset }] }}>
+          <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
+            <Pill label="구매자별" ariaLabel="구매자별" on={!products} onPress={() => pick(false)} />
+            <Pill label="상품별" ariaLabel="상품별" on={products} onPress={() => pick(true)} />
+          </View>
+        </Animated.View>
       </View>
-      <StatementPages key={tab} pages={screenPages} sheet={sheet} width={paperWidth} refs={papers}
-        {...(products ? {} : { onRow: (key: string) => withInfo(() => select(key)), rowLabel: row => `${row.label} 정산서 · ${salesMoney(row.money)} · ${row.qty}개${sent.includes(row.key) ? ` · ${SENT_WORD}` : ''}` })} />
+      {/* 떠 있는 정보 캡슐 자리 — 첫 줄을 가리지 않게 */}
+      {needInfo ? <View aria-hidden style={{ height: STATEMENT_PILL_HEIGHT }} /> : null}
+      {doneNote ? <Txt color="textSub">{doneNote}</Txt> : null}
+      {shareError ? <Txt color="dangerText">{shareError}</Txt> : null}
+      <StatementList tab={tab} rows={rows} total={sales.total} qty={sales.qty} buyers={sales.buyers} sent={sent}
+        rowLabel={row => rowLabel(row, sent.includes(row.key))}
+        {...(products ? {} : { onRow: (key: string) => withInfo(() => select(key)) })} />
     </ScrollView>
-    <View style={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: inset + SPACE.sm, gap: SPACE.sm }}>
-      {shareError ? <Txt color="textSub">{shareError}</Txt> : null}
-      <ButtonRow>
-        {!products && !rehearsal && buyerRows.length > 0 ? <>
-          <BigButton kind="secondary" label="내보내기" disabled={saving !== null || !shop?.name} onPress={() => { setShareError(''); setMenu(true) }} />
-          <BigButton label={SEND_ALL_LABEL} disabled={!shop?.name} onPress={() => setSendAll(true)} />
-        </> : <BigButton label="내보내기" disabled={saving !== null || !shop?.name} onPress={() => { setShareError(''); setMenu(true) }} />}
-      </ButtonRow>
-    </View>
-    <BottomSheet visible={menu} title="내보내기" onClose={() => setMenu(false)}>
-      <View style={{ marginHorizontal: -SPACE.xl }}><ExportRows busy={saving} save={kind => void exportFile(kind)} /></View>
+    {/* 정보 캡슐: 탭 바 바로 아래에 떠 있고, 탭 바가 숨으면 같이 올라간다 (D-UX4-172) */}
+    {needInfo ? (
+      <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: GUTTER, right: GUTTER, top: tabsHeight + SPACE.sm, alignItems: 'center', pointerEvents: 'box-none', transform: [{ translateY: tabHide.offset }] }}>
+        <InfoPill onPress={openInfo} />
+      </Animated.View>
+    ) : null}
+    <SendPill bottom={sendBottom} onPress={openSend} />
+    <BottomSheet visible={menu} title={SEND_SHEET_TITLE} onClose={() => setMenu(false)} testID="statement-send">
+      <View style={{ marginHorizontal: -SPACE.xl }}>
+        <MenuRow title={SMS_ALL_ROW} {...(rehearsal ? { sub: SMS_ALL_REHEARSAL } : buyerRows.length === 0 ? { sub: SMS_ALL_NOBODY } : {})}
+          disabled={rehearsal || buyerRows.length === 0 || saving !== null} onPress={() => void openSendAll()} />
+        {(['photo', 'xlsx', 'csv'] as const).map(kind => (
+          <MenuRow key={kind} title={EXPORT_LABEL[kind]} busy={saving === kind} disabled={saving !== null && saving !== kind} onPress={() => void exportFile(kind)} />
+        ))}
+      </View>
     </BottomSheet>
     {photo && <StatementPhoto pages={pages} sheet={sheet} width={paperWidth} onClose={() => setPhoto(false)} onError={() => setShareError(EXPORT_FAILED)} />}
-    <BottomSheet visible={draft !== null} title="정산서 가게 이름" onClose={() => setDraft(null)} actions={<BigButton label="저장" busy={busy} disabled={!draft?.trim()} onPress={() => void save()} />}>
-      <TextField label="가게 이름" value={draft ?? ''} onChangeText={setDraft} maxLength={40} error={error || null} />
-    </BottomSheet>
     <BottomSheet visible={sendAll} title={SEND_ALL_TITLE} description={SEND_ALL_BODY} onClose={() => setSendAll(false)} testID="send-all"
       actions={<>
         <BigButton kind="outline" label="닫기" onPress={() => setSendAll(false)} />
-        <BigButton label={sentCount === 0 ? '보내기 시작' : '이어서 보내기'} disabled={firstUnsent === undefined} onPress={startSendAll} />
+        <BigButton label={sentCount === 0 ? '보내기 시작' : '이어서 보내기'} busy={checking} disabled={checking || firstUnsent === undefined} onPress={startSendAll} />
       </>}>
-      <Txt weight="bold">{firstUnsent === undefined ? SEND_ALL_DONE : sendAllProgress(buyerRows.length, sentCount)}</Txt>
-      <View role="list" aria-label="보낼 손님">
-        {buyerRows.map(row => {
-          const done = sent.includes(row.key)
-          return <View key={row.key} role="listitem" aria-label={`${row.label} ${done ? SENT_WORD : NOT_SENT_WORD}`} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.xs }}>
-            <View style={{ flex: 1 }}><Txt>{row.label}</Txt></View>
-            <Txt step="caption" weight={done ? 'bold' : 'regular'} color={done ? 'text' : 'textSub'}>{done ? SENT_WORD : NOT_SENT_WORD}</Txt>
+      {checking ? <Txt color="textSub">{PHONE_CHECKING}</Txt> : <>
+        <Txt weight="bold">{groups.sendable.length === 0 ? SEND_ALL_NOBODY : firstUnsent === undefined ? SEND_ALL_DONE : sendAllProgress(groups.sendable.length, sentCount)}</Txt>
+        {groups.sendable.length > 0 ? <View role="list" aria-label="보낼 손님">
+          {groups.sendable.map(row => {
+            const done = sent.includes(row.key)
+            return <View key={row.key} role="listitem" aria-label={`${row.label} ${done ? SENT_WORD : NOT_SENT_WORD}`} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.xs }}>
+              <View style={{ flex: 1 }}><Txt>{row.label}</Txt></View>
+              <Txt step="caption" weight={done ? 'bold' : 'regular'} color={done ? 'text' : 'textSub'}>{done ? SENT_WORD : NOT_SENT_WORD}</Txt>
+            </View>
+          })}
+        </View> : null}
+        {/* 못 보내는 구매자 — 까닭을 소제목으로, 이름은 한 줄에 여럿 (D-UX4-174) */}
+        {groups.blocked.map(group => (
+          <View key={group.reason} role="group" aria-label={BLOCK_TITLE[group.reason]} testID={`send-blocked-${group.reason}`} style={{ gap: SPACE.xs, paddingTop: SPACE.sm }}>
+            <Txt step="body" weight="bold" color="textSub">{BLOCK_TITLE[group.reason]}</Txt>
+            <Txt>{group.rows.map(row => row.label).join(NAME_JOIN)}</Txt>
           </View>
-        })}
-      </View>
+        ))}
+        {receiptsError !== null ? <Txt step="caption" color="textSub">{PHONE_CHECK_FAILED}</Txt> : null}
+      </>}
     </BottomSheet>
     {askSheet}
   </View>
