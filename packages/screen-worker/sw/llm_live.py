@@ -115,6 +115,7 @@ NAME_ASK = os.environ.get("LLM_NAME_ASK", "0") != "0"               # 상품마�
 NAME_ASK_AFTER = float(os.environ.get("LLM_NAME_ASK_AFTER", 25))    # 그 상품 첫 줄에서 이만큼(방송 초) 지난 뒤에 묻는다(받아쓰기가 NAME_POST초까지 모인 뒤)
 NAME_ASK_CACHE = os.environ.get("LLM_NAME_ASK_CACHE")               # 재현용: 답을 이 폴더에서 찾는다. 없으면 묻는 글을 todo.jsonl에 적고 답 없음으로 넘긴다(LLM을 부르지 않는다)
 NAME_ASK_SYNC = bool(NAME_ASK_CACHE)                                # 재현·시험: 답을 그 자리에서 받는다
+NAME_CLEAN_DICT = os.environ.get("LLM_NAME_CLEAN_DICT", "1") != "0" # 가게 장부 방식은 품종과 옵션을 따로 정리한 사전(data/varieties_clean.json)을 읽는다(D-SCR-38). 0 = 정리 전 사전
 NAME_MODE = os.environ.get("LLM_NAME_MODE", "shop")                 # shop = LLM 이름을 가게 장부에 맞추고 장부에 없으면 확인 중 품종으로(D-SCR-29~32) · dict = 전국 사전으로 거르기(D-SCR-15)
 SHOP_LEDGER = os.environ.get("LLM_SHOP_LEDGER")                     # 가게 품종 장부 파일(없으면 빈 장부 — 처음 오는 가게)
 CUE_WAIT, CUE_BACK = 30.0, 90.0                                    # 거둔다는 말: 이만큼(방송 초) 기다렸다가, 그 말보다 이만큼 앞까지 소개를 시작한 상품 가운데 가장 나중 것에 붙인다
@@ -1210,7 +1211,7 @@ class LlmRegister:
     def _dic(self):
         if self.dic is None:
             from . import variety
-            self.dic = variety.Dictionary(seller=NAME_SELLER)
+            self.dic = variety.Dictionary(seller=NAME_SELLER, clean=NAME_CLEAN_DICT and NAME_MODE == "shop")
         return self.dic
 
     def _ledger(self):

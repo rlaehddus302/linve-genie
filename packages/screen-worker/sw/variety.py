@@ -35,9 +35,27 @@ def norm(s):
 
 
 class Dictionary:
-    def __init__(self, exclude_src=None, harvest=True, seller=False):
+    def __init__(self, exclude_src=None, harvest=True, seller=False, clean=False):
         """seller=True: 판매자가 손으로 고친 이름·별칭(data/varieties_seller.json)도 읽는다 — 라이브 LLM 등록의 품종 고르기(pick_name)만 켠다.
-        옛 규칙 길(decide_name·variety_regress)은 그대로라 지난 시험 점수가 바뀌지 않는다"""
+        옛 규칙 길(decide_name·variety_regress)은 그대로라 지난 시험 점수가 바뀌지 않는다.
+        clean=True: 품종과 옵션을 따로 정리한 사전(data/varieties_clean.json, D-SCR-38)을 읽는다 — 가게 장부 방식(shop)의 품종 고르기만 켠다.
+        품종 이름과 틀리게 들리는 모양을 싣고, 사전에 적혀 있던 그대로의 이름("쿠스백금")도 그대로 알아본다. 품종이 아닌 말·옵션뿐인 말은 없다"""
+        cp = os.path.join(HERE, "..", "data", "varieties_clean.json")
+        if clean and os.path.exists(cp):
+            names = {}
+            with open(cp, encoding="utf-8") as f:
+                rows = json.load(f)["varieties"]
+            for v in rows:
+                names[norm(v["name"])] = v["name"]
+            for v in rows:
+                for w in v.get("written", ()):
+                    names.setdefault(norm(w), w)
+                for a in v.get("aliases", ()):
+                    names.setdefault(norm(a), v["name"])
+            self.names = names
+            self.keys = list(names)
+            self.jkeys = [jamo(k) for k in self.keys]
+            return
         names = {}
         for v in json.load(open(os.path.join(HERE, "..", "data", "varieties.ko.json"), encoding="utf-8"))["varieties"]:
             for n in [v["name"]] + v.get("aliases", []):

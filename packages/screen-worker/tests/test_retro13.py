@@ -457,6 +457,61 @@ class NameAskTest(unittest.TestCase):
         self.assertFalse(variety.use_ask("토스카나", "장부", True, 2))             # 이름과 이름이 다르면 지금 것
 
 
+class CleanDictionaryTest(unittest.TestCase):
+    """D-SCR-38: 품종과 옵션을 따로 본 품종 사전(sw/clean_dict.py → data/varieties_clean.json)"""
+
+    def test_name_is_split_into_variety_options_forms_and_kinds(self):
+        from sw import clean_dict
+        self.assertEqual(clean_dict.split("몰디브색금무지"), ("몰디브", ["색금", "무지"], [], []))
+        self.assertEqual(clean_dict.split("청개구리금 철화"), ("청개구리", ["금", "철화"], [], []))
+        self.assertEqual(clean_dict.split("쿠스백금"), ("쿠스", ["백금"], [], []))
+        self.assertEqual(clean_dict.split("아리엘 분채"), ("아리엘", [], ["분채"], []))
+        self.assertEqual(clean_dict.split("먼로쌍두"), ("먼로", [], ["쌍두"], []))
+        self.assertEqual(clean_dict.split("블루엘프특가"), ("블루엘프", [], [], []))
+        self.assertEqual(clean_dict.split("SP아리아골드"), ("아리아골드", [], [], ["SP"]))
+        self.assertEqual(clean_dict.split("SP창녹금"), ("", ["창녹금"], [], ["SP"]))          # 품종 없이 옵션뿐
+        self.assertEqual(clean_dict.split("수입색금SP"), ("", ["색금"], [], ["SP", "수입"]))
+        self.assertEqual(clean_dict.split("SP"), ("", [], [], ["SP"]))                       # SP는 옵션이 아니라 "품종 없음" 표시
+        for whole in ("황금사", "소금", "청수박", "녹금의 제왕", "마리아"):                    # 한 글자만 남게는 떼지 않는다 / 끝이 옵션 말이 아닌 이름
+            self.assertEqual(clean_dict.split(whole)[1:], ([], [], []), whole)
+
+    def test_cleaned_dictionary_has_varieties_only(self):
+        from sw import clean_dict
+        varieties, removed = clean_dict.build()
+        names = {variety.norm(v["name"]) for v in varieties}
+        self.assertIn("몰디브", names)
+        self.assertIn("녹금의 제왕", {v["name"] for v in varieties})                         # 띄어 적은 이름은 띄어 적은 대로
+        self.assertNotIn("몰디브색금", names)                                               # 옵션은 품종에 붙여 적는다
+        maldives = next(v for v in varieties if v["name"] == "몰디브")
+        self.assertIn("색금", maldives["options"])
+        self.assertIn("손으로 만든 기본 사전", maldives["sources"])
+        self.assertIn("지난 판매 영수증", maldives["sources"])
+        for junk in ("다육방송", "다육판매영상", "배송비", "선인장", "SP색금", "녹금", "SP", "이벵"):
+            self.assertNotIn(junk, names, junk)
+        self.assertFalse([n for n in names if "님" in n])                                   # 손님을 부른 말이 없다
+        gone = {r["name"]: r["why"] for r in removed}
+        self.assertEqual(gone["SP색금"], "품종 없이 옵션·갈래뿐")
+        self.assertEqual(gone["이벵"], "품종이 아닌 말")
+        maek = next(v for v in varieties if v["name"] == "맥라이징")
+        self.assertIn("창", maek["kinds"])                                                  # "창맥라이징"은 옵션 창 + 품종 맥라이징
+
+    def test_generated_file_is_up_to_date_and_read_by_the_shop_mode(self):
+        from sw import clean_dict
+        varieties, removed = clean_dict.build()
+        with open(Path(clean_dict.DATA) / "varieties_clean.json", encoding="utf-8") as f:
+            on_disk = json.load(f)
+        self.assertEqual(on_disk["varieties"], varieties)                                   # 원본 사전을 고쳤으면 python -m sw.clean_dict로 다시 만든다
+        self.assertEqual(on_disk["removed"], removed)
+        dic = variety.Dictionary(seller=True, clean=True)
+        self.assertEqual(dic.names.get("몰디브"), "몰디브")
+        self.assertEqual(dic.names.get("쿠스백금"), "쿠스백금")                               # 사전에 적혀 있던 그대로의 이름도 알아본다
+        self.assertEqual(dic.names.get("삼강"), "삼광")                                      # 틀리게 들리는 모양은 품종으로
+        self.assertNotIn("다육방송", dic.names)
+        self.assertNotIn("SP색금", dic.names)
+        old = variety.Dictionary(seller=True)
+        self.assertIn(variety.norm("몰디브색금"), old.names)                                 # 옛 길(clean=False)은 정리 전 사전 그대로
+
+
 class LedgerTest(unittest.TestCase):
     def test_split_parts(self):
         self.assertEqual(variety.split_parts("테라로사 색금"), ("테라로사", "색금", "", ""))
