@@ -16,13 +16,14 @@ import type { ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderTextButton, Tap, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
+import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderTextButton, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
 import { useHoldRouteSwipe } from '../ui/kit/route-swipe.tsx'
 import { GUTTER, SHADOW, SPACE } from '../ui/kit/tokens.ts'
 import { LOW_PAPER, useLabelPaper } from '../lib/label-paper.ts'
 import { BigButton as SmallButton, Notice, Row } from '../ui/parts.tsx'
 import { useCameLate } from '../ui/late.tsx'
-import { broadcastSales, salesMoney } from '../lib/broadcast-sales.ts'
+import { broadcastSales } from '../lib/broadcast-sales.ts'
+import { SalesPill } from './console/SalesPill.tsx'
 import { BroadcastSalesList } from './console/BroadcastSales.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
@@ -164,6 +165,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const [addNo, setAddNo] = useState<number | null>(null)
   // 본문 탭: 상품(번호·가격·예약) · 찜 기록(채팅찜·문자찜을 시간순으로, D-LIVETEST-07) · 채팅·문자(실시간으로 온 채팅·손님 문자, D-UX4-12)
   const [searchDigits, setSearchDigits] = useState('')
+  // 찜 된 것만 보기 (D-UX4-141) — 탭을 바꿔도 남고, "그 상품 보기"에서 푼다
+  const [claimedOnly, setClaimedOnly] = useState(false)
   const [searchPad, setSearchPad] = useState(false)
   const draggingSearch = useRef(false)
   const padOpacity = useRef(new Animated.Value(1)).current
@@ -227,6 +230,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const showRow = useCallback((key: string) => {
     setTab('products')
     setSearchDigits('')
+    setClaimedOnly(false)
     setSearchPad(false)
     setSelected(key)
     // 탭·검색이 바뀐 목록이 놓인 뒤에 잰다
@@ -490,6 +494,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   }
 
   const padInset = docked ? SPACE.sm : Math.max(inset, SPACE.sm)
+  /** (+) 단추·매출 캡슐의 아래 자리 */
+  const fabBottom = (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md
   const padHeight = DIGIT_PAD_HEIGHT + padInset + 1
   const tabPills = (
     <>
@@ -562,12 +568,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
             <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
             {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
             {labelsQueue.mine && labelsQueue.queue?.labelsEnabled && paper !== null && paper <= LOW_PAPER ? <Notice tone="warning" alert>{`라벨 용지가 약 ${paper}장 남았어요. 새 롤을 준비해 주세요.`}</Notice> : null}
-            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACE.sm }}>
-              <View style={{ flexGrow: 1, flexShrink: 1 }}><AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} onAction={onAlert} /></View>
-              <Tap role="button" onPress={() => setSalesPage('sales')} style={{ marginLeft: 'auto', paddingVertical: SPACE.sm }}>
-                <Txt step="body" weight="bold">{`${closed ? '총매출' : '현재 매출'} ${salesMoney(sales.total)} ›`}</Txt>
-              </Tap>
-            </View>
+            {/* 매출은 이 줄에서 빼 화면 아래 (+) 왼쪽 캡슐로 (D-UX4-140) — 알림이 없으면 이 자리는 비운다 */}
+            <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} onAction={onAlert} />
             <UnlistedClaims numbers={unlisted} onAdd={addAt} />
             {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
             <YoutubeWarning yt={yt} closed={closed} />
@@ -583,11 +585,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
           <View testID="console-list" ref={listNode} collapsable={false} onLayout={(event) => { listTop.current = event.nativeEvent.layout.y }} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
             <Appear instant={!listLate} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
-              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} onRow={onRow} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} onEditProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
+              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} claimedOnly={claimedOnly} onClaimedOnly={setClaimedOnly} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} onRow={onRow} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} onEditProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
             </Appear>
           </View>
-          {/* (+) 단추에 마지막 줄이 가리지 않게 */}
-          {shownTab === 'products' && !closed ? <View style={{ height: 72 }} /> : null}
+          {/* (+) 단추·매출 캡슐에 마지막 줄이 가리지 않게 */}
+          {shownTab === 'products' ? <View style={{ height: 72 }} /> : null}
           {shownTab === 'products' && searchPad ? (
             // 숫자 키에서 시작한 드래그도 목록의 네이티브 스크롤이 받도록 같은 ScrollView에 둔다.
             <Animated.View style={{ position: 'absolute', opacity: padOpacity, zIndex: 12, left: 0, right: 0, top: Math.max(0, viewportHeight - padHeight), transform: [{ translateY: scrollOffset }] }}>
@@ -600,7 +602,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
             </Animated.View>
           ) : null}
         </Animated.ScrollView>
-        {shownTab === 'products' && !closed && !searchPad ? <AddFab bottom={(docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md} onPress={() => { if (openAdd === undefined) { setAddNo(null); setPage('add') } else openAdd() }} /> : null}
+        {shownTab === 'products' && !closed && !searchPad ? <AddFab bottom={fabBottom} onPress={() => { if (openAdd === undefined) { setAddNo(null); setPage('add') } else openAdd() }} /> : null}
+        {/* 매출 캡슐 (D-UX4-140): (+) 왼쪽 — 숫자판을 연 동안은 (+)처럼 숨는다 */}
+        {shownTab === 'products' && !searchPad ? <SalesPill closed={closed} total={sales.total} bottom={fabBottom} besideFab={!closed} onPress={() => setSalesPage('sales')} /> : null}
         </View>
         {/* 확인 중(임시 등록) 상품 확인 카드 (D-RETRO-90): 목록과 아래 창 사이, 한 번에 한 장 — 어느 탭에서든 같은 자리에 뜬다 */}
         {closed ? null : <TentativeCards onEdit={setDetail} bottom={docked ? SPACE.sm : Math.max(inset, SPACE.sm)} />}

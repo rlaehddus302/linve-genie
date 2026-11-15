@@ -1,8 +1,9 @@
-// 방송 상품 줄 아래 꼬리표 (D-UX3-78): [찜 닉네임](금색) → 대기 손님(회색) → 한 줄에 다 못 놓으면 [+N].
+// 방송 상품 줄 아래 꼬리표 (D-UX3-78): [찜 닉네임](금색) → 대기 손님(회색) → 대기 밖 손님(흐린 회색, D-UX4-142) → 한 줄에 다 못 놓으면 [+N].
 // 화면 폭을 재서(onLayout) 한 줄에 들어가는 만큼만 놓는다. 글자 폭은 어림한다(한글·이모지 = 글자 크기, 그 밖 = 0.62배).
 import type { Buyer } from '@livejjim/web/src/api/types.ts'
 
-export type ProductTagKind = 'win' | 'wait' | 'badge'
+/** out: 대기 인원이 차서 대기에 들지 못한 찜(품절) — 판정은 그대로, 보이기만 흐리게 (D-UX4-142) */
+export type ProductTagKind = 'win' | 'wait' | 'badge' | 'out'
 
 export interface ProductTag {
   readonly kind: ProductTagKind
