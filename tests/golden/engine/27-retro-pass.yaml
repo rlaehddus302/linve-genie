@@ -1,0 +1,68 @@
+# 라이브 복기(2026-11-13) — 손님의 "패스" (SPEC ORD-07 AC5, DOMAIN_RULES R-3·R-8 "패스", D-RETRO-103·113).
+# 13:33에 한 손님이 채팅에 "패스" 한 마디만 썼는데 시스템이 알아듣지 못해 155번 대기 1번으로 끝까지 남았다.
+# 번호와 함께 쓴 "155 패스"는 "155 취소"와 같다. 번호 없는 "패스"는 그 손님의 그 방송 살아 있는 찜이 하나뿐일 때만 그 찜의 번호 취소와 같고,
+# 둘 이상이면 취소하지 않고 그 찜마다 취소 요청을 걸어 판매자에게 띄운다(AUTO여도). "패스트"처럼 다른 말이 붙으면 아무 일도 없다.
+# 모든 기대값은 손으로 계산했다. 닉네임은 지어낸 이름이다.
+---
+id: G-ENG-PASS-01
+title: 155번 대기 1번 손님의 "패스" — 살아 있는 찜이 하나뿐이라 그 대기가 취소되고 뒤 대기가 당겨진다 (AUTO)
+refs: [ORD-07, R-3, R-8, D-RETRO-103, D-RETRO-113]
+settings: { cancel.buyerChat: AUTO }
+broadcasts: [{ id: b1, date: 2026-11-13, title: 다육 라이브 }]
+events:
+  - { at: "13:30:00", type: product.register, b: b1, no: 155, name: 핑크프릴, price: 15000 }
+  - { at: "13:30:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 별빛, text: "155" }
+  - { at: "13:30:06", type: chat, b: b1, id: m2, ch: UC_B, nick: 한강, text: "155" }
+  - { at: "13:30:07", type: chat, b: b1, id: m3, ch: UC_C, nick: 모래시계, text: "155" }
+  - { at: "13:33:00", type: chat, b: b1, id: m4, ch: UC_B, nick: 한강, text: "패스" }
+expect:
+  products:
+    b1/155: { status: SOLD, winner: UC_A, waitlist: [UC_C] }
+  claims:
+    - { product: b1/155, buyer: UC_A, status: CONFIRMED }
+    - { product: b1/155, buyer: UC_B, status: CANCELLED }
+    - { product: b1/155, buyer: UC_C, status: WAITLISTED }
+  cancelRequests: []
+---
+id: G-ENG-PASS-02
+title: 찜이 둘(155번 대기·160번 1등)인 손님의 "패스" — 어느 찜인지 몰라 취소하지 않고 두 찜에 취소 요청만 건다 (AUTO여도)
+refs: [ORD-07, R-3, R-8, D-RETRO-103, D-RETRO-113]
+settings: { cancel.buyerChat: AUTO }
+broadcasts: [{ id: b1, date: 2026-11-13, title: 다육 라이브 }]
+events:
+  - { at: "13:30:00", type: product.register, b: b1, no: 155, name: 핑크프릴, price: 15000 }
+  - { at: "13:30:01", type: product.register, b: b1, no: 160, name: 라울, price: 20000 }
+  - { at: "13:30:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 별빛, text: "155" }
+  - { at: "13:30:06", type: chat, b: b1, id: m2, ch: UC_B, nick: 한강, text: "155" }
+  - { at: "13:31:00", type: chat, b: b1, id: m3, ch: UC_B, nick: 한강, text: "160" }
+  - { at: "13:33:00", type: chat, b: b1, id: m4, ch: UC_B, nick: 한강, text: "패스" }
+expect:
+  products:
+    b1/155: { status: SOLD, winner: UC_A, waitlist: [UC_B] }
+    b1/160: { status: SOLD, winner: UC_B, waitlist: [] }
+  claims:
+    - { product: b1/155, buyer: UC_A, status: CONFIRMED }
+    - { product: b1/155, buyer: UC_B, status: WAITLISTED }
+    - { product: b1/160, buyer: UC_B, status: CONFIRMED }
+  cancelRequests: [{ product: b1/155, buyer: UC_B }, { product: b1/160, buyer: UC_B }]
+---
+id: G-ENG-PASS-03
+title: 번호와 함께 쓴 "155번 패스요"는 "155 취소"와 같다 — 기본(REQUEST)이면 그 찜의 취소 요청. "패스트"는 아무 일도 없다
+refs: [ORD-07, R-3, R-8, D-RETRO-113]
+settings: {}
+broadcasts: [{ id: b1, date: 2026-11-13, title: 다육 라이브 }]
+events:
+  - { at: "13:30:00", type: product.register, b: b1, no: 155, name: 핑크프릴, price: 15000 }
+  - { at: "13:30:01", type: product.register, b: b1, no: 160, name: 라울, price: 20000 }
+  - { at: "13:30:05", type: chat, b: b1, id: m1, ch: UC_A, nick: 별빛, text: "155" }
+  - { at: "13:30:06", type: chat, b: b1, id: m2, ch: UC_B, nick: 한강, text: "160" }
+  - { at: "13:31:00", type: chat, b: b1, id: m3, ch: UC_A, nick: 별빛, text: "155번 패스요" }
+  - { at: "13:31:05", type: chat, b: b1, id: m4, ch: UC_B, nick: 한강, text: "패스트" }
+expect:
+  products:
+    b1/155: { status: SOLD, winner: UC_A, waitlist: [] }
+    b1/160: { status: SOLD, winner: UC_B, waitlist: [] }
+  claims:
+    - { product: b1/155, buyer: UC_A, status: CONFIRMED }
+    - { product: b1/160, buyer: UC_B, status: CONFIRMED }
+  cancelRequests: [{ product: b1/155, buyer: UC_A }]

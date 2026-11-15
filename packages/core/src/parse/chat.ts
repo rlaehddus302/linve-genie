@@ -16,8 +16,14 @@ const MAX_NUMBER_DIGITS = 4
 const SEPARATORS = new Set([' ', ',', '/', '·'])
 /** 주문 꼬리말 (R-3 문법). 같은 자리에서 가장 긴 말을 쓴다. */
 const CLAIM_WORDS = byLengthDesc(['이요', '요', '여', '찜', '찜이요', '찜할게요', '주세요', '할게요', '구매', '구매요', '구매합니다'])
+/** 패스 말 (R-3 "패스", D-RETRO-113): 손님이 자기 찜을 거두는 말. 번호와 함께면 취소 말과 같고, 혼자면 isBarePass */
+const PASS_WORDS = ['패스', '패스요', '패스할게요', '패스합니다', '패스해요', '패스 할게요', '패스 합니다', '패스 해요']
 /** 취소 말 (R-3 취소 문법) */
-const CANCEL_WORDS = byLengthDesc(['취소', '취소요', '취소할게요', '취소해주세요'])
+const PLAIN_CANCEL_WORDS = ['취소', '취소요', '취소할게요', '취소해주세요']
+/** 채팅의 취소 말 — "패스" 말도 같다 (D-RETRO-113). 손님 문자 읽기(R-26)는 PLAIN만 — "775 패스" 문자는 지금처럼 확인 필요 */
+const CANCEL_WORDS = byLengthDesc([...PLAIN_CANCEL_WORDS, ...PASS_WORDS])
+const SMS_CANCEL_WORDS = byLengthDesc(PLAIN_CANCEL_WORDS)
+const BARE_PASS_WORDS = byLengthDesc(PASS_WORDS)
 /** 메시지당 서로 다른 주문 번호의 상한 (R-3 세부 "번호 개수 상한", D-034). 설정 키가 아니라 고정값이다. */
 const MAX_CLAIM_NUMBERS = 5
 /** 기호 꼬리 (R-3 세부 "꼬리 기호"). ♥ U+2665는 그림 이모지이기도 하다. */
@@ -203,12 +209,12 @@ function scanClaim(s: string): { numbers: number[]; parts: PartEnd[] } {
   return { numbers, parts }
 }
 
-/** 취소 문법 `번호 [번] (취소|취소요|취소할게요|취소해주세요) [꼬리 기호·ㅠ·ㅜ]`에 맞는 맨 앞 부분들 */
-function scanCancel(s: string): { value: number; parts: PartEnd[] } | undefined {
+/** 취소 문법 `번호 [번] (취소|취소요|취소할게요|취소해주세요|패스|패스요|패스할게요|패스합니다|패스해요) [꼬리 기호·ㅠ·ㅜ]`에 맞는 맨 앞 부분들 */
+function scanCancel(s: string, words: readonly string[] = CANCEL_WORDS): { value: number; parts: PartEnd[] } | undefined {
   const token = readNumber(s, 0)
   if (token === undefined) return undefined
   const wordAt = s[token.end] === ' ' ? token.end + 1 : token.end
-  const word = longestWordAt(s, wordAt, CANCEL_WORDS)
+  const word = longestWordAt(s, wordAt, words)
   if (word === undefined) return undefined
   const end = wordAt + word.length
   const parts: PartEnd[] = [{ end, count: 1, endsVisibly: false }]
@@ -305,6 +311,15 @@ const result = (claims: number[], cancels: number[], mentions: number[]): ChatPa
 
 /** 채팅 메시지 → 주문·취소·언급 (R-3, D-028). 어떤 문자열에도 예외를 던지지 않는다. */
 export function parseChat(text: string, settings: SettingsOverride = {}): ChatParseResult {
+  return readChat(text, settings, true)
+}
+
+/** 손님 문자 읽기(R-26, sms-text)가 쓰는 R-3 — "패스" 말을 취소로 보지 않는다(문자의 "775 패스"는 지금처럼 확인 필요, D-RETRO-113) */
+export function parseChatWithoutPass(text: string, settings: SettingsOverride = {}): ChatParseResult {
+  return readChat(text, settings, false)
+}
+
+function readChat(text: string, settings: SettingsOverride, pass: boolean): ChatParseResult {
   const config = resolveSettings(settings)
   const maxNumber = config['claim.maxNumber']
   const loose = config['claim.parseMode'] === 'LOOSE'
@@ -322,14 +337,14 @@ export function parseChat(text: string, settings: SettingsOverride = {}): ChatPa
   // 주문·취소 부분의 번호는 모두 이 후보 안에 있으므로 부분 번호를 따로 검사하지 않는다.
   if (!runs.some((run) => run.amount) && numberValues.every(inRange)) {
     // 취소가 먼저: 끝 경계·끝 신호(취소 꼬리 기준) 조건이 같다. 끝 신호에 걸리면 취소가 아니고, LOOSE라 '취소'가 들어 있어 주문도 아니다.
-    const cancel = scanCancel(s)
+    const cancel = scanCancel(s, pass ? CANCEL_WORDS : SMS_CANCEL_WORDS)
     if (cancel !== undefined) {
       const part = pickPart(s, cancel.parts, loose)
       if (part !== undefined && !endsWithSignal(s, part, cancel.parts, isVisibleCancelTail)) return result([], [cancel.value], [])
     }
 
-    // LOOSE: '취소'가 들어간 메시지는 주문으로 보지 않는다. STRICT에서는 문법상 주문이 될 수 없다.
-    if (!(loose && s.includes('취소'))) {
+    // LOOSE: '취소'·'패스'가 들어간 메시지는 주문으로 보지 않는다(D-RETRO-113 — 옛: '15 패스?'가 15번 주문이었다). STRICT에서는 문법상 주문이 될 수 없다.
+    if (!(loose && (pass ? hasCancelWord(s) : s.includes('취소')))) {
       const claim = scanClaim(s)
       const part = pickPart(s, claim.parts, loose)
       // 끝 신호(D-035)는 번호 개수 상한·multiNumber보다 먼저 본다. 걸리면 더 짧은 부분으로 물러나지 않고 주문이 아니다(아래 언급으로).
@@ -362,8 +377,30 @@ export function matchesNumberGrammar(text: string, settings: SettingsOverride = 
     const part = pickPart(s, cancel.parts, loose)
     if (part !== undefined && !endsWithSignal(s, part, cancel.parts, isVisibleCancelTail)) return true
   }
-  if (loose && s.includes('취소')) return false
+  if (loose && hasCancelWord(s)) return false
   const claim = scanClaim(s)
   const part = pickPart(s, claim.parts, loose)
   return part !== undefined && part.count > 0 && !endsWithSignal(s, part, claim.parts, isVisibleClaimTail)
+}
+
+/** LOOSE에서 주문으로 보지 않는 말이 들어 있는가: '취소' 또는 '패스' (D-RETRO-113) */
+function hasCancelWord(s: string): boolean {
+  return s.includes('취소') || s.includes('패스')
+}
+
+/**
+ * 번호 없는 "패스" (R-3 "패스", D-RETRO-103·113): 메시지 전체가 `(패스|패스요|패스할게요|패스합니다|패스해요) [취소 꼬리]`인가.
+ * 모드(STRICT·LOOSE)와 상관없이 메시지 전체가 이 모양일 때만이다 — "패스트", "이건 패스하고 15번", "@누구 패스"처럼 다른 말이 붙으면 아니다(오인 취소가 놓친 취소보다 위험하다).
+ * 번호가 함께 있는 "15 패스"는 parseChat의 취소다. 어느 찜인지는 엔진이 정한다(살아 있는 찜이 하나면 그 찜, 아니면 판매자에게 묻는다).
+ */
+export function isBarePass(text: string): boolean {
+  const s = normalizeText(asText(text))
+  const word = longestWordAt(s, 0, BARE_PASS_WORDS)
+  if (word === undefined) return false
+  if (word.length === s.length) return true
+  let whole = false
+  scanTail(s, word.length, isVisibleCancelTail, (end) => {
+    if (end === s.length) whole = true
+  })
+  return whole
 }
