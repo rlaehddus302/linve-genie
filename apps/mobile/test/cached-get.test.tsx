@@ -1,5 +1,6 @@
 // 다른 화면에 갔다 와도 처음부터 다시 그리지 않는다 (D-UX4-77, 판매자 요청 2026-11-10): 기억해 둔 자료로 바로 그리고(불러오는 중 없음),
 // 뒤에서 조용히 다시 받아 바뀐 것만 바꾼다. 똑같으면 다시 그리지 않고, 다시 받기가 실패해도 보이던 자료는 그대로, 로그아웃·계정 바뀜이면 모두 지운다.
+// D-UX4-144로 바뀐 기대: 지난 라이브 제목이 한 덩어리 "월.일 채널 라이브"가 되어 채널 이름을 그 제목 글로 찾는다(옛: 채널 이름만 따로 된 글)
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useEffect, useState } from 'react'
 import { Text } from 'react-native'
@@ -26,19 +27,19 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
     // 옛 기대: 처음엔 "불러오는 중" 글. 새 기대(D-UX4-83): 글·빙글이 없이 빈 바탕만
     expect(screen.getByTestId('loading-blank')).toBeTruthy()
     expect(screen.queryByText(LOADING)).toBeNull()
-    expect(await screen.findByText('저녁채널')).toBeTruthy()
+    expect(await screen.findByText(/ 저녁채널 라이브$/)).toBeTruthy()
     // 다른 탭으로 감 (탭은 바꿔 끼워 화면이 사라진다)
     first.unmount()
     channelName = '아침채널'
     const before = world.server.callsTo('GET', /^\/api\/broadcasts$/).length
     render(world.wrap(<HomeScreen nav={homeNav()} />))
     // 기다리지 않고 바로: 기억해 둔 것이 보이고 불러오는 중은 없다
-    expect(screen.getByText('저녁채널')).toBeTruthy()
+    expect(screen.getByText(/ 저녁채널 라이브$/)).toBeTruthy()
     expect(screen.queryByText(LOADING)).toBeNull()
     expect(screen.queryByTestId('loading-blank')).toBeNull()
     // 뒤에서 다시 받은 바뀐 것만 바뀐다
-    expect(await screen.findByText('아침채널')).toBeTruthy()
-    expect(screen.queryByText('저녁채널')).toBeNull()
+    expect(await screen.findByText(/ 아침채널 라이브$/)).toBeTruthy()
+    expect(screen.queryByText(/ 저녁채널 라이브$/)).toBeNull()
     expect(world.server.callsTo('GET', /^\/api\/broadcasts$/).length).toBe(before + 1)
     expect(screen.queryByText(LOADING)).toBeNull()
   })
@@ -52,7 +53,7 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
     expect(await screen.findByRole('button', { name: /^다육맘/ })).toBeTruthy()
     customers.unmount()
     const list = render(world.wrap(<AllBroadcastsScreen onOpen={() => undefined} onBack={() => undefined} />))
-    expect(await screen.findByText('저녁채널')).toBeTruthy()
+    expect(await screen.findByText(/ 저녁채널 라이브$/)).toBeTruthy()
     list.unmount()
     render(world.wrap(<CustomersScreen />))
     expect(screen.getByRole('button', { name: /^다육맘/ })).toBeTruthy()
@@ -93,7 +94,7 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
     let fail = false
     world.server.on('GET', /^\/api\/broadcasts$/, () => (fail ? { status: 503, body: { error: { code: 'UNAVAILABLE', message: '잠시 뒤에 다시 해 주세요.' } } } : { body: { broadcasts: [ended('저녁채널')] } }))
     const first = render(world.wrap(<AllBroadcastsScreen onOpen={() => undefined} onBack={() => undefined} />))
-    expect(await screen.findByText('저녁채널')).toBeTruthy()
+    expect(await screen.findByText(/ 저녁채널 라이브$/)).toBeTruthy()
     first.unmount()
     fail = true
     const before = world.server.callsTo('GET', /^\/api\/broadcasts$/).length
@@ -102,7 +103,7 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
     await act(async () => {
       await Promise.resolve()
     })
-    expect(screen.getByText('저녁채널')).toBeTruthy()
+    expect(screen.getByText(/ 저녁채널 라이브$/)).toBeTruthy()
     expect(screen.queryByText('잠시 뒤에 다시 해 주세요.')).toBeNull()
     // 기억이 없으면(처음) 오류를 보인다
     clearCached()
@@ -189,7 +190,7 @@ describe('화면 자료 기억 (D-UX4-77)', () => {
       ) : <Text>나감</Text>
     }
     render(world.wrap(<SessionProvider services={world.services}><Body /></SessionProvider>))
-    expect(await screen.findByText('저녁채널')).toBeTruthy()
+    expect(await screen.findByText(/ 저녁채널 라이브$/)).toBeTruthy()
     expect(peekCached('/api/broadcasts')).not.toBeNull()
     await act(async () => {
       await logout()

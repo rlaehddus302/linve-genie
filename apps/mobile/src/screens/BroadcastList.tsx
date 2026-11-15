@@ -113,7 +113,8 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
   const [, month, day] = item.date.split('-')
   const channel = item.channelName || (platform ? { band: '밴드', youtube: '유튜브', tiktok: '틱톡' }[platform] : '라이브')
   const date = `${Number(month)}.${Number(day)}`
-  const title = `${date} ${channel}`
+  // 제목은 한 덩어리 "11.13 보스삼촌 라이브" — 날짜를 작은 글씨로 떼어 보이지 않는다 (D-UX4-144, 사용자 2026-11-15)
+  const title = channel === '라이브' ? `${date} 라이브` : `${date} ${channel} 라이브`
   const counts = `${item.salesQty ?? '–'}개 · ${item.buyerCount ?? '–'}명`
   const sales = item.salesTotal == null ? '확인 필요' : formatWon(item.salesTotal)
   const sub = historyAgo(item.endedAt ?? item.createdAt, now) ?? ''
@@ -128,7 +129,7 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
       )}
       <View style={{ flex: 1, gap: 1 }}>
         <Txt step="nav" weight="bold" numberOfLines={1}>
-          <Txt step="meta" color="textSub">{date}</Txt>{' '}{channel}
+          {title}
         </Txt>
         {sub === '' ? null : (
           <Txt step="meta" color="textSub" numberOfLines={1}>
