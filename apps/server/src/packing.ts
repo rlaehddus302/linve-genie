@@ -23,6 +23,7 @@ import {
   type EngineState,
   type PaymentStatus,
 } from '@livejjim/core'
+import { productTitle } from '@livejjim/core/format'
 import { buyerText, createLabelPdf, defaultTemplate, encodeLabelPng, renderPackingLabels, type LabelBitmap, type PackingLabelData } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
 import { and, asc, eq } from 'drizzle-orm'
@@ -225,9 +226,11 @@ export function lookupOf(state: EngineState, claims: Iterable<ClaimInfo> = listC
   const namesById = new Map<string, string>()
   const variantOrder = new Map<string, Map<string, number>>()
   for (const product of listProducts(state)) {
-    names.set(product.key, product.name)
+    // 품종 옆에 개수 ("채홍 3개", D-PIECES-01)
+    const title = productTitle(product.name, product.pieces)
+    names.set(product.key, title)
     ids.set(product.key, product.id)
-    namesById.set(product.id, product.name)
+    namesById.set(product.id, title)
     if (product.variants.length > 0) variantOrder.set(product.key, new Map(product.variants.map((variant, i) => [variant.text, i])))
   }
   const confirmed = new Map<string, ClaimInfo[]>()

@@ -7,6 +7,8 @@
 #  - 서버 능력 묻기 (E11·D-RETRO-32, D-SCR-18): 켜질 때와 CAPS_EVERY초마다 `GET /internal/screen/capabilities`를 물어 서버가 받는 입구·항목만 쓴다.
 #    그 입구가 없으면(옛 서버, 404) 지금까지 하던 대로 보낸다. 임시 등록(`tentative`)·확정·거두기는 서버가 셋 다 받을 때만 쓴다(tentative_ok).
 #    같은 때 `GET /internal/screen/live`에서 이 영상의 가격 단위(priceUnit)도 읽어 둔다(price_unit).
+#  - 개수 (D-PIECES-01): 품종 이름에서 떼어 낸 개수("채홍 3개" → 3)를 등록에 `pieces`로 싣는다(2 이상일 때만). 서버가 이 항목을 모르면 빼고 보낸다
+#    (능력을 모르는 옛 서버에도 빼고 보낸다 — 모르는 항목이 있으면 400이라).
 import json
 import os
 import re
@@ -26,7 +28,11 @@ NAME_MAX, HEARD_MAX = 60, 300
 RETRYABLE = {401, 404, 408, 409, 425, 429}
 CAPS_EVERY = float(os.environ.get("LG_SCREEN_CAPS_EVERY", 300))   # 서버 능력·가격 단위를 다시 묻는 간격(초)
 CAPS_RETRY = 30                                                   # 서버에 닿지 못했으면 이만큼(초) 뒤 다시
-OPTIONAL = frozenset({"heard", "conf", "observedAt"})             # 서버가 모르면 빼고 보내도 뜻이 바뀌지 않는 항목(그 밖의 모르는 항목이 있으면 그 요청은 보내지 않는다)
+OPTIONAL = frozenset({"heard", "conf", "observedAt", "pieces"})   # 서버가 모르면 빼고 보내도 뜻이 바뀌지 않는 항목(그 밖의 모르는 항목이 있으면 그 요청은 보내지 않는다)
+NEW_OPTIONAL = frozenset({"pieces"})                              # 능력을 모르는 옛 서버에는 빼고 보내는 새 항목(옛 서버는 모르는 항목을 400으로 거절한다)
+PIECES_MAX = 99
+_PIECES_RE = re.compile(r"^(\d+|한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)")
+_PIECES_WORDS = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9, "열": 10}
 PRICE_UNITS = frozenset({"WON", "THOUSAND", "TEN_THOUSAND", "AUTO"})
 REASON_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,31}$")
 REASONS_MAX, CANDIDATES_MAX = 6, 4
@@ -107,6 +113,21 @@ def http_json(method, url, token, body=None, timeout=15):
         return status, None
 
 
+def pieces_of(qty):
+    """variety.split_parts가 떼어 낸 개수 글("3개"·"두포기"·"5촉") → 2~99 정수, 아니면 None("통째"·"1개"·모르는 모양)"""
+    if isinstance(qty, bool):
+        return None
+    if isinstance(qty, int):
+        n = qty
+    else:
+        m = _PIECES_RE.match("".join(str(qty or "").split()))
+        if not m:
+            return None
+        word = m.group(1)
+        n = int(word) if word.isdigit() else _PIECES_WORDS[word]
+    return n if 2 <= n <= PIECES_MAX else None
+
+
 def make_tentative(reasons, nos=(), prices=(), names=()):
     """임시 등록 칸 { reasons, candidates } — 서버(코어)가 받는 모양으로 다듬는다: 까닭 낱말 1~6개, 후보는 칸마다 4개까지, 겹치지 않게.
     닉네임·채팅 글은 넣지 않는다(부르는 쪽이 번호·금액·품종만 준다). 까닭이 하나도 없으면 None"""
@@ -120,8 +141,9 @@ def make_tentative(reasons, nos=(), prices=(), names=()):
     return {"reasons": rs, "candidates": {"no": no_list, "price": price_list, "name": name_list}}
 
 
-def make_body(vid, no, price, name=None, heard=None, conf=None, tentative=None):
-    """서버가 받는 열쇠만으로. 금액이 없으면 None(보내지 않음). tentative = make_tentative의 값(임시 등록 — 서버가 받을 때만 보낸다)"""
+def make_body(vid, no, price, name=None, heard=None, conf=None, tentative=None, pieces=None):
+    """서버가 받는 열쇠만으로. 금액이 없으면 None(보내지 않음). tentative = make_tentative의 값(임시 등록 — 서버가 받을 때만 보낸다).
+    pieces = 품종에서 떼어 낸 개수(qty 글 "3개" 또는 정수) — 2 이상일 때만 싣는다(D-PIECES-01)"""
     if price is None or not isinstance(no, int) or not 1 <= no <= 9999:
         return None
     price = int(price)
@@ -136,6 +158,9 @@ def make_body(vid, no, price, name=None, heard=None, conf=None, tentative=None):
         body["conf"] = round(min(1.0, max(0.0, float(conf))), 3)
     if tentative:
         body["tentative"] = tentative
+    n = pieces_of(pieces)
+    if n is not None:
+        body["pieces"] = n
     return body
 
 
@@ -219,7 +244,9 @@ class Poster:
         서버 능력을 모르면(옛 서버) 지금까지 보내던 것은 그대로 보내고, 새 입구(확정·거두기)와 임시 등록은 보내지 않는다 — 임시 등록이 확인 없는 등록으로 바뀌면 안 된다"""
         caps = self.caps
         if caps is None:
-            return None if endpoint in ("confirm", "withdraw") or "tentative" in body else body
+            if endpoint in ("confirm", "withdraw") or "tentative" in body:
+                return None
+            return {k: v for k, v in body.items() if k not in NEW_OPTIONAL} if any(k in NEW_OPTIONAL for k in body) else body
         if endpoint not in caps:
             return None
         unknown = [k for k in body if k not in caps[endpoint]]

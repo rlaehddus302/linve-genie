@@ -15,6 +15,7 @@ import {
   type PaymentStatus,
   type SettlementInfo,
 } from '@livejjim/core'
+import { productTitle } from '@livejjim/core/format'
 import { formatKoreanDate, formatKstDateTime, isDateString, isEpochMs } from './kst.ts'
 import { compareCodePoints, optionText, printedName, stripInvisible } from './text.ts'
 
@@ -208,7 +209,7 @@ function receiptOf(scope: ReceiptScope, root: string): ReceiptResult {
     .map((claim, n) => ({ claim, n }))
     .sort((a, b) => (order.get(a.claim.broadcast) as number) - (order.get(b.claim.broadcast) as number) || a.claim.no - b.claim.no || a.n - b.n)
   const productNames = new Map<string, string>()
-  for (const product of listProducts(state)) productNames.set(product.key, product.name)
+  for (const product of listProducts(state)) productNames.set(product.key, productTitle(product.name, product.pieces))
   const lines: ReceiptLine[] = []
   // 상품 수 = 수량 합 (O3, D-O3-05 — 옵션 없는 수량 1만이면 줄 수)
   let itemCount = 0

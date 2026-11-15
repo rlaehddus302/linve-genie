@@ -9,6 +9,9 @@
 //   00을 눌러 자리 수를 넘겨도 친 것을 보여 준다. 첫 단계(번호)가 아니면 뒤로(머리 ‹·밀어서·안드로이드 뒤로)는 앞 단계로. 확인 화면은 번호 → 가격 → 품종, 화면 1/3 높이.
 // [다음]은 꽉 찬 띠가 아니라 큰 단추, "품종 없이 넘어가기"는 토스 회색 칩. 품종 칸 휴대폰 키보드가 뜨면 [다음]이 키보드 위로 올라온다.
 // 쓰기는 원문 칸(noText·priceText, SRV1 약속 2) — 가격은 "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 앱은 판정하지 않는다.
+// 품종 단계 (D-VARIETY-01·D-PIECES-01, 사용자 메모 11-13): 칸 아래 품종 후보 단추 한 줄(이 방송 최근 → 자주 판 것, 누르면 칸에 들어간다)과
+//   개수 칸 [−] n개 [+] — "채홍 3개"처럼 적어도 개수로 나눈다. 가격은 묶음 하나의 값 그대로(개수로 곱하지 않는다).
+import { productTitle, splitPieces } from '@livejjim/core/format'
 import { useEffect, useRef, useState } from 'react'
 import { Animated, BackHandler, Easing, PanResponder, Platform, TextInput, View, useWindowDimensions, type GestureResponderEvent } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
@@ -16,6 +19,7 @@ import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { productKey } from '../../lib/derive.ts'
 import { isTentative } from '../../lib/tentative.ts'
+import { localRecent, useVarietyLists, varietyChoices } from '../../lib/varieties.ts'
 import { formatWon } from '../../lib/words.ts'
 import { tapHaptic } from '../../native/haptics.ts'
 import { BigButton, ButtonRow, ErrorLine, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
@@ -24,6 +28,7 @@ import { edgeSwipeCloses, startsEdgeSwipe, useHoldRouteSwipe } from '../../ui/ki
 import { useConsoleApi } from './context.ts'
 import { SlidePage, useFooterInset } from './parts.tsx'
 import { SyncClashDialog, readSyncClash, type SyncClash } from './SyncClash.tsx'
+import { PiecesStepper, VarietyChips } from './VarietyChips.tsx'
 
 type Step = 'no' | 'price' | 'name' | 'confirm'
 
@@ -606,6 +611,8 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
   const [typed, setTyped] = useState<{ readonly no: string; readonly price: string; readonly again: number }>({ no: start.no, price: '', again: 0 })
   const { no, price, again } = typed
   const [name, setName] = useState('')
+  // 개수 칸에서 고른 값 (안 건드렸으면 undefined — 품종 칸의 "채홍 3개"를 따른다, D-PIECES-01)
+  const [pieces, setPieces] = useState<number | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
   // 이미 있는 번호의 상품 (D-RETRO-22) — 품종·가격과 [닫기 | 그 상품 보기]를 보인다
   const [same, setSame] = useState<SameNumber | null>(null)
@@ -665,6 +672,12 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
     setError(null)
     setStep(askName ? 'name' : 'confirm')
   }
+  // 품종 후보 단추 (D-VARIETY-01): 이 방송 최근(앱 자료 → 서버) → 자주 판 것
+  const lists = useVarietyLists(api.b, step === 'name')
+  const chips = step === 'name' ? varietyChoices({ recent: [...localRecent(api.data.products.values(), api.b), ...lists.recent], frequent: lists.frequent }) : []
+  // 품종 칸의 "채홍 3개"는 품종과 개수로 나눈다 — 개수 칸을 건드렸으면 그 값이 먼저 (D-PIECES-01)
+  const split = splitPieces(name)
+  const count = pieces ?? split.pieces ?? 1
   const add = async () => {
     if (busy) return
     setBusy(true)
@@ -672,19 +685,21 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
     const value = Number(no)
     const key = productKey(api.b, value)
     const raw = { noText: no, priceText: `${price}원` }
-    const trimmed = name.trim()
+    const trimmed = split.name
     try {
       const existing = api.data.products.get(key)
+      // 고쳐 쓰는 번호는 개수가 지금과 다를 때만 싣는다 (1이면 옛 개수를 지운다)
+      const piecesChange = count === (existing?.pieces ?? 1) ? {} : { pieces: count }
       if (existing !== undefined && existing.status === 'CLOSED') {
-        // 지운(판매 종료한) 번호를 다시 올리면 새 값으로 고친 뒤 다시 판다
-        await api.command({ type: 'product.update', b: api.b, ...raw, ...(trimmed === '' ? {} : { name: trimmed }) })
+        // 지운(판매 종료한) 번호를 다시 올리면 새 값으로 고친 뒤 다시 판다 — 개수도 새 값으로
+        await api.command({ type: 'product.update', b: api.b, ...raw, ...(trimmed === '' ? {} : { name: trimmed }), ...piecesChange })
         await api.command({ type: 'product.open', b: api.b, no: value })
       } else if (isTentative(existing)) {
         // 확인 중 상품이 있는 번호 (D-RETRO-92): 다시 등록은 서버가 받지 않는다 — 친 값으로 고친 뒤 확정한다. 값을 먼저 고쳐야 기다리던 찜이 친 값으로 정해진다
-        await api.command({ type: 'product.update', b: api.b, ...raw, ...(trimmed === '' ? {} : { name: trimmed }) })
+        await api.command({ type: 'product.update', b: api.b, ...raw, ...(trimmed === '' ? {} : { name: trimmed }), ...piecesChange })
         await api.command({ type: 'product.confirm', b: api.b, no: value })
       } else {
-        const result = await api.command({ type: 'product.register', b: api.b, ...raw, name: trimmed })
+        const result = await api.command({ type: 'product.register', b: api.b, ...raw, name: trimmed, ...(count > 1 ? { pieces: count } : {}) })
         if (!result.changed) {
           // 그사이 다른 쪽에서 같은 번호를 올렸다 — 따라잡은 자료에서 그 상품을 찾아 같이 보인다 (D-RETRO-22)
           setSame(liveProductAt((api.latest?.() ?? api.data).products, api.b, value))
@@ -724,7 +739,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
           <View style={{ flex: CONFIRM_ABOVE }} />
           <View testID="add-confirm" style={{ alignItems: 'center', gap: CONFIRM_GAP }}>
             <View testID="add-confirm-lines" style={{ alignItems: 'center', gap: 2 }}>
-              {[`${no}번`, won(price), ...(name.trim() === '' ? [] : [name.trim()])].map((line) => (
+              {[`${no}번`, won(price), ...(productTitle(split.name, count) === '' ? [] : [productTitle(split.name, count)])].map((line) => (
                 <Txt key={line} step="amount" weight="bold" ink={p.primaryText} center>
                   {line}
                 </Txt>
@@ -775,6 +790,9 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
               />
               {/* 토스 "잔액 · 159,952원 입력" 같은 회색 칩 — 꾸욱 눌린다 (D-UX4-43) */}
               {name.trim() === '' ? <SoftChip label="품종 없이 넘어가기" onPress={() => setStep('confirm')} /> : null}
+              {/* 품종 후보 한 줄(가로로 민다) · 개수 칸 (D-VARIETY-01·D-PIECES-01) */}
+              <VarietyChips choices={chips} selected={split.name} inset={SPACE.xxl} onPick={(value) => setName(value)} />
+              <PiecesStepper pieces={count} onChange={setPieces} />
             </>
           ) : (
             <Animated.View style={{ transform: [{ translateX: shake }] }}>

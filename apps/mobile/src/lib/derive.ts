@@ -1,7 +1,7 @@
 // 범위 조회 결과에서 화면에 보일 값 고르기 (웹 lib/derive.ts와 같은 규칙, AC-S05-14·21·30). 판정은 하지 않는다 —
 // 코어 조회 함수 결과(서버 응답)를 고르고 낱말로 바꾸기만 한다. 웹 모듈은 @livejjim/core 전체를 불러오므로 앱은 같은 규칙을 따로 들고
 // 시험(test/derive-sync.test.ts)이 웹 결과와 같은지 본다.
-import { displayNickname } from '@livejjim/core/format'
+import { displayNickname, productTitle } from '@livejjim/core/format'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
 import { kstTime } from '@livejjim/web/src/lib/kst.ts'
 import type { ScopeData } from './scope-data.ts'
@@ -181,7 +181,8 @@ export function alertCounts(data: ScopeData): AlertCounts {
 }
 
 /** 상품 이름 (빈 품종은 "품종 미입력") */
-export const nameOf = (product: Pick<Product, 'name'>): string => (product.name.trim() === '' ? '품종 미입력' : product.name)
+/** 상품의 품종 글: 비었으면 "품종 미입력", 개수가 2 이상이면 뒤에 "3개" (D-PIECES-01) */
+export const nameOf = (product: Pick<Product, 'name' | 'pieces'>): string => productTitle(product.name.trim() === '' ? '품종 미입력' : product.name, product.pieces)
 
 /** 그 상품의 찜(1등·대기·보류·충돌…) — 상태 순서: 1등 → 충돌 → 대기 순번 → 보류 → 그 밖, 같은 묶음 안은 seq 순 */
 export function claimsOfProduct(data: ScopeData, product: Product): Claim[] {

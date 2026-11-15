@@ -7,6 +7,7 @@
 // - 품목 (O4 D-O4-06): 옵션 글(variant)·수량(qty)·찜 금액(amount — 코어 ClaimInfo.amount 그대로, 다시 계산하지 않는다, D-O3-15).
 //   찜 금액이 없으면(프로그램 오류) 그 품목의 amount는 null이고 AMOUNT_MISSING 로그(찜 ID만)를 남긴다 — 단가로 채우지 않는다. price는 지금처럼 단가다.
 import { currentBuyerOf, getBuyer, getSettlement, listBroadcasts, listClaims, listProducts, type ClaimInfo, type EngineState, type PaymentStatus } from '@livejjim/core'
+import { productTitle } from '@livejjim/core/format'
 import { and, desc, eq, lt, ne, sql } from 'drizzle-orm'
 import { claimAmount } from './amount.ts'
 import type { Db } from './db/database.ts'
@@ -87,7 +88,7 @@ export function pastItemLines(state: EngineState, claims: readonly ClaimInfo[], 
   const broadcasts = listBroadcasts(state)
   const order = new Map(broadcasts.map((broadcast, i) => [broadcast.id, i]))
   const titles = new Map(broadcasts.map((broadcast) => [broadcast.id, broadcast.title]))
-  const names = new Map(listProducts(state).map((product) => [product.key, product.name]))
+  const names = new Map(listProducts(state).map((product) => [product.key, productTitle(product.name, product.pieces)]))
   const wanted = new Set(products)
   return claims
     .filter((claim) => claim.status === 'CONFIRMED' && claim.currentBuyer === root && (wanted.has(claim.key) || wanted.has(claim.product)))

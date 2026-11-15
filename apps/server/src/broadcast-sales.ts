@@ -1,6 +1,6 @@
 // 종료한 라이브 목록의 합계. 날짜별 엔진 기록을 처음 한 번만 읽고, 이후 변경은 범위 seq로 구별한다.
 import { listBroadcasts, listClaims, listProducts } from '@livejjim/core'
-import { saleSetSize } from '@livejjim/core/format'
+import { piecesPerSale, saleSetSize } from '@livejjim/core/format'
 import { and, eq, inArray } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
 import { scopes } from './db/schema.ts'
@@ -40,7 +40,7 @@ export async function endedBroadcastSales(db: Db, writer: Pick<ScopeWriter, 'rea
         const broadcasts = listBroadcasts(runtime.state)
         fromLedger = broadcasts.length === 0
         for (const broadcast of broadcasts) sums.set(broadcast.id, 0)
-        const sizes = new Map(listProducts(runtime.state).map(p => [p.key, saleSetSize(p.name) ?? 1]))
+        const sizes = new Map(listProducts(runtime.state).map(p => [p.key, piecesPerSale(p)]))
         for (const claim of listClaims(runtime.state)) {
           if (claim.status === 'CONFIRMED') add(claim.broadcast, requireAmount(claim), claim.qty * (sizes.get(claim.product) ?? 1), claim.currentBuyer)
         }
@@ -51,7 +51,7 @@ export async function endedBroadcastSales(db: Db, writer: Pick<ScopeWriter, 'rea
         const ledger = info?.ledger ? readLedger(info.ledger) : null
         if (ledger === null) continue
         for (const broadcast of ledger.broadcasts) sums.set(broadcast.id, 0)
-        const sizes = new Map(ledger.products.map(p => [p.key, typeof p.name === 'string' ? saleSetSize(p.name) ?? 1 : 1]))
+        const sizes = new Map(ledger.products.map(p => [p.key, typeof p.pieces === 'number' && Number.isSafeInteger(p.pieces) && p.pieces > 1 ? p.pieces : typeof p.name === 'string' ? saleSetSize(p.name) ?? 1 : 1]))
         for (const sale of ledger.sales) {
           if (typeof sale.broadcast !== 'string' || typeof sale.amount !== 'number') continue
           const qty = (typeof sale.qty === 'number' ? sale.qty : 1) * (sizes.get(sale.product) ?? 1)

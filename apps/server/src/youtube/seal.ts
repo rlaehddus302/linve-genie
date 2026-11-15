@@ -136,6 +136,8 @@ export function buildLedger(date: string, state: EngineState, times: ReadonlyMap
       winners: product.winners,
       variants: product.variants.map((variant) => ({ text: variant.text, stock: variant.stock, winners: variant.winners })),
       priceHistory: product.priceHistory.map((change) => ({ from: change.from, to: change.to, at: iso(change.at) })),
+      // 한 번호에 묶어 파는 개수 — 2 이상일 때만 (D-PIECES-01, 옛 장부에는 없다 = 1)
+      ...(product.pieces === undefined ? {} : { pieces: product.pieces }),
     })),
     sales: confirmed.map((claim) => ({
       id: claim.id,

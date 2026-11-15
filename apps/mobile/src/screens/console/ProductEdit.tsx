@@ -6,13 +6,18 @@
 //   지운 번호 자리로 바꿀 때는 "지운 번호예요. 이 번호로 다시 쓸까요?" [그대로 두기 | 다시 쓰기] 뒤 reuseClosed로 보낸다.
 // - 이미 있는 번호 (D-RETRO-22): 그 번호 상품의 품종·가격과 [닫기 | 그 상품 보기].
 // - 확인 중(임시 등록) 상품 (D-RETRO-91): 단추가 [이 값으로 확정] — 번호·품종·가격을 고친 뒤 product.confirm까지 보낸다. 확정된 찜이 없어 위 가격·번호 물음은 뜨지 않는다.
+// - 품종 후보 단추 (D-VARIETY-01, 사용자 메모 11-13·개선 계획 E1): 상품 자세히와 품종 칸 아래에 한 줄 — 일꾼이 들은 이름 → 이 방송 최근 → 자주 판 품종.
+//   누르면 품종 칸이 그 이름으로 바뀌고 [확인](확인 중이면 [이 값으로 확정])으로 저장한다. 한 번에 저장하지 않는다(번호·가격도 보고 누르게).
+// - 개수 (D-PIECES-01, 사용자 메모 "66 채홍 3개"): 품종 칸 아래 [−] n개 [+]. 품종 칸에 "채홍 3개"라고 적어도 개수로 나눈다. 가격은 묶음 하나의 값 그대로.
+import { productTitle, splitPieces } from '@livejjim/core/format'
 import { useEffect, useRef, useState } from 'react'
 import { Animated, Keyboard, TextInput, View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { claimsOfProduct, productKey, productSlots } from '../../lib/derive.ts'
-import { isTentative } from '../../lib/tentative.ts'
+import { isTentative, otherNames } from '../../lib/tentative.ts'
+import { localRecent, useVarietyLists, varietyChoices } from '../../lib/varieties.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { formatWon } from '../../lib/words.ts'
 import { BigButton, BottomSheet, ErrorLine, Icon, PopupDialog, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
@@ -21,6 +26,7 @@ import { useConsoleApi } from './context.ts'
 import { BigNumber, NumberKeys, PRICE_LIMIT, SameNumberButtons, SameNumberLine, liveProductAt, noLimitWords, typeDigits, type SameNumber } from './ProductAdd.tsx'
 import { ProductDetail, rowName } from './ProductBoard.tsx'
 import { PRICE_SCOPE_ALL, PRICE_SCOPE_NEW, claimedBuyers, priceScopeAsk } from './price-scope.ts'
+import { PIECES_NOTE, PiecesStepper, VarietyChips } from './VarietyChips.tsx'
 
 export type EditField = 'no' | 'name' | 'price'
 
@@ -50,17 +56,31 @@ export interface EditPlan {
   readonly no: number | null
   readonly name: string | null
   readonly price: number | null
+  /** 바꿀 개수 (안 바꾸면 칸이 없다, D-PIECES-01) */
+  readonly pieces?: number
 }
 
-/** 적은 값에서 실제로 바뀌는 것만 (빈 칸·같은 값은 안 바꿈) */
-export function editPlan(product: Pick<Product, 'no' | 'name' | 'price'>, draft: EditDraft): EditPlan {
+/**
+ * 적은 값에서 실제로 바뀌는 것만 (빈 칸·같은 값은 안 바꿈). pieces: 개수 칸에서 고른 값(안 건드렸으면 undefined).
+ * 품종 칸에 "채홍 3개"처럼 개수까지 적었으면 품종과 개수로 나눈다 — 개수 칸을 건드렸으면 개수 칸 값이 먼저다 (D-PIECES-01)
+ */
+export function editPlan(product: Pick<Product, 'no' | 'name' | 'price' | 'pieces'>, draft: EditDraft, pieces?: number): EditPlan {
   const no = draft.no === undefined || draft.no === '' ? null : Number(draft.no)
-  const name = draft.name === undefined ? null : draft.name.trim()
+  let name = draft.name === undefined ? null : draft.name.trim()
+  let count = pieces
+  if (name !== null) {
+    const split = splitPieces(name)
+    if (split.pieces !== null) {
+      name = split.name
+      count ??= split.pieces
+    }
+  }
   const price = draft.price === undefined || draft.price === '' ? null : Number(draft.price)
   return {
     no: no === null || no === product.no ? null : no,
     name: name === null || name === '' || name === product.name.trim() ? null : name,
     price: price === null || price === product.price ? null : price,
+    ...(count === undefined || count === (product.pieces ?? 1) ? {} : { pieces: count }),
   }
 }
 
@@ -127,8 +147,10 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
   const visible = product !== undefined && product.status !== 'CLOSED'
   const [half, setHalf] = useState(false)
   const [field, setField] = useState<EditField | null>(null)
-  const [original, setOriginal] = useState<Pick<Product, 'key' | 'no' | 'name' | 'price'> | null>(null)
+  const [original, setOriginal] = useState<Pick<Product, 'key' | 'no' | 'name' | 'price' | 'pieces'> | null>(null)
   const [draft, setDraft] = useState<EditDraft>({})
+  // 개수 칸에서 고른 값 (안 건드렸으면 undefined — D-PIECES-01)
+  const [pieces, setPieces] = useState<number | undefined>(undefined)
   const [error, setError] = useState<string | null>(null)
   // 이미 있는 번호의 상품 (D-RETRO-22)
   const [same, setSame] = useState<SameNumber | null>(null)
@@ -153,6 +175,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
     setHalf(false)
     setField(null)
     setDraft({})
+    setPieces(undefined)
     setOriginal(null)
     setError(null)
     setSame(null)
@@ -165,6 +188,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
     setHalf(false)
     setField(null)
     setDraft({})
+    setPieces(undefined)
     setOriginal(null)
     setError(null)
     setSame(null)
@@ -177,6 +201,9 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
   }, [visible])
 
   const latest = (): ScopeData => api.latest?.() ?? api.data
+  // 품종 후보 단추 (D-VARIETY-01): 일꾼이 들은 이름 → 이 방송 최근(앱 자료 → 서버) → 자주 판 것. 지금 저장된 품종은 빼고
+  const lists = useVarietyLists(api.b, visible && !closed)
+  const chips = product === undefined || closed ? [] : varietyChoices({ heard: otherNames(product), recent: [...localRecent(api.data.products.values(), api.b), ...lists.recent], frequent: lists.frequent, current: product.name })
   const maxNumber = (() => {
     const value = api.data.broadcasts.get(api.b)?.settings['claim.maxNumber']
     return typeof value === 'number' && value > 0 ? value : null
@@ -206,11 +233,18 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
 
   const openField = (which: EditField) => {
     if (product === undefined) return
-    if (!half) setOriginal({ key: product.key, no: product.no, name: product.name, price: product.price })
+    if (!half) setOriginal({ key: product.key, no: product.no, name: product.name, price: product.price, ...(product.pieces === undefined ? {} : { pieces: product.pieces }) })
     setError(null)
     setSame(null)
     setHalf(true)
     setField(which)
+  }
+  /** 품종 후보 단추: 품종 칸을 열고 그 이름을 넣는다 — 저장은 [확인] (D-VARIETY-01) */
+  const pickName = (name: string) => {
+    if (product === undefined || closed || busy || saving.current) return
+    if (field !== 'name') openField('name')
+    setError(null)
+    setDraft((was) => ({ ...was, name }))
   }
   const type = (key: string) => {
     if (saving.current || field === null || field === 'name') return
@@ -248,7 +282,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
     }
     saving.current = true
     Keyboard.dismiss()
-    const plan = editPlan(product, values)
+    const plan = editPlan(product, values, pieces)
     // 확인 중 상품은 확정된 찜이 없어 아래 두 물음(번호를 바꾸면 사라지는 찜·가격 적용 범위)이 뜨지 않는다 — 지운 번호 다시 쓰기 물음만 그대로 탄다
     const tentative = isTentative(product)
     try {
@@ -316,8 +350,10 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
         }
       }
       // 가격은 원문 칸으로 보낸다(SRV1 약속 2) — "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 품종도 같이 바뀌면 한 번에
-      if (plan.price !== null) await api.command({ type: 'product.update', b: api.b, noText: String(no), priceText: `${String(plan.price)}원`, ...(plan.name === null ? {} : { name: plan.name }), ...(applyTo === undefined ? {} : { applyTo }) })
-      else if (plan.name !== null) await api.command({ type: 'product.update', b: api.b, no, name: plan.name })
+      // 개수도 같은 고치기에 싣는다 (D-PIECES-01)
+      const withPieces = plan.pieces === undefined ? {} : { pieces: plan.pieces }
+      if (plan.price !== null) await api.command({ type: 'product.update', b: api.b, noText: String(no), priceText: `${String(plan.price)}원`, ...(plan.name === null ? {} : { name: plan.name }), ...withPieces, ...(applyTo === undefined ? {} : { applyTo }) })
+      else if (plan.name !== null || plan.pieces !== undefined) await api.command({ type: 'product.update', b: api.b, no, ...(plan.name === null ? {} : { name: plan.name }), ...withPieces })
       // 확인 중 상품이면 고친 값으로 확정까지 (D-RETRO-91): 값을 먼저 고치고 그다음에 확정해야 기다리던 찜이 고친 값으로 정해진다.
       // 서버가 "바뀐 것 없음"이면 그사이 다른 쪽이 확정한 것 — 따라잡은 상태를 보이고 조용히 닫는다
       if (tentative) await api.command({ type: 'product.confirm', b: api.b, no })
@@ -346,10 +382,15 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
     <FieldBox key={which} label={EDIT_LABEL[which]} shown={shown} active={field === which} flex={flex} disabled={closed || busy} onPress={() => openField(which)} />
   )
   const fields = before === undefined ? null : (
-    <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
-      {box('no', `${String(before.no)}번`, 0.8)}
-      {box('name', rowName(before), 1.4)}
-      {box('price', formatWon(before.price), 1.3)}
+    <View style={{ gap: SPACE.sm }}>
+      <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
+        {box('no', `${String(before.no)}번`, 0.8)}
+        {box('name', rowName(before), 1.4)}
+        {box('price', formatWon(before.price), 1.3)}
+      </View>
+      {/* 상품을 누르면 바로 품종 후보 단추 한 줄 — 누르면 품종 칸이 열리며 그 이름이 들어간다 (D-VARIETY-01).
+          확인 중 상품에 일꾼이 들은 품종 후보가 있으면 아래 확인 물음(TentativePanel)이 같은 단추를 띄우므로 여기서는 두 번 그리지 않는다 */}
+      {half || (product !== undefined && isTentative(product) && otherNames(product).length > 0) ? null : <VarietyChips choices={chips} disabled={busy} onPick={pickName} />}
     </View>
   )
   const sameShown = same !== null && field === 'no' && error !== null ? same : null
@@ -390,6 +431,18 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
             />
           )}
         </Animated.View>
+        {field === 'name' ? (
+          <View style={{ gap: SPACE.sm }}>
+            {/* 품종 후보 한 줄 (가로로 민다) · 개수 칸 (D-VARIETY-01·D-PIECES-01) */}
+            <VarietyChips choices={chips} selected={draft.name ?? before.name} disabled={busy} inset={SPACE.xl} onPick={pickName} />
+            <PiecesStepper pieces={pieces ?? before.pieces ?? 1} disabled={busy} onChange={(next) => { setError(null); setPieces(next) }} />
+            {(pieces ?? before.pieces ?? 1) > 1 ? (
+              <Txt step="caption" color="textSub" testID="pieces-preview">
+                {`${productTitle(splitPieces(draft.name ?? before.name).name, pieces ?? before.pieces)} · ${PIECES_NOTE}`}
+              </Txt>
+            ) : null}
+          </View>
+        ) : null}
         {field === 'price' && Number(draft.price ?? '') >= 10_000 ? (
           <Txt step="body" color="textSub">
             {koreanWon(Number(draft.price))}

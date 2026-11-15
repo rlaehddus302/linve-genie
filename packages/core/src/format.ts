@@ -72,3 +72,31 @@ export function saleSetSize(name: string): number | null {
   const match = /^([1-9]\d{0,3})\s*개(?:\s*세트)?$/u.exec(name.trim())
   return match ? Number(match[1]) : null
 }
+
+/**
+ * 품종과 개수를 한 줄로 (D-PIECES-01): 개수가 2 이상이면 품종 뒤에 "3개"를 붙인다 — `채홍 3개`. 개수 1·없음은 품종 그대로.
+ * 품종이 비었으면 개수만(`3개`). 앞뒤 빈칸은 뗀다. 금액과 상관없다(가격은 묶음 하나의 값).
+ */
+export function productTitle(name: string, pieces?: number | null): string {
+  const base = name.trim()
+  if (pieces === undefined || pieces === null || !Number.isSafeInteger(pieces) || pieces <= 1) return base
+  return base === '' ? `${String(pieces)}개` : `${base} ${String(pieces)}개`
+}
+
+/**
+ * 판매자가 품종 칸에 "채홍 3개"처럼 개수까지 적은 것을 나눈다 (D-PIECES-01): 끝의 "<2~99>개"를 떼어 개수로.
+ * 개수만 적은 것("5개", "5개 세트" — 세트 상품 이름, saleSetSize)과 개수가 없는 것은 그대로 (pieces null).
+ */
+export function splitPieces(text: string): { readonly name: string; readonly pieces: number | null } {
+  const trimmed = text.trim()
+  const match = /^(.*\S)\s+([1-9]\d?)\s*개$/u.exec(trimmed)
+  if (match === null || Number(match[2]) < 2) return { name: trimmed, pieces: null }
+  return { name: (match[1] ?? '').trim(), pieces: Number(match[2]) }
+}
+
+/**
+ * 한 상품의 낱개 수 (방송 판매 수량): 개수 칸(2 이상)이 있으면 그 값, 아니면 세트 이름("5개 세트")의 낱개 수, 둘 다 없으면 1 (D-PIECES-01)
+ */
+export function piecesPerSale(product: { readonly name: string; readonly pieces?: number }): number {
+  return product.pieces ?? saleSetSize(product.name) ?? 1
+}

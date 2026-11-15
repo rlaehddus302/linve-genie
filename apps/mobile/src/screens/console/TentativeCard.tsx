@@ -6,17 +6,20 @@
 // - 거두기는 먼저 묻는다(왼쪽 [닫기] · 오른쪽 [거두기]). 거둬도 기다리는 찜은 그대로 남는다 — 상품 삭제(판매 종료)와 다르다.
 // - 서버가 "바뀐 것 없음"이면(그사이 일꾼·다른 기기가 확정) 조용히 닫고 따라잡은 상태를 보인다.
 // 방송 화면에는 한 번에 한 장만, 먼저 올라온 것부터 — 화면 아래(엄지 자리)의 같은 곳에 뜬다. 상품 자세히도 같은 조각(TentativePanel)을 쓴다.
+// - 일꾼이 품종을 여러 가지로 들었으면(품종 후보) 품종 단추 한 줄을 띄운다 — 누른 품종으로 확정된다(D-VARIETY-01, 개선 계획 E1). 지금 품종이 먼저 골라져 있다.
 // 앱은 판정하지 않는다. 닉네임·채팅 글은 그리지 않는다. 품종은 글자로만 그린다.
+import { productTitle } from '@livejjim/core/format'
 import { useRef, useState } from 'react'
 import { Platform, View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { productKey } from '../../lib/derive.ts'
-import { TENTATIVE_TAG, confirmEvent, isTentative, otherNumbers, otherPrices, reasonLine, tentativeProducts, waitingAt, waitingWords, withdrawEvent } from '../../lib/tentative.ts'
+import { TENTATIVE_TAG, confirmEvent, isTentative, otherNames, otherNumbers, otherPrices, reasonLine, tentativeProducts, waitingAt, waitingWords, withdrawEvent } from '../../lib/tentative.ts'
 import { formatWon } from '../../lib/words.ts'
 import { Appear, BigButton, ButtonRow, ErrorLine, PopupDialog, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { GUTTER, RADIUS, SHADOW, SPACE } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
+import { VarietyChips } from './VarietyChips.tsx'
 
 export const TENTATIVE_REGION = '확인 중인 상품'
 export const ASK_WHICH_NUMBER = '몇 번이 맞나요?'
@@ -74,6 +77,8 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 품종 후보 단추로 고른 품종 (없으면 지금 품종) — 확정할 때 같이 보낸다 (D-VARIETY-01)
+  const [pickedName, setPickedName] = useState<string | null>(null)
   const sending = useRef(false)
   const shownAt = useRef(Date.now())
   const tentative = product.tentative
@@ -84,7 +89,9 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
   const step = numbers.length > 0 && picked === null ? 'no' : prices.length > 0 ? 'price' : 'plain'
   const no = picked ?? product.no
   const waiting = waitingAt(api.data, api.b, no)
-  const line = [`${String(no)}번`, product.name.trim(), formatWon(product.price)].filter((part) => part !== '').join(' ')
+  const names = otherNames(product)
+  const name = pickedName ?? product.name.trim()
+  const line = [`${String(no)}번`, productTitle(name, product.pieces), formatWon(product.price)].filter((part) => part !== '').join(' ')
   const why = [reasonLine(tentative), ...(waiting > 0 ? [waitingWords(waiting)] : [])].join(' · ')
   const tooSoon = () => guardMs > 0 && Date.now() - shownAt.current < guardMs
 
@@ -114,7 +121,7 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
   }
   const confirm = (pick: { readonly no?: number; readonly price?: number }) => {
     const to = pick.no !== undefined && pick.no !== product.no ? pick.no : undefined
-    void send(confirmEvent(product, pick), CONFIRM_FAILED, to)
+    void send(confirmEvent(product, { ...pick, ...(pickedName === null ? {} : { name: pickedName }) }), CONFIRM_FAILED, to)
   }
   const pickNumber = (value: number) => {
     if (sending.current || tooSoon()) return
@@ -165,6 +172,10 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
       <Txt step="caption" weight="bold" color="warnText" role="note">
         {why}
       </Txt>
+      {/* 일꾼이 품종을 여러 가지로 들었으면 품종 단추 한 줄 — 지금 품종이 맨 앞(골라져 있음), 누르면 그 품종으로 확정된다 (D-VARIETY-01) */}
+      {names.length === 0 ? null : (
+        <VarietyChips choices={[...(product.name.trim() === '' ? [] : [product.name.trim()]), ...names]} selected={name} disabled={busy} inset={0} onPick={(value) => { if (!tooSoon()) setPickedName(value === product.name.trim() ? null : value) }} />
+      )}
       {step === 'plain' ? null : (
         <Txt step="bodyLarge" weight="bold">
           {step === 'no' ? ASK_WHICH_NUMBER : ASK_WHICH_PRICE}

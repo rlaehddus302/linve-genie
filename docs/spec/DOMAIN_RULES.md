@@ -69,11 +69,11 @@
 | `broadcast.start` | 방송 ID, 날짜, 회차(제목), 설정 스냅샷(선택 — 기본값 위에 덮어쓴 값, 아래 "방송 시작·종료") |
 | `broadcast.end` | 방송 ID |
 | `broadcast.thanks` | 방송 ID, 감사 채팅 켜기(참·거짓) |
-| `product.register` | 번호, 품종, 가격, 재고(기본 1), 상태(`OPEN` 기본 / `READY`), 확인 중 칸 `tentative`(선택 — R-2 "확인 중", D-RETRO-80) |
+| `product.register` | 번호, 품종, 가격, 재고(기본 1), 상태(`OPEN` 기본 / `READY`), 확인 중 칸 `tentative`(선택 — R-2 "확인 중", D-RETRO-80), 개수 `pieces`(선택, 1~99 — 묶음 포기 수, 표시만, 1이면 기록하지 않음, D-PIECES-01) |
 | `product.open` / `product.hold` / `product.close` | 번호 |
-| `product.confirm` | 번호, 최종 번호 `to`(선택), 최종 품종 `name`(선택), 최종 가격 `price`(선택) — 확인 중 상품의 확정 (R-2 "확인 중") |
+| `product.confirm` | 번호, 최종 번호 `to`(선택), 최종 품종 `name`(선택), 최종 가격 `price`(선택), 개수 `pieces`(선택, D-PIECES-01) — 확인 중 상품의 확정 (R-2 "확인 중") |
 | `product.withdraw` | 번호 — 확인 중 상품 거두기 (R-2 "확인 중") |
-| `product.update` | 번호, 바꿀 값(품종·가격·재고), 가격 적용 범위 `NEW_ONLY` / `UNPAID_CLAIMS` |
+| `product.update` | 번호, 바꿀 값(품종·가격·재고·개수 `pieces`), 가격 적용 범위 `NEW_ONLY` / `UNPAID_CLAIMS` — 개수는 판정·금액과 상관없고(가격은 묶음 하나의 값), 개수만 바뀌어도 뽑은 1등 라벨은 다시 뽑기 필요(D-PIECES-01) |
 | `product.renumber` | 이전 번호, 새 번호 |
 | `chat` | 메시지 ID, 채널 ID, 닉네임, 본문, 게시 시각(`publishedAt`), 방송자 여부 |
 | `sms` | 문자찜 입력 ID(`ref`), 번호, 실제 수신 시각(시:분 또는 시:분:초), 메모(선택), 전화번호 키 `phoneKey`와 뒤 4자리 `phoneLast4`(선택, 함께 — 아래 "문자찜 `ref`와 전화번호"), 지정 구매자(선택) |

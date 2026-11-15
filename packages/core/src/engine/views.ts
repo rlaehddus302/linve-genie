@@ -188,6 +188,8 @@ function productInfo(state: EngineState, r: Draft, slot: SlotRecord, product: Pr
             at: product.tentative.at,
           },
         }),
+    // 개수는 2 이상일 때만 싣는다 (D-PIECES-01) — 없으면 1
+    ...(product.pieces === undefined ? {} : { pieces: product.pieces }),
   }
 }
 
