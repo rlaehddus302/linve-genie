@@ -15,7 +15,13 @@ UDID=${1:-$(xcrun devicectl list devices 2>/dev/null | awk '/physical/ && /conne
 echo "기기 $UDID"
 # 지문은 맥 미니가 화면 업데이트를 발행할 때 쓰는 값과 같아야 그 업데이트를 받는다. 이 맥에서 계산한 값은 저장소에 없는 파일
 # (ios/Pods·ios/build·.xcode.env.local·packages/mobile-notice/ios/.build 등) 때문에 달라질 수 있다(2026-11-13 실제로 달랐다).
-# LG_IOS_FP에 맥 미니의 값(맥 미니 ~/.livegenie-ci/built-ios)을 주면 그 값을 쓴다.
+# LG_IOS_FP에 맥 미니의 값(맥 미니 ~/.livegenie-ci/built-ios)을 주면 그 값을 쓴다. 주지 않으면 맥 미니(ssh mini)에서 읽어 온다 —
+# 2026-11-16 USB 자동 설치(launchd usb-deploy)가 LG_IOS_FP 없이 이 맥의 지문(6eba…)으로 빌드해, 맥 미니가 올린 화면 업데이트(e21a…)를
+# 아이폰이 받지 못했다. 맥 미니에 닿지 않을 때만 이 맥에서 계산한다(그때는 화면 업데이트를 못 받을 수 있다고 알린다).
+if [ -z "${LG_IOS_FP:-}" ]; then
+  LG_IOS_FP=$(ssh -o BatchMode=yes -o ConnectTimeout=8 mini 'cat ~/.livegenie-ci/built-ios' 2>/dev/null | tr -d '[:space:]' || true)
+  [[ "$LG_IOS_FP" =~ ^[0-9a-f]{40}$ ]] || { LG_IOS_FP=''; echo "맥 미니 지문을 읽지 못했어요 — 이 맥에서 계산한 지문을 써요(맥 미니가 올리는 화면 업데이트를 못 받을 수 있어요)"; }
+fi
 FP=${LG_IOS_FP:-$(npx expo-updates fingerprint:generate --platform ios | python3 -c 'import json,sys;print(json.load(sys.stdin)["hash"])')}
 echo "앱 지문 $FP"
 BUILD=$(date +%Y%m%d.%H%M)
