@@ -127,6 +127,8 @@ SEG_PRE = float(os.environ.get("LLM_SEG_PRE", 15))
 SEG_SPAN = float(os.environ.get("LLM_SEG_SPAN", 120))
 SEG_ASKS = int(os.environ.get("LLM_SEG_ASKS", 3))
 SEG_TAG_SEC = int(os.environ.get("LLM_SEG_TAG_SEC", 5))                # 번호표만 바뀐 구간: 그 번호표가 이만큼(초) 이어서 크게 보여야 연다
+SEG_DRIFT = float(os.environ.get("LLM_SEG_DRIFT", 0))                # 0이면 끔. 이미 올린 상품의 구간에서 마지막 금액 뒤 이만큼(초) 지나 새 금액이 들리면
+                                                                     # 번호를 말하지 않고 다음 상품으로 넘어간 것으로 보고 번호 없는 구간을 새로 연다(앞 상품 이름이 덮이지 않게)
 SEG_RETAG = 300                                                      # 번호표만 바뀐 구간: 같은 번호로 이만큼(방송 초) 안에 구간을 열었으면 다시 열지 않는다(진열대의 번호표가 번갈아 크게 보일 때)
 CUE_WAIT, CUE_BACK = 30.0, 90.0                                    # 거둔다는 말: 이만큼(방송 초) 기다렸다가, 그 말보다 이만큼 앞까지 소개를 시작한 상품 가운데 가장 나중 것에 붙인다
 WITHDRAW_CUE = re.compile(r"번호\s?(?:떼|때|빼)")                    # 판매자가 상품을 거둔다는 말("번호 떼") — 153번
@@ -609,13 +611,16 @@ class LlmRegister:
             new = tag                                        # 번호를 말하지 않고 번호표만 바꿔 든 상품
         texts = [x]
         if new is not None:
-            if s is not None:
-                self._seg_close(i - 1, "구간 끝")
             lo = i
             while lo > 0 and t - self.tr[lo - 1][0] <= SEG_PRE and not any(v != new for v in R.numbers_with_beon(self.tr[lo - 1][2])):
                 lo -= 1                                      # 번호보다 먼저 말한 금액·품종도 넣는다
+            if s is not None and s["no"] is None and t - self.tr[s["lo"]][0] <= SEG_SPAN:
+                lo = min(lo, s["lo"])                        # 번호 없이 연 구간은 이 번호의 앞부분이다 — 따로 다시 묻지 않고 합친다
+                self.seg = s = None
+            if s is not None:
+                self._seg_close(i - 1, "구간 끝")
             known = (self.prices.get(new) or {}).get("now") or (self.sent.get(new) or {}).get("price")
-            s = self.seg = {"no": new, "lo": lo, "hi": -1, "asks": 0, "amounts": {known} if known else set()}   # 이미 아는 값을 다시 말한 것은 새 금액이 아니다
+            s = self.seg = {"no": new, "lo": lo, "hi": -1, "asks": 0, "amounts": {known} if known else set(), "t_amt": t}   # 이미 아는 값을 다시 말한 것은 새 금액이 아니다
             self.seg_t[new] = t
             self.emit({"kind": "LLM구간", "no": new, "line": i, "start_sec": t, "by": "말" if said else "번호표"})
             texts = [self.tr[j][2] for j in range(lo, i + 1)]
@@ -626,6 +631,15 @@ class LlmRegister:
                 amounts |= explicit | short
             fresh = amounts - s["amounts"]
             s["amounts"] |= amounts
+            if fresh and SEG_DRIFT > 0 and s["no"] is not None and s["no"] in self.sent and t - s.get("t_amt", t) > SEG_DRIFT:
+                lo = i
+                while lo > 0 and t - self.tr[lo - 1][0] <= SEG_PRE and not R.numbers_with_beon(self.tr[lo - 1][2]):
+                    lo -= 1
+                self._seg_close(lo - 1, "구간 끝")
+                s = self.seg = {"no": None, "lo": lo, "hi": -1, "asks": 0, "amounts": set(fresh), "t_amt": t}
+                self.emit({"kind": "LLM구간", "no": None, "line": i, "start_sec": t, "by": "새 금액"})
+            if fresh:
+                s["t_amt"] = t
             if fresh and s["asks"] < SEG_ASKS:
                 self.emit({"kind": "LLM구간금액", "no": s["no"], "line": i, "amounts": sorted(fresh)})
                 self._seg_want(s, i, "금액")

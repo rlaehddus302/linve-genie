@@ -662,6 +662,25 @@ class ProductTriggerTest(unittest.TestCase):
         segs = [(e["no"], e["by"]) for e in st.kinds("LLM구간")]
         self.assertEqual(segs, [(37, "번호표"), (38, "번호표")])
 
+    def test_a_new_price_long_after_without_a_number_opens_its_own_segment(self):
+        st = self.stage()
+        p = patch("sw.llm_live.SEG_DRIFT", 20)
+        p.start()
+        self.addCleanup(p.stop)
+        st.say(0, "37번 5만원", row(0, 37, 50000, None, no_from="말"))
+        st.say(10, "잎이 통통하죠")
+        st.say(40, "이거는 3만원")                                             # 37을 올린 지 40초 — 번호 없이 다음 상품으로 넘어갔다
+        self.assertEqual([self.lines_of(u) for u in st.asked], [[0], [0, 1], [2]])   # 37 구간은 앞에서 끝내고, 새 금액은 37의 줄 없이 묻는다
+        st.say(45, "40번이에요")
+        self.assertEqual(self.lines_of(st.asked[3]), [2, 3])                    # 번호가 들리면 번호 없던 구간과 합쳐 묻는다
+        self.assertEqual([(e["no"], e["by"]) for e in st.kinds("LLM구간")], [(37, "말"), (None, "새 금액"), (40, "말")])
+
+    def test_the_new_price_rule_is_off_by_default(self):
+        st = self.stage()
+        st.say(0, "37번 5만원", row(0, 37, 50000, None, no_from="말"))
+        st.say(40, "이거는 3만원")
+        self.assertEqual([(e["no"], e["by"]) for e in st.kinds("LLM구간")], [(37, "말")])
+
     def test_the_line_trigger_stays_the_default(self):
         self.assertEqual(llm_live.TRIGGER if "LLM_TRIGGER" not in __import__("os").environ else "line", "line")
 
