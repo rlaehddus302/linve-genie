@@ -59,6 +59,22 @@ describe('방송 화면 찜 기록 찾기 (D-UX4-152)', () => {
     return within(await screen.findByRole('group', { name: '찜 기록 찾기·정렬' })).getByLabelText('찜 기록 찾기')
   }
 
+  it('D-UX4-159 (사용자 "탭바랑 검색바 … 둘 다 같은 영역에 넣어서 스크롤 올리면 같이 보이게 해"): 상품·찜 기록의 찾기·정렬 줄은 탭 바와 같은 붙는 머리(console-tabs) 안에 있다 — 목록 안에는 없다', async () => {
+    const search = await openFeed()
+    const tabs = screen.getByTestId('console-tabs')
+    expect(tabs.contains(search)).toBe(true)
+    expect(screen.getByTestId('console-list').contains(search)).toBe(false)
+    // 찾은 글은 목록에 걸린다 (상태는 방송 화면이 든다)
+    fireEvent.change(search, { target: { value: '0937' } })
+    expect(labels(screen.getByRole('list', { name: '찜 기록' }))).toEqual(['문자-0937 88 보류'])
+    // 상품 탭으로 바꾸면 그 자리에 상품 번호 찾기·목록 순서
+    fireEvent.click(screen.getByRole('button', { name: /^상품/ }))
+    const toolbar = await screen.findByTestId('product-toolbar')
+    expect(tabs.contains(toolbar)).toBe(true)
+    expect(screen.getByTestId('console-list').contains(toolbar)).toBe(false)
+    expect(within(tabs).queryByRole('group', { name: '찜 기록 찾기·정렬' })).toBeNull()
+  })
+
   it('한 칸에서 번호·닉네임을 함께 찾는다 — 숫자는 그 번호를 찜한 손님과 닉네임 속 숫자, 글자는 닉네임 부분 일치(대소문자·띄어쓰기 무시). 맞는 찜이 없으면 알리고, 동그란 x로 한 번에 비운다', async () => {
     const search = await openFeed()
     expect(search.getAttribute('placeholder')).toBe('번호나 닉네임으로 찾기')

@@ -45,7 +45,7 @@ describe('탭 바 숨김은 손으로 굴린 거리만 센다 (D-UX4-155)', () =
     const source = read('src/screens/ConsoleScreen.tsx')
     expect(source).not.toMatch(/^\s*stickyHeaderHiddenOnScroll/m)
     expect(source).toMatch(/useEffect\(\(\) => \{\n\s*resetFollow\(\)\n\s*showTabs\(\)/)
-    for (const wire of ['tabHide.drag(true)', 'tabHide.drag(false)', 'onMomentumScrollBegin={() => tabHide.glide(true)}', 'onMomentumScrollEnd={() => tabHide.glide(false)}', 'tabHide.track(event.nativeEvent.contentOffset.y)', 'onLayout={tabHide.onLayout}']) expect(source).toContain(wire)
+    for (const wire of ['tabHide.drag(true)', 'tabHide.drag(false)', 'onMomentumScrollBegin={() => tabHide.glide(true)}', 'onMomentumScrollEnd={() => tabHide.glide(false)}', 'tabHide.track(event.nativeEvent.contentOffset.y)', 'tabHide.onLayout(event)']) expect(source).toContain(wire) // D-UX4-159: 붙는 머리 높이도 재려고 onLayout={tabHide.onLayout} → tabHide.onLayout(event)
   })
 })
 

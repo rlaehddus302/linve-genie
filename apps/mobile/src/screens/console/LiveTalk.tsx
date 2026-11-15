@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, Platform, ScrollView, View, type ScrollViewInstance } from 'react-native'
 import type { SmsFeedView } from '@livejjim/web/src/api/inbox-types.ts'
 import type { Claim, MessagesView } from '@livejjim/web/src/api/types.ts'
-import { kstHm } from '@livejjim/web/src/lib/kst.ts'
+import { kstTime } from '@livejjim/web/src/lib/kst.ts'
 import { CHAT_WORD } from '@livejjim/web/src/lib/words.ts'
 import { get, isApiError, withQuery } from '../../api/client.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
@@ -214,7 +214,8 @@ function TalkLine({ row, timeWidth, onTimeWidth, oneLine = false }: { readonly r
       {/* 시각 칸: 목록에서 가장 넓은 시각 폭으로 모두 맞춘다 (숫자 폭이 달라도 닉네임 왼쪽이 한 세로줄) */}
       <View testID="talk-time" style={{ minWidth: timeWidth }}>
         <View style={{ alignSelf: 'flex-start' }} onLayout={(event) => onTimeWidth(event.nativeEvent.layout.width)}>
-          <Txt step="meta" color="textSub">{kstHm(row.at)}</Txt>
+          {/* 초까지 (D-UX4-159, 사용자 "시간에 초도 넣어") — 찜 기록 시각(feedClock)과 같은 모양 */}
+          <Txt step="meta" color="textSub">{kstTime(row.at)}</Txt>
         </View>
       </View>
       <View testID="talk-body" style={{ flex: 1, flexDirection: 'row', flexWrap: oneLine ? 'nowrap' : 'wrap', alignItems: 'center', columnGap: SPACE.sm, rowGap: 2, overflow: 'hidden' }}>

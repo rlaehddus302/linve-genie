@@ -29,7 +29,9 @@ import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
 import { ConsoleManage, MANAGE_LABEL } from './console/Manage.tsx'
-import { ProductList, shownProducts, type RowNode } from './console/ProductBoard.tsx'
+import { ProductList, ProductToolbar, shownProducts, type RowNode } from './console/ProductBoard.tsx'
+import { DEFAULT_PRODUCT_SORT, type ProductSort } from '../lib/product-sort.ts'
+import { feedRows } from './console/feed-rows.ts'
 import { ProductSheet } from './console/ProductEdit.tsx'
 import { AddFab, DIGIT_PAD_HEIGHT, NumberKeys, ProductAddPage } from './console/ProductAdd.tsx'
 import { SlidePage } from './console/parts.tsx'
@@ -44,7 +46,7 @@ import { useFollowScroll } from '../lib/use-follow-scroll.ts'
 import { HEARD_TAB, HeardTab, ListenLine, useKeptStream } from './console/StreamAudio.tsx'
 import { useTabBarHide } from './console/tab-hide.ts'
 import { ListenSourceChip, ListenSourceSheet } from './console/ListenSource.tsx'
-import { ClaimFeed } from './console/ClaimFeed.tsx'
+import { ClaimFeed, ClaimFeedToolbar, useClaimFeedState } from './console/ClaimFeed.tsx'
 import { LiveTalk, TALK_TAB, TalkDock } from './console/LiveTalk.tsx'
 import { EndBroadcastRow } from './console/EndBroadcast.tsx'
 import { LinkInfo, hasLinkedLive } from './console/LinkInfo.tsx'
@@ -168,6 +170,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const [searchDigits, setSearchDigits] = useState('')
   // 찜 된 것만 보기 (D-UX4-141) — 탭을 바꿔도 남고, "그 상품 보기"에서 푼다
   const [claimedOnly, setClaimedOnly] = useState(false)
+  // 목록 도구 줄(찾기·정렬)은 탭 바와 같은 붙는 머리 안에 — 스크롤을 올리면 탭 바와 함께 보인다 (D-UX4-159). 그래서 상태도 여기서 든다
+  const [productSort, setProductSort] = useState<ProductSort>(DEFAULT_PRODUCT_SORT)
+  const feedState = useClaimFeedState()
   const [searchPad, setSearchPad] = useState(false)
   const draggingSearch = useRef(false)
   const padOpacity = useRef(new Animated.Value(1)).current
@@ -216,6 +221,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const rowNodes = useRef(new Map<string, RowNode>()).current
   const listNode = useRef<RowNode>(null)
   const listTop = useRef(0)
+  // 붙는 머리(탭 바 + 도구 줄) 높이 — "그 상품 보기"가 그 줄을 머리 밑에 가리지 않게 (D-UX4-159)
+  const tabsHeight = useRef(0)
   const showTimers = useRef(new Set<ReturnType<typeof setTimeout>>()).current
   useEffect(() => () => {
     for (const timer of showTimers) clearTimeout(timer)
@@ -243,7 +250,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
       const row = rowNodes.get(key)
       const list = listNode.current
       if (row === undefined || list === null) return
-      row.measureLayout(list, (_x, y) => scroll.current?.scrollTo({ y: Math.max(0, listTop.current + y - ROW_PEEK), animated: true }), () => undefined)
+      row.measureLayout(list, (_x, y) => scroll.current?.scrollTo({ y: Math.max(0, listTop.current + y - Math.max(ROW_PEEK, tabsHeight.current + SPACE.sm)), animated: true }), () => undefined)
     }, 60)
   }, [later, rowNodes, scroll])
   /** 열려 있는 상품 자세히에서 — 같은 판 안에서 그 상품으로 바꾼다 */
@@ -592,17 +599,27 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           {/* 위 여백은 탭 바 안에(TABS_TOP) — 목록 줄 사이(gap)를 위로 지워, 맨 위에 있을 때와 올리다 붙었을 때 머리↔알약 여백이 같다 (D-UX4-110) */}
           {/* 붙는 머리 칸(자리·여백)과 그 안에서 위로 밀려 숨는 탭 바(바탕·안 여백) — 칸 스타일은 휴대폰 붙는 머리가 가져가 숨김 이동을 따로 둔다 (D-UX4-155) */}
           {/* 칸은 누름을 받지 않는다(box-none, 붙는 머리 겉 칸도 같은 스타일) — 탭 바가 숨은 자리 밑의 목록 줄이 눌린다 */}
-          <View testID="console-tabs-slot" collapsable={false} pointerEvents="box-none" onLayout={tabHide.onLayout} style={{ marginHorizontal: -GUTTER, marginTop: -SPACE.sm, marginBottom: -SPACE.xs, pointerEvents: 'box-none' }}>
+          <View testID="console-tabs-slot" collapsable={false} pointerEvents="box-none" onLayout={(event) => { tabHide.onLayout(event); tabsHeight.current = event.nativeEvent.layout.height }} style={{ marginHorizontal: -GUTTER, marginTop: -SPACE.sm, marginBottom: -SPACE.xs, pointerEvents: 'box-none' }}>
             <Animated.View testID="console-tabs" style={{ paddingHorizontal: GUTTER, paddingTop: TABS_TOP, paddingBottom: SPACE.xs, backgroundColor: p.background, transform: [{ translateY: tabHide.offset }] }}>
               <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
                 {tabPills}
               </View>
+              {/* 지금 탭의 도구 줄 — 탭 바와 한 칸이라 손으로 내리면 같이 숨고 올리면 같이 나온다 (D-UX4-159, 사용자 "둘 다 같은 영역에 넣어서 스크롤 올리면 같이 보이게 해") */}
+              {shownTab === 'products' && (searchDigits !== '' || shownProducts(data, broadcastId).length > 0) ? (
+                <View testID="console-toolbar" style={{ paddingTop: SPACE.sm }}>
+                  <ProductToolbar query={searchDigits} onQuery={setSearchDigits} claimedOnly={claimedOnly} onClaimedOnly={setClaimedOnly} sort={productSort} onSort={setProductSort} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} />
+                </View>
+              ) : shownTab === 'feed' && feedRows(data, names, broadcastId).length > 0 ? (
+                <View testID="console-toolbar" style={{ paddingTop: SPACE.sm }}>
+                  <ClaimFeedToolbar {...feedState} />
+                </View>
+              ) : null}
             </Animated.View>
           </View>
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
           <View testID="console-list" ref={listNode} collapsable={false} onLayout={(event) => { listTop.current = event.nativeEvent.layout.y }} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
             <Appear instant={!listLate} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
-              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} claimedOnly={claimedOnly} onClaimedOnly={setClaimedOnly} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} onRow={onRow} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} onEditProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} broadcastId={broadcastId} live={!closed} /> : <LiveTalk />}
+              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} claimedOnly={claimedOnly} onClaimedOnly={setClaimedOnly} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} onRow={onRow} toolbar={false} sort={productSort} onSort={setProductSort} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} onEditProduct={setDetail} toolbar={false} query={feedState.query} onQuery={feedState.onQuery} sort={feedState.sort} onSort={feedState.onSort} /> : shownTab === 'heard' ? <HeardTab session={services.voice} broadcastId={broadcastId} live={!closed} /> : <LiveTalk />}
             </Appear>
           </View>
           {/* (+) 단추·매출 캡슐에 마지막 줄이 가리지 않게 */}

@@ -304,13 +304,13 @@ export interface ProductListProps {
   readonly onRow?: (key: string, node: RowNode | null) => void
   /** 목록 위 도구 줄(ProductToolbar)을 안에 그릴지 (기본 true). false면 목록만 — 도구 줄은 부르는 쪽이 따로 놓는다 (D-UX4-150) */
   readonly toolbar?: boolean
-  /** 목록 순서 (D-UX4-150). 주지 않으면 목록이 스스로 들고 기본은 번호 작은순 */
+  /** 목록 순서 (D-UX4-150). 주지 않으면 목록이 스스로 들고 기본은 최근 올린 순 */
   readonly sort?: ProductSort
   readonly onSort?: (sort: ProductSort) => void
 }
 
 /**
- * 상품 전체 리스트 — 기본 번호 작은순, [목록 순서]로 바꾼다 (D-UX4-150 — 옛: 가장 최근에 말한(올린) 상품이 맨 위, D-UX3-87).
+ * 상품 전체 리스트 — 기본은 가장 최근에 말한(올린) 상품이 맨 위(D-UX3-87), [목록 순서]로 바꾼다 (D-UX4-150).
  * 찜 된 것만(D-UX4-141)·번호 검색과 함께 걸린다 — 번호 검색은 정확히 같은 번호를 맨 위에, 나머지는 고른 순서대로.
  * 처음 받은 상품은 강조하지 않고, 그 뒤에 올라온·고른 상품만 잠깐 초록
  */
