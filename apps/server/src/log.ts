@@ -48,6 +48,8 @@ export type LogCode =
   | 'STREAM_AUDIO_SERVER_READING'
   | 'STREAM_AUDIO_SERVER_READING_FAILED'
   | 'STREAM_AUDIO_STOPPED'
+  // D-UX4-156 음성 인식 기록을 저장하지 못함 (글 없이 코드만)
+  | 'VOICE_HEARD_SAVE_FAILED'
   | 'ENGINE_FAILED'
   | 'REPLAY_SKIPPED'
   | 'SAVE_FAILED'
@@ -249,6 +251,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   STREAM_AUDIO_SERVER_READING: '앱이 없어 방송 소리 글을 서버가 직접 읽고 등록해요',
   STREAM_AUDIO_SERVER_READING_FAILED: '방송 소리 글을 서버가 읽을 준비를 하지 못했어요',
   STREAM_AUDIO_STOPPED: '방송 소리 듣기가 여러 번 끊겨 멈췄어요',
+  VOICE_HEARD_SAVE_FAILED: '음성 인식 기록 한 줄을 저장하지 못했어요',
   ENGINE_FAILED: '엔진이 처리하지 못한 입력을 실패로 표시하고 건너뛰었어요',
   REPLAY_SKIPPED: '다시 불러오는 중 처리하지 못한 입력을 건너뛰었어요',
   SAVE_FAILED: '저장하지 못했어요',

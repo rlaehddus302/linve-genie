@@ -144,8 +144,8 @@ export function maskHeard(text: string): string {
   return out
 }
 
-/** 저장할 들은 말: 짝 없는 서로게이트·제어 문자 빼기(줄바꿈·탭 → 공백), 앞뒤 공백 지우기, 한 번 더 가리기, 300글자까지 */
-export function cleanHeard(text: string): string {
+/** 저장할 들은 말: 짝 없는 서로게이트·제어 문자 빼기(줄바꿈·탭 → 공백), 앞뒤 공백 지우기, 한 번 더 가리기, 300글자까지 (max — 음성 인식 기록 D-UX4-156은 더 길게) */
+export function cleanHeard(text: string, max: number = VOICE_LOG_HEARD_MAX): string {
   let out = ''
   for (const char of text.toWellFormed()) {
     const code = char.codePointAt(0) ?? 0
@@ -154,7 +154,7 @@ export function cleanHeard(text: string): string {
     else out += char
   }
   const masked = maskHeard(out.trim())
-  return [...masked].slice(0, VOICE_LOG_HEARD_MAX).join('')
+  return [...masked].slice(0, max).join('')
 }
 
 /** 화면이 보낸 voiceLog 칸 검사: { heard, source?: 'voice', undo?: 요청 번호, device? } */

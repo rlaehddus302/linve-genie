@@ -55,6 +55,7 @@ import {
   assistCalls,
   voiceLog,
   voiceAliases,
+  voiceHeard,
   voiceVarieties,
   assistSettings,
   customerArchiveDays,
@@ -1768,6 +1769,9 @@ export const RESTORE_KEPT_TABLES = [
   voiceAliases,
   // D-V3-127: 내 품종 장부도 계정 것 — 복구가 지우지 않는다
   voiceVarieties,
+  // D-UX4-156 음성 인식 기록: 방송 ID·날짜로만 잇고 범위를 참조하지 않는다 — 백업 파일에 없고 복구·가져오기가 지우지 않는다(복구해도 같은 방송 ID면 그대로 보인다).
+  // 봉인이 그 날짜 줄을 지운다(seal.ts)
+  voiceHeard,
   // D-REAL-03: 손님 휴대폰 번호(암호화)·영수증 문자 보낸 기록 — 백업 파일에 없고(번호를 파일로 내보내지 않는다), 복구가 지우지 않는다
   buyerPhones,
   receiptSmsSends,

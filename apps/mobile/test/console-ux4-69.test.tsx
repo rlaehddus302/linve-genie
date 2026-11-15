@@ -140,7 +140,8 @@ describe('아래 창과 같은 탭은 숨기고, 들린 말 탭 (D-UX4-91)', () 
   it('들린 말 탭: 들린 시각(한국 시각) + 말, 새 말이 아래', async () => {
     const { HeardTab } = await import('../src/screens/console/StreamAudio.tsx')
     const base = Date.parse('2026-10-29T12:07:33.000Z')
-    render(<HeardTab session={fakeVoice({ transcript: ['첫 말', '둘째 말'], transcriptAt: [base, base + 5000] })} />)
+    // D-UX4-156: 탭은 그 방송(broadcastId)의 서버 기록에 이 기기 줄을 잇는다 — 서버 기록이 없으면(여기선 받지 못함) 이 기기 줄만 (옛: session만 받았다)
+    render(<HeardTab session={fakeVoice({ transcript: ['첫 말', '둘째 말'], transcriptAt: [base, base + 5000] })} broadcastId="b1" live />)
     expect(screen.getAllByTestId('heard-tab-row').map((row) => row.textContent)).toEqual(['21:07:33첫 말', '21:07:38둘째 말'])
   })
 })
@@ -148,12 +149,15 @@ describe('아래 창과 같은 탭은 숨기고, 들린 말 탭 (D-UX4-91)', () 
 describe('탭 바 반고정 (D-UX4-93 → D-UX4-98 → D-UX4-104 → D-UX4-109)', () => {
   // 옛 시험: 손으로 만든 위에 붙는 탭 바(quickReturnStep) — 들어올 때 가려지고 따라 내려오는 등 흔들려(사용자 사진) 휴대폰이 직접 하는 붙는 머리로 바꿨다 (D-UX4-98)
   // D-UX4-104가 "숨지 않고 늘 붙어 있다"로 바꿨다가 D-UX4-109(사용자 "올릴 때 탭 바 안 숨는데?")로 D-UX4-98 기대(올리면 숨고 내리면 붙는다)를 되살렸다
-  it('탭 바는 목록의 둘째 자식 붙는 머리 — 올리면 숨고 내리면 붙는다(stickyHeaderHiddenOnScroll), 손으로 만든 붙는 탭 바는 없다', async () => {
+  // D-UX4-155 (사용자 "채팅·문자 탭을 누르면 탭 바가 사라진다"): 숨기기를 휴대폰 것(stickyHeaderHiddenOnScroll — 앱이 맨 아래로 굴린 것까지 세서 탭에 들어가자마자 숨었다)에서
+  // 손으로 굴린 거리만 세는 tabHide로 바꿨다. 붙는 머리는 그대로 — 옛 기대: 소스에 stickyHeaderHiddenOnScroll 줄이 있다
+  it('탭 바는 목록의 둘째 자식 붙는 머리 — 올리면 숨고 내리면 붙는다(손으로 굴린 거리만 세는 tabHide), 손으로 만든 붙는 탭 바는 없다', async () => {
     const { readFileSync } = await import('node:fs')
     const { join } = await import('node:path')
     const source = readFileSync(join(import.meta.dirname, '../src/screens/ConsoleScreen.tsx'), 'utf8')
     expect(source).toContain('stickyHeaderIndices={STICKY_TABS}')
-    expect(source).toMatch(/^\s*stickyHeaderHiddenOnScroll$/m)
+    expect(source).not.toMatch(/^\s*stickyHeaderHiddenOnScroll/m)
+    expect(source).toContain('transform: [{ translateY: tabHide.offset }]')
     // D-UX4-108 (사용자 "스크롤 땡기면 여전히 이렇게 늘어나는데?"): 맨 위에서 당겨도 튕기거나 늘어나지 않는다
     expect(source).toContain('bounces={false}')
     expect(source).toContain('overScrollMode="never"')
@@ -173,8 +177,10 @@ describe('탭 바 반고정 (D-UX4-93 → D-UX4-98 → D-UX4-104 → D-UX4-109)'
     const { SPACE } = await import('../src/ui/kit/tokens.ts')
     const world = makeWorld({ products: [] })
     await open(world)
+    // D-UX4-155: 붙는 머리 칸(console-tabs-slot)이 위 margin을, 그 안에서 숨으며 밀리는 탭 바(console-tabs)가 안 여백을 갖는다 (옛 기대: 둘 다 console-tabs 한 칸에)
+    const slot = getComputedStyle(screen.getByTestId('console-tabs-slot'))
     const tabs = getComputedStyle(screen.getByTestId('console-tabs'))
-    expect(tabs.marginTop).toBe(`-${String(SPACE.sm)}px`)
+    expect(slot.marginTop).toBe(`-${String(SPACE.sm)}px`)
     expect(tabs.paddingTop).toBe(`${String(TABS_TOP)}px`)
     // 목록 묶음의 줄 사이가 SPACE.sm이라 위 margin이 그 줄 사이를 정확히 지운다
     const { readFileSync } = await import('node:fs')

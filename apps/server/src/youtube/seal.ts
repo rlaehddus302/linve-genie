@@ -19,7 +19,7 @@ import {
 } from '@livejjim/core'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { chatRaw, events as eventsTable, outbox, scopeLockKey, scopes, snapshots, thanksFixes, youtubeCollectors, youtubeNotices, voiceLog, youtubeOwnMessages } from '../db/schema.ts'
+import { chatRaw, events as eventsTable, outbox, scopeLockKey, scopes, snapshots, thanksFixes, youtubeCollectors, youtubeNotices, voiceHeard, voiceLog, youtubeOwnMessages } from '../db/schema.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import { emptyState } from '../runtime.ts'
 import { sha256Hex } from '../secrets.ts'
@@ -336,6 +336,8 @@ export class Sealer {
           .update(voiceLog)
           .set({ heard: '' })
           .where(and(eq(voiceLog.sellerId, sellerId), eq(voiceLog.date, date), eq(voiceLog.rehearsal, false)))
+        // 음성 인식 기록 (D-UX4-156): 시청자 이름·말이 들어갈 수 있어 채팅 원문처럼 지운다
+        await tx.delete(voiceHeard).where(and(eq(voiceHeard.sellerId, sellerId), eq(voiceHeard.date, date), eq(voiceHeard.rehearsal, false)))
         await tx
           .update(youtubeCollectors)
           .set({ pageToken: null, status: 'STOPPED', reason: 'SEALED', leaseOwner: null, leaseUntil: null, updatedAt: new Date(now) })

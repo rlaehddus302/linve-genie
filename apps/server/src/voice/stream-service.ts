@@ -39,6 +39,8 @@ export interface StreamAudioServiceOptions {
   readonly schedule?: (run: () => void, ms: number) => () => void
   /** 받을 콘솔이 없을 때 서버가 읽고 등록 (D-LV1-14). 없으면 지금처럼 버린다 */
   readonly serverReading?: ServerReading
+  /** D-UX4-156 받아쓴 글 한 줄을 듣는 판매자마다 음성 인식 기록에 남긴다 (기다리지 않는다). at = 그 말이 끝난 시각 */
+  readonly heard?: (sellerId: string, broadcastId: string, text: string, at: number) => void
 }
 
 /** 판매자 하나가 한 방송을 듣는 자리 (보이는 상태·콘솔 신호·끊김 셈·서버 읽기 알림). 소리·일꾼은 Flow가 가진다 */
@@ -348,7 +350,10 @@ export class StreamAudioService {
     const now = this.#o.clock.now()
     const endAt = Math.min(flow.base + result.endMs, now)
     const text = { text: result.text, startAt: Math.min(flow.base + result.startMs, endAt), endAt, ...(result.conf === undefined ? {} : { conf: result.conf }) }
-    for (const listen of [...flow.members]) this.#deliver(listen, text)
+    for (const listen of [...flow.members]) {
+      this.#o.heard?.(listen.sellerId, listen.broadcastId, text.text, text.endAt)
+      this.#deliver(listen, text)
+    }
   }
   #deliver(listen: Listen, text: { text: string; startAt: number; endAt: number; conf?: number }): void {
     if (this.#relay === null) return
