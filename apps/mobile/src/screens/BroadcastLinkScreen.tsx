@@ -57,7 +57,7 @@ export function BroadcastLinkScreen({ broadcastId, closed, onBack, onEnded }: { 
           {linker.fields}
         </View>
         {endRow}
-        <PlatformFinder visible={finder} onClose={() => setFinder(false)} onReturned={() => void linker.recheck()} />
+        <PlatformFinder visible={finder} onClose={() => setFinder(false)} onFound={linker.submitFound} knownChannel={linker.knownChannel} />
       </FormPage>
     </LinkPages>
   )

@@ -1,5 +1,6 @@
 // D-UX4-114 (사용자 지시 2026-11-10, "어디서 라이브하나요?" 판 사진):
 // 제목 "어디서 라이브하시나요?" · 설명 "라이브 공유 버튼을 누르고 링크를 복사한 뒤 돌아와 주세요"(한 글자만 다음 줄로 넘지 않게 "누르고" 뒤에서 나눔) · 아래 판에서 스크롤은 할 수 없게.
+// D-UX4-160: 설명은 앱 안 브라우저 흐름에 맞춰 "내 라이브 화면에 들어가서\n‘이 라이브예요’를 눌러 주세요"로 바뀜(제목·스크롤은 그대로).
 // D-UX4-115 (사용자 지시 2026-11-10 "라이브 링크 밑에 붙여넣기 버튼 그 위에 링크를 모르겠어요 버튼 스타일 그대로"):
 // [붙여넣기]는 모든 기기에서 [링크를 모르겠어요]와 같은 회색 칩 — 아이폰 기본 붙여넣기 단추는 글자 크기·글꼴을 못 바꿔 쓰지 않는다.
 // 클립보드를 못 읽으면(아이폰 "붙여넣기 허용 안 함") 아무 일도 없다 — "알 수 없는 링크예요"를 띄우지 않는다.
@@ -18,9 +19,10 @@ const read = (path: string) => readFileSync(join(import.meta.dirname, '..', path
 describe('플랫폼 고르기 판 (D-UX4-114)', () => {
   it('제목·설명이 바뀌었고 옛 말은 없다', async () => {
     expect(FINDER_TITLE).toBe('어디서 라이브하시나요?')
-    expect(FINDER_DESCRIPTION).toBe('라이브 공유 버튼을 누르고\n링크를 복사한 뒤 돌아와 주세요')
+    // D-UX4-160 (사용자 지시 2026-11-16 앱 안 브라우저): 옛 기대 설명 "라이브 공유 버튼을 누르고\n링크를 복사한 뒤 돌아와 주세요"(복사해 돌아오는 흐름은 없앰)
+    expect(FINDER_DESCRIPTION).toBe('내 라이브 화면에 들어가서\n‘이 라이브예요’를 눌러 주세요')
     const world = makeWorld({ products: [] })
-    render(world.wrap(<PlatformFinder visible onClose={() => {}} onReturned={() => {}} />))
+    render(world.wrap(<PlatformFinder visible onClose={() => {}} onFound={() => {}} />))
     const sheet = await screen.findByRole('dialog', { name: FINDER_TITLE })
     expect(within(sheet).getByRole('heading', { name: FINDER_TITLE })).toBeTruthy()
     expect(sheet.textContent).toContain(FINDER_DESCRIPTION)

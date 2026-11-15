@@ -312,7 +312,7 @@ export interface AddressLinkerOptions {
   readonly enabled?: boolean
   /** 링크 칸을 고치기 시작했을 때 (화면의 다른 오류 문장도 지우게) */
   readonly onEdit?: () => void
-  /** [링크를 모르겠어요] — 칸 아래 [붙여넣기]와 한 줄 (D-UX4-117). 없으면 칩이 없다 */
+  /** [링크를 모르겠어요] — 칸 아래 [붙여넣기]와 한 줄 (D-UX4-117). 누르면 플랫폼 고르기 → 앱 안 브라우저 (D-UX4-160). 없으면 칩이 없다 */
   readonly onUnknown?: () => void
   /** 연결 확인 화면 [연결하기] 위에 보일 화면의 알림 (새 라이브를 못 만들었을 때 등) */
   readonly confirmNotice?: ReactNode
@@ -497,6 +497,13 @@ export interface AddressLinker {
   readonly confirmAction: ReactNode
   /** 연결 확인 화면에서 링크 화면으로 */
   readonly back: () => void
+  /**
+   * 앱 안 브라우저의 [이 라이브예요] (D-UX4-162): 그 링크를 칸에 넣고 맨 아래 [다음]을 누른 것과 똑같이 진행한다
+   * (유튜브는 연결 확인 화면, 틱톡은 바로 잇기, 밴드는 글 고르기 — 못 이으면 칸 아래 오류 안내 그대로)
+   */
+  readonly submitFound: (url: string) => void
+  /** 브라우저 시작 주소에 쓸 유튜브 채널 (최근 연결한 채널의 라이브 목록 첫 채널) — 모르면 null */
+  readonly knownChannel: string | null
 }
 
 export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NEXT, disabled, enabled = true, onEdit, onUnknown, confirmNotice }: AddressLinkerOptions): AddressLinker {
@@ -781,12 +788,19 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
       }}
     />
   )
-  // recheck: 앱 안 브라우저를 닫고 돌아왔을 때 클립보드를 다시 본다(앱이 뒤로 가지 않아 앞으로 옴 알림이 없다)
   const back = () => {
     looking.current += 1
     setAsk(null)
   }
-  return { fields, action, popup: <PopNote note={note} />, busy, recheck: peek, confirming, confirmBody, confirmAction, back }
+  const submitFound = (url: string) => {
+    const text = url.trim()
+    if (text === '') return
+    edit(text)
+    confirm(text)
+  }
+  const knownChannel = (recent ?? []).find((item) => typeof item.channelId === 'string' && item.channelId !== '')?.channelId ?? null
+  // recheck: 클립보드에 글이 있는지 다시 본다 ([붙여넣기] 칩)
+  return { fields, action, popup: <PopNote note={note} />, busy, recheck: peek, confirming, confirmBody, confirmAction, back, submitFound, knownChannel }
 }
 
 /**

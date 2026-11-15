@@ -1,18 +1,21 @@
 // 새 방송 (D-UX3-09·10, 사용자 지시 2026-11-03): 쌓인 경로 화면 두 장 — 밀어서 뒤로 가기가 된다.
 // 1) "어떤 방송인가요?" — 판매 종류(다육이·화분·기타) 하나를 누른다. 제목 칸은 없다: 제목은 `2026-11-03 화요일 다육이 방송`(기타는 종류 없이).
 // 2) "방송 주소를 넣어 주세요" — 방송 주소 칸(클립보드에 유튜브 주소가 있으면 미리 채움), 주소를 넣으면 맨 아래 [확인]가
-//    방송을 만들고 바로 잇는다. [방송 주소를 모르겠어요] → 유튜브·틱톡·밴드 고르기 → 그 앱(없으면 앱 안 브라우저)에서 내 방송의
-//    공유 → 링크 복사 후 돌아오면 주소가 저절로 들어간다. 틱톡·밴드는 주소가 아니라 가게 계정으로 잇는다 — 그 안내와 [방송 만들기].
+//    방송을 만들고 바로 잇는다. [링크를 모르겠어요] → 유튜브·틱톡·밴드 고르기 → 앱 안 브라우저에서 내 라이브에 들어가
+//    [이 라이브예요]를 누르면 그 링크로 [다음]과 똑같이 이어진다 (D-UX4-160~162). 틱톡·밴드는 주소가 아니라 가게 계정으로 잇는다 — 그 안내와 [방송 만들기].
 // 유튜브를 이을 수 없는 서버(읽기 꺼짐·구글 연결 없음)면 종류를 누르는 대로 방송을 만들고 방송 화면으로 간다(그 화면이 연결 안내를 보인다).
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 import type { WriteResult, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { kstToday } from '@livejjim/web/src/lib/kst.ts'
-import { isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
-import { LIVE_PLATFORMS, openPlatform, type PlatformTarget } from '../lib/open-app.ts'
+import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
+import { LIVE_PLATFORMS, type PlatformTarget } from '../lib/open-app.ts'
+import { browserStart, type BrowserHints } from '../lib/live-browser.ts'
 import { readModeOf } from '../lib/youtube.ts'
-import { useCachedGet } from '../lib/cached-get.ts'
+import { peekCached, useCachedGet } from '../lib/cached-get.ts'
+import { LiveBrowser, type LiveBrowserOpen } from './LiveBrowser.tsx'
+import { useSheetHandoff } from './console/claim-actions.ts'
 import { BottomSheet, FormPage, Icon, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Notice } from '../ui/parts.tsx'
@@ -176,7 +179,7 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
       <FormPage title={LINK_ASK_TITLE} name="새 라이브" onBack={nav.back} overlay={linker.popup} actions={linker.action}>
         {route !== undefined ? linker.fields : null}
         <MakeError error={error} />
-        <PlatformFinder visible={finder} onClose={() => setFinder(false)} onReturned={() => void linker.recheck()} />
+        <PlatformFinder visible={finder} onClose={() => setFinder(false)} onFound={linker.submitFound} knownChannel={linker.knownChannel} />
       </FormPage>
     </LinkPages>
   )
@@ -199,37 +202,86 @@ async function unlinkLive(broadcastId: string, platform: LiveLinkRequest['platfo
 }
 
 /**
- * [링크를 모르겠어요] 판 (D-UX3-10·14): 플랫폼 셋(아이콘 + 이름). 누르면 그 앱(없으면 앱 안 브라우저)을 열고, 내 방송에서
- * 공유 → 링크 복사 후 돌아오면 [붙여넣기]로 넣는다. 유튜브·틱톡·밴드 모두 같다(전에는 틱톡·밴드는 계정으로 잇는다는 안내만).
+ * [링크를 모르겠어요] 판 (D-UX3-10·14 → D-UX4-160, 사용자 지시 2026-11-16 "그냥 우리 앱 안에서 브라우저 띄워서 해당 라이브 들어간 다음에,
+ * 밑에 [이 라이브에요] 버튼을 누르면 자동으로 그 라이브로 연결되도록"): 플랫폼 셋(아이콘 + 이름). 누르면 판을 닫고 앱 안 브라우저(LiveBrowser)를
+ * 그 플랫폼의 시작 주소로 연다 — 판매자의 채널·계정을 알면 그 라이브 쪽, 모르면 모바일 웹 첫 화면(browserStart).
+ * [이 라이브예요]를 누르면 브라우저를 닫고 onFound(링크) — 화면이 링크 칸에 넣고 [다음]과 똑같이 진행한다(linker.submitFound).
+ * 옛 흐름(그 앱이나 앱 밖 브라우저를 열고 공유 → 링크 복사 → 돌아와 [붙여넣기])은 없앴다. [붙여넣기] 칩은 그대로.
  */
-/** 플랫폼 고르기 판 제목·설명 (D-UX4-114) */
+/** 플랫폼 고르기 판 제목·설명 (D-UX4-114 → 설명 D-UX4-160) */
 export const FINDER_TITLE = '어디서 라이브하시나요?'
-export const FINDER_DESCRIPTION = '라이브 공유 버튼을 누르고\n링크를 복사한 뒤 돌아와 주세요'
+export const FINDER_DESCRIPTION = '내 라이브 화면에 들어가서\n‘이 라이브예요’를 눌러 주세요'
 
-export function PlatformFinder({ visible, onClose, onReturned }: { readonly visible: boolean; readonly onClose: () => void; readonly onReturned: () => void }) {
+/** 판이 열릴 때 브라우저 시작 주소에 쓸 것을 미리 받는다 — 못 받으면 첫 화면에서 시작 (새 서버 요청 없음: 이미 있는 읽기만) */
+function useBrowserHints(visible: boolean, knownChannel: string | null): BrowserHints {
+  const [hints, setHints] = useState<{ youtubeChannel: string | null; tiktokId: string | null }>({ youtubeChannel: null, tiktokId: null })
+  useEffect(() => {
+    if (!visible) return
+    let alive = true
+    const cached = peekCached<YoutubeConnectionResponse>('/api/youtube/connection')
+    const connection = cached === null ? get<YoutubeConnectionResponse>('/api/youtube/connection').catch(() => null) : Promise.resolve(cached)
+    void connection.then((body) => {
+      // 연결 칸이 비어 오는 서버도 있다(구글 연결 없이 읽는 서버)
+      const id = (body?.connection as YoutubeConnectionResponse['connection'] | null | undefined)?.channel?.id ?? null
+      if (alive && id !== null) setHints((now) => ({ ...now, youtubeChannel: id }))
+    })
+    void get<{ tiktok?: { tiktokId?: string | null } }>('/api/tiktok').then(
+      (body) => {
+        const id = body.tiktok?.tiktokId ?? null
+        if (alive && typeof id === 'string' && id !== '') setHints((now) => ({ ...now, tiktokId: id }))
+      },
+      () => undefined,
+    )
+    return () => {
+      alive = false
+    }
+  }, [visible])
+  // 구글 연결 채널이 없으면 최근 연결한 채널 (남의 채널에서 라이브하는 판매자도 많다 — 최근 이은 채널이 더 맞을 때가 많다)
+  return { youtubeChannel: knownChannel ?? hints.youtubeChannel, tiktokId: hints.tiktokId }
+}
+
+export function PlatformFinder({ visible, onClose, onFound, knownChannel = null }: { readonly visible: boolean; readonly onClose: () => void; readonly onFound: (url: string) => void; readonly knownChannel?: string | null }) {
   const { p } = useKit()
-  const pick = async (target: PlatformTarget) => {
+  const hints = useBrowserHints(visible, knownChannel)
+  const [browser, setBrowser] = useState<LiveBrowserOpen | null>(null)
+  const opened = useRef(0)
+  // 아이폰은 판(Modal)이 닫히는 동안 새 판을 띄우지 못한다 — 다 닫힌 뒤 연다 (웹은 바로)
+  const handoff = useSheetHandoff()
+  const pick = (target: PlatformTarget) => {
+    const url = browserStart(target.key, hints)
     onClose()
-    const opened = await openPlatform(target)
-    // 앱 안 브라우저는 닫힐 때 끝난다 — 앱이 뒤로 가지 않았으니 여기서 클립보드를 다시 본다(앱으로 갔다 오면 앞으로 옴 알림이 본다)
-    if (opened === 'browser') onReturned()
+    handoff(() => {
+      opened.current += 1
+      setBrowser({ id: opened.current, url })
+    })
   }
   return (
-    <BottomSheet visible={visible} onClose={onClose} title={FINDER_TITLE} description={FINDER_DESCRIPTION}>
-      <View role="group" aria-label="라이브 플랫폼" style={{ gap: SPACE.xs, marginHorizontal: -SPACE.sm }}>
-        {LIVE_PLATFORMS.map((target) => (
-          <Tap key={target.key} role="button" aria-label={target.word} onPress={() => void pick(target)} style={({ pressed }) => ({ minHeight: TOUCH.min + 16, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
-            <PlatformIcon platform={target.key} />
-            <View style={{ flex: 1 }}>
-              <Txt step="bodyLarge" weight="bold">
-                {target.word}
-              </Txt>
-            </View>
-            <Icon name="chevron" color={p.textSub} size={20} />
-          </Tap>
-        ))}
-      </View>
-    </BottomSheet>
+    <>
+      <BottomSheet visible={visible} onClose={onClose} title={FINDER_TITLE} description={FINDER_DESCRIPTION}>
+        <View role="group" aria-label="라이브 플랫폼" style={{ gap: SPACE.xs, marginHorizontal: -SPACE.sm }}>
+          {LIVE_PLATFORMS.map((target) => (
+            <Tap key={target.key} role="button" aria-label={target.word} onPress={() => pick(target)} style={({ pressed }) => ({ minHeight: TOUCH.min + 16, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+              <PlatformIcon platform={target.key} />
+              <View style={{ flex: 1 }}>
+                <Txt step="bodyLarge" weight="bold">
+                  {target.word}
+                </Txt>
+              </View>
+              <Icon name="chevron" color={p.textSub} size={20} />
+            </Tap>
+          ))}
+        </View>
+      </BottomSheet>
+      <LiveBrowser
+        open={browser}
+        onClose={() => setBrowser(null)}
+        onPick={(url) => {
+          setBrowser(null)
+          // 브라우저 판이 다 내려간 뒤 잇기를 시작한다 (틱톡 옮기기 팝업 등이 판 위에 뜰 수 있게)
+          handoff(() => onFound(url))
+        }}
+      />
+    </>
   )
 }
 
