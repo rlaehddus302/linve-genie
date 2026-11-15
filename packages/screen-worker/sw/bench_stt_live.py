@@ -486,6 +486,55 @@ def group_words(words, gap=0.6, max_sec=8.0):
     return out
 
 
+# ---------- 조각마다 다른 힌트 (D-SCR-39) ----------
+# Whisper의 힌트(initial_prompt)는 224토큰(한글 260자쯤)이 한도라 가게 품종을 다 넣지 못한다. 한도는 조각 하나에 대한 것이므로,
+# 먼저 힌트 없이 받아쓰고 그 글에 장부 품종과 소리가 비슷한 말이 있으면 그 후보 몇 개만 힌트로 넣어 그 조각만 다시 받아쓴다.
+HINT_NEAR = 62          # 받아쓴 낱말과 장부 품종의 소리 비슷한 정도(접은 자모 비율)가 이만큼 넘으면 후보
+HINT_TOP = 12           # 조각 하나에 넣는 후보 수
+
+
+def hint_candidates(text, ledger, cutoff=HINT_NEAR, top=HINT_TOP):
+    """받아쓴 글 → 장부 품종 가운데 소리가 비슷한 이름들(비슷한 순). ledger = variety.Ledger. 순수 함수"""
+    from rapidfuzz import fuzz, process
+    if not ledger:
+        return []
+    best = {}
+    ws = [w for w in (variety._JOSA.sub("", raw) if len(raw) > 2 else raw for raw in re.findall(r"[가-힣A-Za-z]+", text or "")) if w]
+    for n in (1, 2, 3):
+        for i in range(len(ws) - n + 1):
+            key = variety.norm("".join(ws[i:i + n]))
+            if len(key) < 2:
+                continue
+            for _, sc, k in process.extract(variety.sjamo(key), ledger.jkeys, scorer=fuzz.ratio, score_cutoff=cutoff, limit=2):
+                name = ledger.names[ledger.keys[k]]
+                if len(variety.norm(name)) <= 2 and sc < 100:
+                    continue                                  # 두 글자 품종은 소리가 같을 때만(흔한 두 글자 말이 다 후보가 된다)
+                best[name] = max(best.get(name, 0), sc)
+    return [n for n, _ in sorted(best.items(), key=lambda x: -x[1])][:top]
+
+
+def hint_dynamic(stt, ledger, always=(), stats=None):
+    """stt(조각, hint=None) → 조각마다 후보를 골라 한 번 더 받아쓰는 stt. always = 늘 넣는 말(옵션). stats에 조각 수·다시 받아쓴 수를 센다.
+    다시 받아쓴 글이 힌트를 베낀 것뿐이면(소리 없는 조각에서 생긴다, D-V3-130) 처음 글을 쓴다"""
+    stats = stats if stats is not None else {}
+
+    def run(pcm):
+        first = stt(pcm)
+        stats["segments"] = stats.get("segments", 0) + 1
+        cands = hint_candidates(clean_text(_join(p[2] for p in first)), ledger)
+        if not cands:
+            return first
+        hint = compose_hint(list(cands) + list(always))
+        again = stt(pcm, hint)
+        stats["again"] = stats.get("again", 0) + 1
+        text = clean_text(_join(p[2] for p in again))
+        if not text or text.strip(" .,") in hint:
+            stats["echo"] = stats.get("echo", 0) + 1
+            return first
+        return again
+    return run
+
+
 def make_stt(backend, model=None, hint="", words=False):
     """→ fn(소리 float32 16kHz) → [(시작, 끝, 글, avg_logprob 또는 None)]. words=True면 낱말마다(겹쳐 받아쓰기의 이어 붙이기용)"""
     if backend == "mlx":
@@ -500,8 +549,9 @@ def make_stt(backend, model=None, hint="", words=False):
         else:
             kw["without_timestamps"] = True      # 라이브 일꾼(sw/audio.py)과 같게
 
-        def run(pcm):
-            r = mlx_whisper.transcribe(pcm, **kw)
+        def run(pcm, hint=None):
+            """hint를 주면 이 조각만 그 힌트로 받아쓴다(조각마다 다른 힌트 — hint_dynamic)"""
+            r = mlx_whisper.transcribe(pcm, **(dict(kw, initial_prompt=hint) if hint else kw))
             if words:
                 return [(w["start"], w["end"], w["word"], g.get("avg_logprob")) for g in r["segments"] for w in g.get("words", [])]
             return [(g["start"], g["end"], g["text"], g.get("avg_logprob")) for g in r["segments"]]
@@ -695,6 +745,13 @@ def cmd_run(a):
     stt = make_stt(a.backend, a.model, hint=hint, words=cut[0] == "slide")
     import numpy as np
     stt(np.full(SR, 0.001, dtype=np.float32))       # 첫 호출은 준비(그래프 만들기·메모리 잡기)로 느리다 — 처리 시간에 넣지 않는다
+    dyn = {}
+    if a.hint_dynamic:
+        if a.backend != "mlx" or cut[0] != "pause":
+            raise SystemExit("조각마다 다른 힌트는 mlx·pause 자르기에서만 됩니다.")
+        names = [x.strip() for x in open(a.hint_dynamic, encoding="utf-8") if x.strip()]
+        always = [x.strip() for x in (a.hint_always or "").split(",") if x.strip()]
+        stt = hint_dynamic(stt, variety.Ledger(names=names), always, dyn)
     load_sec = time.perf_counter() - t0
     span = len(raw) / 2 / SR
     last = [0.0]
@@ -718,7 +775,8 @@ def cmd_run(a):
             "lines": len(lines), "jobs": len(jobs), "line_sec_median": round(statistics.median(durs), 2) if durs else None,
             "proc_sec": round(proc, 1), "wall_sec": round(wall, 1), "load_sec": round(load_sec, 1), "speed_x": round(span / proc, 2) if proc else None,
             "delay_median": round(statistics.median(d), 2) if d else None, "delay_p90": round(pct(d, 0.9), 2) if d else None,
-            "rss_mb": rss, "gpu_mb": gpu, "audio_mb": round(len(raw) * 3 / 1024 / 1024), "live_worker_running": busy}
+            "rss_mb": rss, "gpu_mb": gpu, "audio_mb": round(len(raw) * 3 / 1024 / 1024), "live_worker_running": busy,
+            **({"hint_dynamic": dyn} if a.hint_dynamic else {})}
     json.dump(meta, open(os.path.join(a.out, "meta.json"), "w"), ensure_ascii=False, indent=1)
     print(json.dumps(meta, ensure_ascii=False))
 
@@ -910,6 +968,8 @@ def main():
     r.add_argument("--cut", default="pause:400", help="pause:<쉼 ms> · slide:<창초>:<간격초>:<끝 여유초>")
     r.add_argument("--hint-truth", help="products.json — 품종 이름을 힌트로(장부가 채워졌을 때를 흉내)")
     r.add_argument("--hint-file")
+    r.add_argument("--hint-dynamic", help="품종 이름 파일(한 줄에 하나) — 조각마다 소리가 비슷한 후보만 힌트로 넣어 한 번 더 받아쓴다")
+    r.add_argument("--hint-always", help="조각마다 다른 힌트에 늘 같이 넣는 말(쉼표로 나눔, 예: 옵션)")
     r.add_argument("--from", dest="t_from", type=float, default=0.0)
     r.add_argument("--to", dest="t_to", type=float)
     r.add_argument("--vad-cache", help="말 확률을 둘 파일(.json) — 쉼 길이만 바꿔 다시 돌릴 때 다시 재지 않는다")

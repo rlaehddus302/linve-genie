@@ -512,6 +512,41 @@ class CleanDictionaryTest(unittest.TestCase):
         self.assertIn(variety.norm("몰디브색금"), old.names)                                 # 옛 길(clean=False)은 정리 전 사전 그대로
 
 
+class DynamicHintTest(unittest.TestCase):
+    """D-SCR-39: 받아쓰기 힌트를 조각마다 다르게(시험 도구 sw/bench_stt_live.py). 모델은 가짜"""
+
+    def test_candidates_are_the_ledger_names_that_sound_like_what_was_written(self):
+        from sw import bench_stt_live as B
+        ledger = variety.Ledger(names=["쉘브르", "킹스톤", "황소", "아웃사이드", "청개구리"])
+        self.assertEqual(B.hint_candidates("자 104번 셀브로 3만원 킹스턴이 좋네요", ledger), ["킹스톤", "쉘브르"])
+        self.assertEqual(B.hint_candidates("자 이거 3만원 빨리 잡아요", ledger), [])
+        self.assertEqual(B.hint_candidates("황새가 날아가네 황소로 갈게요", ledger), ["황소"])       # 두 글자 품종은 소리가 같을 때만
+
+    def test_a_piece_is_transcribed_again_only_when_it_has_candidates(self):
+        from sw import bench_stt_live as B
+        calls = []
+
+        def stt(pcm, hint=None):
+            calls.append(hint)
+            if hint is None:
+                return [(0, 1, pcm, None)]
+            return [(0, 1, pcm.replace("셀브로", "쉘브르") if "쉘브르" in hint else pcm, None)]
+        stats = {}
+        run = B.hint_dynamic(stt, variety.Ledger(names=["쉘브르", "킹스톤"]), ["색금"], stats)
+        self.assertEqual(run("104번 셀브로 3만원")[0][2], "104번 쉘브르 3만원")
+        self.assertEqual(calls, [None, "쉘브르, 색금."])
+        self.assertEqual(run("자 이거 3만원")[0][2], "자 이거 3만원")                                 # 후보가 없으면 한 번만
+        self.assertEqual(stats, {"segments": 2, "again": 1})
+
+    def test_text_that_only_copies_the_hint_is_thrown_away(self):
+        from sw import bench_stt_live as B
+        stt = lambda pcm, hint=None: [(0, 1, "셀브로" if hint is None else "쉘브르, 색금.", None)]
+        stats = {}
+        run = B.hint_dynamic(stt, variety.Ledger(names=["쉘브르"]), ["색금"], stats)
+        self.assertEqual(run("소리")[0][2], "셀브로")
+        self.assertEqual(stats["echo"], 1)
+
+
 class LedgerTest(unittest.TestCase):
     def test_split_parts(self):
         self.assertEqual(variety.split_parts("테라로사 색금"), ("테라로사", "색금", "", ""))
