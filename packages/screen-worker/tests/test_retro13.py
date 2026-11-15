@@ -613,5 +613,58 @@ class RenumberAfterRegisterTest(PosterCase, unittest.TestCase):
         self.assertEqual([name for name, _ in http.seen].count("renumber"), 2)
 
 
+class ProductTriggerTest(unittest.TestCase):
+    """D-SCR-40: 숫자가 들린 줄마다 60초를 묻지 않고 상품 구간마다 묻는다"""
+
+    def stage(self):
+        p = patch("sw.llm_live.TRIGGER", "product")
+        p.start()
+        self.addCleanup(p.stop)
+        return Stage(self)
+
+    @staticmethod
+    def lines_of(user):
+        return [int(x.split(" ")[0][1:]) for x in user.split("\n")]
+
+    def test_a_product_is_asked_when_its_price_is_heard_and_once_more_when_the_next_one_starts(self):
+        st = self.stage()
+        st.say(0, "자 이거 예쁘죠 라비홍이에요")
+        st.say(5, "37번 갑니다")
+        self.assertEqual(st.asked, [])                                          # 번호만 들렸다 — 아직 묻지 않는다
+        st.say(10, "5만원", row(2, 37, 50000, "라비홍", no_from="말"))
+        self.assertEqual([self.lines_of(u) for u in st.asked], [[0, 1, 2]])     # 번호 앞에 말한 품종도 넣는다
+        st.say(14, "5만원이에요 오만원")
+        st.say(20, "잎이 통통하죠")
+        self.assertEqual(len(st.asked), 1)                                      # 같은 금액을 다시 말한 것은 새로 알 것이 아니다
+        st.say(30, "40번 갑니다")
+        self.assertEqual(self.lines_of(st.asked[1]), [0, 1, 2, 3, 4])           # 다음 상품이 시작되면 앞 구간 전체를 한 번 더 — 다음 상품의 줄은 넣지 않는다
+        st.say(35, "3만원")
+        self.assertEqual(self.lines_of(st.asked[2]), [4, 5, 6])                 # 새 구간은 번호를 말한 줄 앞 15초부터(14초 줄은 16초 앞이라 뺀다)
+
+    def test_a_changed_price_in_the_same_product_is_asked_again(self):
+        st = self.stage()
+        st.say(0, "37번 5만원", row(0, 37, 50000, None, no_from="말"))
+        st.say(8, "아니다 4만원에 드릴게요")
+        self.assertEqual(len(st.asked), 2)
+
+    def test_flickering_tags_on_the_shelf_do_not_open_a_product_each_time(self):
+        st = self.stage()
+        st.show(0, 9, 37)
+        st.say(5, "자 이거 5만원")                                              # 말하지 않은 번호: 번호표 37이 5초 넘게 크게 보여 구간을 연다
+        st.show(10, 11, 38)
+        st.say(10, "옆에 있는 거 말고요", end=11)                                # 38은 2초만 스쳤다 — 열지 않는다
+        st.show(12, 19, 37)
+        st.say(15, "이거 이거")
+        st.show(20, 29, 38)
+        st.say(25, "이건 다른 거예요")                                          # 38이 이어서 크게 보인다 — 연다
+        st.show(30, 39, 37)
+        st.say(35, "다시 이거")                                                 # 한 번 연 번호는 5분 안에 번호표만으로 다시 열지 않는다
+        segs = [(e["no"], e["by"]) for e in st.kinds("LLM구간")]
+        self.assertEqual(segs, [(37, "번호표"), (38, "번호표")])
+
+    def test_the_line_trigger_stays_the_default(self):
+        self.assertEqual(llm_live.TRIGGER if "LLM_TRIGGER" not in __import__("os").environ else "line", "line")
+
+
 if __name__ == "__main__":
     unittest.main()

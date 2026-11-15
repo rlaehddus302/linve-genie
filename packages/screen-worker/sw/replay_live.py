@@ -237,10 +237,57 @@ def load_run(run):
             "calls": [(sod(c["at"]) + 0.5, c) for c in calls], "recorded": [e for e in events if e.get("kind") == "LLM등록" and e.get("sent")]}
 
 
-def replay_run(data, logic, prior=(), server=None):
+class AskCache:
+    """로직이 스스로 묻게 할 때(묻는 때를 바꾼 판, D-SCR-40)의 답 창고: (지시문 글 + 묻는 글)의 sha1 → {answer, user, sec}.
+    없는 물음은 todo.jsonl에 적고 빈 답(답 없음)으로 넘긴다 — 저장소 밖의 채우기 도구가 LLM에 물어 채운 뒤 다시 돌린다.
+    답이 오는 때는 채울 때 잰 시간(sec), 없으면 miss_sec"""
+
+    def __init__(self, folder, miss_sec=12.0, fixed_sec=None):
+        self.folder, self.miss_sec, self.fixed_sec = folder, miss_sec, fixed_sec
+        self.hit = self.miss = 0
+        os.makedirs(folder, exist_ok=True)
+
+    def __call__(self, user, sys_path):
+        import hashlib
+        with open(sys_path, encoding="utf-8") as f:
+            sys_text = f.read()
+        skey = hashlib.sha1(sys_text.encode()).hexdigest()
+        sys_copy = os.path.join(self.folder, f"sys_{skey}.txt")
+        if not os.path.exists(sys_copy):
+            with open(sys_copy, "w", encoding="utf-8") as f:
+                f.write(sys_text)
+        key = hashlib.sha1((sys_text + "\0" + user).encode()).hexdigest()
+        path = os.path.join(self.folder, key + ".json")
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                d = json.load(f)
+            self.hit += 1
+            return d["answer"], self.fixed_sec or d.get("sec") or self.miss_sec
+        self.miss += 1
+        with open(os.path.join(self.folder, "todo.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"key": key, "user": user, "sys": sys_copy}, ensure_ascii=False) + "\n")
+        return "", self.fixed_sec or self.miss_sec
+
+
+class FakeAsk:
+    """로직의 ThreadPoolExecutor 자리: 묻는 즉시 창고에서 답을 찾고, 가짜 시계로 sec초 뒤에 오는 Future를 돌려준다"""
+
+    def __init__(self, clock, cache):
+        self.clock, self.cache = clock, cache
+
+    def submit(self, fn, user, sys_path=None, *rest):
+        answer, sec = self.cache(user, sys_path or fn.__globals__.get("SYS"))
+        return Late(self.clock, self.clock.now + sec, answer)
+
+    def shutdown(self, wait=False):
+        pass
+
+
+def replay_run(data, logic, prior=(), server=None, ask=None):
     """한 실행을 로직에 흘린다 → {calls: 서버로 보낸 것, events, fed: 넣은 답 수, cut: 줄인 호출 수, confirm: 로직이 더 바란 확인 호출 수}
     prior = 같은 방송의 앞선 실행이 남긴 이벤트(다시 켠 일꾼이 이어받는 것 — 로직이 받을 줄 알 때만 넘긴다)
-    server = 앞선 실행들이 보낸 것이 남아 있는 가짜 서버(없으면 빈 서버) — 임시 등록의 답(올라감·이미 있는 번호)을 여기서 받는다"""
+    server = 앞선 실행들이 보낸 것이 남아 있는 가짜 서버(없으면 빈 서버) — 임시 등록의 답(올라감·이미 있는 번호)을 여기서 받는다
+    ask = AskCache — 주면 기록된 답을 넣지 않고 로직이 스스로 묻는다(묻는 때를 바꾼 판). 받아쓰기 줄은 그때 읽힌 시각에 들어간다"""
     clock = FakeTime()
     logic.time = clock
     poster, events = FakePoster(clock, server), []
@@ -256,6 +303,10 @@ def replay_run(data, logic, prior=(), server=None):
             kw["prior_tent"] = logic.prior_tentative(prior)
         reg = logic.LlmRegister(tmp, poster, "replay00000", emit, par=1, **kw)
         reg.par = 0                                          # 스스로 묻지 않는다 — 기록된 답만
+        if ask is not None:
+            reg.ex.shutdown(wait=False)
+            reg.ex, reg.par = FakeAsk(clock, ask), logic.PAR
+            calls = []
         build, memo = reg.sc.build, {}
 
         def cached():                                        # 화면 구간 계산은 장이 늘 때만 다시(재현 속도)
@@ -272,6 +323,8 @@ def replay_run(data, logic, prior=(), server=None):
         flying = []                                          # [(답이 오는 시각, 기록, 로직에 넣은 항목)]
         t = int(seen[0]) if seen else 0
         end = int(max([at for at, _ in calls] + ([seen[-1]] if seen else [0]))) + TAIL
+        if ask is not None:
+            end += 60                                        # 스스로 물은 마지막 답이 올 때까지
         ftr = open(os.path.join(tmp, "transcript.jsonl"), "a", encoding="utf-8")
         fsc = open(os.path.join(tmp, "screen.jsonl"), "a", encoding="utf-8")
         try:
@@ -314,7 +367,8 @@ def replay_run(data, logic, prior=(), server=None):
             reg.log.close()
             reg.ex.shutdown(wait=False)
         confirm = getattr(reg, "confirm_calls", 0)
-    return {"calls": poster.calls, "events": events, "fed": fed, "cut": cut, "confirm": confirm, "recorded_calls": len(calls)}
+    return {"calls": poster.calls, "events": events, "fed": fed, "cut": cut, "confirm": confirm, "recorded_calls": len(data["calls"]),
+            "asked": reg.calls if ask is not None else fed, "ask_why": dict(getattr(reg, "ask_why", {})) if ask is not None else {}}
 
 
 def nkey(name):

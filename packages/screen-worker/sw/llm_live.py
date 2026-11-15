@@ -118,6 +118,16 @@ NAME_ASK_SYNC = bool(NAME_ASK_CACHE)                                # 재현·�
 NAME_CLEAN_DICT = os.environ.get("LLM_NAME_CLEAN_DICT", "1") != "0" # 가게 장부 방식은 품종과 옵션을 따로 정리한 사전(data/varieties_clean.json)을 읽는다(D-SCR-38). 0 = 정리 전 사전
 NAME_MODE = os.environ.get("LLM_NAME_MODE", "shop")                 # shop = LLM 이름을 가게 장부에 맞추고 장부에 없으면 확인 중 품종으로(D-SCR-29~32) · dict = 전국 사전으로 거르기(D-SCR-15)
 SHOP_LEDGER = os.environ.get("LLM_SHOP_LEDGER")                     # 가게 품종 장부 파일(없으면 빈 장부 — 처음 오는 가게)
+# 묻는 때(D-SCR-40): line = 숫자가 들린 줄마다 그 앞 WINDOW초를 묻는다(지금) · product = 상품 구간마다 묻는다.
+#   상품 구간은 판매자가 새 번호("N번")를 말하거나, 번호 없이 화면의 큰 번호표가 다른 번호로 바뀐 줄에서 시작한다(그 앞 SEG_PRE초의 말도 넣되 다른 번호를 말한 줄에서 끊는다).
+#   구간 안에서 새 금액이 들릴 때 묻고(구간마다 SEG_ASKS번까지), 다음 구간이 시작되면 아직 묻지 않은 줄이 있을 때 한 번 더 묻는다. 보내는 줄은 그 구간의 줄만(길면 끝 SEG_SPAN초).
+#   번호가 없는 동안은 SAFETY초마다 앞 WINDOW초를 묻는다(안전망). 답이 한 번뿐인 상품을 한 번 더 묻는 것(가격 확인)은 그대로
+TRIGGER = os.environ.get("LLM_TRIGGER", "line")
+SEG_PRE = float(os.environ.get("LLM_SEG_PRE", 15))
+SEG_SPAN = float(os.environ.get("LLM_SEG_SPAN", 120))
+SEG_ASKS = int(os.environ.get("LLM_SEG_ASKS", 3))
+SEG_TAG_SEC = int(os.environ.get("LLM_SEG_TAG_SEC", 5))                # 번호표만 바뀐 구간: 그 번호표가 이만큼(초) 이어서 크게 보여야 연다
+SEG_RETAG = 300                                                      # 번호표만 바뀐 구간: 같은 번호로 이만큼(방송 초) 안에 구간을 열었으면 다시 열지 않는다(진열대의 번호표가 번갈아 크게 보일 때)
 CUE_WAIT, CUE_BACK = 30.0, 90.0                                    # 거둔다는 말: 이만큼(방송 초) 기다렸다가, 그 말보다 이만큼 앞까지 소개를 시작한 상품 가운데 가장 나중 것에 붙인다
 WITHDRAW_CUE = re.compile(r"번호\s?(?:떼|때|빼)")                    # 판매자가 상품을 거둔다는 말("번호 떼") — 153번
 SERVER_UNITS = {"TEN_THOUSAND": 10000, "WON": None}            # 서버 priceUnit 가운데 판매자가 분명히 고른 값만 따른다(D-SCR-21) — THOUSAND는 "고르지 않음"과 같아 따르지 않는다
@@ -314,6 +324,10 @@ class LlmRegister:
         self.prices = {}                                     # 보낸 번호 → {"now": 지금 서버 금액, "votes": [(방송 초, 금액)], "fixes": 횟수} (D-SCR-09)
         self.watch = {}                                      # 보낸 번호 → 말한 줄 시작(방송 초) — 화면으로 맞는지 볼 것 (D-SCR-06)
         self.calls = 0
+        self.ask_why = collections.Counter()                 # 물은 까닭별 횟수
+        self.seg = None                                      # 상품 구간(D-SCR-40) {no, lo, hi: 마지막으로 물은 줄, asks, amounts}
+        self.seg_t = {}                                      # 번호 → 그 번호로 구간을 연 방송 초
+        self.wantq = []                                      # [(첫 줄 또는 None, 끝 줄, 까닭)] — 상품 구간 방식에서 물을 것
         # ---- 안전 규칙 (D-SCR-12~16) ----
         self.safe = SAFE if safe is None else safe
         self.unit = PRICE_UNIT
@@ -432,15 +446,22 @@ class LlmRegister:
         self.segs, cand, mains = self.sc.build()
         return cand, mains
 
-    def _ask(self, upto, cand, mains, why):
-        """줄 upto까지, 그 줄 시작 앞 WINDOW초의 줄을 묻는다"""
+    def _ask(self, upto, cand, mains, why, lo=None):
+        """줄 upto까지, 그 줄 시작 앞 WINDOW초의 줄을 묻는다. lo = 상품 구간의 첫 줄(D-SCR-40) — 주면 lo부터(길면 끝 SEG_SPAN초)"""
         tr = self.tr
         ends = [e for _, e, _ in tr]
         end_t = tr[upto][0]
-        L = [(i, t, x) for i, (t, _, x) in enumerate(tr[:upto + 1]) if end_t - WINDOW <= t]
-        self.asked_line, self.asked_t = upto, end_t
+        if lo is None:
+            L = [(i, t, x) for i, (t, _, x) in enumerate(tr[:upto + 1]) if end_t - WINDOW <= t]
+        else:
+            L = [(i, t, x) for i, (t, _, x) in enumerate(tr[:upto + 1]) if i >= lo and end_t - SEG_SPAN <= t]
+        if TRIGGER == "product":
+            self.asked_line, self.asked_t = max(self.asked_line, upto), max(end_t, self.asked_t if self.asked_t is not None else end_t)
+        else:
+            self.asked_line, self.asked_t = upto, end_t
         user = "\n".join(f"L{i} [{B.hms(t)}] (화면: {span_note(i, t, ends, cand, mains)}) {B.mask(x)}" for i, t, x in L)
         self.calls += 1
+        self.ask_why[why] += 1
         fut = self.ex.submit(ask_llm, user, self.sys) if self.safe else self.ex.submit(llm_b6.ask, user, SYS, MODEL, EFFORT)
         self.flying.append((upto, L, user, time.time(), why, fut))
 
@@ -465,7 +486,13 @@ class LlmRegister:
             tag = main_tag(i, t, ends, mains)
             if self.safe and WITHDRAW_CUE.search(x):
                 self.cues.append((i, t))                     # 그 말을 한 상품은 아직 등록 전일 수 있다(등록은 말보다 늦다) — 조금 뒤에 고른다
-            why = "숫자" if CUE.search(x) else ("번호표 바뀜" if tag is not None and tag != self.prev_tag else None)
+            if self.safe and TRIGGER == "product":
+                self._seg_line(i, t, x, tag, mains)          # 상품 구간마다 묻기(D-SCR-40)
+                if tag is not None:
+                    self.prev_tag = tag
+                self.checked += 1
+                continue
+            why ="숫자" if CUE.search(x) else ("번호표 바뀜" if tag is not None and tag != self.prev_tag else None)
             if tag is not None:
                 self.prev_tag = tag
             if self.safe and SKIP_SETTLED and why and self._quiet(tag, x, why, t):
@@ -477,11 +504,24 @@ class LlmRegister:
             elif why is None:
                 self.skipped.add(i)
             self.checked += 1
-        if final and tr and self.asked_line < len(tr) - 1:
+        product = self.safe and TRIGGER == "product"
+        if final and tr and product and self.seg is not None:
+            self._seg_close(len(tr) - 1, "끝")
+        elif final and tr and self.asked_line < len(tr) - 1 and not product:
             self.want = (len(tr) - 1, "끝")
         # 2) 물을 것이 있고 자리가 있으면 가장 새 줄로 묻는다
         busy = len([f for f in self.flying if not f[5].done()])
-        if self.want and busy < self.par:
+        if product:
+            if self.want:                                    # 가격 확인: 그 줄이 든 구간을 다시 묻는다
+                i, why = self.want
+                self.want = None
+                s = self.seg
+                self.wantq.append((s["lo"] if s is not None and s["lo"] <= i else None, i, why))
+            while self.wantq and busy < self.par:
+                lo, i, why = self.wantq.pop(0)
+                self._ask(i, cand, mains, why, lo=lo)
+                busy += 1
+        elif self.want and busy < self.par:
             i, why = self.want
             self.want = None
             if i > self.asked_line or why == "가격 확인":
@@ -557,6 +597,70 @@ class LlmRegister:
         self._check_numbers(cand, mains)
         if self.safe:
             self._withdraw_cues(final)
+
+    # ---------- 상품 구간마다 묻기 (D-SCR-40) ----------
+    def _seg_line(self, i, t, x, tag, mains=None):
+        """새 줄 하나: 구간을 새로 열지, 이 구간을 지금 물을지 정해 wantq에 넣는다"""
+        s = self.seg
+        said = R.numbers_with_beon(x)
+        new = next((n for n in said if s is None or n != s["no"]), None)
+        if new is None and not said and tag is not None and tag != self.prev_tag and (s is None or tag != s["no"]) \
+                and t - self.seg_t.get(tag, -1e9) > SEG_RETAG and self._tag_run(tag, self.tr[i][1], mains or {}) >= SEG_TAG_SEC:
+            new = tag                                        # 번호를 말하지 않고 번호표만 바꿔 든 상품
+        texts = [x]
+        if new is not None:
+            if s is not None:
+                self._seg_close(i - 1, "구간 끝")
+            lo = i
+            while lo > 0 and t - self.tr[lo - 1][0] <= SEG_PRE and not any(v != new for v in R.numbers_with_beon(self.tr[lo - 1][2])):
+                lo -= 1                                      # 번호보다 먼저 말한 금액·품종도 넣는다
+            known = (self.prices.get(new) or {}).get("now") or (self.sent.get(new) or {}).get("price")
+            s = self.seg = {"no": new, "lo": lo, "hi": -1, "asks": 0, "amounts": {known} if known else set()}   # 이미 아는 값을 다시 말한 것은 새 금액이 아니다
+            self.seg_t[new] = t
+            self.emit({"kind": "LLM구간", "no": new, "line": i, "start_sec": t, "by": "말" if said else "번호표"})
+            texts = [self.tr[j][2] for j in range(lo, i + 1)]
+        if s is not None:
+            amounts = set()
+            for y in texts:
+                explicit, short = R.spoken_amounts(y, self.unit, exclude={s["no"]})
+                amounts |= explicit | short
+            fresh = amounts - s["amounts"]
+            s["amounts"] |= amounts
+            if fresh and s["asks"] < SEG_ASKS:
+                self.emit({"kind": "LLM구간금액", "no": s["no"], "line": i, "amounts": sorted(fresh)})
+                self._seg_want(s, i, "금액")
+                return
+        if t - (self.asked_t if self.asked_t is not None else self.tr[0][0]) >= SAFETY:     # 번호도 금액도 없이 SAFETY초가 지났다
+            self.wantq.append((None, i, "안전망"))
+            self.asked_t = t
+
+    @staticmethod
+    def _tag_run(tag, end, mains):
+        """줄 끝에서 거슬러 그 번호표가 이어서 크게 보인 초 수"""
+        sec, n = int(end) + 1, 0
+        while mains.get(sec) is None and sec > end - 2:
+            sec -= 1                                         # 줄 끝 바로 뒤는 아직 안 읽혔을 수 있다
+        while mains.get(sec) == tag:
+            n, sec = n + 1, sec - 1
+        return n
+
+    def _seg_want(self, s, i, why):
+        """이 구간을 줄 i까지 묻는다. 아직 못 물은 같은 구간의 물음이 있으면 끝 줄만 늘린다"""
+        if self.wantq and self.wantq[-1][0] == s["lo"] and self.wantq[-1][2] == why:
+            self.wantq[-1] = (s["lo"], i, why)
+        else:
+            s["asks"] += 1
+            self.wantq.append((s["lo"], i, why))
+        s["hi"] = i
+
+    def _seg_close(self, hi, why):
+        """구간이 끝났다: 마지막으로 물은 뒤에 줄이 더 있었으면 구간 전체를 한 번 더 묻는다"""
+        s, self.seg = self.seg, None
+        if s is not None and s["asks"] == 0 and s["no"] in self.sent and (self.names.get(s["no"]) or {}).get("now"):
+            return                                           # 이미 번호·가격·품종이 있는 상품을 다시 보여 준 구간에서 새 금액이 없었다
+        if s is not None and hi >= s["lo"] and hi > s["hi"]:
+            self.wantq.append((s["lo"], hi, why))
+            s["hi"] = hi
 
     # ---------- 안전 규칙: 묻기 줄이기 (B-2의 L2) ----------
     def _quiet(self, tag, text, why, t=None):
@@ -1620,7 +1724,7 @@ class LlmRegister:
         """방송 끝: 남은 줄을 한 번 더 묻고 답을 다 받은 뒤 남은 상품을 정리한다.
         안전 규칙: 모아 둔 상품 가운데 번호·가격이 정해진 것만 보내고 나머지는 확인요청으로 남긴다. 옛 로직: 가격이 있는데 아직 안 보낸 번호를 다 보낸다"""
         self.tick(final=True)
-        while self.flying or self.want:
+        while self.flying or self.want or self.wantq:
             time.sleep(1)
             self.tick(final=True)
         if self.safe:
