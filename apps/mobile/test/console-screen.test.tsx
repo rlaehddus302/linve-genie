@@ -279,7 +279,10 @@ describe('ConsoleScreen', () => {
     expect(within(rows[1]!).getByText('88 보류')).toBeTruthy()
     expect(within(rows[1]!).getByText('문자-0937')).toBeTruthy()
     expect(rows[1]?.textContent).not.toContain('문자손님')
-    expect(feed.textContent).not.toMatch(/\d{1,2}:\d{2}/)
+    // D-UX4-154로 바뀐 기대 (사용자 지시 2026-11-16 "찜 기록의 시간에 초까지"): 옛 기대는 시각을 그리지 않음(/\d{1,2}:\d{2}/ 없음).
+    // 이제 손님 줄 이름 아래에 그 손님이 가장 최근에 찜한 한국 시각을 초까지 — 시각은 줄마다 하나뿐, 채팅 원문은 여전히 없다
+    expect(rows.map((row) => row.textContent?.match(/\d{2}:\d{2}:\d{2}/g)?.length ?? 0)).toEqual([1, 1, 1])
+    expect(within(rows[0]!).getByLabelText(/^가장 최근 찜 \d{2}:\d{2}:\d{2}$/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /^보류 찜 1/ }))
     const pendingRows = await waitFor(() => {
       const lists = screen.getAllByRole('list', { name: '찜 기록' })

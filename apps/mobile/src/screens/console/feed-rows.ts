@@ -1,10 +1,13 @@
-// 찜 기록의 줄 만들기 (화면 없이 값만): 손님별 줄(D-UX3-79) · 번호별 줄(D-RETRO-50).
+// 찜 기록의 줄 만들기 (화면 없이 값만): 손님별 줄(D-UX3-79) · 찾기(D-UX4-152) · 이름순 한글 먼저(D-UX4-153).
+// 번호별 줄(D-RETRO-50)은 D-UX4-151로 걷었다 — 번호로 누가 찜했는지는 상품 탭 [찜 된 것만](D-UX4-141)과 찜 기록 찾기 칸에서 본다.
 // 판정은 하지 않는다 — 상태·대기 순서·1등은 서버 값(범위 자료) 그대로 낱말로만 바꾼다. 닉네임은 이름 표기(BuyerNames — 닉네임 뒤 영문 숨기기 설정을 따른다)를 글자로만 쓴다.
 import type { Claim } from '@livejjim/web/src/api/types.ts'
+import { kstTime } from '@livejjim/web/src/lib/kst.ts'
 import { claimWord, productSlots, waitPosition, type BuyerNames } from '../../lib/derive.ts'
-import type { BuyerSort, NumberSort } from '../../lib/feed-view.ts'
+import type { BuyerSort } from '../../lib/feed-view.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import type { Palette, TonePair } from '../../ui/kit/tokens.ts'
+import { ACTIVE_CLAIM } from './claim-actions.ts'
 
 export interface FeedNo {
   readonly id: string
@@ -58,7 +61,7 @@ export function noWord(data: ScopeData, claim: Claim): string {
 }
 
 /** 찜을 받은 시각 (순서용): 문자찜은 문자를 받은 시각, 그 밖은 순위 시각 */
-function claimAt(claim: Claim): number {
+export function claimAt(claim: Pick<Claim, 'received' | 'rankTime'>): number {
   const received = claim.received === null ? Number.NaN : Date.parse(claim.received)
   return Number.isFinite(received) ? received : timeOf(claim.rankTime)
 }
@@ -78,12 +81,41 @@ export function feedBuyerName(data: ScopeData, names: Pick<BuyerNames, 'name'>, 
   return names.name(buyerId)
 }
 
-/** 이름 오름차순 (가나다 — 한글 음절은 글자 번호 순서가 가나다순이라 휴대폰 언어 설정과 상관없이 같다) */
-const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+// ── 이름순: 한글 → 영문 → 숫자 → 기호 (D-UX4-153 — D-RETRO-51의 글자 번호 순서를 바꿈) ──────────
+// 옛: 글자 번호 순서 그대로라 영문·숫자 이름(글자 번호가 작다)이 한글 이름보다 앞에 섰다.
+// 글자마다 무리를 먼저 견주고(한글 0 · 영문 1 · 숫자 2 · 그 밖 3), 같은 무리면 글자 번호 순서(영문은 대소문자 무시) — 한글 음절은 글자 번호 순서가 가나다순이다.
+// 휴대폰 언어 설정(localeCompare)에 기대지 않아 아이폰·갤럭시가 같은 차례다(D-RETRO-140과 같은 까닭). 유튜브 아이디 앞의 "@"·띄어쓰기는 견주지 않는다.
+
+/** 이름 글자의 무리: 한글 0 · 영문 1 · 숫자 2 · 그 밖(기호·그림 글자 등) 3 */
+export function nameCharRank(code: number): number {
+  // 한글 음절 · 한글 자모 · 호환 자모
+  if ((code >= 0xac00 && code <= 0xd7a3) || (code >= 0x1100 && code <= 0x11ff) || (code >= 0x3131 && code <= 0x318e)) return 0
+  // 영문 (악센트 붙은 라틴 글자 포함, × ÷ 제외)
+  if ((code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a) || (code >= 0xc0 && code <= 0x24f && code !== 0xd7 && code !== 0xf7)) return 1
+  if (code >= 0x30 && code <= 0x39) return 2
+  return 3
+}
+
+/** 견줄 이름: 넓은 글자를 보통 글자로(NFKC), 소문자, 앞의 "@"와 띄어쓰기를 뺀다 */
+const sortKey = (name: string): number[] => Array.from(name.normalize('NFKC').toLowerCase().replace(/\s+/g, '').replace(/^@+/, ''), (char) => char.codePointAt(0) ?? 0)
+
+/** 이름순 견주기 (한글 먼저 — D-UX4-153). 같으면 0 */
+export function compareNames(a: string, b: string): number {
+  const x = sortKey(a)
+  const y = sortKey(b)
+  const length = Math.min(x.length, y.length)
+  for (let index = 0; index < length; index += 1) {
+    const p = x[index]!
+    const q = y[index]!
+    if (p === q) continue
+    return nameCharRank(p) - nameCharRank(q) || p - q
+  }
+  return x.length - y.length || (a < b ? -1 : a > b ? 1 : 0)
+}
 
 /**
  * 찜 → 손님별 줄. only: 그 상태의 찜만 (보류 찜 보기).
- * sort: 최근순(기본 — 가장 최근에 찜한 손님이 맨 아래, 한 손님 안은 찜한 순서) · 이름순(이름 오름차순, 한 손님 안은 번호 오름차순 — D-RETRO-51)
+ * sort: 최근순(기본 — 가장 최근에 찜한 손님이 맨 아래, 한 손님 안은 찜한 순서) · 이름순(한글 → 영문 → 숫자·기호, 같은 무리는 가나다·알파벳 순 — D-UX4-153, 한 손님 안은 번호 오름차순 — D-RETRO-51)
  */
 export function feedRows(data: ScopeData, names: Pick<BuyerNames, 'name'>, broadcastId: string, only?: Claim['status'], sort: BuyerSort = 'recent'): FeedBuyer[] {
   const groups = new Map<string, FeedNo[]>()
@@ -113,7 +145,7 @@ export function feedRows(data: ScopeData, names: Pick<BuyerNames, 'name'>, broad
     const nos = sort === 'name' ? [...byTime].sort((a, b) => a.no - b.no) : byTime
     rows.push({ key, buyer: feedBuyerName(data, names, key), latest: byTime.at(-1)!.at, nos })
   }
-  if (sort === 'name') return rows.sort((a, b) => byText(a.buyer, b.buyer) || a.key.localeCompare(b.key))
+  if (sort === 'name') return rows.sort((a, b) => compareNames(a.buyer, b.buyer) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
   return rows.sort((a, b) => a.latest - b.latest || a.key.localeCompare(b.key))
 }
 
@@ -123,82 +155,40 @@ export function noLabel(item: FeedNo): string {
   return item.takenBy === null ? base : `${base} · 이미 찜됨 · 1등 ${item.takenBy}`
 }
 
-// ── 번호별 (D-RETRO-50) ─────────────────────────────────────────────
+/** 찜 기록 시각: 한국 시각 "13:05:42" — 초까지 (D-UX4-154). 읽을 수 없는 시각이면 빈 글 */
+export const feedClock = (at: number): string => kstTime(at)
 
-/** 번호 줄의 손님 꼬리표 하나 */
-export interface FeedChip {
-  /** 찜 ID */
-  readonly id: string
-  /** 손님 이름 (문자 손님은 "문자-0937") */
-  readonly buyer: string
-  readonly status: Claim['status']
-  readonly tone: FeedTone
-  /** 꼬리표 낱말: 찜 · 대기 n · 보류 · 겹침 · 취소됨 … (손님별 보기와 같은 말) */
-  readonly word: string
-  readonly at: number
-  /** 그 번호의 상품이 목록에 있다(판매 종료한 상품은 아님) */
-  readonly hasProduct: boolean
+// ── 찾기 (D-UX4-152): 한 칸에서 번호 또는 닉네임 ───────────────────────────
+
+/** 찾는 글을 견줄 꼴로: 넓은 글자를 보통 글자로(NFKC), 소문자, 띄어쓰기를 모두 뺀다 */
+export const searchText = (text: string): string => text.normalize('NFKC').toLowerCase().replace(/\s+/g, '')
+
+/**
+ * 이 손님 줄이 찾는 글에 맞는지 (화면 없이 값만).
+ * - 빈 글(띄어쓰기만 포함)은 모두 맞는다.
+ * - 닉네임(보이는 이름 — 문자 손님은 "문자-0937")에 찾는 글이 들어 있으면 맞는다. 대소문자·띄어쓰기는 보지 않는다.
+ * - 숫자만 쳤으면 그 번호를 찜한 손님도 맞는다 — 번호는 꼭 같은 번호만(15를 치면 150번대는 아니다). 앞의 0은 보지 않는다(015 = 15).
+ */
+export function feedMatches(row: Pick<FeedBuyer, 'buyer' | 'nos'>, query: string): boolean {
+  const wanted = searchText(query)
+  if (wanted === '') return true
+  if (searchText(row.buyer).includes(wanted)) return true
+  if (!/^\d{1,9}$/.test(wanted)) return false
+  const no = Number(wanted)
+  return row.nos.some((item) => item.no === no)
 }
 
-export interface FeedNumber {
-  /** 상품 키 `<방송>/<번호>` */
-  readonly key: string
-  readonly no: number
-  /** 품종 (없으면 빈 글) */
-  readonly name: string
-  /** 가격 (아직 상품이 없는 번호면 null) */
-  readonly price: number | null
-  /** 이 번호에 가장 최근에 온 찜 시각 */
-  readonly latest: number
-  /** 찜(확정) → 겹침 → 보류 → 대기(순번) → 끝난 찜(취소·안 됨, 받은 순서) */
-  readonly chips: readonly FeedChip[]
-  /** 줄을 접어도 늘 보이는 앞쪽 꼬리표 수 (찜·겹침·보류) */
-  readonly keep: number
+/** 찾는 글에 맞는 줄만 (차례는 그대로) */
+export function filterFeed<T extends Pick<FeedBuyer, 'buyer' | 'nos'>>(rows: readonly T[], query: string): T[] {
+  return searchText(query) === '' ? [...rows] : rows.filter((row) => feedMatches(row, query))
 }
 
-const CHIP_ORDER: Readonly<Record<FeedTone, number>> = { win: 0, conflict: 1, pending: 2, wait: 3, other: 4 }
-
-/** 줄을 접었을 때 보이는 꼬리표 수 — 넘치면 "+n명" (D-RETRO-50: 손님이 많아도 줄이 길어지지 않게) */
-export const NUMBER_CHIP_LIMIT = 6
-
-/** 번호 줄 하나에서 접었을 때 보일 꼬리표와 숨은 수: 찜·겹침·보류는 늘 보이고, 나머지는 한도까지 */
-export function shownChips(row: Pick<FeedNumber, 'chips' | 'keep'>, expanded: boolean): { readonly shown: readonly FeedChip[]; readonly more: number } {
-  const count = expanded ? row.chips.length : Math.min(row.chips.length, Math.max(row.keep, NUMBER_CHIP_LIMIT))
-  return { shown: row.chips.slice(0, count), more: row.chips.length - count }
+/**
+ * 찜 꼬리표를 누를 수 있는지 (찜 메뉴 ClaimMenu가 내놓는 줄이 하나라도 있을 때만 — D-UX4-154).
+ * 라이브 중: 살아 있는 찜(삭제·올리기), 또는 끝난 찜이어도 그 상품이 목록에 있으면(되돌리기·상품 보기).
+ * 끝난·봉인한 라이브: 메뉴에는 [상품 보기]만 남으므로 그 상품이 목록에 있고 상품 보기를 열 수 있을 때만.
+ */
+export function feedPickable(item: Pick<FeedNo, 'status' | 'hasProduct'>, closed: boolean, canOpenProduct: boolean): boolean {
+  if (closed) return item.hasProduct && canOpenProduct
+  return ACTIVE_CLAIM.has(item.status) || item.hasProduct
 }
-
-/** 찜 → 번호별 줄. sort: 번호순(기본 — 오름차순) · 최근순(가장 최근에 찜이 온 번호가 맨 아래) */
-export function numberRows(data: ScopeData, names: Pick<BuyerNames, 'name'>, broadcastId: string, sort: NumberSort = 'number'): FeedNumber[] {
-  const groups = new Map<string, { no: number; chips: (FeedChip & { readonly rank: number })[] }>()
-  for (const claim of data.claims.values()) {
-    if (claim.broadcast !== broadcastId || claim.status === 'DUPLICATE') continue
-    const tone = noTone(claim.status)
-    // 대기는 순번 순서(서버 값), 찜은 서버가 준 1등 순서, 그 밖은 받은 순서
-    const product = data.products.get(claim.product)
-    const winnerIndex = product === undefined ? -1 : productSlots(product).winnerClaims.indexOf(claim.id)
-    const rank = tone === 'wait' ? (waitPosition(data, claim) ?? Number.MAX_SAFE_INTEGER) : tone === 'win' && winnerIndex >= 0 ? winnerIndex : Number.MAX_SAFE_INTEGER
-    const chip = { id: claim.id, buyer: feedBuyerName(data, names, claim.currentBuyer), status: claim.status, tone, word: noWord(data, claim), at: claimAt(claim), hasProduct: product !== undefined && product.status !== 'CLOSED', rank }
-    const group = groups.get(claim.product)
-    if (group === undefined) groups.set(claim.product, { no: claim.no, chips: [chip] })
-    else group.chips.push(chip)
-  }
-  const rows: FeedNumber[] = []
-  for (const [key, group] of groups) {
-    const product = data.products.get(key)
-    const chips = [...group.chips].sort((a, b) => CHIP_ORDER[a.tone] - CHIP_ORDER[b.tone] || a.rank - b.rank || a.at - b.at || a.id.localeCompare(b.id))
-    rows.push({
-      key,
-      no: group.no,
-      name: product === undefined ? '' : product.name.trim(),
-      price: product === undefined ? null : product.price,
-      latest: Math.max(...chips.map((chip) => chip.at)),
-      chips: chips.map(({ id, buyer, status, tone, word, at, hasProduct }) => ({ id, buyer, status, tone, word, at, hasProduct })),
-      keep: chips.filter((chip) => chip.tone === 'win' || chip.tone === 'conflict' || chip.tone === 'pending').length,
-    })
-  }
-  if (sort === 'recent') return rows.sort((a, b) => a.latest - b.latest || a.no - b.no)
-  return rows.sort((a, b) => a.no - b.no || a.key.localeCompare(b.key))
-}
-
-/** 번호 줄 꼬리표의 글·읽기 낱말: "홍길동 찜" · "김영희 대기 1" */
-export const chipLabel = (chip: Pick<FeedChip, 'buyer' | 'word'>): string => `${chip.buyer} ${chip.word}`

@@ -2,6 +2,7 @@
 // 아래 판 "140번 찜"(손님 이름) — 그 찜에 지금 할 수 있는 것만 줄로 보인다:
 //   [찜으로 올리기](대기 찜) · [찜 되돌리기](취소·안 된 찜) · [상품 보기] · [상품 고치기](가격·품종·번호는 상품 수정창에서) · [찜 삭제](살아 있는 찜).
 // 조치가 셋 이상이라 한 줄 단추가 아니라 아래 판의 메뉴 줄로 놓는다(D-UX4-27 관례). 올리기·되돌리기·삭제는 팝업 [닫기 | …]으로 한 번 더 묻는다(부정 왼쪽·긍정 오른쪽, D-UX4-01).
+// D-UX4-154: 판 머리 손님 이름 옆에 그 찜을 받은 시각(한국 시각, 초까지 "13:05:42" — 문자찜은 문자를 받은 시각).
 // 앱은 판정하지 않는다 — 엔진의 방송자 조치(host.cancel·host.promote·host.assign)를 보낼 뿐이다(claim-actions). 닉네임은 글자로만 그린다.
 import { useState } from 'react'
 import { View } from 'react-native'
@@ -11,7 +12,7 @@ import { BottomSheet, PopupDialog, Txt } from '../../ui/kit/index.ts'
 import { SPACE } from '../../ui/kit/tokens.ts'
 import { ACTIVE_CLAIM, deleteClaim, raiseClaim, raisePlan, useSheetHandoff, type RaisePlan } from './claim-actions.ts'
 import { useConsoleApi } from './context.ts'
-import { feedBuyerName } from './feed-rows.ts'
+import { claimAt, feedBuyerName, feedClock } from './feed-rows.ts'
 import { IconMenuRow, TRASH_TINT } from './parts.tsx'
 
 export const MENU_RAISE = '찜으로 올리기'
@@ -66,6 +67,7 @@ export function ClaimMenu({ picked, onClose, onOpenProduct, onEditProduct, onErr
   const canOpen = shownProduct !== undefined && onOpenProduct !== undefined
   const canEdit = shownProduct !== undefined && onEditProduct !== undefined && !closed
   const visible = picked !== null && claim !== undefined && claimHasMenu(claim, plan, canOpen || canEdit)
+  const clock = claim === undefined ? '' : feedClock(claimAt(claim))
 
   const ask = (kind: 'delete' | 'promote' | 'restore') => {
     if (picked === null) return
@@ -111,7 +113,11 @@ export function ClaimMenu({ picked, onClose, onOpenProduct, onEditProduct, onErr
       <BottomSheet visible={visible} onClose={onClose} title={picked === null ? '' : `${String(picked.no)}번 찜`}>
         {picked === null ? null : (
           <View role="group" aria-label="찜 메뉴" style={{ gap: SPACE.xs }}>
-            <Txt color="textSub">{picked.buyer}</Txt>
+            {/* 손님 이름 · 찜한 시각(초까지, D-UX4-154) */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.sm }}>
+              <Txt color="textSub">{picked.buyer}</Txt>
+              {clock === '' ? null : <Txt color="textSub" aria-label={`찜한 시각 ${clock}`}>{clock}</Txt>}
+            </View>
             {plan?.kind === 'promote' ? <IconMenuRow emoji="⬆️" tint={TINT.raise} title={MENU_RAISE} onPress={() => ask('promote')} /> : null}
             {plan?.kind === 'restore' ? <IconMenuRow emoji="↩️" tint={TINT.restore} title={MENU_RESTORE} onPress={() => ask('restore')} /> : null}
             {canOpen ? <IconMenuRow emoji="🪴" tint={TINT.product} title={MENU_OPEN_PRODUCT} onPress={() => openProduct(onOpenProduct)} /> : null}
