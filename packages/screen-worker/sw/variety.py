@@ -143,15 +143,28 @@ VPOST = int(os.environ.get("VPOST", 10))   # 번호표가 사라진 뒤 몇 초�
 _SAEK = re.compile(r"(세\s?금|새\s?금|새\s?끔|세\s?끔|세\s?컴|색\s?김|섹\s?금|새\s?꿈|세\s?꿈|색\s?끔|색\s?검|(?<=[가-힣A-Za-z])\s?3\s?금|삼\s?금(?=$))")
 _FILLER = re.compile(r"^(자|요거|요거는|이거|이거는|요|얘|얘는)\s+")
 _NOT_NICK = {"사장", "고객", "손님", "회원", "선생", "여러분", "형", "언니", "누나", "오빠", "어머", "아버", "고맙", "감사"}
+_STOP_THANK = {"자", "요거", "이거", "그리고", "여러분", "대단히", "완전", "찐", "아주", "또", "다시", "역시", "우리", "바로", "빨리", "잘", "꼭"}
+
+
+_NICK_TITLE = re.compile(r"(?:사장|회장|대표|여사|선생|형|언니|누나|오빠|이모)$")   # "별빛사장님"의 사장 — 떼고 앞 이름만 본다
+_THANKED = re.compile(r"([가-힣A-Za-z]{2,8})\s(?:감사합니다|감사드립니다|감사드리고|감사해요|땡큐|축하드립니다|축하드리고|축하합니다)")
+_NOT_THANKED = {"진짜", "정말", "너무", "문자", "오늘", "항상", "다들", "모두", "먼저", "일단", "많이", "잡으셔서", "주셔서", "들어오셔서", "해주셔서", "와주셔서"}
 
 
 def nicknames(lines):
-    """판매자가 '○○님'으로 부른 이름(찜한 손님) — 품종으로 고르면 안 된다"""
+    """판매자가 '○○님'으로 부르거나 '○○ 감사합니다'로 인사한 이름(찜한 손님) — 품종으로 고르면 안 된다"""
     out = set()
     for _, x in lines:
         for m in re.finditer(r"([가-힣A-Za-z]{2,8})\s?님", x):
             w = m.group(1)
             if w not in _NOT_NICK and not any(w.startswith(n) for n in _NOT_NICK):
+                out.add(w)
+                short = _NICK_TITLE.sub("", w)
+                if len(short) >= 2 and short != w:
+                    out.add(short)
+        for m in re.finditer(_THANKED, x):
+            w = m.group(1)
+            if w not in _NOT_NICK and w not in _NOT_THANKED and w not in _STOP_THANK and not re.search(r"(?:님|번|원|개)$", w):
                 out.add(w)
     return out
 
@@ -275,7 +288,9 @@ def decide_name(raw, no, lines, dic):
 #   (a) LLM 이름이 사전에 있으면 LLM  (b) 사전 이름이 그 상품의 받아쓰기에 여러 번 나오면 사전  (c) 그 밖에는 빈 이름
 # 틀린 이름보다 빈 이름이 낫다 — 판매자가 채우기 쉽고, 틀린 이름은 감사 채팅·라벨로 나간다(2026-11-12 방송: 세검·녹음에지는·손님 닉네임).
 NOT_NAMES = {"재고", "제고", "재구", "베개", "서비스", "특가", "제곱", "통채", "통째", "통으로", "자구", "한개", "두개", "세개", "하나", "상품", "화분", "다육", "다육이",
-             "사이즈", "대품", "중품", "소품", "고급종", "저렴이", "커팅", "실생", "선물", "가격", "번호", "마지막", "오프닝", "이벤트", "득템", "쿠폰", "행복"}
+             "사이즈", "대품", "중품", "소품", "고급종", "저렴이", "커팅", "실생", "선물", "가격", "번호", "마지막", "오프닝", "이벤트", "득템", "쿠폰", "행복",
+             # 2026-11-13 방송에서 LLM이 품종으로 적은 말: 모양을 이르는 말("청수가 좋네", "입성이 다르다")과 파는 꼴
+             "청수", "청소", "층수", "입성", "장입성", "입장", "잎장", "모주", "직배", "집배", "분채", "이름표", "가격표", "커팅사이즈"}
 GENERIC = {"색금", "녹금", "금", "철화", "종자", "산반", "복륜"}          # 이름이라기보다 무늬·종류를 이르는 말 — 다른 이름이 있으면 그쪽이 먼저
 MENTIONS = 2                                                              # (b): 사전 이름이 받아쓰기에 이만큼 나와야 한다
 _COUNT_TAIL = re.compile(r"\s*(?:\d+|한|두|세|네|다섯)\s*(?:개|포기|두|촉|장|세트|번)\s*$")
@@ -405,7 +420,15 @@ FORMS = ("군생", "윗동", "아랫동", "커팅", "자구", "통째", "통채"
 _QTY = re.compile(r"\s*((?:\d+|한|두|세|네|다섯)\s*(?:개|포기|두|촉|장|세트)|통째|통채|통으로)\s*$")
 LEDGER_CUT = float(os.environ.get("LLM_LEDGER_CUT", 72))                  # 장부 이름과 자모 편집 거리 비율이 이만큼 넘으면 그 이름으로 맞춘다
 LEDGER_CUT_SHORT = float(os.environ.get("LLM_LEDGER_CUT_SHORT", 80))      # 두 글자쯤의 짧은 이름은 더 엄하게("청수"가 청춘에, "산마"가 삼광에 붙지 않게)
-_NOK_TAIL = re.compile(r"(?:노금|녹음|녹급)$")                              # 받아쓰기가 이름 끝의 '녹금'을 적는 모양(11-13 방송: 녹음 41 · 노금 6 · 녹급 4)
+_NOK_TAIL = re.compile(r"(?:노금|녹음|녹급|녹극|녹운|노끔|녹끔|록금)$")       # 받아쓰기가 이름 끝의 '녹금'을 적는 모양(11-13 방송: 녹음 41 · 노금 6 · 녹급 4, LLM 답 녹극·녹운·창록금)
+_JJIN_TAIL = re.compile(r"(?:찐|진)(?:노|농|록|녹)$")                       # '찐녹'을 적는 모양(11-13 방송 LLM 답: 찐노 4 · 진농 4 · 진노 3 · 창찐록 3)
+LEDGER_SAID_CUT = float(os.environ.get("LLM_LEDGER_SAID_CUT", 86))        # 받아쓰기 낱말을 장부 이름으로 볼 자모 비율(짧은 이름은 소리가 같을 때만)
+LEDGER_SHORT_LEN = int(os.environ.get("LLM_LEDGER_SHORT_LEN", 2))         # 이만큼(글자)까지의 이름은 짧은 이름으로 보고 더 엄하게 맞춘다("청송"이 채홍에, "호스"가 윤슬에 붙었다)
+LEDGER_WEIGHT = float(os.environ.get("LLM_LEDGER_WEIGHT", 3))              # LLM이 적은 모르는 이름이 장부 이름을 이기려면 답이 이 배수보다 많아야 한다(같은 받아쓰기를 거듭 읽은 답은 같은 틀린 말을 거듭 적는다)
+LEDGER_SAID_OVER = int(os.environ.get("LLM_LEDGER_SAID_OVER", 0))         # 받아쓰기에 장부 이름이 이만큼 나오면 LLM이 적은 모르는 이름도 덮는다(0 = 덮지 않음)
+LEDGER_SAID_SCOPE = os.environ.get("LLM_LEDGER_SAID_SCOPE", "all")        # near = 번호를 처음 말한 줄의 한 줄 앞부터만 본다(앞 상품 이야기가 섞이지 않게)
+LEDGER_SAID_ADJ = os.environ.get("LLM_LEDGER_SAID_ADJ", "1") != "0"       # 번호 바로 옆에서 말한 장부 이름("46번 아웃사이드")은 두 번으로 센다
+LEDGER_SAID = int(os.environ.get("LLM_LEDGER_SAID", 2))                    # 장부 이름이 그 상품 받아쓰기에 이만큼 나오면 LLM이 적은 모르는 이름보다 먼저 쓴다(0 = 끔)
 LEDGER_PREFIX = 3                                                          # 장부 이름이 앞·뒤에 통째로 들어 있을 때("은갈치퍼플"의 은갈치)는 이만큼(글자) 넘는 이름만
 
 
@@ -454,7 +477,7 @@ class Ledger:
             return None, 0.0
         folded = sjamo(key)
         if cutoff is None:
-            cutoff = LEDGER_CUT_SHORT if len(folded) <= 5 else LEDGER_CUT
+            cutoff = LEDGER_CUT_SHORT if len(folded) <= 5 or len(key) <= LEDGER_SHORT_LEN else LEDGER_CUT
         hit = process.extractOne(folded, self.jkeys, scorer=fuzz.ratio, score_cutoff=cutoff)
         return (self.names[self.keys[hit[2]]], hit[1]) if hit else (None, 0.0)
 
@@ -480,22 +503,98 @@ def split_parts(name):
     if m:
         qty, text = "".join(m.group(1).split()), text[:m.start()]
     text = _SAEK_LIVE.sub("색금", text).strip()
-    key = _NOK_TAIL.sub("녹금", norm(text))
+    fix = lambda k: _JJIN_TAIL.sub("찐녹", _NOK_TAIL.sub("녹금", k))
+    key = fix(norm(text))
+    if len(key) >= 3 and key[0] in "이자요저그" and key[1:] in PATTERN_ONLY:   # "이 색금"·"자 색금"을 붙여 적은 것
+        key = key[1:]
     form = ""
     for f in FORMS:
         if key.endswith(f) and len(key) > len(f):
-            form, key = f, key[:-len(f)]
+            form, key = f, fix(key[:-len(f)])
             break
     if key.upper() in PATTERN_ONLY or key in PATTERN_ONLY:
         return "", key, form, qty
     pat = ""
     for suf in PATTERNS:
         if key.endswith(suf) and len(key) - len(suf) >= 2:
-            pat, key = suf, key[:-len(suf)]
+            pat, key = suf, fix(key[:-len(suf)])
             break
-    if key in PATTERN_ONLY:                                                # "힘줄색금"처럼 무늬 말만 겹친 것
+    if key in PATTERN_ONLY:                                                # "힘줄색금"·"찐녹색금"처럼 무늬 말만 겹친 것
         return "", key + pat, form, qty
     return key, pat, form, qty
+
+
+# 판매자가 품종 없이 무늬·종류만 말하는 모양(받아쓰기 그대로). "종자"는 칭찬으로 늘 하는 말이라 세지 않는다
+_PAT_SAID = (("창녹금", re.compile(r"창\s?(?:녹\s?금|노\s?금|녹\s?음|록\s?금|노\s?끔)")),
+             ("창색금", re.compile(r"창\s?(?:세|새|색)\s?(?:금|끔|급|껌)")),
+             ("녹색금", re.compile(r"녹\s?색\s?금|녹\s?(?:세|새)\s?(?:금|끔)")),
+             ("찐녹", re.compile(r"(?:찐|진)\s?(?:녹|노|농|록)(?![금음급끔])")),
+             ("녹금", re.compile(r"(?<!창)(?<!창\s)(?:녹\s?금|노\s?금|녹\s?음|노\s?끔|녹\s?급)")),
+             ("색금", re.compile(r"(?<![창녹])(?<![창녹]\s)(?:세|새|색|섹)\s?(?:금|끔|껌|꿈|검|급|컴|김)")),
+             ("SP", re.compile(r"(?<![A-Za-z])SP(?![A-Za-z])|에스피")))
+
+
+def pattern_said(lines):
+    """그 상품의 받아쓰기에서 무늬·종류 말이 나온 줄 수 Counter"""
+    count = collections.Counter()
+    for _, x in lines:
+        for name, rx in _PAT_SAID:
+            if rx.search(x):
+                count[name] += 1
+    return count
+
+
+_DENIED = re.compile(r"^(?:아니|아님|아닌|아녀)")
+
+
+def denied(name, lines):
+    """판매자가 그 이름을 아니라고 말한 줄 수("아베 아니죠", "아베가 아니고")"""
+    rx = re.compile(re.escape(norm(name)) + r"(?:이|가|는|은|도|의)?(?:아니|아님|아닌|아녀)")
+    return sum(1 for _, x in lines if rx.search(norm(x)))
+
+
+def ledger_said(lines, ledger, nicks=(), no=None):
+    """그 상품의 받아쓰기에서 가게 장부 이름이 나온 줄 수 Counter(정식 이름). 무늬 말뿐인 장부 이름("색금")은 세지 않는다.
+    두 글자 이름은 글자가 같을 때만("금이"가 금휘로 읽히지 않게), 세 글자부터는 소리가 같거나(쉘브르·셀브로) 긴 이름이면 LEDGER_SAID_CUT 넘게 비슷할 때.
+    한 줄에서 겹치는 말은 긴 쪽 하나만. no를 주면 그 번호 바로 옆에서 말한 이름은 두 번으로 센다"""
+    count = collections.Counter()
+    if not ledger:
+        return count
+    memo = ledger.__dict__.setdefault("_said", {})
+    mine = re.compile(rf"(?<!\d){int(no)}(?!\d)") if no is not None else None
+    if mine is not None and LEDGER_SAID_SCOPE == "near":
+        first = next((k for k, (_, x) in enumerate(lines) if mine.search(x)), 0)
+        lines = lines[max(0, first - 1):]
+    for _, x in lines:
+        raws = re.findall(r"[가-힣A-Za-z0-9]+", x)
+        ws = [_JOSA.sub("", raw) if len(raw) > 2 else raw for raw in raws]
+        found = []
+        for n in (3, 2, 1):
+            for i in range(len(ws) - n + 1):
+                ph = "".join(ws[i:i + n])
+                key = norm(ph)
+                if len(key) < 2 or ph in _STOP or key in NOT_NAMES:
+                    continue
+                if key not in memo:
+                    if len(key) <= 2:
+                        hit = ledger.names.get(key)
+                    else:
+                        hit, score = ledger.near(key, cutoff=LEDGER_SAID_CUT)
+                        if hit and score < 100 and (len(sjamo(key)) <= 5 or len(sjamo(norm(hit))) <= 5):
+                            hit = None
+                    if hit and not split_parts(hit)[0]:
+                        hit = None
+                    memo[key] = hit
+                hit = memo[key]
+                if hit and i + n < len(raws) and _DENIED.match(raws[i + n]):
+                    continue                                               # "아베 아니죠", "청사 아니야 황소야": 아니라고 한 이름
+                if hit and not not_a_name(ph, nicks) and not any(i < j + m and j < i + n for j, m, _ in found):
+                    found.append((i, n, hit))
+        beside = lambda i, n: mine is not None and LEDGER_SAID_ADJ and any(
+            0 <= j < len(raws) and mine.fullmatch(re.sub(r"번.*$", "", raws[j])) for j in (i - 1, i + n))
+        for name in {name for _, _, name in found}:
+            count[name] += 2 if any(beside(i, n) for i, n, v in found if v == name) else 1
+    return count
 
 
 def join_parts(base, pat):
@@ -522,9 +621,11 @@ def shop_name(raw, ledger, dic=None):
     return base, pat, form, qty, False, False
 
 
-def pick_shop(llm_names, lines, dic, ledger=None, nicks=()):
-    """→ (서버로 보낼 품종 이름 또는 "", 까닭, 굳은 이름인가, 확인 중 품종인가, {"pattern", "form", "qty"})
-    llm_names = 그 번호에 LLM이 적은 이름들(답한 순서), lines = 그 상품의 받아쓰기 [(초, 글)]"""
+def pick_shop(llm_names, lines, dic, ledger=None, nicks=(), no=None):
+    """→ (서버로 보낼 품종 이름 또는 "", 까닭, 굳은 이름인가, 확인 중 품종인가, {"pattern", "form", "qty", "votes", "in_ledger", "source", "tally"})
+    llm_names = 그 번호에 LLM이 적은 이름들(답한 순서), lines = 그 상품의 받아쓰기 [(초, 글)]
+    고르는 차례(D-SCR-34): ① LLM이 가장 많이 적은 이름이 장부에 있으면 그 이름 ② 장부 이름이 받아쓰기에 LEDGER_SAID번 넘게 나오면 그 이름
+    ③ LLM이 적은 모르는 이름(확인 중 품종) ④ 무늬 말만 들렸으면 그 말 ⑤ 받아쓰기에 여러 번 나온 사전 이름"""
     nicks = set(nicks) | nicknames(lines)
     votes, info, order = collections.Counter(), {}, {}
     pats, forms, qtys, only = collections.Counter(), collections.Counter(), collections.Counter(), collections.Counter()
@@ -551,30 +652,75 @@ def pick_shop(llm_names, lines, dic, ledger=None, nicks=()):
         info[key] = (name, in_ledger, in_dic)
         if pat:
             pats[(key, pat)] += 1
-    extra = {"form": forms.most_common(1)[0][0] if forms else "", "qty": qtys.most_common(1)[0][0] if qtys else ""}
+    extra = {"form": forms.most_common(1)[0][0] if forms else "", "qty": qtys.most_common(1)[0][0] if qtys else "",
+             "pattern": "", "votes": 0, "in_ledger": False, "rank": 0, "source": "", "tally": dict(votes)}
+    heard = ledger_said(lines, ledger, nicks, no) if LEDGER_SAID and ledger is not None else collections.Counter()
+    best = max(heard, key=lambda n: (heard[n], len(norm(n)))) if heard else None
     top = max(votes, key=lambda k: (votes[k], info[k][1], info[k][2], order[k])) if votes else None
+    mine = [k for k in votes if info[k][1]]
+    if mine and not info[top][1]:                                          # 장부 이름과 모르는 이름이 같이 나왔다: 모르는 이름이 LEDGER_WEIGHT배 넘게 많지 않으면 장부 이름
+        ours = max(mine, key=lambda k: (votes[k], order[k]))
+        if votes[ours] * LEDGER_WEIGHT >= votes[top]:
+            top = ours
     if top is not None and sum(only.values()) > votes[top]:
         top = None                                                         # 이름을 적은 답보다 무늬 말만 적은 답이 많다 — 이름 없는 상품으로 본다(옆 상품 이름·잘못 들은 말 한 번에 끌려가지 않게)
+    elif best is not None and heard[best] >= LEDGER_SAID and not only and (
+            top is None or (LEDGER_SAID_OVER and not info[top][1] and heard[best] >= LEDGER_SAID_OVER)):
+        # LLM은 이름을 못 적었는데 판매자가 그 상품을 소개하며 장부 이름을 거듭 말했다
+        # (LLM이 모르는 이름을 적었을 때는 덮지 않는다 — 처음 파는 품종일 수 있고, 옆 상품의 장부 이름이 섞여 들린다: 117번에서 처음 듣는 이름이 옆 상품의 빅뱅으로 바뀌었다)
+        extra.update(votes=heard[best], in_ledger=True, rank=2, source="장부 말")
+        return best, f"받아쓰기에 {heard[best]}번 나온 장부 이름", heard[best] >= STRONG_MENTIONS, False, extra
     if top is not None:
         name, in_ledger, in_dic = info[top]
         mine = {p: n for (k, p), n in pats.items() if k == top}
         pat = max(mine, key=mine.get) if mine and max(mine.values()) * 2 >= votes[top] else ""
-        extra["pattern"] = pat
         sure = in_ledger or (in_dic and votes[top] >= 2)
+        extra.update(pattern=pat, votes=votes[top], in_ledger=in_ledger, rank=2 if in_ledger else 1 if in_dic else 0, source="LLM")
         why = "가게 장부에 있는 이름" if in_ledger else "전국 사전에 있는 이름" if in_dic else "LLM이 적은 이름(장부에 없음)"
         return join_parts(name, pat), f"{why} · 답 {votes[top]}번", in_ledger and votes[top] >= 2, not sure, extra
-    said = said_counts(lines, dic, nicks) if dic is not None else collections.Counter()
-    generic = {n: c for n, c in said.items() if norm(n) in GENERIC}
-    if only or generic:                                                    # 이름 없이 무늬 말만: 가게 말버릇(예: 색금만 말하면 SP)
-        pat = only.most_common(1)[0][0] if only else max(generic, key=generic.get)
-        if only or generic[pat] >= MENTIONS:
-            extra["pattern"] = pat
+    said = pattern_said(lines)
+    if only or said:                                                       # 이름 없이 무늬 말만: 가게 말버릇(장부에 적혀 있을 때만 — 예: 색금만 말하면 SP)
+        pat = only.most_common(1)[0][0] if only else max(said, key=said.get)
+        if only or said[pat] >= MENTIONS:
             habit = ledger.habits.get(pat) if ledger is not None else None
+            extra.update(pattern=pat, votes=only[pat] if only else said[pat], source="무늬 말")
             return habit or pat, "무늬 말만 들림" + (f" → 가게 말버릇 {habit}" if habit else ""), False, False, extra
-    extra["pattern"] = ""
-    if said and not votes:                                                 # LLM이 이름을 적지 않았다: 받아쓰기에 여러 번 나온 장부·사전 이름(D-SCR-15의 (b)와 같다)
-        best = max(said, key=lambda n: (said[n], norm(n) not in GENERIC, len(norm(n))))
-        if said[best] >= MENTIONS:
-            hit = ledger.near(best)[0] if ledger is not None and ledger else None
-            return hit or best, f"받아쓰기에 {said[best]}번 나온 이름", said[best] >= STRONG_MENTIONS, False, extra
+    named = said_counts(lines, dic, nicks) if dic is not None else collections.Counter()
+    named = {n: c - denied(n, lines) for n, c in named.items() if norm(n) not in GENERIC}
+    if named and not votes:                                                # LLM이 이름을 적지 않았다: 받아쓰기에 여러 번 나온 사전 이름(D-SCR-15의 (b)와 같다)
+        top_said = max(named, key=lambda n: (named[n], len(norm(n))))
+        if named[top_said] >= MENTIONS:
+            hit = ledger.near(top_said)[0] if ledger is not None and ledger else None
+            extra.update(votes=named[top_said], in_ledger=bool(hit), rank=2 if hit else 1, source="사전 말")
+            return hit or top_said, f"받아쓰기에 {named[top_said]}번 나온 이름", named[top_said] >= STRONG_MENTIONS, False, extra
     return "", "모름", False, False, extra
+
+
+NAME_FILL = int(os.environ.get("LLM_NAME_FILL", 2))                        # 빈칸을 LLM이 적은 모르는 이름으로 채우려면 답이 이만큼
+
+
+def should_rename(now, name, extra, now_rank=0):
+    """이미 보낸 품종 now를 (그 뒤 답까지 모아) 다시 고른 name으로 바꿀까(D-SCR-35). extra = pick_shop의 다섯째 값, now_rank = 지금 이름을 고를 때의 extra["rank"]
+    (2 = 가게 장부 이름, 1 = 전국 사전 이름, 0 = 모르는 이름). 빈칸은 채운다. 아는 이름을 덜 아는 이름으로 바꾸지 않는다.
+    무늬 말은 장부 이름으로만 바꾼다. 같은 급이면 답이 더 많이 나온 쪽으로"""
+    if not name or norm(name) == norm(now or ""):
+        return False
+    votes, rank, source = extra.get("votes", 0), extra.get("rank", 0), extra.get("source")
+    if not now:
+        return votes >= NAME_FILL if source == "무늬 말" or (source == "LLM" and rank == 0) else True
+    old, new = split_parts(now), split_parts(name)
+    if not old[0]:                                                         # 지금은 무늬 말뿐
+        return bool(new[0]) and rank == 2 and (votes >= 2 or source == "장부 말")
+    if not new[0]:                                                         # 이름 → 무늬 말: 모르는 이름일 때만
+        return now_rank == 0 and votes >= 2
+    if norm(old[0]) == norm(new[0]):
+        return bool(new[1]) and not old[1]                                 # 같은 품종에 무늬 말이 더 붙었다("테라로사" → "테라로사색금")
+    if rank < now_rank:
+        return False
+    if source == "장부 말":
+        return now_rank < 2
+    tally = extra.get("tally") or {}
+    had = max(tally.get(norm(now), 0), tally.get(norm(old[0]), 0))
+    if rank > now_rank:
+        return votes >= 2 or 0 < had <= votes                              # 지금 이름이 이 답들에 없으면(다른 장면) 한 번 나온 이름으로는 바꾸지 않는다
+    return votes >= 2 and votes > had

@@ -210,6 +210,143 @@ class ShopNameTest(unittest.TestCase):
         self.assertEqual(st.kinds("LLM등록")[0]["qty"], "3개")
 
 
+class RepickTest(unittest.TestCase):
+    """D-SCR-34 ~ 36: 장부 이름을 받아쓰기에서 찾기, 보낸 뒤 답까지 모아 다시 고르기, 손님 이름·모양 말 거르기 (줄은 그날 사례를 본떠 지어낸 것)"""
+
+    def test_blank_filled_with_a_wrong_word_is_still_fixed_to_the_ledger_name(self):
+        # 83번: 처음에는 이름 없이 올라갔고, 뒤 답이 "모즈" 두 번·"킹스톤" 네 번이었다. 옛 방식은 먼저 두 번 나온 모즈로 채우고 더 고치지 않았다
+        ledger_file(self, ["킹스톤", "쿠스"])
+        st = Stage(self)
+        st.show(0, 60, 83)
+        st.say(0, "83번 6만원", row(0, 83, 60000, None, no_from="말+화면"))
+        self.assertEqual(st.posted, [(83, 60000, "")])
+        st.say(6, "모즈 좋네요 83번", row(1, 83, 60000, "모즈", no_from="말+화면"))
+        st.say(9, "83번 6만원 모즈", row(2, 83, 60000, "모즈", no_from="말+화면"))
+        for k, sec in enumerate((12, 15, 18, 21)):
+            st.say(sec, "83번 6만원", row(3 + k, 83, 60000, "킹스턴", no_from="말+화면"))
+        self.assertEqual(st.kinds("LLM이름고치기")[-1]["to"], "킹스톤")
+        self.assertNotIn("name_unsure", st.kinds("LLM이름고치기")[-1])
+
+    def test_name_on_the_server_is_kept_when_the_product_is_offered_again_without_a_name(self):
+        # 13번: 레다색금으로 올라간 뒤 판매자가 다시 내놓았고 그때 LLM은 "색금"만 적었다. 서버는 다시 보낸 등록을 무시하므로(R-2) 이름은 레다색금 그대로여야 한다
+        ledger_file(self, ["레다", "킹스톤"])
+        st = Stage(self)
+        st.show(0, 9, 13)
+        st.say(0, "13번 레다 색금 20만원", row(0, 13, 200000, "레다 색금", no_from="말+화면"))
+        st.show(20, 29, 14)
+        st.say(20, "14번 킹스톤 5만원", row(1, 14, 50000, "킹스톤", no_from="말+화면"))
+        st.show(300, 330, 13)
+        st.say(300, "아까 13번 다시 갑니다 13번 20만원", row(2, 13, 200000, None, no_from="말+화면"))
+        st.say(306, "13번 색금 20만원", row(3, 13, 200000, "색금", no_from="말+화면"))
+        st.say(310, "13번 색금 20만원 갑니다", row(4, 13, 200000, "색금", no_from="말+화면"))
+        self.assertEqual(st.worker.names[13]["now"], "레다색금")
+        self.assertEqual([e for e in st.kinds("LLM이름고치기") if e["no"] == 13], [])
+
+    def test_blank_name_on_the_server_is_filled_when_the_product_is_offered_again_with_a_name(self):
+        # 처음에는 이름 없이 올라갔다. 다시 내놓을 때 고른 이름은 등록으로는 서버에 닿지 않으므로(R-2) 이름 고치기로 채운다
+        ledger_file(self, ["킹스톤"])
+        st = Stage(self)
+        st.show(0, 9, 31)
+        st.say(0, "31번 40만원", row(0, 31, 400000, None, no_from="말+화면"))
+        st.show(20, 29, 14)
+        st.say(20, "14번 5만원", row(1, 14, 50000, None, no_from="말+화면"))
+        st.show(300, 330, 31)
+        st.say(300, "아까 31번 다시 갑니다 킹스톤 31번 40만원", row(2, 31, 400000, "킹스톤", no_from="말+화면"))
+        self.assertEqual(st.worker.names[31]["now"], "킹스톤")
+        st.poster.rename.assert_called_once()
+        self.assertEqual(st.poster.rename.call_args.args[1:3], (31, "킹스톤"))
+
+    def test_a_name_the_seller_denies_is_not_counted(self):
+        # 41번: "요거는 아베 아니죠", "아베가 아니고 교배종" — 아니라고 한 이름을 받아쓰기에 두 번 나왔다고 품종으로 적었다
+        lines = [(0, "자 요거는 아베 아니죠"), (3, "41번 5만원 아베가 아니고 교배종 같은데")]
+        self.assertEqual(variety.denied("아베", lines), 2)
+        ledger = variety.Ledger(names=["아베", "황소"])
+        self.assertEqual(variety.ledger_said(lines + [(6, "청사 아니야 황소야 황소로 갈게")], ledger), {"황소": 1})
+        self.assertEqual(variety.pick_shop([], lines, variety.Dictionary(seller=False), variety.Ledger())[0], "")
+
+    def test_two_letter_words_are_matched_strictly(self):
+        ledger = variety.Ledger(names=["채홍", "쿠스", "열애"])
+        self.assertEqual(ledger.near("청송")[0], None)                          # 248번: "청송"(청수)이 채홍으로 맞춰졌다
+        self.assertEqual([ledger.near(x)[0] for x in ("채용", "구스", "열혜")], ["채홍", "쿠스", "열애"])
+
+    def test_ledger_name_said_twice_is_used_when_the_llm_wrote_none(self):
+        # 46번: LLM은 이름을 적지 않았는데 판매자는 "아웃사이드"를 두 번 말했다 — 장부에 있는 이름이라 그대로 쓴다
+        ledger_file(self, ["아웃사이드", "황소"])
+        st = Stage(self)
+        st.show(0, 30, 46)
+        st.say(0, "자 이거 아웃사이드 3만원", None)
+        st.say(4, "46번 아웃사이드라 카드 3만원", row(1, 46, 30000, None, no_from="말+화면"))
+        self.assertEqual(st.posted, [(46, 30000, "아웃사이드")])
+        self.assertFalse(st.kinds("LLM등록")[0].get("name_unsure"))
+
+    def test_customer_called_with_a_title_or_thanked_is_not_a_variety(self):
+        # "별빛사장님", "모래시계 감사합니다": 손님 이름이다(지어낸 이름). 품종 칸에 넣지 않는다
+        self.assertEqual(variety.nicknames([(0, "별빛사장님 잡았다 모래시계 감사합니다 79번 감사드립니다 정말 감사합니다")]), {"별빛사장", "별빛", "모래시계"})
+        ledger_file(self, [])
+        st = Stage(self)
+        st.show(0, 9, 159)
+        st.say(0, "159번 5만원 별빛사장님 감사드리고요", row(0, 159, 50000, "별빛", no_from="말+화면"))
+        st.show(20, 29, 118)
+        st.say(20, "118번 10만원 모래시계 감사합니다", row(1, 118, 100000, "모래시계", no_from="말+화면"))
+        self.assertEqual(st.posted, [(159, 50000, ""), (118, 100000, "")])
+
+    def test_customer_called_twice_earlier_in_the_broadcast_is_not_a_variety(self):
+        # 앞에서 두 번 "한강님"으로 불린 손님(지어낸 이름) — 그 상품 줄에 "님"이 없어도 품종으로 고르지 않는다. 장부에 있는 이름은 그대로 쓴다
+        ledger_file(self, ["황소"])
+        st = Stage(self)
+        st.show(0, 9, 10)
+        st.say(0, "10번 만원 한강님 황소님 감사합니다", row(0, 10, 10000, None, no_from="말+화면"))
+        st.show(20, 29, 11)
+        st.say(20, "11번 만원 한강님 황소님 잡았다", row(1, 11, 10000, None, no_from="말+화면"))
+        st.show(100, 109, 172)
+        st.say(100, "172번 한강 만원", row(2, 172, 10000, "한강", no_from="말+화면"))
+        st.show(200, 209, 129)
+        st.say(200, "129번 황소 15만원", row(3, 129, 150000, "황소", no_from="말+화면"))
+        self.assertEqual(st.posted[2:], [(172, 10000, ""), (129, 150000, "황소")])
+
+    def test_words_about_shape_are_not_varieties(self):
+        for word in ("청수", "장입성", "모주", "직배"):
+            self.assertEqual(variety.not_a_name(word), "품종이 아닌 말")
+
+    def test_pattern_words_as_the_transcript_writes_them(self):
+        self.assertEqual(variety.split_parts("찐노"), ("", "찐녹", "", ""))
+        self.assertEqual(variety.split_parts("진농"), ("", "찐녹", "", ""))
+        self.assertEqual(variety.split_parts("창록금"), ("", "창녹금", "", ""))
+        self.assertEqual(variety.split_parts("연두찐농"), ("연두", "찐녹", "", ""))
+        self.assertEqual(variety.pattern_said([(0, "이름 없네 SP로 갑니다"), (3, "SP로 드렸네 세금 예쁘다")]), {"SP": 2, "색금": 1})
+
+    def test_ledger_names_found_in_the_transcript(self):
+        ledger = variety.Ledger(names=["쿠스", "황소", "킹스톤", "아웃사이드", "색금", "금휘"])
+        said = variety.ledger_said([(0, "46번 아웃사이드라 카드 쿠스 3만원"), (4, "황소로 갈게 황소 킹스턴이 좋네 세금")], ledger)
+        self.assertEqual(said, {"아웃사이드": 1, "쿠스": 1, "황소": 1, "킹스톤": 1})                 # 무늬 말뿐인 장부 이름(색금)은 세지 않는다
+        self.assertEqual(variety.ledger_said([(0, "금이 너무 예뻐요 구스 황새 좋네요")], ledger), {})  # 두 글자 이름은 글자가 같을 때만("금이"는 금휘가 아니다)
+        said = variety.ledger_said([(0, "46번 아웃사이드라 카드 3만원")], ledger, no=46)
+        self.assertEqual(said, {"아웃사이드": 2})                                                   # 번호 바로 옆에서 말한 이름은 두 번으로 센다
+
+    def test_ledger_name_beats_an_unknown_word_written_more_often(self):
+        ledger = variety.Ledger(names=["야래향"])
+        name, why, _, unsure, extra = variety.pick_shop(["아리랑", "아리랑", "야래향"], [], None, ledger)
+        self.assertEqual((name, unsure, extra["rank"]), ("야래향", False, 2))
+        name, _, _, unsure, _ = variety.pick_shop(["아리랑"] * 4 + ["야래향"], [], None, ledger)
+        self.assertEqual((name, unsure), ("아리랑", True))
+
+    def test_when_a_sent_name_is_changed(self):
+        def ask(now, name, now_rank=0, **extra):
+            return variety.should_rename(now, name, dict({"votes": 2, "rank": 0, "source": "LLM", "tally": {}}, **extra), now_rank)
+        self.assertTrue(ask("", "킹스톤", votes=1, rank=2))                                 # 빈칸 ← 장부 이름
+        self.assertFalse(ask("", "모즈", votes=1))                                          # 빈칸 ← 모르는 이름 한 번
+        self.assertTrue(ask("", "모즈", votes=2))
+        self.assertFalse(ask("색금", "깜무쌍색금", votes=3))                                 # 무늬 말 → 모르는 이름: 바꾸지 않는다
+        self.assertTrue(ask("색금", "테라로사색금", votes=2, rank=2))                         # 무늬 말 → 장부 이름
+        self.assertFalse(ask("킹스톤", "모즈", 2, votes=5))                                  # 장부 이름 → 모르는 이름: 바꾸지 않는다
+        self.assertTrue(ask("모즈", "킹스톤", 0, votes=2, rank=2))
+        self.assertFalse(ask("창찐녹", "윤슬색금", 0, votes=1, rank=2))                       # 지금 이름이 이 답들에 없는데(다른 장면) 한 번 나온 장부 이름
+        self.assertTrue(ask("모즈", "킹스톤", 0, votes=1, rank=2, tally={"모즈": 1}))         # 같은 답들 안에서 장부 이름이 모르는 이름만큼 나옴
+        self.assertTrue(ask("테라로사", "테라로사색금", 2, votes=1, rank=2))                  # 같은 품종에 무늬 말이 붙음
+        self.assertFalse(ask("킹스톤", "색금", 2, source="무늬 말"))                          # 장부 이름 → 무늬 말: 바꾸지 않는다
+        self.assertTrue(ask("덜키산", "색금", 0, source="무늬 말"))
+
+
 class LedgerTest(unittest.TestCase):
     def test_split_parts(self):
         self.assertEqual(variety.split_parts("테라로사 색금"), ("테라로사", "색금", "", ""))
