@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "pattern", "quote", "in_ledger", "confidence"],
+  "properties": {
+    "name": {"type": "string"},
+    "pattern": {"type": "string"},
+    "quote": {"type": "string"},
+    "in_ledger": {"type": "boolean"},
+    "confidence": {"type": "string", "enum": ["high", "low"]}
+  }
+}

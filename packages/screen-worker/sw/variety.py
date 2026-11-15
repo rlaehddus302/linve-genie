@@ -724,3 +724,71 @@ def should_rename(now, name, extra, now_rank=0):
     if rank > now_rank:
         return votes >= 2 or 0 < had <= votes                              # 지금 이름이 이 답들에 없으면(다른 장면) 한 번 나온 이름으로는 바꾸지 않는다
     return votes >= 2 and votes > had
+
+
+# ---------- 상품마다 한 번 품종만 묻기 (D-SCR-37, 개선 단계표 B7·C단계의 품종 부분) ----------
+# 등록 답은 번호·가격을 찾는 글에 품종을 곁들여 적은 것이라, 같은 받아쓰기를 거듭 읽어도 같은 틀린 말을 적는다.
+# 상품이 올라간 뒤 그 상품의 받아쓰기와 가게 장부를 한 번 보여 주고 품종만 묻는다. 답은 등록 답들과 함께 pick_shop이 쓴다(ask=).
+ASK_SYS = os.path.join(HERE, "prompts", "name_ask_system.txt")
+ASK_SCHEMA = os.path.join(HERE, "prompts", "name_ask.schema.json")
+ASK_LEDGER_MAX = 400                                                       # 묻는 글에 싣는 장부 이름 수
+
+
+def ask_prompt(no, lines, ledger=None, mask=None):
+    """품종을 묻는 글. lines = 그 상품의 받아쓰기 [(초, 글)], mask = 손님 이름을 가리는 함수(sw.llm_b4.mask)"""
+    mine = re.compile(rf"(?<!\d){int(no)}(?!\d)")
+    names = sorted({v for v in ledger.names.values() if split_parts(v)[0]})[:ASK_LEDGER_MAX] if ledger else []
+    out = [f"상품 번호: {int(no)}", "가게 장부: " + (", ".join(names) if names else "없음"), ""]
+    for k, (sec, x) in enumerate(lines):
+        text = mask(x) if mask else x
+        out.append(f"{'*' if mine.search(x) else ''}L{k} [{int(sec) // 3600}:{int(sec) % 3600 // 60:02d}:{int(sec) % 60:02d}] {text}")
+    return "\n".join(out)
+
+
+def parse_ask(text):
+    """묻기 답 → {"name", "pattern", "confidence"} 또는 None(읽을 수 없는 답)"""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    try:
+        d = json.loads(m.group(0)) if m else None
+    except ValueError:
+        d = None
+    if not isinstance(d, dict):
+        return None
+    clean_ = lambda v: " ".join(str(v or "").split())
+    return {"name": clean_(d.get("name")), "pattern": clean_(d.get("pattern")), "confidence": "high" if str(d.get("confidence")).lower() == "high" else "low"}
+
+
+def ask_name_of(ans, ledger=None, dic=None):
+    """묻기 답 → (보낼 이름, 종류). 종류: "장부"·"사전"·"모름"(품종 이름) / "무늬"(이름 없이 무늬·종류 말뿐) / None(쓸 답 없음)"""
+    if not ans:
+        return "", None
+    raw = "".join(ans.get("pattern", "").split())
+    pat = split_parts(raw)[1] if raw else ""
+    if not pat and raw.upper() == "SP":
+        pat = "SP"
+    name = ans.get("name") or ""
+    if name and not not_a_name(tidy(name) or name):
+        fixed, tail, _, _, in_ledger, in_dic = shop_name(name, ledger, dic)
+        if fixed:
+            return join_parts(fixed, pat or tail), ("장부" if in_ledger else "사전" if in_dic else "모름")
+        pat = pat or tail
+    if pat and pat != "금":                                                 # "금"만으로는 이름 없는 상품이라고 하지 않는다
+        return ((ledger.habits.get(pat) if ledger is not None else None) or pat), "무늬"
+    return "", None
+
+
+def use_ask(now, kind, high, now_rank=0):
+    """지금 이름 now를 묻기 답으로 바꿀까(D-SCR-37). kind = ask_name_of의 종류, high = 확실한 답인가, now_rank = 지금 이름의 급(2 장부·1 사전·0 모름)
+    두 방송(11-12·11-13) 상품마다 물어 본 결과로 정했다:
+      - "이름 없이 무늬 말로만 판 상품"이라는 확실한 답은 쓴다(지금 이름이 모르는 이름·사전 이름·장부 이름인 79건: 지금 이름 19건, 답 57건이 맞았다)
+      - 빈칸은 답으로 채운다. 모르는 이름은 답이 장부·사전 이름일 때 바꾼다
+      - 이름과 이름이 다를 때, 지금이 무늬 말일 때는 지금 것을 둔다(등록 답을 여럿 모은 쪽이 더 맞았다)"""
+    if kind is None:
+        return False
+    if not now:
+        return high or kind == "무늬"
+    if not split_parts(now)[0]:
+        return False
+    if kind == "무늬":
+        return high
+    return high and now_rank == 0 and kind in ("장부", "사전")

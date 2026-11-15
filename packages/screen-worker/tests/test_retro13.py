@@ -347,6 +347,116 @@ class RepickTest(unittest.TestCase):
         self.assertTrue(ask("덜키산", "색금", 0, source="무늬 말"))
 
 
+class NameAskTest(unittest.TestCase):
+    """D-SCR-37: 상품마다 한 번 품종만 묻기. LLM은 가짜 — 묻는 글과 답을 시험이 쥔다"""
+
+    def stage(self, ledger, answers, **kw):
+        """answers = {번호: 답(dict)} — 그 번호를 물으면 그 답을 준다"""
+        ledger_file(self, ledger)
+        self.asked = []
+
+        def fake(user):
+            no = int(user.split("\n")[0].split(":")[1])
+            self.asked.append((no, user))
+            return json.dumps(answers.get(no) or {"name": "", "pattern": "", "quote": "", "in_ledger": False, "confidence": "low"}, ensure_ascii=False)
+        for target, value in (("sw.llm_live.NAME_ASK", True), ("sw.llm_live.NAME_ASK_SYNC", True), ("sw.llm_live.ask_name", fake)):
+            p = patch(target, value)
+            p.start()
+            self.addCleanup(p.stop)
+        return Stage(self, **kw)
+
+    def test_a_name_filled_by_the_question_can_still_be_fixed_by_later_register_answers(self):
+        # 빈칸을 묻기 답(모르는 이름)으로 채운 뒤에도, 등록 답이 장부 이름을 거듭 내면 그 이름으로 바꾼다 — 이름으로 채운 것은 굳히지 않는다
+        st = self.stage(["킹스톤"], {83: {"name": "모즈", "pattern": "", "quote": "", "in_ledger": False, "confidence": "high"}})
+        st.show(0, 90, 83)
+        st.say(0, "83번 6만원", row(0, 83, 60000, None, no_from="말+화면"))
+        st.say(30, "83번 6만원 갑니다", row(1, 83, 60000, None, no_from="말+화면"))
+        self.assertEqual(st.worker.names[83]["now"], "모즈")
+        asked = len(st.asked)
+        st.say(40, "83번 6만원", row(2, 83, 60000, "킹스턴", no_from="말+화면"))
+        self.assertGreater(len(st.asked), asked)                                 # 이름 없이 올라간 번호는 묻기로 채운 뒤에도 전처럼 계속 묻는다
+        st.say(44, "83번 6만원", row(3, 83, 60000, "킹스턴", no_from="말+화면"))
+        self.assertEqual(st.worker.names[83]["now"], "킹스톤")
+
+    def test_a_product_put_up_by_an_earlier_run_is_not_asked_about(self):
+        # 일꾼이 다시 켜진 뒤 앞 실행이 올린 번호를 다시 보내면, 서버에 남은 이름을 모르므로 묻지도 덮어쓰지도 않는다(11-12 방송 326번)
+        st = self.stage(["유아독존"], {326: {"name": "유아독존", "pattern": "", "quote": "", "in_ledger": True, "confidence": "high"}},
+                        prior=[{"no": 326, "price": 30000, "name": "녹금종자"}])
+        st.show(300, 330, 326)
+        st.say(300, "아까 326번 다시 갑니다 326번 3만원", row(0, 326, 30000, None, no_from="말+화면"))
+        st.say(340, "자 다음 갑니다", None)
+        self.assertEqual(self.asked, [])
+        st.poster.rename.assert_not_called()
+
+    def test_another_products_price_is_still_told_apart_after_the_name_became_a_pattern_word(self):
+        # 묻기로 이름이 무늬 말이 된 상품도, 등록 답들이 가리키던 이름으로 "앞 번호표가 남은 답"(금액·품종이 둘 다 다름)을 가린다
+        st = self.stage(["오색글래머", "킹스톤"], {430: {"name": "", "pattern": "색금", "quote": "", "in_ledger": False, "confidence": "high"}})
+        st.show(0, 200, 430)
+        st.say(0, "430번 6만원", row(0, 430, 60000, None, no_from="말+화면"))
+        st.say(10, "430번 오색글래머 6만원", row(1, 430, 60000, "오색글래머", no_from="말+화면"))
+        st.say(30, "430번 6만원 갑니다", row(2, 430, 60000, "오색글래머", no_from="말+화면"))
+        self.assertEqual(st.worker.names[430]["now"], "색금")
+        self.assertEqual(st.worker._differs({"no": 430, "price": 50000, "variety": "킹스톤"}), "둘 다")
+
+    def test_product_sold_by_its_pattern_word_only_loses_the_wrong_name(self):
+        # 57번: 판매자는 "찐녹"이라고만 했는데 등록 답은 받아쓰기의 엉뚱한 말을 품종으로 적었다. 품종만 물으면 "이름 없이 찐녹"이라고 답한다
+        st = self.stage(["킹스톤"], {57: {"name": "", "pattern": "찐녹", "quote": "이거 찐녹이네", "in_ledger": False, "confidence": "high"}})
+        st.show(0, 60, 57)
+        st.say(0, "57번 40만원 대신찐로 갑니다", row(0, 57, 400000, "대신찐로", no_from="말+화면"))
+        self.assertEqual(st.posted, [(57, 400000, "대신찐로")])
+        self.assertEqual(self.asked, [])                                        # 받아쓰기가 그 상품 뒤 25초까지 모이기 전에는 묻지 않는다
+        st.say(30, "자 다음 갑니다", None)
+        self.assertEqual([no for no, _ in self.asked], [57])
+        self.assertEqual(st.poster.rename.call_args.args[1:3], (57, "찐녹"))
+        st.say(40, "57번 40만원 대신찐로", row(2, 57, 400000, "대신찐로", no_from="말+화면"))
+        st.say(44, "57번 40만원 대신찐로", row(3, 57, 400000, "대신찐로", no_from="말+화면"))
+        self.assertEqual(st.worker.names[57]["now"], "찐녹")                     # 묻기로 정한 이름은 뒤 답으로 되돌리지 않는다
+        self.assertEqual(len(self.asked), 1)                                    # 상품마다 한 번만 묻는다
+
+    def test_blank_is_filled_and_an_unknown_name_is_fixed_to_the_ledger(self):
+        st = self.stage(["맥라이징", "천나비"], {248: {"name": "맥라이징", "pattern": "", "quote": "", "in_ledger": True, "confidence": "high"},
+                                              33: {"name": "천나비", "pattern": "금", "quote": "", "in_ledger": True, "confidence": "high"}})
+        st.show(0, 9, 248)
+        st.say(0, "248번 5만원", row(0, 248, 50000, None, no_from="말+화면"))
+        st.show(40, 49, 33)
+        st.say(40, "33번 찬나비 30만원", row(1, 33, 300000, "찬나비금", no_from="말+화면"))
+        st.say(80, "자 다음 갑니다", None)
+        renamed = [c.args[1:3] for c in st.poster.rename.call_args_list]
+        self.assertIn((248, "맥라이징"), renamed)
+        self.assertEqual(st.worker.names[33]["now"], "천나비금")
+
+    def test_a_name_gathered_from_the_register_answers_is_not_replaced_by_another_name(self):
+        # 이름과 이름이 다를 때는 등록 답을 모은 쪽을 둔다(131번: 토스카나색금 → 가우디색금으로 바꾸면 틀린다)
+        st = self.stage(["토스카나", "가우디"], {131: {"name": "가우디", "pattern": "색금", "quote": "", "in_ledger": True, "confidence": "high"}})
+        st.show(0, 9, 131)
+        st.say(0, "131번 토스카나 세금 5만원", row(0, 131, 50000, "토스카나 색금", no_from="말+화면"))
+        st.say(40, "자 다음 갑니다", None)
+        self.assertEqual(len(self.asked), 1)
+        st.poster.rename.assert_not_called()
+        self.assertEqual([e["applied"] for e in st.kinds("LLM품종묻기")], [False])
+
+    def test_the_question_hides_customer_names_and_marks_the_lines_with_the_number(self):
+        from sw import llm_b4
+        text = variety.ask_prompt(83, [(725, "자 6만원 갑니다 킹스톤"), (730, "83번 6만원 별빛님 감사합니다")], variety.Ledger(names=["쿠스", "색금"]), llm_b4.mask)
+        self.assertEqual(text.split("\n")[:2], ["상품 번호: 83", "가게 장부: 쿠스"])       # 무늬 말뿐인 장부 이름은 싣지 않는다
+        self.assertIn("*L1 [0:12:10] 83번 6만원 ○○님 감사합니다", text)
+        self.assertNotIn("별빛", text)
+
+    def test_when_the_answer_is_used(self):
+        self.assertEqual(variety.ask_name_of({"name": "", "pattern": "종자 색금", "confidence": "high"}), ("종자색금", "무늬"))
+        self.assertEqual(variety.ask_name_of({"name": "", "pattern": "색금", "confidence": "high"}, variety.Ledger(habits={"색금": "SP"})), ("SP", "무늬"))
+        self.assertEqual(variety.ask_name_of({"name": "", "pattern": "금", "confidence": "high"}), ("", None))
+        self.assertEqual(variety.ask_name_of({"name": "청수", "pattern": "", "confidence": "high"}), ("", None))
+        self.assertEqual(variety.ask_name_of({"name": "셀브로", "pattern": "색금", "confidence": "high"}, variety.Ledger(names=["쉘브르"])), ("쉘브르색금", "장부"))
+        self.assertTrue(variety.use_ask("", "모름", True))                        # 빈칸은 채운다
+        self.assertFalse(variety.use_ask("", "모름", False))
+        self.assertTrue(variety.use_ask("넘버원", "무늬", True, 2))                # 이름 없이 무늬 말로만 판 상품이라는 확실한 답
+        self.assertFalse(variety.use_ask("넘버원", "무늬", False, 2))
+        self.assertFalse(variety.use_ask("색금", "장부", True))                    # 지금이 무늬 말이면 둔다
+        self.assertTrue(variety.use_ask("참나비", "장부", True, 0))                # 모르는 이름 → 장부 이름
+        self.assertFalse(variety.use_ask("토스카나", "장부", True, 2))             # 이름과 이름이 다르면 지금 것
+
+
 class LedgerTest(unittest.TestCase):
     def test_split_parts(self):
         self.assertEqual(variety.split_parts("테라로사 색금"), ("테라로사", "색금", "", ""))

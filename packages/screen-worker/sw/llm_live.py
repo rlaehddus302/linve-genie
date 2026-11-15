@@ -111,6 +111,10 @@ NAME_MAX_FIX_SHOP = int(os.environ.get("LLM_NAME_MAX_FIX_SHOP", 3)) # 다시 골
 NAME_REPICK_ALL = os.environ.get("LLM_NAME_REPICK_ALL", "1") != "0" # 다시 고를 때 확실(high)하지 않은 답의 이름도 센다(처음 고를 때와 같게)
 NICK_CALLS = int(os.environ.get("LLM_NICK_CALLS", 2))               # 방송에서 "○○님"으로 이만큼 불린 이름은 손님 — 장부에 없는 한 품종으로 고르지 않는다
 NAME_DUMP = os.environ.get("LLM_NAME_DUMP")                         # 재현용: 품종을 고를 때마다 들어간 값(LLM 이름·받아쓰기)을 이 파일에 적는다
+NAME_ASK = os.environ.get("LLM_NAME_ASK", "0") != "0"               # 상품마다 한 번 그 상품의 받아쓰기와 가게 장부를 보여 주고 품종만 묻는다(D-SCR-37). 실제 방송에서 돌려 본 적이 없어 꺼 둔다
+NAME_ASK_AFTER = float(os.environ.get("LLM_NAME_ASK_AFTER", 25))    # 그 상품 첫 줄에서 이만큼(방송 초) 지난 뒤에 묻는다(받아쓰기가 NAME_POST초까지 모인 뒤)
+NAME_ASK_CACHE = os.environ.get("LLM_NAME_ASK_CACHE")               # 재현용: 답을 이 폴더에서 찾는다. 없으면 묻는 글을 todo.jsonl에 적고 답 없음으로 넘긴다(LLM을 부르지 않는다)
+NAME_ASK_SYNC = bool(NAME_ASK_CACHE)                                # 재현·시험: 답을 그 자리에서 받는다
 NAME_MODE = os.environ.get("LLM_NAME_MODE", "shop")                 # shop = LLM 이름을 가게 장부에 맞추고 장부에 없으면 확인 중 품종으로(D-SCR-29~32) · dict = 전국 사전으로 거르기(D-SCR-15)
 SHOP_LEDGER = os.environ.get("LLM_SHOP_LEDGER")                     # 가게 품종 장부 파일(없으면 빈 장부 — 처음 오는 가게)
 CUE_WAIT, CUE_BACK = 30.0, 90.0                                    # 거둔다는 말: 이만큼(방송 초) 기다렸다가, 그 말보다 이만큼 앞까지 소개를 시작한 상품 가운데 가장 나중 것에 붙인다
@@ -236,6 +240,23 @@ def read_nicks(out):
     return out_set
 
 
+def ask_name(user):
+    """품종만 묻기(D-SCR-37): 등록과 같은 모델·노력으로, 품종 지시문(prompts/name_ask_system.txt)과 답 모양으로 묻는다"""
+    from . import variety
+    if NAME_ASK_CACHE:
+        import hashlib
+        with open(variety.ASK_SYS, encoding="utf-8") as f:
+            key = hashlib.sha1((f.read() + "\0" + user).encode()).hexdigest()
+        path = os.path.join(NAME_ASK_CACHE, key + ".json")
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)["answer"]
+        with open(os.path.join(NAME_ASK_CACHE, "todo.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"key": key, "user": user}, ensure_ascii=False) + "\n")
+        return ""
+    return llm_b6.ask(user, variety.ASK_SYS, MODEL, EFFORT, lean=CODEX_LEAN, schema=variety.ASK_SCHEMA if CODEX_SCHEMA else None)
+
+
 def span_note(i, t, ends, cand, mains):
     """llm_b6 SCREEN=span과 같음: 줄 시작~끝 동안 크게 읽힌 번호(처음 나온 순서, 초 수) / 그다음 보인 번호 3개"""
     secs = range(int(t) - 1, int(ends[i]) + 2)
@@ -273,6 +294,8 @@ class LlmRegister:
         self.ex = cf.ThreadPoolExecutor(par)
         self.par = par
         self.flying = []                                     # [(마지막 줄 번호, L, 글, 물은 시각, 까닭, Future)]
+        self.name_ex = cf.ThreadPoolExecutor(1)              # 품종만 묻기는 따로 한 줄로 — 등록을 묻는 자리를 차지하지 않는다(D-SCR-37)
+        self.name_flying = []                                # [(번호, Future 또는 받은 답)]
         self.tr = []                                         # 받아쓰기 줄 [(시작, 끝, 글)] — 파일을 이어 읽음
         self.tr_pos = 0
         self.sc, self.sc_pos, self.screen_top = Screen(), 0, -1
@@ -428,6 +451,7 @@ class LlmRegister:
         if self.safe:
             self._follow_unit()
             self._drain()
+            self._name_asks()
         tent = self._tent_on()
         # 1) 새 줄에서 이벤트 찾기 — 화면 읽기가 그 줄 끝까지 왔거나 SCREEN_WAIT초 지난 줄만 본다
         while self.checked < len(tr):
@@ -542,9 +566,13 @@ class LlmRegister:
         if self.pend:
             return False
         g = self.names.get(tag) if tag is not None else None
-        if g is not None and t is not None and t - g["t"] <= NAME_FOLLOW and not g.get("held"):
+        if g is not None and t is not None and t - g["t"] <= NAME_FOLLOW and not g.get("seller"):
+            # 품종만 물어 빈칸을 일찍 채워도(D-SCR-37) 이름 없이 올라간 번호는 전과 같이 NAME_FOLLOW초 동안 계속 묻는다 — 묻기가 줄면 다음 상품이 늦게 올라가
+            # "그 뒤에 다른 상품이 올라옴"으로 막던 금액 고치기가 통한다(11-12 방송 430번: 6만 → 5만)
+            if not g["now"] or g.get("blank0"):
+                return False
             # 가게 장부가 있는데 장부에 없는 이름으로 보낸 번호도 계속 묻는다 — 뒤 답에서 장부 이름이 나오면 바꾼다(D-SCR-35)
-            if not g["now"] or (NAME_MODE == "shop" and NAME_REPICK and g.get("rank", 0) == 0 and g.get("line") is not None and bool(self._ledger())):
+            if not g.get("held") and NAME_MODE == "shop" and NAME_REPICK and g.get("rank", 0) == 0 and g.get("line") is not None and bool(self._ledger()):
                 return False
         numbers = R.spoken_numbers([text])
         explicit, short = R.spoken_amounts(text, self.unit, exclude={tag} if tag is not None else ())
@@ -632,7 +660,9 @@ class LlmRegister:
         """이미 보낸 번호의 값과 이 답이 어떻게 다른가 → None(같음) / "금액" / "품종" / "둘 다" """
         no = r["no"]
         rec = self.sent[no]
-        name = (self.names.get(no) or {}).get("now") or rec.get("name")
+        g = self.names.get(no) or {}
+        # 품종만 물어 무늬 말로 바꾼 상품은(D-SCR-37) 등록 답들이 가리키던 이름으로 견준다 — 무늬 말로는 다른 상품의 답인지 가릴 수 없다(11-12 방송 430번)
+        name = g.get("voted") or g.get("now") or rec.get("name")
         price = (self.prices.get(no) or {}).get("now") or rec.get("price")
         p = r["price"] is not None and price is not None and r["price"] != price
         n = not self._same_name(name, r.get("variety"))
@@ -1096,6 +1126,7 @@ class LlmRegister:
         if "name" in fields and no in self.names:
             self.names[no]["fixes"] = NAME_MAX_FIX
             self.names[no]["held"] = True
+            self.names[no]["seller"] = True
         if "no" in fields:
             self.watch.pop(no, None)
 
@@ -1296,7 +1327,8 @@ class LlmRegister:
         (옛 방식은 뒤 답만 따로 세어 빈칸을 처음 두 번 나온 말로 채우고 더 고치지 않았다 — 11-13 방송 83번: 킹스톤 7번·모즈 3번인데 모즈)"""
         from . import variety
         no = r["no"]
-        if r["t"] - g["t"] > NAME_WINDOW or g.get("held") or g["fixes"] >= NAME_MAX_FIX_SHOP:
+        asked_pattern = isinstance(g.get("ask"), dict) and g.get("held")
+        if r["t"] - g["t"] > NAME_WINDOW or ((g.get("held") or g["fixes"] >= NAME_MAX_FIX_SHOP) and not asked_pattern):
             return                                           # held = 굳은 이름이거나 판매자가 먼저 손댄 이름
         names = [f["variety"] for f in self.found
                  if f["no"] == no and -WINDOW <= f["t"] - g["t"] <= NAME_WINDOW and f["variety"] and not f.get("leftover")
@@ -1304,6 +1336,10 @@ class LlmRegister:
         lines, nicks = self._product_lines(no, {"line": g["line"], "t": g["t"]}), self._all_nicks()
         self._dump_pick("다시", no, g["t"], names, lines, nicks, g["now"])
         name, why, strong, unsure, extra = variety.pick_shop(names, lines, self._dic(), self._ledger(), nicks, no)
+        if name and variety.split_parts(name)[0]:
+            g["voted"] = name                                # 등록 답들이 가리키는 이름(남은 번호표 가리기에 쓴다)
+        if g.get("held") or g["fixes"] >= NAME_MAX_FIX_SHOP:
+            return
         if not variety.should_rename(g["now"], name, extra, g.get("rank", 0)):
             return
         g["fixes"] += 1
@@ -1315,6 +1351,60 @@ class LlmRegister:
         print(f"           이름 고치기 {no}번 {old or '(없음)'} → {name}  ({why})", flush=True)
         if self.poster:
             self.poster.rename(self.video_id, no, name, g["fixes"])
+
+    def _name_asks(self, final=False):
+        """D-SCR-37: 올라간 상품마다 한 번, 받아쓰기가 그 상품 첫 줄 뒤 NAME_ASK_AFTER초까지 모이면 품종만 묻는다. 온 답은 _apply_ask가 쓴다.
+        final = 방송 끝: 아직 묻지 않은 상품도 묻고 답을 다 기다린다"""
+        if not (NAME_ASK and NAME_DICT and NAME_MODE == "shop") or not self.tr:
+            return
+        from . import variety
+        heard = self.tr[-1][1]
+        for no, g in list(self.names.items()):
+            if g.get("ask") is None and g.get("line0") is not None and (final or heard >= g["t0"] + NAME_ASK_AFTER):
+                lines = self._product_lines(no, {"line": g["line0"], "t": g["t0"]})
+                user = variety.ask_prompt(no, lines, self._ledger(), B.mask)
+                g["ask"] = "물음"
+                self.name_flying.append((no, ask_name(user) if NAME_ASK_SYNC else self.name_ex.submit(ask_name, user)))
+        for item in list(self.name_flying):
+            no, fut = item
+            if not isinstance(fut, str) and not fut.done() and not final:
+                continue
+            self.name_flying.remove(item)
+            try:
+                out = fut if isinstance(fut, str) else fut.result()
+            except Exception as e:                           # 묻기가 실패해도 등록은 멈추지 않는다 — 지금 이름을 그대로 둔다
+                out = ""
+                print(f"           품종 묻기 실패 {no}번: {str(e)[:120]}", flush=True)
+            self._apply_ask(no, out)
+
+    def _apply_ask(self, no, out):
+        from . import variety
+        g = self.names.get(no)
+        ans = variety.parse_ask(out) if out else None
+        rec = {"kind": "LLM품종묻기", "no": no, "answer": ans, "applied": False}
+        if g is None or ans is None:
+            self.emit(rec)
+            return
+        g["ask"] = ans
+        name, kind = variety.ask_name_of(ans, self._ledger(), self._dic())
+        high = ans["confidence"] == "high"
+        same = bool(name) and variety.norm(name) == variety.norm(g["now"] or "")
+        rec.update(name=name, sort=kind, now=g["now"])
+        if same and high:
+            g["held"] = True                                 # 등록 답들과 묻기 답이 같다 — 굳힌다
+        elif name and not g.get("seller") and variety.use_ask(g["now"], kind, high, g.get("rank", 0)):
+            g["fixes"] += 1
+            old = g["now"]
+            # "이름 없이 무늬 말뿐"이라는 확실한 답만 굳힌다. 이름으로 채우거나 바꾼 것은 뒤 등록 답이 더 아는 이름을 내면 다시 바뀔 수 있다
+            g.update(now=name, sure=True, held=bool(kind == "무늬" and high), rank={"장부": 2, "사전": 1}.get(kind, 0))
+            self.name_info[no] = dict(self.name_info.get(no) or {}, unsure=kind == "모름")
+            rec["applied"] = True
+            self.emit({"kind": "LLM이름고치기", "no": no, "from": old, "to": name, "why": "품종만 물은 답" + ("(이름 없이 무늬 말뿐)" if kind == "무늬" else ""),
+                       "sent": bool(self.poster), **({"name_unsure": True} if kind == "모름" else {})})
+            print(f"           이름 고치기 {no}번 {old or '(없음)'} → {name}  (품종만 물은 답)", flush=True)
+            if self.poster:
+                self.poster.rename(self.video_id, no, name, g["fixes"])
+        self.emit(rec)
 
     def _vote_price(self, r, start, end, mains):
         """D-SCR-09: 보낸 번호가 화면에 보이는 줄의 확실한 금액을 세고, 지금 금액과 다르면 고쳐 보낸다.
@@ -1532,7 +1622,10 @@ class LlmRegister:
         while self.flying or self.want:
             time.sleep(1)
             self.tick(final=True)
+        if self.safe:
+            self._name_asks(final=True)
         self.ex.shutdown(wait=True)
+        self.name_ex.shutdown(wait=True)
         if self.safe and self.waiting > 0:
             # 방금 보낸 임시 등록·확정·거두기의 서버 답을 잠깐 기다려 기록에 남긴다(다시 켠 일꾼이 이어받을 때 본다)
             deadline = time.time() + 15
@@ -1644,8 +1737,12 @@ class LlmRegister:
                 elif not prev["now"] or prev.get("rank", 0) == 0:
                     prev.update(t=r["t"], line=r.get("line"))  # 비었거나 모르는 이름이면 새 장면의 답으로 다시 고르게 창을 옮긴다(아는 이름은 그대로 둔다)
             else:
+                # 앞 실행(다시 켜지기 전)이 올린 번호를 다시 보낸 것이면 서버에 남은 이름을 모른다 — 묻기로 덮어쓰지 않는다
+                # (11-12 방송 326번: 다시 켜진 뒤 "이름 없음"으로 알고 물어, 맞던 녹금종자를 다른 이름으로 바꿨다)
+                again = not fresh and tent is None and NAME_MODE == "shop" and NAME_REPICK
                 self.names[no] = {"t": r["t"], "now": name, "sure": sure, "votes": collections.Counter(), "last": {}, "shown": {}, "fixes": locked,
-                                  "held": bool(locked), "line": r.get("line"), "rank": (ni.get("rank", 0) if ni and name else 0)}
+                                  "held": bool(locked), "line": r.get("line"), "rank": (ni.get("rank", 0) if ni and name else 0),
+                                  "t0": r["t"], "line0": r.get("line"), "ask": "건너뜀" if again else None, "blank0": not name}
         if why is None:
             self.order.append(no)
             self.sent_prices.append(price)
