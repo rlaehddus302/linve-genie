@@ -1,4 +1,5 @@
 // 정산 정보 입력·처음 한 번 묻기·방송이 끝나면 정산 화면·모두에게 보내기 (D-RETRO-60~64)
+// 정산서 화면 손질 (D-UX4-170~175): 정보 캡슐 · [보내기] 캡슐 · 못 보내는 구매자 묶음 · 번호 아는 구매자만 차례
 import Svg from 'react-native-svg'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -8,6 +9,9 @@ import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { IN_APP_SCREENS } from '../src/screens/MoreScreen.tsx'
 import { ASK_BODY, LATER_LABEL, SAVE_LABEL, SAVED_NOTE, SHIPPING_APPLY_NOTE, StatementInfoScreen, shippingSummary } from '../src/screens/StatementInfo.tsx'
 import { ENDED_WHILE_AWAY, ManageScreen } from '../src/screens/console/StackScreens.tsx'
+import { PHONE_CHECK_FAILED, SEND_ALL_NOBODY, SEND_ALL_TITLE, SEND_SHEET_TITLE, SMS_ALL_ROW } from '../src/screens/console/BroadcastSales.tsx'
+import { INFO_PILL_TEXT, SEND_PILL_TEXT } from '../src/screens/console/StatementPills.tsx'
+import { BLOCK_TITLE } from '../src/screens/console/statement-send.ts'
 import { makeWorld, type ScreenWorld } from './screen-support.tsx'
 import { BROADCAST, BROADCAST_VIEW, buyer, changes, claim, flush, fullView, product } from './support.ts'
 
@@ -28,10 +32,13 @@ function infoServer(world: ScreenWorld, start: StatementInfo) {
   return { puts: () => world.server.callsTo('PUT', /^\/api\/statement-info$/) }
 }
 
-/** 끝난(또는 방송 중인) 방송 하나와 손님 셋 */
-function salesWorld(start: StatementInfo | null, options: { readonly ended?: boolean } = {}) {
+/**
+ * 끝난(또는 방송 중인) 방송 하나와 손님 셋.
+ * phones: 손님마다 아는 번호 끝 4자리(null = 번호 모름) — 주면 영수증 구매자 줄(번호 상태)을 답한다 · extra: 더 넣을 손님(번호 앎)
+ */
+function salesWorld(start: StatementInfo | null, options: { readonly ended?: boolean; readonly phones?: Readonly<Record<string, string | null>>; readonly extra?: readonly string[] } = {}) {
   const world = makeWorld()
-  const names = ['가을여행', '나오미다육', '미자네']
+  const names = ['가을여행', '나오미다육', '미자네', ...(options.extra ?? [])]
   const products = names.map((_, i) => product(201 + i, { name: `색금${i + 1}`, price: 30000 }))
   const claims = names.map((name, i) => claim(String(i), 201 + i, name, { amount: 30000 }))
   const ended = options.ended !== false
@@ -39,6 +46,13 @@ function salesWorld(start: StatementInfo | null, options: { readonly ended?: boo
   world.server.on('GET', /^\/api\/days\/2026-11-12$/, () => ({ body: fullView({ date: '2026-11-12', broadcasts: [{ ...BROADCAST_VIEW, date: '2026-11-12', ended, endedAt: ended ? '2026-11-12T12:00:00.000Z' : null }], products, claims, buyers: names.map(name => buyer(name, name)) }) }))
   world.server.on('GET', /order-shop$/, () => ({ body: { name: '용용다육' } }))
   world.server.on('POST', /receipt-sms\/prepare$/, () => ({ body: { sms: { phone: '01000000000', text: '' } } }))
+  const phones = options.phones
+  if (phones !== undefined) {
+    world.server.on('GET', /^\/api\/days\/2026-11-12\/receipt-buyers$/, () => ({ body: { date: '2026-11-12', rehearsal: false, smsReady: true, buyers: names.map(name => ({
+      buyer: name, name, phoneLast4: null, itemCount: 1, total: 30000, payment: 'UNPAID', received: 0, remaining: 30000, link: null,
+      sms: { last4: name in phones ? phones[name] : '9999', sentAt: null },
+    })) } }))
+  }
   const server = start === null ? null : infoServer(world, start)
   return { world, puts: () => server?.puts() ?? [] }
 }
@@ -50,6 +64,13 @@ function sms(result: 'sent' | 'cancelled' | 'unknown') {
   const snapshot = vi.spyOn(Svg.prototype, 'toDataURL').mockImplementation(cb => cb('iVBORw0KGgo='))
   onTestFinished(() => { snapshot.mockRestore(); setNativeModules({ sms: previous }) })
   return compose
+}
+/** [보내기] → "정산서 보내기" → 구매자에게 문자로 보내기 → 모두에게 정산서 보내기 판 */
+async function openSmsAll() {
+  fireEvent.click(screen.getByRole('button', { name: SEND_PILL_TEXT }))
+  const menu = await screen.findByRole('dialog', { name: SEND_SHEET_TITLE })
+  fireEvent.click(within(menu).getByRole('button', { name: SMS_ALL_ROW }))
+  return screen.findByRole('dialog', { name: SEND_ALL_TITLE })
 }
 const paperTexts = () => [...document.querySelectorAll('svg text')].map(node => node.textContent)
 const sheetOf = () => screen.queryByRole('dialog', { name: '정산 정보' })
@@ -122,7 +143,8 @@ describe('방송을 끝낸 직후·정산서를 처음 만들 때 묻기', () =>
     const { world, puts } = salesWorld(EMPTY)
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller justEnded onBack={() => {}} />))
     // 끝내자마자 정산 화면
-    expect(await screen.findByText('정산 내역서')).toBeTruthy()
+    // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
+    expect(await screen.findByText('정산서')).toBeTruthy()
     const sheet = await screen.findByRole('dialog', { name: '정산 정보' })
     expect(within(sheet).getByText(ASK_BODY)).toBeTruthy()
     const later = within(sheet).getByRole('button', { name: LATER_LABEL })
@@ -239,10 +261,13 @@ describe('방송이 끝나면 바로 정산 화면 (D-RETRO-63)', () => {
     const { world } = salesWorld(EMPTY, { ended: false })
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
     await openLive(world)
-    expect(screen.queryByText('정산 내역서')).toBeNull()
+    // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
+    expect(screen.queryByText('정산서')).toBeNull()
     await endNow(world)
-    expect(await screen.findByText('정산 내역서')).toBeTruthy()
-    expect(screen.getByText('판매 수량 3개 · 구매자 3명')).toBeTruthy()
+    expect(await screen.findByText('정산서')).toBeTruthy()
+    // 옛 기대: 맨 위 작은 글 "판매 수량 3개 · 구매자 3명". 새 기대(D-UX4-170): 그 글은 없고 총계 카드에 구매자 수
+    expect(screen.queryByText('판매 수량 3개 · 구매자 3명')).toBeNull()
+    expect(screen.getByTestId('statement-total').textContent).toContain('구매자 3명 · 3개')
     expect(await screen.findByRole('dialog', { name: '정산 정보' })).toBeTruthy()
   })
 
@@ -251,7 +276,8 @@ describe('방송이 끝나면 바로 정산 화면 (D-RETRO-63)', () => {
     const mounted = render(world.wrap(<ConsoleScreen broadcastId="b1" seller focused={false} onBack={() => {}} />))
     await openLive(world)
     await endNow(world)
-    expect(await screen.findByText('정산 내역서')).toBeTruthy()
+    // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
+    expect(await screen.findByText('정산서')).toBeTruthy()
     await act(async () => { await flush() })
     expect(sheetOf()).toBeNull()
     mounted.rerender(world.wrap(<ConsoleScreen broadcastId="b1" seller focused onBack={() => {}} />))
@@ -273,20 +299,18 @@ describe('방송이 끝나면 바로 정산 화면 (D-RETRO-63)', () => {
   })
 })
 
-describe('모두에게 보내기 (D-RETRO-64)', () => {
+describe('모두에게 보내기 (D-RETRO-64 · D-UX4-173·174)', () => {
   it('한 명씩 문자 앱을 열고, 보내면 다음 손님으로 넘어가며 보낸 손님을 표시한다', async () => {
     const compose = sms('sent')
-    const { world } = salesWorld(FULL)
+    const { world } = salesWorld(FULL, { phones: { 가을여행: '1111', 나오미다육: '2222', 미자네: '3333' } })
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
-    // 단추는 좌우 한 줄: 왼쪽 [내보내기] · 오른쪽 [모두에게 보내기]
-    await screen.findByText('용용다육')
-    const all = await screen.findByRole('button', { name: '모두에게 보내기' })
-    const out = screen.getByRole('button', { name: '내보내기' })
-    expect(out.parentElement?.parentElement).toBe(all.parentElement?.parentElement)
-    expect(out.compareDocumentPosition(all) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    fireEvent.click(all)
-    const sheet = await screen.findByRole('dialog', { name: '모두에게 정산서 보내기' })
-    expect(within(sheet).getByText('구매자 3명 가운데 0명에게 보냈어요.')).toBeTruthy()
+    // 옛 기대: 아래 단추 좌우 한 줄 — 왼쪽 [내보내기] · 오른쪽 [모두에게 보내기].
+    // 새 기대(D-UX4-173, 사용자 지시 2026-11-16 "내보내기, 모두에게 보내기 버튼을 하나로 합쳐서 플로팅 캡슐 … 이름은 보내기로"): [보내기] 캡슐 → 구매자에게 문자로 보내기
+    await screen.findByRole('button', { name: /^가을여행 정산서/ })
+    expect(screen.queryByRole('button', { name: '모두에게 보내기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '내보내기' })).toBeNull()
+    const sheet = await openSmsAll()
+    expect(await within(sheet).findByText('구매자 3명 가운데 0명에게 보냈어요.')).toBeTruthy()
     expect(within(sheet).getAllByRole('listitem').map(row => row.getAttribute('aria-label'))).toEqual(['가을여행 아직', '나오미다육 아직', '미자네 아직'])
     fireEvent.click(within(sheet).getByRole('button', { name: '보내기 시작' }))
     // 첫 손님
@@ -301,14 +325,13 @@ describe('모두에게 보내기 (D-RETRO-64)', () => {
     fireEvent.click(screen.getByRole('button', { name: '건너뛰기' }))
     expect(await screen.findByText('모두에게 보내기 · 3명 가운데 3번째')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '문자 보내기' }))
-    // 마지막까지 보내면 표로 돌아와 결과를 알린다
+    // 마지막까지 보내면 목록으로 돌아와 결과를 알린다
     expect(await screen.findByText('모두에게 보내기를 마쳤어요. 구매자 3명 가운데 2명에게 보냈어요.')).toBeTruthy()
     expect(compose).toHaveBeenCalledTimes(2)
-    // 보낸 손님 표시 — 표의 줄 이름과 보내기 판
+    // 보낸 손님 표시 — 목록의 줄 이름과 보내기 판
     expect(screen.getByRole('button', { name: /^가을여행 정산서 · 30,000원 · 1개 · 보냄$/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /^나오미다육 정산서 · 30,000원 · 1개$/ })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '모두에게 보내기' }))
-    const again = await screen.findByRole('dialog', { name: '모두에게 정산서 보내기' })
+    const again = await openSmsAll()
     expect(within(again).getAllByRole('listitem').map(row => row.getAttribute('aria-label'))).toEqual(['가을여행 보냄', '나오미다육 아직', '미자네 보냄'])
     // 이어서 보내면 아직 보내지 않은 손님부터
     fireEvent.click(within(again).getByRole('button', { name: '이어서 보내기' }))
@@ -316,12 +339,128 @@ describe('모두에게 보내기 (D-RETRO-64)', () => {
     expect(paperTexts()).toContain('나오미다육 님')
   })
 
-  it('상품별 표에는 모두에게 보내기가 없다', async () => {
+  // 새 기대(D-UX4-174, 사용자 지시 2026-11-16 "못 보내는 이유를 소제목으로 … 여러 명을 다같이 … 알고 있는 사람들부터 시작")
+  it('번호를 모르는 구매자는 까닭 소제목 아래 " · "로 한 줄에 모으고, [보내기 시작]은 번호를 아는 구매자만 차례로 보낸다', async () => {
+    const compose = sms('sent')
+    const { world } = salesWorld(FULL, { phones: { 가을여행: null, 나오미다육: '2222', 미자네: null }, extra: ['라벤더'] })
+    render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
+    await screen.findByRole('button', { name: /^가을여행 정산서/ })
+    const sheet = await openSmsAll()
+    const group = await within(sheet).findByRole('group', { name: BLOCK_TITLE.phone })
+    expect(within(group).getByText(BLOCK_TITLE.phone)).toBeTruthy()
+    expect(within(group).getByText('가을여행 · 미자네')).toBeTruthy()
+    // 번호를 아는 사람만 보낼 목록에
+    expect(within(sheet).getAllByRole('listitem').map(row => row.getAttribute('aria-label'))).toEqual(['나오미다육 아직', '라벤더 아직'])
+    expect(within(sheet).getByText('구매자 2명 가운데 0명에게 보냈어요.')).toBeTruthy()
+    fireEvent.click(within(sheet).getByRole('button', { name: '보내기 시작' }))
+    expect(await screen.findByText('모두에게 보내기 · 2명 가운데 1번째')).toBeTruthy()
+    expect(paperTexts()).toContain('나오미다육 님')
+    fireEvent.click(screen.getByRole('button', { name: '문자 보내기' }))
+    expect(await screen.findByText('모두에게 보내기 · 2명 가운데 2번째')).toBeTruthy()
+    expect(paperTexts()).toContain('라벤더 님')
+    fireEvent.click(screen.getByRole('button', { name: '문자 보내기' }))
+    expect(await screen.findByText('모두에게 보내기를 마쳤어요. 구매자 2명 가운데 2명에게 보냈어요.')).toBeTruthy()
+    // 번호를 모르는 손님에게는 문자 앱을 열지 않았다
+    expect(compose).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('button', { name: /^가을여행 정산서 · 30,000원 · 1개$/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^미자네 정산서 · 30,000원 · 1개$/ })).toBeTruthy()
+  })
+
+  it('보낼 수 있는 구매자가 아무도 없으면 [보내기 시작]이 꺼진다', async () => {
+    sms('sent')
+    const { world } = salesWorld(FULL, { phones: { 가을여행: null, 나오미다육: null, 미자네: null } })
+    render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
+    await screen.findByRole('button', { name: /^가을여행 정산서/ })
+    const sheet = await openSmsAll()
+    const group = await within(sheet).findByRole('group', { name: BLOCK_TITLE.phone })
+    expect(within(group).getByText('가을여행 · 나오미다육 · 미자네')).toBeTruthy()
+    expect(within(sheet).getByText(SEND_ALL_NOBODY)).toBeTruthy()
+    expect(within(sheet).queryAllByRole('listitem')).toHaveLength(0)
+    const start = within(sheet).getByRole('button', { name: '보내기 시작' })
+    expect(start.getAttribute('aria-disabled')).toBe('true')
+    // 단추는 좌우 한 줄, 부정이 왼쪽 (절대 규칙 8)
+    const close = within(sheet).getByRole('button', { name: '닫기' })
+    expect(close.parentElement?.parentElement).toBe(start.parentElement?.parentElement)
+    expect(close.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(start)
+    expect(screen.queryByText(/모두에게 보내기 · /)).toBeNull()
+  })
+
+  it('번호 상태를 받지 못하면 거르지 않고 모두 차례에 넣는다 — 보낼 때 번호를 묻는 지금 흐름대로', async () => {
+    sms('sent')
     const { world } = salesWorld(FULL)
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
-    await screen.findByRole('button', { name: '모두에게 보내기' })
-    fireEvent.click(screen.getByRole('button', { name: '상품별' }))
-    expect(screen.queryByRole('button', { name: '모두에게 보내기' })).toBeNull()
-    expect(screen.getByRole('button', { name: '내보내기' })).toBeTruthy()
+    await screen.findByRole('button', { name: /^가을여행 정산서/ })
+    const sheet = await openSmsAll()
+    expect(await within(sheet).findByText(PHONE_CHECK_FAILED)).toBeTruthy()
+    expect(within(sheet).getAllByRole('listitem')).toHaveLength(3)
+    expect(within(sheet).queryByRole('group', { name: BLOCK_TITLE.phone })).toBeNull()
+  })
+})
+
+describe('[보내기] 캡슐 (D-UX4-173)', () => {
+  // 옛 기대: 상품별 표에는 [모두에게 보내기]가 없고 [내보내기]만. 새 기대(D-UX4-173): 두 탭 모두 같은 [보내기] 하나
+  it('두 탭 모두 아래에 떠 있는 [보내기] 하나 — 누르면 "정산서 보내기" 창에 문자·사진·엑셀·CSV 넷', async () => {
+    const { world } = salesWorld(FULL)
+    render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
+    await screen.findByRole('button', { name: /^가을여행 정산서/ })
+    const wanted = ['구매자에게 문자로 보내기', '사진으로 저장하기', '엑셀 파일로 저장하기', 'CSV 파일로 저장하기']
+    for (const tab of ['구매자별', '상품별'] as const) {
+      fireEvent.click(screen.getByRole('button', { name: tab }))
+      const pills = screen.getAllByRole('button', { name: SEND_PILL_TEXT })
+      expect(pills).toHaveLength(1)
+      expect(getComputedStyle(screen.getByTestId('statement-send-pill').parentElement!).position).toBe('absolute')
+      fireEvent.click(pills[0]!)
+      const menu = await screen.findByRole('dialog', { name: SEND_SHEET_TITLE })
+      const names = within(menu).getAllByRole('button').map(button => button.getAttribute('aria-label') ?? '').filter(name => wanted.includes(name))
+      expect(names).toEqual(wanted)
+      fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: SEND_SHEET_TITLE })).toBeNull())
+    }
+  })
+})
+
+describe('정산서에 넣을 정보 캡슐 (D-UX4-172)', () => {
+  it('계좌·전화번호를 모르면 탭 바 아래에 연한 빨강 캡슐이 뜨고, 누르면 가게 이름과 정산 정보를 한 판에서 저장한다 — 다 채우면 사라진다', async () => {
+    const { world, puts } = salesWorld({ ...EMPTY, decided: true })
+    const shops: unknown[] = []
+    world.server.on('PUT', /order-shop$/, (call) => { shops.push(call.body); return { body: { name: (call.body as { name: string }).name } } })
+    render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
+    const pill = await screen.findByRole('button', { name: INFO_PILL_TEXT })
+    expect(pill.textContent).toBe(INFO_PILL_TEXT)
+    // 옛 [가게 이름]·[정산 정보] 단추는 없다
+    expect(screen.queryByRole('button', { name: '가게 이름' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '정산 정보' })).toBeNull()
+    // 탭 바 아래에 떠 있다
+    expect(getComputedStyle(pill.parentElement!).position).toBe('absolute')
+    fireEvent.click(pill)
+    const sheet = await screen.findByRole('dialog', { name: '정산 정보' })
+    fireEvent.change(within(sheet).getByLabelText('가게 이름'), { target: { value: '초록다육' } })
+    for (const [label, value] of [['은행', '농협'], ['계좌번호', '302-9988-7766-11'], ['예금주', '김판매'], ['전화번호', '010-1234-5678']] as const) {
+      fireEvent.change(within(sheet).getByLabelText(label), { target: { value } })
+    }
+    fireEvent.click(within(sheet).getByRole('button', { name: SAVE_LABEL }))
+    await waitFor(() => expect(sheetOf()).toBeNull())
+    expect(shops).toEqual([{ name: '초록다육' }])
+    expect(puts()).toHaveLength(1)
+    await waitFor(() => expect(screen.queryByRole('button', { name: INFO_PILL_TEXT })).toBeNull())
+  })
+
+  it('정보가 다 있으면 캡슐이 없다', async () => {
+    const { world } = salesWorld(FULL)
+    render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
+    await screen.findByRole('button', { name: /^가을여행 정산서/ })
+    await act(async () => { await flush() })
+    expect(screen.queryByRole('button', { name: INFO_PILL_TEXT })).toBeNull()
+  })
+
+  it('가게 이름이 비어 있으면 [보내기]는 막지 않고 정보 판을 연다', async () => {
+    const { world } = salesWorld(FULL)
+    world.server.on('GET', /order-shop$/, () => ({ body: { name: '' } }))
+    render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
+    expect(await screen.findByRole('button', { name: INFO_PILL_TEXT })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: SEND_PILL_TEXT }))
+    expect(await screen.findByRole('dialog', { name: '정산 정보' })).toBeTruthy()
+    expect(screen.queryByRole('dialog', { name: SEND_SHEET_TITLE })).toBeNull()
   })
 })

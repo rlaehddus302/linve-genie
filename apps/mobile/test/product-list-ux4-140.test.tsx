@@ -69,7 +69,8 @@ describe('매출 캡슐 (D-UX4-140)', () => {
     expect(parseFloat(getComputedStyle(pill).right)).toBeGreaterThan(parseFloat(getComputedStyle(fab).right))
     expect(getComputedStyle(pill).position).toBe('absolute')
     fireEvent.click(pill)
-    expect(await screen.findByText('정산 내역서')).toBeTruthy()
+    // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
+    expect(await screen.findByText('정산서')).toBeTruthy()
   })
 
   it('숫자판을 연 동안·다른 탭에서는 (+)처럼 캡슐도 숨는다', async () => {

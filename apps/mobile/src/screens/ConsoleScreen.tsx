@@ -477,7 +477,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const help = closed ? '끝난 라이브예요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   if (salesPage === 'sales' || (closed && salesPage === 'auto')) {
     return <View style={{ flex: 1, backgroundColor: p.background, paddingTop: pageTop }}>
-      <AppHeader title={orderBuyer === null ? "정산 내역서" : "구매자 정산서"} onBack={orderBuyer !== null ? () => setOrderBuyer(null) : closed ? onBack : () => setSalesPage('auto')} right={closed && orderBuyer === null ? <HeaderTextButton label="라이브 기록" onPress={() => (openRecord === undefined ? setSalesPage('record') : openRecord())} /> : undefined} />
+      {/* 제목 "정산서" (D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔" — 옛 "정산 내역서") */}
+      <AppHeader title={orderBuyer === null ? "정산서" : "구매자 정산서"} onBack={orderBuyer !== null ? () => setOrderBuyer(null) : closed ? onBack : () => setSalesPage('auto')} right={closed && orderBuyer === null ? <HeaderTextButton label="라이브 기록" onPress={() => (openRecord === undefined ? setSalesPage('record') : openRecord())} /> : undefined} />
       <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
       <BroadcastSalesList {...{ broadcastId, title, sales, inset, names, sealed, rehearsal }} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} justEnded={seller && endedNow && focused} />
     </View>

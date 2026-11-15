@@ -11,7 +11,7 @@ import { isApiError, put, type ApiError } from '../api/client.ts'
 import { STATEMENT_SHIPPING_DEFAULT, type StatementInfo } from '../lib/broadcast-sales.ts'
 import { rememberStatementInfo, useStatementInfo } from '../lib/statement-info.ts'
 import { RETRY_NOW } from '../lib/words.ts'
-import { BigButton, FormPage, FullSheet, GroupLabel, TextField, ToggleRow, Txt } from '../ui/kit/index.ts'
+import { BigButton, FormPage, GroupLabel, TextField, ToggleRow, Txt } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 
@@ -161,23 +161,7 @@ export function useStatementInfoForm(info: StatementInfo | null, onSaved: (info:
   return { fields, save, busy, ready: draft !== null }
 }
 
-/**
- * 처음 한 번 묻는 판 — 방송을 끝낸 직후·정산서를 처음 만들 때. 왼쪽 [나중에] · 오른쪽 [저장].
- * onLater: 건너뜀(닫기·뒤로 포함) · onSaved: 저장함 — 둘 다 판을 닫는 것은 부르는 쪽이 한다
- */
-export function StatementInfoSheet({ visible, info, onLater, onSaved }: { readonly visible: boolean; readonly info: StatementInfo | null; readonly onLater: () => void; readonly onSaved: (info: StatementInfo) => void }) {
-  // 판을 열 때마다 받은 값으로 칸을 새로 채운다
-  const form = useStatementInfoForm(info, onSaved, visible)
-  return (
-    <FullSheet visible={visible} onClose={onLater} name={STATEMENT_INFO_TITLE} title={ASK_AFTER_END_TITLE} description={ASK_BODY} testID="statement-info-sheet"
-      actions={<>
-        <BigButton kind="outline" label={LATER_LABEL} disabled={form.busy} onPress={onLater} />
-        <BigButton label={SAVE_LABEL} busy={form.busy} disabled={!form.ready} onPress={form.save} />
-      </>}>
-      {form.fields}
-    </FullSheet>
-  )
-}
+// 처음 한 번 묻는 판(방송을 끝낸 직후·정산서를 처음 만들 때)은 가게 이름과 합친 console/StatementSetup.tsx의 StatementSetupSheet (D-UX4-172)
 
 /** 전체 탭 "정산 정보" 쌓인 화면 */
 export function StatementInfoScreen({ onBack }: { readonly onBack: () => void }) {

@@ -1,13 +1,13 @@
-// 정산 내역서 그림 (D-RETRO-62, 판매자 요청 2026-11-12 "앱 화면에 보이는 정산서를 그대로 사진으로 … 사진이 화면과 다르면 당황스럽다"):
-// 화면의 상품별·구매자별 표와 내보내는 사진이 같은 그림 하나(StatementPaper)에서 나온다 — 화면에 보이는 그 그림을 그대로 찍는다.
-// 옛: 화면은 목록(글자 줄), 사진은 따로 그린 그림(₩ 기호·다른 칸 폭)이라 둘이 달랐다.
-// 화면에는 장을 나누지 않고 한 장으로 잇는다. 사진으로 내보낼 때만 A4 비율로 나눠 한 장씩 저장한다(여러 장이면 몇 번째 장인지 고르는 판) (D-UX4-145).
+// 정산 내역서 사진 그림 (D-RETRO-62, 판매자 요청 2026-11-12 "앱 화면에 보이는 정산서를 그대로 사진으로 … 사진이 화면과 다르면 당황스럽다"):
+// 사진으로 내보낼 때 A4 비율로 나눠 한 장씩 저장한다 (D-UX4-145).
+// D-UX4-171 (사용자 지시 2026-11-16 "직사각형 표로 … 그리지 말고 우리의 부드럽고 우아한 ui를 사용해서"): 화면은 이 그림 대신 카드 줄(StatementList)로 그린다.
+// 그래서 사진은 늘 저장 전에 이 그림을 미리 보여 주는 판(StatementPhoto)을 거친다 — 저장되는 그림을 판매자가 먼저 본다(한 장이어도).
 import { forwardRef, useRef, useState } from 'react'
 import { View } from 'react-native'
 import Svg, { G, Line, Rect, Text as Ink } from 'react-native-svg'
 import { salesMoney, type StatementRow, type StatementTab } from '../../lib/broadcast-sales.ts'
 import { nativeShareFile } from '../../native/index.ts'
-import { BigButton, BottomSheet, SmallButton, Tap, Txt } from '../../ui/kit/index.ts'
+import { BigButton, BottomSheet, SmallButton, Txt } from '../../ui/kit/index.ts'
 import { SPACE } from '../../ui/kit/tokens.ts'
 import { wait, SHEET_GAP_MS } from '../../lib/receipt-sms-flow.ts'
 import { snapshot, wrap } from './paper-image.ts'
@@ -38,10 +38,7 @@ export interface StatementPageRow {
   readonly height: number
 }
 
-/**
- * 줄을 장으로 나눈다 (줄이 없어도 한 장). 기본은 사진용 A4 장.
- * 화면은 maxRows = Infinity로 한 장에 모두 담는다 (D-UX4-145)
- */
+/** 줄을 장으로 나눈다 (줄이 없어도 한 장). 기본은 사진용 A4 장 */
 export function statementPages(rows: readonly StatementRow[], tab: StatementTab, maxRows = PAGE_ROWS_MAX): StatementPageRow[][] {
   const pages: StatementPageRow[][] = [[]]
   let y = 0
@@ -85,11 +82,11 @@ export interface StatementPaperProps extends StatementSheet {
   readonly page: readonly StatementPageRow[]
   readonly pageNo: number
   readonly pageCount: number
-  /** 화면에 그릴 폭 */
+  /** 미리 보기에 그릴 폭 */
   readonly width: number
 }
 
-/** 정산 내역서 한 장 — 화면에도, 사진에도 이 그림 하나를 쓴다 */
+/** 정산 내역서 사진 한 장 (사진 미리 보기에도 이 그림을 그대로 보인다) */
 export const StatementPaper = forwardRef<Svg, StatementPaperProps>(function StatementPaper({ page, pageNo, pageCount, tab, shop, date, total, qty, width }, ref) {
   const products = tab === 'products'
   const last = pageNo === pageCount - 1
@@ -128,40 +125,7 @@ export const StatementPaper = forwardRef<Svg, StatementPaperProps>(function Stat
 /** 사진 파일 이름 (여러 장이면 뒤에 -1, -2) */
 export const statementPhotoName = (date: string, tab: StatementTab, pageNo: number, pageCount: number): string => `정산내역서-${date}-${modeWord(tab)}${pageCount > 1 ? `-${pageNo + 1}` : ''}.png`
 
-/** 화면에 보이는 그 그림(svg)을 찍어 공유 창으로 넘긴다 */
-export async function shareStatementPhoto(svg: Svg | null, sheet: Pick<StatementSheet, 'date' | 'tab' | 'shop'>, page: readonly StatementPageRow[], pageNo: number, pageCount: number): Promise<void> {
-  const { height } = statementGeometry(page, sheet.shop, pageNo === pageCount - 1, pageCount === 1)
-  const bytes = await snapshot(svg, height, STATEMENT_WIDTH)
-  await nativeShareFile()(bytes, statementPhotoName(sheet.date, sheet.tab, pageNo, pageCount), 'image/png')
-}
-
-/** 화면용: 모든 줄을 한 장에 (D-UX4-145) */
-export const statementScreenPages = (rows: readonly StatementRow[], tab: StatementTab): StatementPageRow[][] => statementPages(rows, tab, Number.POSITIVE_INFINITY)
-
-/**
- * 화면에 보이는 정산 내역서 — 화면에서는 statementScreenPages로 한 장만 넘긴다(여러 장을 주면 이어 그린다). 구매자별 표는 줄을 누르면 그 손님 정산서가 열린다(그림 위에 투명한 누름 자리).
- * refs: 장마다 그림(사진을 찍을 때 쓴다). 그림 위에는 아무것도 덧그리지 않는다 — 화면과 사진이 같아야 한다
- */
-export function StatementPages({ pages, sheet, width, refs, onRow, rowLabel }: {
-  readonly pages: readonly (readonly StatementPageRow[])[]; readonly sheet: StatementSheet; readonly width: number; readonly refs: { current: (Svg | null)[] }
-  readonly onRow?: (key: string) => void; readonly rowLabel?: (row: StatementRow) => string
-}) {
-  const scale = width / STATEMENT_WIDTH
-  return <View style={{ gap: SPACE.md }}>
-    {pages.map((page, pageNo) => {
-      const { top } = statementGeometry(page, sheet.shop, pageNo === pages.length - 1, pages.length === 1)
-      return <View key={pageNo} style={{ width }}>
-        <StatementPaper ref={node => { refs.current[pageNo] = node }} {...sheet} page={page} pageNo={pageNo} pageCount={pages.length} width={width} />
-        {onRow !== undefined && page.map(({ row, y, height }) => (
-          <Tap key={row.key} role="button" aria-label={rowLabel?.(row) ?? row.label} onPress={() => onRow(row.key)} pressScale={1}
-            style={({ pressed }) => ({ position: 'absolute', left: 0, right: 0, top: (top + y) * scale, height: height * scale, backgroundColor: pressed ? 'rgba(23,59,76,0.08)' : 'transparent' })} />
-        ))}
-      </View>
-    })}
-  </View>
-}
-
-/** 사진이 여러 장일 때: 몇 번째 장을 사진으로 저장할지 고른다 — 보이는 그림은 화면과 같은 StatementPaper */
+/** 사진 미리 보기·저장: 저장될 그림(StatementPaper)을 보이고, 여러 장이면 몇 번째 장을 저장할지 고른다 (D-UX4-171) */
 export function StatementPhoto({ pages, sheet, width, onClose, onError }: {
   readonly pages: readonly (readonly StatementPageRow[])[]; readonly sheet: StatementSheet; readonly width: number; readonly onClose: () => void; readonly onError: () => void
 }) {
@@ -183,11 +147,12 @@ export function StatementPhoto({ pages, sheet, width, onClose, onError }: {
     } catch { onError(); onClose() }
     finally { setBusy(false) }
   }
-  return <BottomSheet visible onClose={onClose} title={`${modeWord(sheet.tab)} 정산 사진`} actions={<BigButton label="이 장 사진 저장" busy={busy} onPress={() => void save()} />}>
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACE.sm }}>
+  const many = pages.length > 1
+  return <BottomSheet visible onClose={onClose} title={`${modeWord(sheet.tab)} 정산 사진`} actions={<BigButton label={many ? '이 장 사진 저장' : '사진 저장'} busy={busy} onPress={() => void save()} />}>
+    {many ? <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACE.sm }}>
       <SmallButton label="이전 장" disabled={busy || pageNo === 0} onPress={() => setIndex(pageNo - 1)} /><Txt>{`${pageNo + 1} / ${pages.length}`}</Txt>
       <SmallButton label="다음 장" disabled={busy || last} onPress={() => setIndex(pageNo + 1)} />
-    </View>
+    </View> : null}
     <View><StatementPaper ref={svg} {...sheet} page={page} pageNo={pageNo} pageCount={pages.length} width={Math.min(width, 320)} /></View>
   </BottomSheet>
 }
