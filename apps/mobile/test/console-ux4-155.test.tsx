@@ -123,7 +123,7 @@ describe('정산 내역서 ↔ 라이브 기록 (D-UX4-157)', () => {
     expect(await screen.findByText('끝난 라이브')).toBeTruthy()
     // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
     expect(screen.queryByText('정산서')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '정산 내역서로' }))
+    fireEvent.click(screen.getByRole('button', { name: '정산서로' })) // D-UX4-170: 제목 "정산서"에 맞춤(옛 '정산 내역서로')
     expect(back).toBe(1)
   })
   it('경로가 없을 때(시험·웹) 같은 화면 안의 라이브 기록에서 뒤로는 홈이 아니라 정산 내역서', async () => {
@@ -132,7 +132,7 @@ describe('정산 내역서 ↔ 라이브 기록 (D-UX4-157)', () => {
     await start(world, <ConsoleScreen broadcastId="b1" seller onBack={() => home++} />)
     fireEvent.click(await screen.findByRole('button', { name: '라이브 기록' }))
     expect(screen.getByText('끝난 라이브')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '정산 내역서로' }))
+    fireEvent.click(screen.getByRole('button', { name: '정산서로' })) // D-UX4-170: 제목 "정산서"에 맞춤(옛 '정산 내역서로')
     // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
     expect(await screen.findByText('정산서')).toBeTruthy()
     expect(home).toBe(0)

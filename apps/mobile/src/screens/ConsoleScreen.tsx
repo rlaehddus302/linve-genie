@@ -532,7 +532,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         <AppHeader
           title={heading}
           onBack={consoleBack}
-          backLabel={fromSales ? '정산 내역서로' : '홈으로'}
+          backLabel={fromSales ? '정산서로' : '홈으로'}
           // 토스 카드 화면 오른쪽 위 "관리" 글자 단추 (D-UX4-42 — 옛 톱니 D-UX4-20). 듣기 상태는 아래 들린 말 창 왼쪽으로 옮겼다 (D-UX4-53)
           right={<HeaderTextButton label="관리" ariaLabel={MANAGE_LABEL} onPress={() => (openManage === undefined ? setPage('settings') : openManage())} />}
         />
