@@ -1,5 +1,5 @@
 // 방송 화면 상품 목록 정렬 (D-UX4-150, 사용자 2026-11-16 "정렬 기능"): 화면 없는 순수 함수 — 시계·난수 없이 받은 상품만 다시 세운다.
-// 기본은 번호 작은순. 같은 값끼리는 번호 작은순 → 나중에 올린 상품 먼저(늘 같은 차례가 나오게).
+// 기본은 최근 등록순(D-UX3-87). 같은 값끼리는 번호 작은순 → 나중에 올린 상품 먼저(늘 같은 차례가 나오게).
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { productOrder } from './derive.ts'
 
@@ -8,7 +8,8 @@ export type ProductSort = 'no-asc' | 'no-desc' | 'recent' | 'oldest' | 'price-as
 /** 고르는 판에 보이는 차례 */
 export const PRODUCT_SORTS: readonly ProductSort[] = ['no-asc', 'no-desc', 'recent', 'oldest', 'price-asc', 'price-desc']
 
-export const DEFAULT_PRODUCT_SORT: ProductSort = 'no-asc'
+// 기본은 최근 등록순 — 사용자가 정한 D-UX3-87("가장 최근에 말한 게 가장 위로")을 지킨다. 방금 올린 상품이 맨 위에서 빛난다
+export const DEFAULT_PRODUCT_SORT: ProductSort = 'recent'
 
 /** 고르는 판 제목·정렬 단추 이름 */
 export const SORT_TITLE = '목록 순서'

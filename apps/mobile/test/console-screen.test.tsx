@@ -44,14 +44,12 @@ const typePad = (digits: string) => {
 
 describe('ConsoleScreen', () => {
   // D-UX3-87 (사용자 지시 2026-11-09 "상품 목록은 가장 최근에 말한게 가장 위로"): 상품만 D-UX3-75(최신이 맨 아래)를 되돌린다
-  // D-UX4-150으로 바뀐 기대 (사용자 2026-11-16 "정렬 기능 — 번호 오름차순(기본)"; 옛 D-UX3-87: 가장 최근에 올린 상품이 맨 위).
-  // 최근에 올린 상품을 위로 보려면 [목록 순서]에서 "최근 등록순"을 고른다 (product-sort-ux4-147 시험)
-  it('상품 목록은 기본으로 번호 작은순 (D-UX4-150)', async () => {
-    const world = makeWorld({ products: [product(16), product(15)] })
+  it('상품 목록은 가장 최근에 올린 상품이 맨 위 (D-UX3-87 — [목록 순서] 기본값, D-UX4-150)', async () => {
+    const world = makeWorld({ products: [product(15), product(16)] })
     await open(world)
     const list = await screen.findByRole('list', { name: '상품 목록' })
     const labels = within(list).getAllByRole('button').map((row) => row.getAttribute('aria-label') ?? '')
-    expect(labels.findIndex((label) => label.includes('15번'))).toBeLessThan(labels.findIndex((label) => label.includes('16번')))
+    expect(labels.findIndex((label) => label.includes('16번'))).toBeLessThan(labels.findIndex((label) => label.includes('15번')))
   })
 
   it('번호 검색은 정확한 번호를 먼저 보여 주고, 지우면 전체 목록으로 돌아간다', async () => {

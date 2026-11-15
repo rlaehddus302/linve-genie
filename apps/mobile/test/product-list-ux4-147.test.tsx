@@ -34,8 +34,8 @@ const BY_ORDER = [
 describe('목록 순서 — 순수 정렬 (D-UX4-150)', () => {
   const nos = (sort: ProductSort) => sortProducts(BY_ORDER, sort).map((item) => item.no)
 
-  it('여섯 가지 순서와 이름, 기본은 번호 작은순', () => {
-    expect(DEFAULT_PRODUCT_SORT).toBe('no-asc')
+  it('여섯 가지 순서와 이름, 기본은 최근 등록순 (D-UX3-87을 지킨다)', () => {
+    expect(DEFAULT_PRODUCT_SORT).toBe('recent')
     expect(PRODUCT_SORTS.map(sortWord)).toEqual(['번호 작은순', '번호 큰순', '최근 등록순', '오래된 등록순', '가격 낮은순', '가격 높은순'])
     expect(nos('no-asc')).toEqual([7, 15, 30, 120])
     expect(nos('no-desc')).toEqual([120, 30, 15, 7])
@@ -145,13 +145,14 @@ const typePad = (digits: string) => {
 describe('목록 순서 단추·고르는 판 (D-UX4-150)', () => {
   it('단추 글자에 지금 순서가 보이고, 판에서 고르면 목록이 다시 선다', async () => {
     await open(worldWith(VIEW))
-    expect(rowNos()).toEqual([15, 16, 150, 218])
-    expect(sortButton().getAttribute('aria-label')).toBe(`${SORT_TITLE} — 번호 작은순`)
-    expect(sortButton().textContent).toBe('번호 작은순')
+    // 기본은 최근 등록순 (D-UX3-87)
+    expect(rowNos()).toEqual([150, 218, 16, 15])
+    expect(sortButton().getAttribute('aria-label')).toBe(`${SORT_TITLE} — 최근 등록순`)
+    expect(sortButton().textContent).toBe('최근 등록순')
     fireEvent.click(sortButton())
     const choices = screen.getByRole('radiogroup', { name: SORT_TITLE })
     expect(within(choices).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual(PRODUCT_SORTS.map(sortWord))
-    expect(within(choices).getByRole('radio', { name: '번호 작은순' }).getAttribute('aria-checked')).toBe('true')
+    expect(within(choices).getByRole('radio', { name: '최근 등록순' }).getAttribute('aria-checked')).toBe('true')
     fireEvent.click(within(choices).getByRole('radio', { name: '가격 높은순' }))
     expect(rowNos()).toEqual([150, 15, 218, 16])
     expect(sortButton().textContent).toBe('가격 높은순')
@@ -223,7 +224,7 @@ describe('도구 줄을 따로 꺼내 쓰기 (D-UX4-150 — 붙는 머리로 옮
     const told: ProductSort[] = []
     render(<ConsoleContext.Provider value={api}><ProductList onOpen={() => {}} query="" onQuery={() => {}} onClaimedOnly={() => {}} onSort={(sort) => told.push(sort)} numberSearch={search} /></ConsoleContext.Provider>)
     expect(screen.getByTestId('product-toolbar')).toBeTruthy()
-    expect(nos()).toEqual([15, 16, 150, 218])
+    expect(nos()).toEqual([150, 218, 16, 15])      // 기본 최근 등록순 (D-UX3-87)
     pickSort('번호 큰순')
     expect(nos()).toEqual([218, 150, 16, 15])
     expect(told).toEqual(['no-desc'])
