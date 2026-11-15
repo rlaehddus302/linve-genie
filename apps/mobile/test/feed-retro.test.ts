@@ -1,5 +1,7 @@
-// 찜 기록 보기 고르기·줄 만들기·찜 조치 방법 (D-RETRO-50~54, 복기 F6·F7) — 화면 없이 값만 본다.
-// 보기·정렬·글자 크기는 이 휴대폰에 기억하고, 번호별 줄은 번호 오름차순에 찜 → 겹침 → 보류 → 대기(순번) → 끝난 찜, 손님별 이름순은 이름 오름차순(한 손님 안은 번호 오름차순).
+// 찜 기록 보기 고르기·줄 만들기·찜 조치 방법 (D-RETRO-51~54, 복기 F6·F7 · D-UX4-151~154) — 화면 없이 값만 본다.
+// 정렬·글자 크기는 이 휴대폰에 기억하고, 손님별 이름순은 한글 → 영문 → 숫자·기호(D-UX4-153, 한 손님 안은 번호 오름차순).
+// 번호별 줄(D-RETRO-50)은 D-UX4-151(사용자 지시 2026-11-16 "상품 탭 [찜 된 것만]으로 통일")로 걷어 그 시험(번호 오름차순·최근순·"+n명" 접기)도 걷었다.
+// 찾기는 한 칸에서 번호 또는 닉네임(D-UX4-152), 시각은 초까지(D-UX4-154).
 // 올리기·되돌리기는 엔진이 받아 줄 때만 내놓고(R-9), 찜 넣기는 문자찜(sms) 쓰기 — 전화번호 전체는 보내지 않는다.
 import { afterEach, describe, expect, it } from 'vitest'
 import { BuyerNames } from '../src/lib/derive.ts'
@@ -7,7 +9,7 @@ import { FEED_VIEW_DEFAULT, FEED_VIEW_KEY, getFeedView, parseFeedView, resetFeed
 import { fromFull } from '../src/lib/scope-data.ts'
 import { addSuggestions, addedLine, last4Digits } from '../src/screens/console/ClaimAdd.tsx'
 import { raisePlan, smsClaimEvent } from '../src/screens/console/claim-actions.ts'
-import { NUMBER_CHIP_LIMIT, chipLabel, feedRows, numberRows, shownChips } from '../src/screens/console/feed-rows.ts'
+import { compareNames, feedClock, feedMatches, feedPickable, feedRows, filterFeed, nameCharRank, searchText } from '../src/screens/console/feed-rows.ts'
 import { BROADCAST_VIEW, buyer, claim, flush, fullView, product } from './support.ts'
 
 afterEach(() => resetFeedView())
@@ -18,8 +20,9 @@ function world(patch: Parameters<typeof fullView>[0]) {
 }
 
 describe('찜 기록 보기 기억 (lib/feed-view)', () => {
-  it('기본은 지금까지의 모습: 손님별 · 최근순 · 큰 글자 (번호별의 기본 정렬은 번호순)', () => {
-    expect(getFeedView()).toEqual({ mode: 'buyer', buyerSort: 'recent', numberSort: 'number', size: 'large' })
+  // D-UX4-151: 보기(mode)·번호별 정렬(numberSort)을 걷어 정렬·글자 크기만 남는다 — 기대값의 그 두 칸을 뺐다
+  it('기본은 지금까지의 모습: 최근순 · 큰 글자', () => {
+    expect(getFeedView()).toEqual({ buyerSort: 'recent', size: 'large' })
     expect(FEED_VIEW_DEFAULT).toEqual(getFeedView())
   })
 
@@ -27,20 +30,25 @@ describe('찜 기록 보기 기억 (lib/feed-view)', () => {
     const saved = new Map<string, string>()
     const store = { getItem: async (key: string) => saved.get(key) ?? null, setItem: async (key: string, value: string) => void saved.set(key, value) }
     await wireFeedView(store)
-    setFeedView({ mode: 'number', size: 'small' })
-    expect(getFeedView()).toEqual({ mode: 'number', buyerSort: 'recent', numberSort: 'number', size: 'small' })
+    setFeedView({ buyerSort: 'name', size: 'small' })
+    expect(getFeedView()).toEqual({ buyerSort: 'name', size: 'small' })
     await flush()
-    expect(JSON.parse(saved.get(FEED_VIEW_KEY) ?? '')).toEqual({ mode: 'number', buyerSort: 'recent', numberSort: 'number', size: 'small' })
+    expect(JSON.parse(saved.get(FEED_VIEW_KEY) ?? '')).toEqual({ buyerSort: 'name', size: 'small' })
     resetFeedView()
-    expect(getFeedView().mode).toBe('buyer')
+    expect(getFeedView().buyerSort).toBe('recent')
     await wireFeedView(store)
-    expect(getFeedView()).toEqual({ mode: 'number', buyerSort: 'recent', numberSort: 'number', size: 'small' })
+    expect(getFeedView()).toEqual({ buyerSort: 'name', size: 'small' })
+  })
+
+  it('옛 앱이 저장한 번호별 보기(mode·numberSort)는 읽을 때 버리고 나머지는 되살린다 (D-UX4-151)', () => {
+    expect(parseFeedView(JSON.stringify({ mode: 'number', buyerSort: 'name', numberSort: 'recent', size: 'small' }))).toEqual({ buyerSort: 'name', size: 'small' })
   })
 
   it('저장한 값이 깨졌거나 모르는 값이면 그 칸만 기본으로, 저장소가 실패해도 화면은 고른 대로', async () => {
     expect(parseFeedView('{')).toEqual(FEED_VIEW_DEFAULT)
     expect(parseFeedView('[1]')).toEqual(FEED_VIEW_DEFAULT)
-    expect(parseFeedView(JSON.stringify({ mode: 'number', buyerSort: 'zzz', size: 5 }))).toEqual({ ...FEED_VIEW_DEFAULT, mode: 'number' })
+    expect(parseFeedView(JSON.stringify({ buyerSort: 'zzz', size: 'small' }))).toEqual({ ...FEED_VIEW_DEFAULT, size: 'small' })
+    expect(parseFeedView(JSON.stringify({ buyerSort: 'name', size: 5 }))).toEqual({ ...FEED_VIEW_DEFAULT, buyerSort: 'name' })
     await wireFeedView({ getItem: async () => { throw new Error('저장소 없음') }, setItem: async () => { throw new Error('저장소 없음') } })
     setFeedView({ buyerSort: 'name' })
     await flush()
@@ -74,60 +82,101 @@ describe('손님별 줄 정렬 (D-RETRO-51)', () => {
   })
 })
 
-describe('번호별 줄 (D-RETRO-50)', () => {
+describe('이름순 한글 먼저 (D-UX4-153 — D-RETRO-51의 글자 번호 순서를 바꿈)', () => {
+  it('한글 이름 → 영문 → 숫자·기호, 같은 무리 안은 가나다·알파벳(대소문자 무시) 순 — 문자 손님 "문자-0937"은 한글 무리, 유튜브 아이디 앞 "@"는 보지 않는다', () => {
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 's']
+    const mixed = world({
+      products: [],
+      claims: ids.map((id, index) => claim(`c${id}`, index + 1, id, { status: 'PENDING', productId: null })),
+      buyers: [buyer('a', 'zeta'), buyer('b', '하늘'), buyer('c', '123상점'), buyer('d', 'Alpha'), buyer('e', '가람'), buyer('f', '★별'), buyer('g', 'beta'), buyer('h', '@나래'), buyer('s', '문자찜', { kind: 'sms', phoneLast4: '0937' })],
+    })
+    const rows = feedRows(mixed.data, mixed.names, 'b1', undefined, 'name')
+    // 옛(글자 번호 순서): 123상점 · @나래 · Alpha · beta · zeta · ★별 · 가람 · 문자-0937 · 하늘
+    expect(rows.map((row) => row.buyer)).toEqual(['가람', '@나래', '문자-0937', '하늘', 'Alpha', 'beta', 'zeta', '123상점', '★별'])
+  })
+
+  it('이름 견주기: 글자마다 무리(한글 0 · 영문 1 · 숫자 2 · 기호 3)를 먼저, 앞이 같으면 짧은 이름이 앞 — 휴대폰 언어 설정과 상관없다', () => {
+    expect(['하', 'ㄱ', 'a', 'Z', 'é', '0', '-', '😀'].map((char) => nameCharRank(char.codePointAt(0)!))).toEqual([0, 0, 1, 1, 1, 2, 3, 3])
+    expect(compareNames('홍길동', '홍길동A')).toBeLessThan(0)
+    expect(compareNames('홍a', '홍가')).toBeGreaterThan(0)
+    expect(compareNames('apple', 'Banana')).toBeLessThan(0)
+    expect(compareNames('Ｂｅｔａ', 'alpha')).toBeGreaterThan(0)
+    expect(compareNames('가람', '가람')).toBe(0)
+    expect(compareNames('나', '가')).toBeGreaterThan(0)
+  })
+})
+
+describe('찜 기록 찾기 (D-UX4-152)', () => {
   const { data, names } = world({
-    products: [
-      product(15, { name: '핑크프릴', price: 35_000, winners: ['u1'], winnerClaims: ['c1'], waitlist: ['u3', 'u2'], waitlistClaims: ['c3', 'c2'] }),
-      product(7, { name: '', price: 12_000, winners: ['u2'], winnerClaims: ['c5'] }),
-    ],
+    products: [product(15, { winners: ['u1'], winnerClaims: ['c1'], waitlist: ['u2'], waitlistClaims: ['c2'] }), product(150, { winners: ['u4'], winnerClaims: ['c3'] }), product(7, { winners: ['u3'], winnerClaims: ['c4'] })],
     claims: [
       claim('c1', 15, 'u1', { rankTime: '2026-10-29T11:00:01.000Z' }),
       claim('c2', 15, 'u2', { status: 'WAITLISTED', rankTime: '2026-10-29T11:00:02.000Z' }),
-      claim('c3', 15, 'u3', { status: 'WAITLISTED', rankTime: '2026-10-29T11:00:03.000Z' }),
-      claim('c4', 15, 's1', { status: 'CANCELLED', origin: 'sms', rankTime: '2026-10-29T11:00:00.000Z' }),
-      claim('c5', 7, 'u2', { rankTime: '2026-10-29T11:00:09.000Z' }),
-      claim('c6', 88, 's1', { status: 'PENDING', origin: 'sms', productId: null, rankTime: '2026-10-29T11:00:04.000Z' }),
-      claim('c7', 7, 'u1', { status: 'DUPLICATE', rankTime: '2026-10-29T11:00:10.000Z' }),
+      claim('c3', 150, 'u4', { rankTime: '2026-10-29T11:00:03.000Z' }),
+      claim('c4', 7, 'u3', { rankTime: '2026-10-29T11:00:04.000Z' }),
+      claim('c5', 88, 's1', { status: 'PENDING', origin: 'sms', productId: null, rankTime: '2026-10-29T11:00:05.000Z' }),
     ],
-    buyers: [buyer('u1', '홍길동'), buyer('u2', '김영희'), buyer('u3', '이철수'), buyer('s1', '문자찜', { kind: 'sms', phoneLast4: '0937' })],
+    buyers: [buyer('u1', '홍길동'), buyer('u2', 'Plant Lover'), buyer('u3', '다육이15'), buyer('u4', '김영희'), buyer('s1', '문자찜', { kind: 'sms', phoneLast4: '0937' })],
+  })
+  const rows = feedRows(data, names, 'b1')
+  const found = (query: string) => filterFeed(rows, query).map((row) => row.buyer)
+
+  it('빈 칸(띄어쓰기만 포함)은 모두 — 차례는 그대로', () => {
+    expect(found('')).toEqual(rows.map((row) => row.buyer))
+    expect(found('   ')).toEqual(rows.map((row) => row.buyer))
   })
 
-  it('번호 오름차순으로, 한 줄에 번호·품종·가격과 손님 — 찜 → 대기(순번 순서) → 취소·안 된 찜. 문자 손님은 "문자-끝 4자리", 겹쳐 온 반복 찜은 뺀다', () => {
-    const rows = numberRows(data, names, 'b1')
-    expect(rows.map((row) => row.no)).toEqual([7, 15, 88])
-    expect(rows[1]).toMatchObject({ key: 'b1/15', no: 15, name: '핑크프릴', price: 35_000, keep: 1 })
-    // 대기는 받은 순서가 아니라 서버가 준 대기 순번(이철수 1, 김영희 2)
-    expect(rows[1]?.chips.map(chipLabel)).toEqual(['홍길동 찜', '이철수 대기 1', '김영희 대기 2', '문자-0937 취소됨'])
-    expect(rows[1]?.chips.map((chip) => chip.tone)).toEqual(['win', 'wait', 'wait', 'other'])
-    expect(rows[0]?.chips.map(chipLabel)).toEqual(['김영희 찜'])
-    // 아직 상품이 없는 번호: 가격 없음, 보류
-    expect(rows[2]).toMatchObject({ no: 88, name: '', price: null, keep: 1 })
-    expect(rows[2]?.chips.map(chipLabel)).toEqual(['문자-0937 보류'])
-    expect(rows[2]?.chips[0]?.hasProduct).toBe(false)
+  it('숫자만 치면 그 번호를 찜한 손님(꼭 같은 번호만 — 150번은 아니다)과 닉네임에 그 숫자가 든 손님이 함께, 최근순 차례 그대로', () => {
+    expect(found('15')).toEqual(['홍길동', 'Plant Lover', '다육이15'])
+    expect(found('150')).toEqual(['김영희'])
+    // 앞의 0은 번호에서 보지 않는다(07 = 7번) · 문자 손님 끝 네 자리도 닉네임처럼 찾는다
+    expect(found('07')).toEqual(['다육이15'])
+    expect(found('0937')).toEqual(['문자-0937'])
+    expect(found('88')).toEqual(['문자-0937'])
+    expect(found(' 1 5 ')).toEqual(['홍길동', 'Plant Lover', '다육이15'])
   })
 
-  it('최근순: 가장 최근에 찜이 온 번호가 맨 아래', () => {
-    expect(numberRows(data, names, 'b1', 'recent').map((row) => row.no)).toEqual([15, 88, 7])
+  it('글자면 닉네임 부분 일치 — 대소문자·띄어쓰기·넓은 글자는 보지 않는다', () => {
+    expect(found('plantlover')).toEqual(['Plant Lover'])
+    expect(found('LOVER')).toEqual(['Plant Lover'])
+    expect(found('길 동')).toEqual(['홍길동'])
+    expect(found('ｐｌａｎｔ')).toEqual(['Plant Lover'])
+    expect(found('다육')).toEqual(['다육이15'])
+    expect(found('없는손님')).toEqual([])
+    // 숫자와 글자가 섞이면 닉네임만 본다 (번호로 읽지 않는다)
+    expect(found('15번')).toEqual([])
   })
 
-  it('손님이 많으면 접는다: 찜·겹침·보류는 늘 보이고 나머지는 한도까지, 숨은 수를 알린다 — 펼치면 모두', () => {
-    const waits = Array.from({ length: 9 }, (_, index) => `w${String(index + 1)}`)
-    const many = world({
-      products: [product(20, { stock: 2, winners: ['a', 'b'], winnerClaims: ['ca', 'cb'], waitlist: waits, waitlistClaims: waits.map((id) => `c${id}`) })],
-      claims: [claim('ca', 20, 'a'), claim('cb', 20, 'b'), ...waits.map((id) => claim(`c${id}`, 20, id, { status: 'WAITLISTED' }))],
-      buyers: [buyer('a', '가'), buyer('b', '나'), ...waits.map((id) => buyer(id, `손님${id}`))],
+  it('찾는 글 꼴: NFKC · 소문자 · 띄어쓰기 없음', () => {
+    expect(searchText(' Ａ b\tC ')).toBe('abc')
+    expect(feedMatches({ buyer: '홍길동', nos: [] }, '')).toBe(true)
+    expect(feedMatches({ buyer: '홍길동', nos: [] }, '1')).toBe(false)
+  })
+})
+
+describe('찜 기록 시각·누르기 (D-UX4-154)', () => {
+  it('시각은 한국 시각 초까지 — 읽을 수 없으면 빈 글', () => {
+    expect(feedClock(Date.parse('2026-10-29T11:00:09.000Z'))).toBe('20:00:09')
+    expect(feedClock(Date.parse('2026-10-29T04:05:42.900Z'))).toBe('13:05:42')
+    expect(feedClock(Number.NaN)).toBe('')
+  })
+
+  it('손님 줄의 시각은 그 손님이 가장 최근에 찜한 시각 (문자찜은 문자를 받은 시각)', () => {
+    const { data, names } = world({
+      products: [product(15), product(7)],
+      claims: [claim('c1', 15, 'u1', { rankTime: '2026-10-29T04:05:00.000Z' }), claim('c2', 7, 'u1', { origin: 'sms', rankTime: '2026-10-29T04:05:42.000Z', received: '2026-10-29T04:06:01.000Z' })],
+      buyers: [buyer('u1', '홍길동')],
     })
-    const [row] = numberRows(many.data, many.names, 'b1')
-    expect(row?.chips).toHaveLength(11)
-    expect(row?.keep).toBe(2)
-    const folded = shownChips(row!, false)
-    expect(folded.shown).toHaveLength(NUMBER_CHIP_LIMIT)
-    expect(folded.more).toBe(11 - NUMBER_CHIP_LIMIT)
-    expect(folded.shown.slice(0, 2).map((chip) => chip.tone)).toEqual(['win', 'win'])
-    expect(shownChips(row!, true)).toMatchObject({ more: 0 })
-    expect(shownChips(row!, true).shown).toHaveLength(11)
-    // 찜·겹침·보류가 한도보다 많으면 그만큼은 다 보인다
-    expect(shownChips({ chips: row!.chips, keep: 8 }, false).shown).toHaveLength(8)
+    expect(feedClock(feedRows(data, names, 'b1')[0]!.latest)).toBe('13:06:01')
+  })
+
+  it('라이브 중: 살아 있는 찜, 또는 끝난 찜이어도 상품이 목록에 있으면 누른다 · 끝난·봉인한 라이브: 상품이 있고 [상품 보기]를 열 수 있을 때만', () => {
+    expect(feedPickable({ status: 'PENDING', hasProduct: false }, false, true)).toBe(true)
+    expect(feedPickable({ status: 'CANCELLED', hasProduct: true }, false, false)).toBe(true)
+    expect(feedPickable({ status: 'CANCELLED', hasProduct: false }, false, true)).toBe(false)
+    expect(feedPickable({ status: 'CONFIRMED', hasProduct: true }, true, true)).toBe(true)
+    expect(feedPickable({ status: 'CONFIRMED', hasProduct: true }, true, false)).toBe(false)
+    expect(feedPickable({ status: 'PENDING', hasProduct: false }, true, true)).toBe(false)
   })
 })
 

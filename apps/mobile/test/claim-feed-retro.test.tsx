@@ -1,9 +1,11 @@
 // 찜 기록 번호별 보기·정렬·작은 글자·눌러서 조치, 상품 자세히 [찜 넣기] (D-RETRO-50~54, 복기 F6·F7 — 사용자 지시 2026-11-12
 // "찜 목록에서 각 번호를 누르면 내가 원하는 대로 수정 … 글자 크기를 줄여 한 화면에 더 많이 … 번호별로 누가 찜했는지 … 오름차순 … 상품을 눌러 임의로 문자찜 등록").
 // 화면은 판정하지 않는다 — 엔진에 이미 있는 방송자 조치(host.promote·host.assign)와 문자찜(sms) 쓰기를 보내는지만 본다.
+// D-UX4-151 (사용자 지시 2026-11-16 "번호별 보기를 빼고 상품 탭 [찜 된 것만]으로 통일"): 번호별 보기·그 정렬·"+n명" 접기 시험을 걷거나 손님별 꼬리표로 바꿨다.
+// 찾기 칸·도구 줄(D-UX4-152)·시각(D-UX4-154)은 claim-feed-ux4-151 시험에 있다.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { getFeedView, resetFeedView, setFeedView } from '../src/lib/feed-view.ts'
+import { getFeedView, resetFeedView } from '../src/lib/feed-view.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { buyer, changes, claim, flush, product } from './support.ts'
@@ -50,38 +52,23 @@ const SAMPLE = {
 } satisfies Parameters<typeof changes>[2]
 
 describe('찜 기록 보기 고르기 (D-RETRO-50~52)', () => {
-  it('목록 위 한 줄에 [손님별 | 번호별] · [최근순 | 이름순] · 글자 [크게 | 작게] — 기본은 손님별·최근순·크게, 번호별을 고르면 번호 오름차순 줄에 찜·대기 손님이 낱말과 함께 보이고 이 휴대폰에 기억한다', async () => {
+  // D-UX4-151: [손님별 | 번호별] 고르기와 번호별 줄을 걷었다 — 고르기 줄은 [최근순 | 이름순] · 글자 [크게 | 작게]만, 그 위에 찾기 칸(D-UX4-152)
+  it('목록 위 도구 줄: 찾기 칸 아래 한 줄에 [최근순 | 이름순] · 글자 [크게 | 작게] — 기본은 최근순·크게, 번호별 보기는 없다', async () => {
     const world = makeWorld({ products: [product(15), product(7)] })
     await open(world, SAMPLE)
     await openFeed()
-    const view = await screen.findByRole('group', { name: '찜 기록 보기' })
-    const bar = view.parentElement as HTMLElement
+    const sort = await screen.findByRole('group', { name: '정렬' })
+    const bar = sort.parentElement as HTMLElement
     // 단추는 좌우 한 줄 (D-UX4-01) — 위아래로 쌓지 않는다
     expect(getComputedStyle(bar).flexDirection).toBe('row')
     expect(getComputedStyle(bar).flexWrap).not.toBe('wrap')
-    expect(within(bar).getAllByRole('button').map((button) => `${button.getAttribute('aria-label') ?? ''}${button.getAttribute('aria-selected') === 'true' ? ' ✓' : ''}`)).toEqual(['손님별 보기 ✓', '번호별 보기', '최근순 정렬 ✓', '이름순 정렬', '글자 크게 ✓', '글자 작게'])
-    expect(within(bar).getAllByRole('button').map((button) => button.textContent)).toEqual(['손님별', '번호별', '최근순', '이름순', '크게', '작게'])
+    expect(within(bar).getAllByRole('button').map((button) => `${button.getAttribute('aria-label') ?? ''}${button.getAttribute('aria-selected') === 'true' ? ' ✓' : ''}`)).toEqual(['최근순 정렬 ✓', '이름순 정렬', '글자 크게 ✓', '글자 작게'])
+    expect(within(bar).getAllByRole('button').map((button) => button.textContent)).toEqual(['최근순', '이름순', '크게', '작게'])
+    expect(screen.queryByRole('button', { name: '번호별 보기' })).toBeNull()
+    expect(screen.queryByRole('list', { name: '번호별 찜 기록' })).toBeNull()
+    expect(within(screen.getByRole('group', { name: '찜 기록 찾기·정렬' })).getByLabelText('찜 기록 찾기')).toBeTruthy()
     // 기본: 지금까지의 손님별 (가장 최근에 찜한 손님이 맨 아래)
     expect(labels(screen.getByRole('list', { name: '찜 기록' }))).toEqual(['홍길동 15 찜', '문자-0937 88 보류', '김영희 15 대기 1 · 이미 찜됨 · 1등 홍길동, 7 찜'])
-
-    fireEvent.click(within(bar).getByRole('button', { name: '번호별 보기' }))
-    const numbers = await screen.findByRole('list', { name: '번호별 찜 기록' })
-    expect(screen.queryByRole('list', { name: '찜 기록' })).toBeNull()
-    expect(labels(numbers)).toEqual(['7번 라울 12,000원 — 김영희 찜', '15번 핑크프릴 35,000원 — 홍길동 찜, 김영희 대기 1', '88번 아직 상품이 없어요 — 문자-0937 보류'])
-    const row = within(numbers).getAllByRole('listitem')[1]!
-    expect(within(row).getByText('15번')).toBeTruthy()
-    expect(within(row).getByText('핑크프릴')).toBeTruthy()
-    expect(within(row).getByText('35,000원')).toBeTruthy()
-    // 찜은 금색·굵게, 대기는 회색·덜 굵게 (순번과 함께)
-    const win = within(row).getByText('홍길동 찜')
-    const wait = within(row).getByText('김영희 대기 1')
-    expect(Number(getComputedStyle(win).fontWeight)).toBeGreaterThan(Number(getComputedStyle(wait).fontWeight))
-    expect(getComputedStyle(win).color).not.toBe(getComputedStyle(wait).color)
-    // 번호별의 정렬은 [번호순 | 최근순]
-    expect(within(bar).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['손님별 보기', '번호별 보기', '번호순 정렬', '최근순 정렬', '글자 크게', '글자 작게'])
-    fireEvent.click(within(bar).getByRole('button', { name: '최근순 정렬' }))
-    expect(labels(screen.getByRole('list', { name: '번호별 찜 기록' })).map((label) => label?.split(' ')[0])).toEqual(['15번', '88번', '7번'])
-    expect(getFeedView()).toMatchObject({ mode: 'number', numberSort: 'recent' })
   }, SLOW)
 
   it('손님별 이름순: 이름 오름차순, 한 손님 안의 번호도 오름차순 — 최근순으로 되돌리면 지금까지와 같다', async () => {
@@ -107,50 +94,32 @@ describe('찜 기록 보기 고르기 (D-RETRO-50~52)', () => {
     expect(getComputedStyle(tag()).minWidth).toBe('48px')
     expect(Number.parseFloat(getComputedStyle(within(tag()).getByText('15 찜')).fontSize)).toBeLessThan(largeFont)
     expect(getFeedView().size).toBe('small')
-    // 번호별도 같은 작은 꼬리표
-    fireEvent.click(screen.getByRole('button', { name: '번호별 보기' }))
-    const chip = within(await screen.findByRole('list', { name: '번호별 찜 기록' })).getByRole('button', { name: '홍길동 찜' })
-    expect(getComputedStyle(chip).minHeight).toBe('30px')
-    expect(getComputedStyle(chip).minWidth).toBe('48px')
-    // 보류 찜 판: 손님별·큰 글자 그대로, 고르기 줄 없음
+    // (D-UX4-151: 번호별 꼬리표의 같은 확인은 번호별 보기와 함께 걷었다)
+    // 보류 찜 판: 손님별·큰 글자 그대로, 도구 줄(찾기 칸·고르기) 없음 — 도구 줄은 찜 기록 탭의 하나뿐
     fireEvent.click(screen.getByRole('button', { name: /^보류 찜 1/ }))
-    const pending = await screen.findByRole('list', { name: '찜 기록' })
+    const pending = (await screen.findAllByRole('list', { name: '찜 기록' })).find((list) => labels(list).length === 1)!
     expect(labels(pending)).toEqual(['문자-0937 88 보류'])
-    expect(screen.getAllByRole('group', { name: '찜 기록 보기' })).toHaveLength(1)
+    expect(screen.getAllByRole('group', { name: '찜 기록 찾기·정렬' })).toHaveLength(1)
     expect(within(pending).queryByRole('button')).toBeNull()
   }, SLOW)
 
-  it('번호 줄의 손님이 많으면 "+n명"으로 접고, 누르면 펼쳤다가 "접기"로 다시 접는다', async () => {
-    const waits = Array.from({ length: 8 }, (_, index) => `w${String(index + 1)}`)
-    const world = makeWorld({ products: [product(20)] })
-    setFeedView({ mode: 'number' })
-    await open(world, {
-      products: [product(20, { status: 'SOLD', winners: ['u1'], winnerClaims: ['c1'], waitlist: waits, waitlistClaims: waits.map((id) => `c${id}`) })],
-      claims: [claim('c1', 20, 'u1'), ...waits.map((id, index) => claim(`c${id}`, 20, id, { status: 'WAITLISTED', seq: 20 + index }))],
-      buyers: [buyer('u1', '홍길동'), ...waits.map((id, index) => buyer(id, `손님${String(index + 1)}`))],
-    })
-    await openFeed()
-    const row = within(await screen.findByRole('list', { name: '번호별 찜 기록' })).getByRole('listitem')
-    expect(within(row).getAllByRole('button').map((button) => button.textContent)).toEqual(['홍길동 찜', '손님1 대기 1', '손님2 대기 2', '손님3 대기 3', '손님4 대기 4', '손님5 대기 5', '+3명'])
-    fireEvent.click(within(row).getByRole('button', { name: '20번 손님 3명 더 보기' }))
-    expect(within(row).getAllByRole('button').map((button) => button.textContent)).toEqual(['홍길동 찜', '손님1 대기 1', '손님2 대기 2', '손님3 대기 3', '손님4 대기 4', '손님5 대기 5', '손님6 대기 6', '손님7 대기 7', '손님8 대기 8', '접기'])
-    fireEvent.click(within(row).getByRole('button', { name: '20번 손님 접기' }))
-    expect(within(row).getAllByRole('button')).toHaveLength(7)
-  }, SLOW)
+  // D-UX4-151: 번호 줄의 "+n명" 접기·펼치기 시험은 번호별 보기와 함께 걷었다 (손님별 줄은 접지 않는다)
 })
 
 describe('찜을 눌러 조치 (D-RETRO-53)', () => {
   const menuRows = (menu: HTMLElement) => within(menu).getAllByRole('button').map((button) => button.getAttribute('aria-label'))
 
-  it('대기 찜(번호별 꼬리표)을 누르면 [찜으로 올리기 · 상품 보기 · 상품 고치기 · 찜 삭제] — 자리가 찼으면 "지금 찜인 손님은 대기 1번으로" 묻고 [닫기 | 올리기] 뒤 교체 배정을 보낸다', async () => {
+  // D-UX4-151: 번호별 꼬리표 "김영희 대기 1" 대신 손님별 줄의 꼬리표 "15 대기 1"을 누른다 (메뉴·보내는 것은 같다)
+  it('대기 찜(손님별 꼬리표)을 누르면 [찜으로 올리기 · 상품 보기 · 상품 고치기 · 찜 삭제] — 자리가 찼으면 "지금 찜인 손님은 대기 1번으로" 묻고 [닫기 | 올리기] 뒤 교체 배정을 보낸다', async () => {
     const world = makeWorld({ products: [product(15), product(7)] })
-    setFeedView({ mode: 'number' })
     await open(world, SAMPLE)
     await openFeed()
-    fireEvent.click(within(await screen.findByRole('list', { name: '번호별 찜 기록' })).getByRole('button', { name: '김영희 대기 1' }))
+    fireEvent.click(within(await screen.findByRole('list', { name: '찜 기록' })).getByRole('button', { name: '15 대기 1 · 이미 찜됨 · 1등 홍길동' }))
     const menu = await screen.findByRole('group', { name: '찜 메뉴' })
     expect(screen.getByText('15번 찜')).toBeTruthy()
     expect(within(menu).getByText('김영희')).toBeTruthy()
+    // 판 머리에 그 찜을 받은 시각 — 초까지 (D-UX4-154, 11:00:02Z = 한국 20:00:02)
+    expect(within(menu).getByLabelText('찜한 시각 20:00:02').textContent).toBe('20:00:02')
     expect(menuRows(menu)).toEqual(['찜으로 올리기', '상품 보기', '상품 고치기', '찜 삭제'])
     fireEvent.click(within(menu).getByRole('button', { name: '찜으로 올리기' }))
     const ask = await screen.findByRole('alertdialog', { name: '15번 찜으로 올릴까요?' })
