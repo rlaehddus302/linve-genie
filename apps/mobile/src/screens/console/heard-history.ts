@@ -67,3 +67,31 @@ export function useSavedHeard(broadcastId: string, live: boolean): { readonly li
   }, [broadcastId, live])
   return state.b === broadcastId ? state : { lines: [], loaded: false }
 }
+
+/** 문장 끝을 못 찾은 긴 말은 이 글자 수 근처 띄어쓰기에서 나눈다 */
+export const HEARD_SENTENCE_MAX = 48
+
+/**
+ * 받아쓴 한 조각을 문장으로 나눈다 (D-UX4-165, 사용자 2026-11-16 "음성인식이 끊기지 않고 계속 이어지면 너무 긴 문장으로 보내지는데"):
+ * 받아쓰기는 쉬지 않고 말하면 20초까지 한 조각이라 한 줄이 문단처럼 길다. 화면에서만 . ? ! 뒤에서 나누고,
+ * 문장 끝 없이 긴 말은 HEARD_SENTENCE_MAX 근처 띄어쓰기에서 나눈다. 받아쓰기·서버 기록은 그대로다.
+ */
+export function heardSentences(text: string): string[] {
+  const out: string[] = []
+  for (const part of text.trim().split(/(?<=[.?!。？！…])\s+/u)) {
+    let rest = part.trim()
+    while (rest.length > HEARD_SENTENCE_MAX) {
+      const cut = rest.lastIndexOf(' ', HEARD_SENTENCE_MAX)
+      if (cut <= 0) break
+      out.push(rest.slice(0, cut))
+      rest = rest.slice(cut + 1).trim()
+    }
+    if (rest !== '') out.push(rest)
+  }
+  return out
+}
+
+/** 줄마다 문장으로 나눈다 — 나뉜 문장은 같은 시각을 갖는다 */
+export function splitHeard(lines: readonly HeardLine[]): HeardLine[] {
+  return lines.flatMap((line) => heardSentences(line.text).map((text) => ({ at: line.at, text })))
+}

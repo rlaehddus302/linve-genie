@@ -28,6 +28,16 @@ describe('머리 오른쪽 글자 단추 (D-UX4-164)', () => {
     expect(NAV.right + px(style.marginRight)).toBe(8)
   })
 
+  it('D-UX4-166 (사용자 "눌렀을때 보이는 영역이 정확히 센터에 맞지 않아"): 캡슐째 2.5 올린다 — 글자만 따로 올리지 않아 캡슐 가운데에 글자가 온다', () => {
+    render(<HeaderTextButton label="관리" onPress={() => {}} testID="head-button" />)
+    const button = screen.getByTestId('head-button')
+    expect(getComputedStyle(button).transform).toContain(`translateY(${String(NAV.titleLift)}px)`)
+    const label = screen.getByText('관리')
+    for (let node: HTMLElement | null = label.parentElement; node !== null && node !== button; node = node.parentElement) {
+      expect(getComputedStyle(node).transform).toMatch(/^(none|)$/)
+    }
+  })
+
   it('화면 머리 오른쪽 글자 단추는 모두 HeaderTextButton 하나만 쓴다 (칩 단추를 머리에 두지 않는다)', () => {
     const files = sources(join(import.meta.dirname, '../src')).concat(sources(join(import.meta.dirname, '../app')))
     const offenders = files.filter((file) => /<(AppHeader|NavBar)[^>]*right=\{<(ChipButton|SmallButton|SoftChip)/.test(readFileSync(file, 'utf8')))

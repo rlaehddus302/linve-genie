@@ -14,7 +14,7 @@ import { DotStatus, EmptyFill, Icon, Tap, Txt, useKit } from '../../ui/kit/index
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { BigButton, Body, Card, Hint } from '../../ui/parts.tsx'
 import type { StreamKeep } from '../../lib/stream-keep.ts'
-import { localHeard, mergeHeard, useSavedHeard } from './heard-history.ts'
+import { localHeard, mergeHeard, splitHeard, useSavedHeard } from './heard-history.ts'
 
 const POLL_MS = 1000
 const WATCH_MS = 10_000
@@ -280,15 +280,20 @@ export function ListenLine({ session, broadcastId, stream, bottom, source }: { r
   const line = streamAudioLine(stream.status, micOn)
   const hearing = micOn || stream.hold
   const chip = listenChip(view, broadcastId, stream.status)
-  const last = view.transcript.at(-1) ?? null
-  const earlier = view.transcript.slice(0, -1)
-  const times = view.transcriptAt
+  // 긴 조각은 문장으로 나눠 지금 줄에는 마지막 문장만 (D-UX4-165, 사용자 "음성인식이 끊기지 않고 계속 이어지면 너무 긴 문장으로 보내지는데") —
+  // 옛: 20초 조각 한 덩어리를 지금 줄에 다 보였다
+  const sentences = splitHeard(view.transcript.flatMap((text, index) => [{ at: view.transcriptAt[index] ?? Number.NaN, text }]))
+  const last = sentences.at(-1)?.text ?? null
+  const earlier = sentences.slice(0, -1).map((line) => line.text)
+  const times = sentences.slice(0, -1).map((line) => (Number.isNaN(line.at) ? undefined : line.at))
   const now = hearing ? (last ?? '아직 인식한 말이 없어요.') : (line?.text ?? '인식한 말이 여기에 나와요.')
   // 펼친 칸 높이: 안쪽 글 높이(최대 HEARD_LOG_HEIGHT)까지 0에서 늘린다. 재기 전(첫 그림)에는 바로 그 높이
   const target = Math.min(logHeight, HEARD_LOG_HEIGHT)
   const height = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, target] })
   // 지난 말과 지금 말 사이를 지난 말끼리 사이(4)와 같게 (D-UX4-90): 지금 줄은 누르는 줄(높이 44) 가운데라 위가 12 떠 있어 그만큼 겹친다
-  const overlap = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, -HEARD_OVERLAP] })
+  // 지금 줄 글이 두 줄 넘게 길면 누르는 줄 위 여백이 없어 겹친다 — 그때는 겹치지 않는다 (D-UX4-165: "그랬죠."가 긴 지금 줄 위에 포개졌다)
+  const [nowTall, setNowTall] = useState(false)
+  const overlap = motion.value.interpolate({ inputRange: [0, 1], outputRange: [0, nowTall ? 0 : -HEARD_OVERLAP] })
   const lines = (
     <View role="log" aria-label="지난 인식한 말" style={{ gap: SPACE.xs }} onLayout={(event) => setLogHeight(event.nativeEvent.layout.height)}>
       {/* 지난 말이 없으면 비워 둔다 — 안내 문장을 띄우지 않는다 (D-UX4-69, 사용자 지시 2026-11-10) */}
@@ -320,7 +325,7 @@ export function ListenLine({ session, broadcastId, stream, bottom, source }: { r
             <DotStatus word={chip.word} tone={chip.tone} />
           </View>
         </View>
-        <View role="status" aria-label="지금 인식한 말" style={{ flex: 1 }}>
+        <View role="status" aria-label="지금 인식한 말" style={{ flex: 1 }} onLayout={(event) => setNowTall(event.nativeEvent.layout.height > DOCK_ROW_HEIGHT - 2 * HEARD_OVERLAP)}>
           <Txt step="meta" weight={hearing && last !== null ? 'medium' : undefined} {...(open ? {} : { numberOfLines: 1 })} color={hearing && last !== null ? undefined : 'textSub'}>
             {now}
           </Txt>
@@ -378,7 +383,8 @@ export function HeardTab({ session, broadcastId, live }: { readonly session: Voi
   const view = useSyncExternalStore(session.subscribe, session.getView)
   // 서버가 남긴 그 방송의 들린 말 + 이 기기가 지금 받는 줄 — 끝난 라이브·앱을 다시 켠 뒤에도 전체가 보인다 (D-UX4-156)
   const saved = useSavedHeard(broadcastId, live)
-  const lines = mergeHeard(saved.lines, localHeard(view, broadcastId))
+  // 긴 조각은 문장으로 나눠 한 줄씩 (D-UX4-165)
+  const lines = splitHeard(mergeHeard(saved.lines, localHeard(view, broadcastId)))
   const [timeWidth, setTimeWidth] = useState(0)
   const onTimeWidth = useCallback((width: number) => setTimeWidth((was) => Math.max(was, Math.ceil(width))), [])
   if (lines.length === 0) return saved.loaded ? (live ? <EmptyFill title={HEARD_EMPTY} body={HEARD_EMPTY_BODY} /> : <EmptyFill title={HEARD_EMPTY_ENDED} body={HEARD_EMPTY_ENDED_BODY} />) : null

@@ -241,14 +241,13 @@ export function HeaderTextButton({ label, ariaLabel, onPress, testID }: { readon
       testID={testID}
       hitSlop={{ top: 7, bottom: 7, left: 6, right: 6 }}
       pressScale={HEADER_BUTTON.pressScale}
-      style={({ pressed }) => ({ height: HEADER_BUTTON.height, minWidth: 44, marginRight: HEADER_BUTTON.edge - NAV.right, paddingHorizontal: HEADER_BUTTON.padX, alignItems: 'center', justifyContent: 'center', borderRadius: HEADER_BUTTON.radius, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}
+      // 제목처럼 2.5 올려 뒤로 ‹·가운데 제목과 한 줄에 맞춘다 (D-UX4-55). 글자만이 아니라 캡슐째 올린다 — 글자만 올리면 누를 때 보이는 캡슐이
+      // 글자보다 2.5 아래로 처진다 (D-UX4-166, 사용자 "눌렀을때 보이는 영역이 정확히 센터에 맞지 않아"). 글자 자리는 그대로다
+      style={({ pressed }) => ({ height: HEADER_BUTTON.height, minWidth: 44, marginRight: HEADER_BUTTON.edge - NAV.right, paddingHorizontal: HEADER_BUTTON.padX, alignItems: 'center', justifyContent: 'center', borderRadius: HEADER_BUTTON.radius, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent', transform: [{ translateY: NAV.titleLift }] })}
     >
-      {/* 제목처럼 한글을 2.5 올려 뒤로 ‹·가운데 제목과 한 줄에 맞춘다 (D-UX4-55, 사용자 지시 "오른쪽에 있는 요소들이 수평 정렬이 안 된거 같아") */}
-      <View style={{ transform: [{ translateY: NAV.titleLift }] }}>
-        <Txt step="nav" weight="book" ink={p.tabInk} numberOfLines={1}>
-          {label}
-        </Txt>
-      </View>
+      <Txt step="nav" weight="book" ink={p.tabInk} numberOfLines={1}>
+        {label}
+      </Txt>
     </Tap>
   )
 }

@@ -178,13 +178,22 @@ describe('들린 말 창 (D-UX4-53)', () => {
   })
 
   it('긴 현재 문장은 접었을 때만 한 줄이고 펼치면 전체가 줄바꿈된다', () => {
-    const text = '지금 보여 드리는 품종은 한여름에도 색이 선명해요. '.repeat(16)
+    // D-UX4-165: 조각은 문장으로 나눠 지금 줄에는 마지막 문장만 — 옛 기대: 문장 16개 조각 전체가 지금 줄. 나눌 자리(띄어쓰기·문장 끝)가 없는 긴 말로 줄바꿈을 본다
+    const text = '지금보여드리는품종은한여름에도색이선명해요'.repeat(5)
     render(<ListenLine session={fakeVoice({ transcript: [text] })} broadcastId="b1" stream={{ status: null, hold: false, retry: () => {} }} bottom={0} />)
-    const phrase = () => within(screen.getByRole('status', { name: '지금 인식한 말' })).getByText(text.trim())
+    const phrase = () => within(screen.getByRole('status', { name: '지금 인식한 말' })).getByText(text)
     expect(getComputedStyle(phrase()).whiteSpace).toBe('nowrap')
     fireEvent.click(screen.getByRole('button', { name: '음성 인식 펼치기' }))
     expect(getComputedStyle(phrase()).whiteSpace).not.toBe('nowrap')
     expect(phrase().textContent).toBe(text)
+  })
+
+  it('D-UX4-165 (사용자 "음성인식이 끊기지 않고 계속 이어지면 너무 긴 문장으로 보내지는데"): 긴 조각은 문장으로 나눠 지금 줄에는 마지막 문장만, 앞 문장은 지난 말로', () => {
+    const text = '그랬죠. 당시 입장에서는 그 홍이라는 것은 공포의 대상이 되어 버렸다. 진짜 일부러 입고 오신 거예요? 오늘 복장은 홍의 소년 같아요.'
+    render(<ListenLine session={fakeVoice({ transcript: [text] })} broadcastId="b1" stream={{ status: null, hold: false, retry: () => {} }} bottom={0} />)
+    expect(screen.getByRole('status', { name: '지금 인식한 말' }).textContent).toBe('오늘 복장은 홍의 소년 같아요.')
+    fireEvent.click(screen.getByRole('button', { name: '음성 인식 펼치기' }))
+    expect(screen.getAllByTestId('heard-row').map((row) => row.textContent?.replace(/^\d{2}:\d{2}(:\d{2})?/, ''))).toEqual(['그랬죠.', '당시 입장에서는 그 홍이라는 것은 공포의 대상이 되어 버렸다.', '진짜 일부러 입고 오신 거예요?'])
   })
 
   it('들린 말은 라이브 내내 남긴다 (옛 TRANSCRIPT_LINES 6줄)', () => {
