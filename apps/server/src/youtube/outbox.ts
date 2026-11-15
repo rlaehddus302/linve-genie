@@ -19,6 +19,7 @@
 //   서버가 SENDING 행을 남긴 채 죽었다 살아나면 그 행은 임대가 지난 뒤 확인부터 한다(확인 시간이 이미 지났으면 바로 끝 조회부터).
 // - 다시 시도: 2·4·8·16·32초 뒤 최대 5번, 그래도 안 되면 GAVE_UP. 다시 시도해도 소용없는 오류는 바로 보내지 못함.
 // - 실패·재시도·건너뜀은 엔진 이벤트로 기록하지 않는다(effect.failed 없음, D-Y01).
+// - 게시 뒤 감사 정정 (D-RETRO-105): 바퀴마다 이미 올라간 실시간 채팅 감사의 값이 고쳐졌는지 보고, 고쳐졌으면 그 글을 지우고 고친 글을 새로 올린다(thanks-fix.ts).
 import { formatWon, getBroadcast, getBuyer, listClaims, listEffects, listProducts, type ClaimInfo, type EngineEffect, type EngineState } from '@livejjim/core'
 import { MissingAmountError, requireAmount } from '../amount.ts'
 import type { Db } from '../db/database.ts'
@@ -58,6 +59,7 @@ import {
 import type { QuotaMeter } from './quota.ts'
 import { activeLink, fillLinkLiveChatId, fillLinkPoster, insertOwnMessage, isInvitedLink, latestLink, markChatEnded, markSummaryDone, summaryCandidates, type LinkRow } from './store.ts'
 import { SUMMARY_KIND, batchMessages, commentText, currentThanksTexts, liveChatText, summaryComments, type SummaryLine } from './texts.ts'
+import { ThanksFixer } from './thanks-fix.ts'
 import type { Timer } from './timer.ts'
 import { winnerClaimsOf } from '../winners.ts'
 
@@ -370,9 +372,26 @@ export class OutboxRunner {
   #running: Promise<void> | null = null
   /** 이번 바퀴에 오류가 있었는지 */
   #passFailed = false
+  /** 이미 올라간 감사의 값이 고쳐지면 지우고 고친 글을 새로 올린다 (D-RETRO-105) */
+  readonly #fixer: ThanksFixer
 
   constructor(options: OutboxOptions) {
     this.#options = options
+    this.#fixer = new ThanksFixer({
+      db: options.db,
+      timer: options.timer,
+      log: options.log,
+      writer: options.writer,
+      connections: options.connections,
+      google: options.google,
+      quota: options.quota,
+      owner: options.owner,
+      ...(options.chatSend === undefined ? {} : { chatSend: options.chatSend }),
+      postTimeoutMs: options.timing?.postTimeoutMs ?? POST_TIMEOUT_MS,
+      signal: () => this.#inflight.signal,
+      check: () => this.#check(),
+      killed: () => this.#killed,
+    })
   }
 
   get owner(): string {
@@ -420,12 +439,21 @@ export class OutboxRunner {
     if (this.#killed) throw new Killed()
   }
 
-  /** 한 바퀴: 처음 보는 행 → 서버가 죽은 뒤 남은 행 → 타임아웃 확인 → 때가 된 행 보내기 → 게시 보고 → 방송 후 요약 */
+  /** 한 바퀴: 처음 보는 행 → 서버가 죽은 뒤 남은 행 → 타임아웃 확인 → 때가 된 행 보내기 → 게시 보고 → 게시 뒤 감사 정정(D-RETRO-105) → 방송 후 요약 */
   async runOnce(): Promise<void> {
     if (this.#running !== null) return this.#running
     this.#running = (async () => {
       this.#passFailed = false
-      const steps = [() => this.#options.quota.tick(), () => this.#intake(), () => this.#confirmAll(), () => this.#sendDue(), () => this.#options.extension?.sweep(), () => this.#reportAll(), () => this.#summaries()]
+      const steps = [
+        () => this.#options.quota.tick(),
+        () => this.#intake(),
+        () => this.#confirmAll(),
+        () => this.#sendDue(),
+        () => this.#options.extension?.sweep(),
+        () => this.#reportAll(),
+        () => this.#fixer.run(),
+        () => this.#summaries(),
+      ]
       for (const step of steps) {
         if (this.#killed) return
         try {

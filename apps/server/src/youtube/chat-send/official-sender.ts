@@ -86,6 +86,21 @@ export class OfficialBotSender implements ChatSender {
     }, signal)
   }
 
+  /** 봇 계정 토큰으로 그 메시지를 지운다 (감사 정정, D-RETRO-105 — liveChatMessages.delete 50단위). 이미 없으면 성공 */
+  async remove(_target: ChatSendTarget, messageId: string, signal?: AbortSignal): Promise<void> {
+    const { google, connections, sellerId, channelId } = this.#options
+    await this.#pacer.run(async () => {
+      try {
+        await connections.withChannelToken(sellerId, channelId, (token) =>
+          google.api({ sellerId, method: 'liveChatMessages.delete', accessToken: token, httpMethod: 'DELETE', path: '/liveChat/messages', query: { id: messageId }, timeoutMs: POST_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) }),
+        )
+      } catch (error) {
+        if (error instanceof GoogleError && error.status === 404) return
+        throw officialFailure(error)
+      }
+    }, signal)
+  }
+
   async close(): Promise<void> {
     this.#chatIds.clear()
   }

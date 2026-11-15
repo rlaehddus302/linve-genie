@@ -152,7 +152,9 @@ describe('D-RETRO-02 기다리는 동안 고친 품종·가격이 게시 글에 
     ])
   })
 
-  it('이미 게시된 뒤에 고치면 다시 올리지 않고 게시된 글도 그대로다', async () => {
+  // D-RETRO-105로 바뀐 시험: 전에는 "이미 게시된 뒤에 고치면 게시된 글도 그대로"였다. 이제 발송함이 그 글을 지우고 고친 글을 새로 올린다
+  // (정정 자세한 시험은 youtube-thanks-fix.test.ts). 엔진의 게시된 감사 효과는 여전히 그대로다 — 게시 전 문구 따라가기(D-RETRO-02)는 아직 게시되지 않은 효과에만 걸린다
+  it('이미 게시된 뒤에 고치면 엔진의 게시된 효과는 그대로이고, 올라간 글은 지우고 고친 글로 새로 올린다 (D-RETRO-105)', async () => {
     const w = await world({ start: EIGHT_PM })
     const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
     const { b } = await linkedBroadcast(w, connected, { settings: NO_LABEL })
@@ -164,7 +166,10 @@ describe('D-RETRO-02 기다리는 동안 고친 품종·가격이 게시 글에 
     await expectOk(writeEvent(w, connected.seller, { type: 'product.update', b: b.id, no: 15, name: '성광', price: 5000, applyTo: 'UNPAID_CLAIMS' }))
     await w.timer.advance(60_000)
     await run(w)
-    expect(w.fake.posted.map((post) => post.text)).toEqual(['15번 상광 10,000원 홍길동님 구매 감사합니다'])
+    await w.timer.advance(10_000)
+    await run(w)
+    expect(w.fake.posted.map((post) => post.text)).toEqual(['15번 상광 10,000원 홍길동님 구매 감사합니다', '15번 성광 5,000원 홍길동님 구매 감사합니다'])
+    expect(w.fake.removed.map((item) => item.id)).toEqual([w.fake.posted[0]?.id])
     const state = (await w.server.writer.read(connected.seller.sellerId, b.date)).state
     expect(listEffects(state).map((effect) => [effect.status, effect.text])).toEqual([['DONE', '15번 상광 10,000원 홍길동님 구매 감사합니다']])
   })

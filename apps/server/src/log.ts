@@ -93,6 +93,9 @@ export type LogCode =
   | 'OUTBOX_REPORT_FAILED'
   | 'OUTBOX_UNCONFIRMED'
   | 'OUTBOX_ERROR'
+  // D-RETRO-105 감사 채팅 정정: 지우고 고친 글을 올림(지웠는지는 count 1·0) · 하지 못함(reason 코드만, 글·이름 없음)
+  | 'THANKS_FIX_DONE'
+  | 'THANKS_FIX_FAILED'
   | 'SEAL_FAILED'
   | 'SEALED'
   | 'WORKER_FAILED'
@@ -286,6 +289,8 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   CHAT_SEND_FAILOVER: '감사 채팅 봇 길이 막혀 공식 API로 넘겨 올려요',
   OUTBOX_REPORT_FAILED: '게시 보고를 기록하지 못해 다시 할게요(다시 게시하지 않음)',
   OUTBOX_UNCONFIRMED: '감사가 올라갔는지 확인하지 못해 다시 게시하지 않았어요',
+  THANKS_FIX_DONE: '값이 고쳐진 감사 채팅을 지우고 고친 글을 올렸어요',
+  THANKS_FIX_FAILED: '값이 고쳐진 감사 채팅을 고치지 못했어요',
   OUTBOX_ERROR: '발송함 처리 중 오류가 생겼어요',
   SEAL_FAILED: '30일 지난 범위를 봉인하지 못해 다음에 다시 해요',
   SEALED: '30일 지난 범위를 봉인했어요',

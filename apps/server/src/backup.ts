@@ -138,6 +138,7 @@ import {
   youtubeNotices,
   youtubeOauthStates,
   youtubeOwnMessages,
+  thanksFixes,
   youtubeQuota,
   // KP1 일정
   schedulePages,
@@ -1738,6 +1739,8 @@ export const RESTORE_REPLACED_TABLES = [
   printLabels,
   printRequests,
   youtubeOwnMessages,
+  // D-RETRO-105 감사 채팅 정정: 회차의 지난 정정 작업 — 파일에 없고 지운다(복구한 지난 감사를 다시 지우거나 올리지 않는다)
+  thanksFixes,
   youtubeNotices,
   youtubeCollectors,
   youtubeLinks,

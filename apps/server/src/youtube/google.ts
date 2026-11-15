@@ -23,6 +23,7 @@ export type ApiMethod =
   | 'liveChatMessages.streamList'
   | 'liveChatMessages.insert'
   | 'commentThreads.insert'
+  | 'liveChatMessages.delete'
 
 /** 비용 표 기본값 (구글 문서 2026-10-20 확인, D-Y09) */
 export const DEFAULT_COSTS: Readonly<Record<ApiMethod, number>> = {
@@ -34,6 +35,8 @@ export const DEFAULT_COSTS: Readonly<Record<ApiMethod, number>> = {
   'liveChatMessages.streamList': 5,
   'liveChatMessages.insert': 20,
   'commentThreads.insert': 50,
+  // 감사 채팅 정정 (D-RETRO-105) — 잘못 올라간 우리 감사 글 지우기
+  'liveChatMessages.delete': 50,
 }
 
 export interface GoogleEndpoints {
@@ -108,7 +111,7 @@ export interface ApiCall {
   readonly sellerId: string
   readonly method: ApiMethod
   readonly accessToken: string
-  readonly httpMethod?: 'GET' | 'POST'
+  readonly httpMethod?: 'GET' | 'POST' | 'DELETE'
   readonly path: string
   readonly query?: Readonly<Record<string, string | undefined>>
   readonly body?: unknown
@@ -247,6 +250,8 @@ export class GoogleClient {
       call.signal,
     )
     if (status < 200 || status >= 300) throw new GoogleError('http', status, reasonOf(body))
+    // 지우기는 본문 없이(204) 성공한다
+    if (call.httpMethod === 'DELETE' && body === null) return {}
     if (typeof body !== 'object' || body === null) throw new GoogleError('http', status, null)
     return body as Record<string, unknown>
   }
