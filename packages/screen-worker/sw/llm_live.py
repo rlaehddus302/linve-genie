@@ -1111,7 +1111,8 @@ class LlmRegister:
         ruled = shown in said
         first = next((r for r in p["rows"] if r["price"] == shown), None)
         conf = 0.9 if ruled and not rule else CONF.get(str((first or {}).get("confidence")).lower(), 0.6 if rule else 0.7)
-        body = post.make_body(self.video_id, no, shown, name or "", self._heard(lines), conf, tentative=tentative)
+        body = post.make_body(self.video_id, no, shown, name or "", self._heard(lines), conf, tentative=tentative,
+                              pieces=(self.name_info.get(no) or {}).get("qty") if name else None)   # 품종에서 떼어 낸 개수(D-PIECES-01)
         if body is None:
             return
         seen = self.seen.get(line, now)
@@ -1798,7 +1799,8 @@ class LlmRegister:
             why = "금액 모름"
         elif self.poster:
             from . import post
-            body = post.make_body(self.video_id, no, price, name or "", self._heard(lines), conf)
+            body = post.make_body(self.video_id, no, price, name or "", self._heard(lines), conf,
+                                 pieces=ni.get("qty") if ni and name else None)   # 품종에서 떼어 낸 개수(D-PIECES-01)
             if body is not None and tent is None:
                 observed = int(self.seen.get(line, now) * 1000)
                 while f"screen-{self.video_id}-{no}-{observed}" in self.tent_rids:

@@ -38,6 +38,7 @@ import { MONEY_SETTING_KEYS, RAW_FIELDS, applyRawInput, checkRawInput, readMoney
 import type { Db } from './db/database.ts'
 import { broadcasts, sellers, youtubeLinks } from './db/schema.ts'
 import { readShop } from './shop.ts'
+import { VarietyCache, type VarietySuggestions } from './varieties.ts'
 import { STATEMENT_MESSAGES, checkStatementInput, readStatementInfo, shippingSettings, writeStatementShop, type StatementInfo } from './statement-info.ts'
 import type { FieldProblem } from './errors.ts'
 import {
@@ -329,6 +330,8 @@ export class Service {
   readonly #sellerKeys = new Map<string, Buffer>()
   /** 범위마다 최근에 기록한 음성 문자찜 쓰기 (D-V1-13 — 메모리에만, 서버를 다시 켜면 빈다) */
   readonly #voiceRepeats = new VoiceRepeats()
+  /** 품종 후보의 지난 날짜 셈 (D-VARIETY-01 — 메모리에만) */
+  readonly #varieties = new VarietyCache()
   /** 리허설 가짜 채팅 생성기 (D-082) */
   readonly generators: ChatGenerators
   /** 문자찜 손님 번호 기억 (D-REAL-03 영수증 문자) — 서버 조립이 건다. 실제 범위에서 기록했을 때만 부른다 */
@@ -1230,6 +1233,18 @@ export class Service {
   /** 옵션 방송(설정 스냅샷 claim.parseMode=OPTIONS)이 실제·리허설 중 하나라도 있나 (D-O4-13) — 그 판매자 것만, 참/거짓만 */
   async hasOptionBroadcasts(sellerId: string): Promise<boolean> {
     return (await optionScopes(this.#options.db, sellerId)).length > 0
+  }
+
+  /**
+   * 품종 후보 (D-VARIETY-01): 그 방송에서 최근 등록한 품종과 이 판매자가 최근 방송들에서 많이 쓴 품종. 없는 방송·다른 판매자 방송이면 null.
+   * 봉인한 범위는 상태를 읽지 않는다(이번 방송 후보 없음). 지난 날짜는 실제 범위만 센다
+   */
+  async varieties(sellerId: string, broadcastId: string): Promise<VarietySuggestions | null> {
+    const row = await findBroadcast(this.#options.db, sellerId, broadcastId)
+    if (row === null) return null
+    const sealed = await this.sealed(sellerId, row.date, row.rehearsal)
+    const state = sealed === null ? (await this.#options.writer.read(sellerId, row.date, row.rehearsal)).state : null
+    return this.#varieties.suggestions(this.#options.db, sellerId, row.date, state, broadcastId)
   }
 
 

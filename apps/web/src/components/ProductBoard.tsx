@@ -2,6 +2,7 @@
 // CRM1 D-CRM1-07: 실제 방송의 1등이 "입금 늦음 주의" 손님이면 카드·보드·요약 줄·변형 줄의 이름 뒤에 작은 꼬리표(caution.tsx) — 판정은 그대로.
 // 라벨 상태 낱말은 서버의 출력 기록(라벨 키마다 — 라벨 대기·출력 중·라벨 출력됨·재출력 필요·출력 안 함)이다. 리허설은 보이지 않는다.
 import { FOCUS_GRACE_SEC } from '@livejjim/core'
+import { productTitle } from '@livejjim/core/format'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import type { Product } from '../api/types.ts'
@@ -122,7 +123,7 @@ export function FocusBanner() {
   )
 }
 
-const nameOf = (product: Product): string => (product.name.trim() === '' ? '품종 미입력' : product.name)
+const nameOf = (product: Product): string => productTitle(product.name.trim() === '' ? '품종 미입력' : product.name, product.pieces)
 
 /** 상품 한 줄 요약: 번호·품종·가격·상태·1등·대기 수 (번호 찾기 미리 보기) */
 export function ProductSummary({ product }: { readonly product: Product }) {

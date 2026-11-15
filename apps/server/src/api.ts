@@ -502,6 +502,13 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     const name = `정산내역서-${file.date}-${tab === 'buyers' ? '구매자별' : '상품별'}.${format}`
     return fileResponse(file.bytes, MIME[format], name, `statement-${file.date}-${tab}.${format}`)
   })
+  // 품종 후보 (D-VARIETY-01): { recent: 이 방송 최근 등록 품종, frequent: 최근 방송들에서 많이 쓴 품종 } — 읽기만, 다른 판매자·없는 방송은 404
+  api.get('/broadcasts/:id/varieties', async c => {
+    const id = c.req.param('id')
+    if (id === '' || id.length > 64) return notFound()
+    const view = await service.varieties(sellerOf(c), id)
+    return view === null ? notFound() : c.json(view)
+  })
   api.get('/broadcasts/:id/order-shop', async c => {
     const name = await service.orderShop(sellerOf(c), c.req.param('id'))
     return name === null ? notFound() : c.json({ name })

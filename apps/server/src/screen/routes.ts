@@ -1,6 +1,6 @@
 // 화면 일꾼 입구 `POST /internal/screen/register` (D-SCR-01): 운영자 맥(집 회선)에서 도는 화면 일꾼이
 // 방송 화면 번호표(OCR) + 판매자 말(STT) + 규칙으로 확정한 상품을 등록한다. 로그인·Origin 검사 밖, 일꾼 토큰으로만.
-// 받는 값: { videoId, no, price, name?, heard?, conf?, requestId } — 유튜브 영상 번호로 지금 이어진(끊지 않은·끝나지 않은) 방송을 찾는다.
+// 받는 값: { videoId, no, price, name?, pieces?(품종에서 떼어 낸 개수 1~99, D-PIECES-01), heard?, conf?, requestId } — 유튜브 영상 번호로 지금 이어진(끊지 않은·끝나지 않은) 방송을 찾는다.
 // D-SCR-04: 같은 영상에 이어진 방송이 여럿이면(판매자 여럿이 같은 라이브를 이음 — 초대받은 방송, D-LV1-15와 같게) 그 방송 모두에 등록한다.
 //   한 판매자는 한 영상을 방송 하나에만 잇는다(VIDEO_IN_USE) — 요청 번호는 판매자마다 한 번만이라(events_request_uq) 같은 요청을 다시 보내도 방송마다 한 번.
 // 등록은 서버 단독 소리 등록(headless #register, D-LV1-14)과 같은 길: product.register + voiceLog(device livegenie-screen).
@@ -36,8 +36,8 @@ export interface ScreenIntakeDeps {
  * (2026-11-12 방송: 일꾼이 서버보다 8분 33초 먼저 새 판이 돼 금액 고치기·번호 바꾸기 4건이 400·405로 거절됐다).
  */
 export const SCREEN_ENDPOINTS = {
-  register: { method: 'POST', path: '/internal/screen/register', fields: ['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt', 'tentative'] },
-  confirm: { method: 'POST', path: '/internal/screen/confirm', fields: ['videoId', 'no', 'requestId', 'registerRequestId', 'to', 'price', 'name'] },
+  register: { method: 'POST', path: '/internal/screen/register', fields: ['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt', 'tentative', 'pieces'] },
+  confirm: { method: 'POST', path: '/internal/screen/confirm', fields: ['videoId', 'no', 'requestId', 'registerRequestId', 'to', 'price', 'name', 'pieces'] },
   withdraw: { method: 'POST', path: '/internal/screen/withdraw', fields: ['videoId', 'no', 'requestId', 'registerRequestId'] },
   renumber: { method: 'POST', path: '/internal/screen/renumber', fields: ['videoId', 'from', 'to', 'requestId', 'drop', 'registerRequestId'] },
   rename: { method: 'POST', path: '/internal/screen/rename', fields: ['videoId', 'no', 'name', 'requestId'] },
@@ -52,6 +52,10 @@ const hasUnknownField = (endpoint: keyof typeof SCREEN_ENDPOINTS, body: object):
   const fields: readonly string[] = SCREEN_ENDPOINTS[endpoint].fields
   return Object.keys(body).some((k) => !fields.includes(k))
 }
+
+/** 일꾼이 품종 이름에서 떼어 낸 개수 ("채홍 3개" → 3, D-PIECES-01): 1~99 정수만. 적지 않았으면 undefined, 틀렸으면 null */
+const piecesOf = (value: unknown): number | undefined | null =>
+  value === undefined ? undefined : typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 99 ? value : null
 
 const COMMIT_RE = /^[0-9a-f]{7,40}$/
 
@@ -123,7 +127,8 @@ async function tentativeFacts(tx: Db, sellerId: string, scopeId: string, broadca
     const human = async (field: 'name' | 'price') => edit.actor === 'account' || (await carriedBy(tx, edit.requestId, field)) !== 'worker'
     if (edit.type === 'product.renumber') touched.number ||= await human('name')
     else {
-      if (body['name'] !== undefined) touched.name ||= await human('name')
+      // 개수(D-PIECES-01)는 품종에 딸린 값으로 센다
+      if (body['name'] !== undefined || body['pieces'] !== undefined) touched.name ||= await human('name')
       if (body['price'] !== undefined) touched.price ||= await human('price')
     }
   }
@@ -176,6 +181,9 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (typeof heard !== 'string' || [...heard].length > HEARD_MAX) return bad(`heard는 ${String(HEARD_MAX)}자까지예요.`)
     if (conf !== undefined && (typeof conf !== 'number' || !Number.isFinite(conf) || conf < 0 || conf > 1)) return bad('conf는 0~1이에요.')
     if (typeof requestId !== 'string' || !REQUEST_RE.test(requestId)) return bad('requestId는 screen-로 시작해야 해요.')
+    const pieces = piecesOf(b['pieces'])
+    if (pieces === null) return bad('pieces는 1~99 정수예요.')
+    const withPieces = pieces === undefined ? {} : { pieces }
 
     const observedAt = b['observedAt']
     if (observedAt !== undefined && (typeof observedAt !== 'number' || !Number.isSafeInteger(observedAt) || observedAt < 1 || observedAt > Date.now() + 5000)) return bad('인식한 시각을 확인해 주세요.')
@@ -187,7 +195,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     const voiceLog: Record<string, unknown> = { heard, source: 'voice', device: 'livegenie-screen', ...(conf === undefined ? {} : { conf }) }
     const results: { broadcastId: string; changed: boolean; duplicate: boolean; tentative?: true; skip?: string }[] = []
     for (const { sellerId, broadcastId } of open) {
-      const outcome = await deps.service.writeEvent(sellerId, { kind: 'server' }, requestId, { type: 'product.register', b: broadcastId, no, name, price, voiceLog }, undefined, undefined, tentative === undefined ? undefined : { tentative })
+      const outcome = await deps.service.writeEvent(sellerId, { kind: 'server' }, requestId, { type: 'product.register', b: broadcastId, no, name, price, ...withPieces, voiceLog }, undefined, undefined, tentative === undefined ? undefined : { tentative })
       let result = outcome.kind === 'phone' ? outcome.outcome : outcome
       // 임시 등록은 판매 종료한 번호를 다시 열지 않는다 — 다시 열면 확인 없이 바로 판매 중이 된다. 일꾼은 근거가 모인 뒤 임시 칸 없는 등록(observedAt)으로 다시 보낸다
       if (tentative !== undefined && (result.kind === 'duplicate' || (result.kind === 'ok' && !result.result.changed))) {
@@ -211,7 +219,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
               return null
             },
             build: ({ state }) => fresh && getProduct(state, broadcastId, no)?.status === 'CLOSED' ? [
-              { fields: { type: 'product.update', b: broadcastId, no, name, price }, actor: { kind: 'server' }, requestId: reopenId },
+              { fields: { type: 'product.update', b: broadcastId, no, name, price, ...withPieces }, actor: { kind: 'server' }, requestId: reopenId },
               { fields: { type: 'product.open', b: broadcastId, no }, actor: { kind: 'server' } },
             ] : [],
           })
@@ -260,6 +268,8 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (to !== undefined && !isNo(to)) return bad('to는 1~9999 정수예요.')
     if (price !== undefined && (typeof price !== 'number' || !Number.isInteger(price) || price < 0 || price > 100_000_000)) return bad('price는 0~100,000,000 정수(원)예요.')
     if (name !== undefined && (typeof name !== 'string' || [...name].length > NAME_MAX)) return bad(`name은 ${String(NAME_MAX)}자까지예요.`)
+    const pieces = kind === 'confirm' ? piecesOf(body['pieces']) : undefined
+    if (pieces === null) return bad('pieces는 1~99 정수예요.')
     const open = await openBroadcastsOfVideo(deps.db, videoId)
     if (open.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
     const results: { broadcastId: string; changed: boolean; skip?: string; kept?: string[] }[] = []
@@ -299,6 +309,8 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
             if (touched.name) kept.push('name')
             else fields['name'] = name
           }
+          // 개수는 품종에 딸린 값이다 — 판매자가 품종(개수 포함)을 고쳤으면 판매자 값 그대로 (D-PIECES-01)
+          if (pieces !== undefined && pieces !== (product?.pieces ?? 1) && !touched.name) fields['pieces'] = pieces
           if (price !== undefined && price !== product?.price) {
             if (touched.price) kept.push('price')
             else fields['price'] = price

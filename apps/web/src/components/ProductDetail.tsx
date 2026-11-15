@@ -2,6 +2,7 @@
 // - 번호·품종·가격·재고·상태, 1등(들), 대기 목록, 그 번호의 보류·충돌 찜, 라벨(1등마다 미리 보기·상태·이력·출력·내보내기 — 리허설은 없음),
 //   취소 요청, 가격·품종 변경 이력, 조치 기록.
 // - 상품 관리(일시 중지·다시 판매·공개·판매 종료·고치기)은 바로 보낸다. 찜 조치(host.*)는 5초 뒤에 보낸다.
+import { productTitle } from '@livejjim/core/format'
 import { CautionMark, useCaution } from './caution.tsx'
 import { useEffect, useMemo, useState } from 'react'
 import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/client.ts'
@@ -142,7 +143,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
       <dl className="facts">
         <div>
           <dt>품종</dt>
-          <dd>{product.name === '' ? '품종 미입력' : product.name}</dd>
+          <dd>{productTitle(product.name === '' ? '품종 미입력' : product.name, product.pieces)}</dd>
         </div>
         <div>
           <dt>가격</dt>

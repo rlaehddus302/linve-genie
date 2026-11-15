@@ -144,6 +144,8 @@ export interface ProductRegisterEvent extends EventBase {
    * 적지 않은 등록은 지금 그대로다(판매자의 손 등록은 바로 판매 중).
    */
   readonly tentative?: TentativeInput
+  /** 한 번호에 묶어 파는 개수 1~99, 적지 않으면 1 ("채홍 3개", D-PIECES-01). 표시만 — 판정·재고·금액과 상관없다(가격은 묶음 하나의 값) */
+  readonly pieces?: number
 }
 
 /** 확인 중으로 올린 쪽: 화면 일꾼 · 계정 동기화 (R-2 "확인 중") */
@@ -182,6 +184,8 @@ export interface ProductConfirmEvent extends EventBase {
   readonly name?: string
   /** 최종 금액 — 정수 원, 0 이상 (적지 않으면 지금 값) */
   readonly price?: number
+  /** 최종 개수 1~99 (적지 않으면 지금 값, D-PIECES-01) */
+  readonly pieces?: number
 }
 
 /** 확인 중 상품 거두기 (R-2 "확인 중", D-RETRO-80): 상품 기록을 없앤다. 그 번호의 보류 찜은 그대로 보류다. 확인 중이 아니면 아무 일도 없다 */
@@ -211,6 +215,8 @@ export interface ProductUpdateEvent extends EventBase {
   readonly aliases?: readonly string[]
   readonly options?: readonly OptionItem[]
   readonly stocks?: Readonly<Record<string, number>>
+  /** 개수 1~99 (D-PIECES-01). 1로 고치면 개수 표시가 없어진다 */
+  readonly pieces?: number
 }
 
 /** 지금 상품 정하기 (R-20 6, D-O1-06 — 옵션 방송만) */
@@ -564,6 +570,11 @@ export interface ProductRecord {
    * 이 칸이 없던 옛 이벤트 로그를 재생한 상태가 글자까지 그대로여야 한다(INV-4, D-072 — thanks.followEdits와 같은 방식, D-RETRO-02).
    */
   readonly tentative?: TentativeRecord
+  /**
+   * 한 번호에 묶어 파는 개수 (D-PIECES-01). 2 이상일 때만 이 칸이 있다 — 1(기본)이면 칸 자체를 넣지 않는다:
+   * 이 칸이 없던 옛 이벤트 로그를 재생한 상태가 글자까지 그대로여야 한다(INV-4, D-072 — tentative와 같은 방식).
+   */
+  readonly pieces?: number
 }
 
 /** 방송의 번호 하나 (상품이 아직 없어도 보류 찜이 있으면 생긴다) */
@@ -881,6 +892,8 @@ export interface ProductInfo {
    * 누가 올렸나·까닭 낱말·후보(번호·금액·품종)·임시 등록 시각. 닉네임·채팅 글은 없다.
    */
   readonly tentative?: TentativeInfo
+  /** 한 번호에 묶어 파는 개수 (D-PIECES-01). 2 이상일 때만 있다 — 없으면 1. 화면·라벨은 품종 옆에 "3개"로 적는다 */
+  readonly pieces?: number
 }
 
 /** 확인 중 표시 (조회) */

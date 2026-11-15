@@ -20,18 +20,19 @@ const PICK = ['options']
 export const VOICE_LOG_FIELD = 'voiceLog'
 
 export const API_EVENTS: Readonly<Record<string, ApiEventSpec>> = {
+  // pieces (D-PIECES-01): 한 번호에 묶어 파는 개수 1~99 — 등록·고치기·확정에서 받는다(엔진 필드)
   // voiceLog (V3 R-25, D-V3-65): 음성으로 한 쓰기의 기록 칸 { heard, source?, undo?, device? } — 엔진 필드가 아니고 서버가 음성 기록 줄로만 쓴다 (판매 종료는 등록 되돌리기만)
   // 방송 중 감사 채팅 켜기·끄기 (D-YT-SRV-24) — 방송 메뉴(⋯)
   'broadcast.thanks': { broadcast: true, fields: ['b', 'liveChat'] },
-  'product.register': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'status', ...PRODUCT_OPTIONS, VOICE_LOG_FIELD] },
+  'product.register': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'status', 'pieces', ...PRODUCT_OPTIONS, VOICE_LOG_FIELD] },
   'product.open': { broadcast: true, fields: BY_PRODUCT },
   'product.hold': { broadcast: true, fields: BY_PRODUCT },
   'product.close': { broadcast: true, fields: [...BY_PRODUCT, VOICE_LOG_FIELD] },
-  'product.update': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'applyTo', ...PRODUCT_OPTIONS, VOICE_LOG_FIELD] },
+  'product.update': { broadcast: true, fields: [...BY_PRODUCT, 'name', 'price', 'stock', 'applyTo', 'pieces', ...PRODUCT_OPTIONS, VOICE_LOG_FIELD] },
   'product.renumber': { broadcast: true, fields: ['b', 'from', 'to', 'reuseClosed', VOICE_LOG_FIELD] },
   // 확인 중(임시 등록) 상품을 판매자가 한 번에 확정·거두기 (R-2 "확인 중", D-RETRO-82): 후보에서 고른 번호(to)·품종·금액을 함께 보낸다 — 적지 않은 칸은 지금 값.
   // 확인 중으로 올리는 칸(product.register의 tentative)은 여기서 받지 않는다 — 판매자의 손 등록은 늘 바로 판매 중이다(일꾼 입구·계정 동기화만 임시로 올린다)
-  'product.confirm': { broadcast: true, fields: [...BY_PRODUCT, 'to', 'name', 'price'] },
+  'product.confirm': { broadcast: true, fields: [...BY_PRODUCT, 'to', 'name', 'price', 'pieces'] },
   'product.withdraw': { broadcast: true, fields: BY_PRODUCT },
   // O2: 지금 상품 정하기 (옵션 방송만, 화면은 5초 대기 없이 바로 보낸다 — D-O2-10)
   'product.focus': { broadcast: true, fields: BY_PRODUCT },

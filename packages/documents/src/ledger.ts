@@ -16,6 +16,7 @@ import {
   type ProductStatus,
   type SaleSettings,
 } from '@livejjim/core'
+import { productTitle } from '@livejjim/core/format'
 import { compareCodePoints, optionText } from './text.ts'
 import { formatKstLedgerTime, isDateString } from './kst.ts'
 
@@ -247,7 +248,7 @@ export function buildLedger(input: LedgerInput): LedgerResult {
           date: broadcast.date,
           session: broadcast.title,
           no: product.no,
-          name: product.name,
+          name: productTitle(product.name, product.pieces),
           price: product.price,
           buyer: '',
           channel: '',
@@ -261,7 +262,7 @@ export function buildLedger(input: LedgerInput): LedgerResult {
       }
       // 찜 금액·단가 스냅샷은 코어 값만 — 확정 찜에 없으면 대장을 만들지 않는다(가격 스냅샷·단가 × 수량으로 채우지 않는다, D-O3-15)
       if (winners.some((claim) => !Number.isSafeInteger(claim.amount) || !Number.isSafeInteger(claim.price))) return fail('AMOUNT_MISSING', '판매 금액을 확인할 수 없어 판매대장을 만들지 않았어요.')
-      for (const claim of winners) rows.push(claimRow(state, broadcast, product.name, claim, payments, shippingOf, options))
+      for (const claim of winners) rows.push(claimRow(state, broadcast, productTitle(product.name, product.pieces), claim, payments, shippingOf, options))
     }
   }
   return { ok: true, rows, options }

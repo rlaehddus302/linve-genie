@@ -338,6 +338,9 @@ export const ASSIGN_REPLACE_FIELDS = ['replace', 'replaceTo'] as const
 const productByNo = spec({ b: F.b, no: F.no })
 const blockLike = spec({ buyer: F.buyer, reason: F.reason })
 
+/** 한 번호에 묶어 파는 개수 1~99 (README 이벤트 표, D-PIECES-01) — 코어 상수를 쓰지 않고 README대로 적는다 */
+const piecesValue: ValueCheck = (value) => (typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 && value <= 99 ? undefined : '개수는 1~99 정수여야 한다')
+
 export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   // 짧은 형식 at은 이 이벤트의 date 기준 (README "시각") — validate가 따로 다룬다
   'broadcast.start': spec({ b: F.newB, date: F.date, title: F.v(freeText) }, { settings: F.settings }),
@@ -346,7 +349,7 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   'broadcast.pendingExpire': spec({ b: F.b, expire: F.v(bool) }),
   'product.register': spec(
     { b: F.b, no: F.no, name: F.v(freeText), price: F.v(intAtLeast(0)) },
-    { stock: F.v(intAtLeast(1)), status: F.v(oneOf(['OPEN', 'READY'])), aliases: F.aliases, options: F.optionItems, stocks: F.stocks, tentative: F.v(tentativeShape) },
+    { stock: F.v(intAtLeast(1)), status: F.v(oneOf(['OPEN', 'READY'])), aliases: F.aliases, options: F.optionItems, stocks: F.stocks, tentative: F.v(tentativeShape), pieces: F.v(piecesValue) },
   ),
   'product.open': productByNo,
   'product.hold': productByNo,
@@ -361,11 +364,12 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
       aliases: F.aliases,
       options: F.optionItems,
       stocks: F.stocks,
+      pieces: F.v(piecesValue),
     },
   ),
   'product.renumber': spec({ b: F.b, from: F.no, to: F.no }),
   // 확인 중 상품 확정·거두기 (R-2 "확인 중", D-RETRO-80)
-  'product.confirm': spec({ b: F.b, no: F.no }, { to: F.no, name: F.v(freeText), price: F.v(intAtLeast(0)) }),
+  'product.confirm': spec({ b: F.b, no: F.no }, { to: F.no, name: F.v(freeText), price: F.v(intAtLeast(0)), pieces: F.v(piecesValue) }),
   'product.withdraw': productByNo,
   'product.focus': spec({ b: F.b, no: F.no }),
   chat: spec(

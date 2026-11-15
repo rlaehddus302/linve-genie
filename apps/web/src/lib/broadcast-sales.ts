@@ -1,4 +1,4 @@
-import { formatWon, saleSetSize } from '@livejjim/core/format'
+import { formatWon, productTitle, saleSetSize } from '@livejjim/core/format'
 import type { ScopeData } from './scope-data.ts'
 
 export interface SaleLine {
@@ -77,10 +77,13 @@ export function broadcastSales(claims: ScopeData['claims'], products: ScopeData[
   const byBuyer = new Map<string, Map<string, SaleLine>>()
   for (const claim of claims.values()) {
     if (claim.broadcast !== broadcast || claim.status !== 'CONFIRMED') continue
-    const name = products.get(claim.product)?.name?.trim() || '상품명 미입력'
+    const product = products.get(claim.product)
+    const name = product?.name?.trim() || '상품명 미입력'
     const set = saleSetSize(name)
-    const line = { key: claim.key ?? claim.product, no: claim.no, name: set ? `${String(set)}개 세트` : name,
-      variant: claim.variant, qty: claim.qty * (set ?? 1), amount: claim.amount ?? null }
+    // 한 번호에 묶어 파는 개수 (D-PIECES-01): 품종 옆에 "3개", 판매 수량은 낱개로 센다(세트 이름과 같게)
+    const pieces = product?.pieces ?? 1
+    const line = { key: claim.key ?? claim.product, no: claim.no, name: set ? `${String(set)}개 세트` : productTitle(name, pieces),
+      variant: claim.variant, qty: claim.qty * (set ?? pieces), amount: claim.amount ?? null }
     const buyer = byBuyer.get(claim.currentBuyer) ?? new Map<string, SaleLine>()
     addLine(buyer, line)
     byBuyer.set(claim.currentBuyer, buyer)

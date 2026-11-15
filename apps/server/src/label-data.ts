@@ -1,5 +1,5 @@
 // 엔진 상태 → 라벨 데이터 (LABEL_RULES L-9, L-10, D-I1-04·D-I1-10). 판정은 하지 않는다 — 코어 조회 함수의 결과만 읽는다.
-// - 상품 라벨: no·name = 그 찜이 속한 상품의 지금 번호·품종, price = 그 찜의 가격 스냅샷, date = 그 방송의 날짜(범위 날짜),
+// - 상품 라벨: no·name = 그 찜이 속한 상품의 지금 번호·품종(개수가 2 이상이면 "채홍 3개", D-PIECES-01), price = 그 찜의 가격 스냅샷, date = 그 방송의 날짜(범위 날짜),
 //   buyer = 그 라벨 키에 고정된 구매자(라벨 키의 첫 작업 때 정한다).
 // - 상품 라벨의 구매자 규칙(첫 작업 때): 문자찜으로 생긴 찜이거나 찜의 구매자 자신이 문자 구매자면 { kind: 'sms' },
 //   아니면 { kind: 'youtube', name: 찜의 구매자 자신의 지금 표시 이름 } — 합친 상대의 이름이 아니다.
@@ -21,7 +21,7 @@ import {
   type EngineState,
 } from '@livejjim/core'
 import { claimAmount, MissingAmountError } from './amount.ts'
-import { displayNickname } from '@livejjim/core/format'
+import { displayNickname, productTitle } from '@livejjim/core/format'
 import { checkPackingData, checkProductData, labelContentKey, type LabelBuyer, type PackingEntry, type PackingLabelData, type ProductLabelData } from '@livejjim/label'
 
 /** 찜 ID → 코어 조회 결과 (상태 하나에 한 번 만든다 — 범위 실행 상태의 보기 캐시에 둔다) */
@@ -81,7 +81,8 @@ export function productLabelData(
   // 옵션 글은 있을 때만, 수량은 2 이상일 때만 (L-9 O3, D-O3-01)
   const data = {
     no: info.no,
-    name: product.name,
+    // 품종 옆에 개수 ("채홍 3개", D-PIECES-01) — 개수 1이면 품종 그대로
+    name: productTitle(product.name, product.pieces),
     price,
     ...(info.variant === null ? {} : { variant: info.variant }),
     ...(info.qty >= 2 ? { qty: info.qty } : {}),

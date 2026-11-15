@@ -12,7 +12,7 @@ import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue
 import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { UNKNOWN_SMS_DISPLAY, buyerList, channelTail, claimsOf, defaultInto, distinguishWords, isActive, isUnknownSms, mergeWords, sameNameCounts, searchBuyers, settlementOf, splitProductKey, type BuyerSort, type MergePreviewView } from '../lib/buyers.ts'
 import { useDayScope } from '../lib/day-scope.ts'
-import { BuyerNames, claimWord } from '../lib/derive.ts'
+import { BuyerNames, claimWord, nameOf } from '../lib/derive.ts'
 import type { ScopeData } from '../lib/scope-data.ts'
 import { QUICK_REASONS } from '@livejjim/web/src/lib/words.ts'
 import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
@@ -231,7 +231,7 @@ function BuyerDetail({ data, names, counts, buyer, queue, items, command, onClos
         {confirmed.map((claim) => {
           const { broadcast, no } = splitProductKey(claim.key)
           const product = data.products.get(claim.key)
-          const productName = product?.name.trim() === '' || product === undefined ? '품종 미입력' : product.name
+          const productName = product === undefined ? '품종 미입력' : nameOf(product)
           return <InfoRow key={claim.id} label={`${label(broadcast, no)} ${productName}`} value={formatWon(product?.price ?? 0)} spoken={`${label(broadcast, no)} ${productName} · ${formatWon(product?.price ?? 0)}`} />
         })}
         <InfoRow label="합계" value={formatWon(buyer.subtotal)} strong spoken={`합계 ${formatWon(buyer.subtotal)}`} />

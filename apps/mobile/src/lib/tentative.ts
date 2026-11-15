@@ -94,10 +94,11 @@ export function tentativeAttention(product: Pick<Product, 'status' | 'tentative'
 
 /**
  * 한 번 탭 확정: 판매자가 카드에서 본 값 그대로 보낸다 — 번호를 옮기면 to, 가격·품종은 본 값을 늘 적는다
- * (그사이 일꾼이 값을 바꿨어도 판매자가 보고 누른 값으로 확정된다). 품종이 비어 있으면 적지 않는다(지금 값 그대로)
+ * (그사이 일꾼이 값을 바꿨어도 판매자가 보고 누른 값으로 확정된다). 품종이 비어 있으면 적지 않는다(지금 값 그대로). pick.name = 카드에서 고른 품종 후보
  */
-export function confirmEvent(product: Pick<Product, 'broadcast' | 'no' | 'name' | 'price'>, pick: { readonly no?: number; readonly price?: number } = {}): Readonly<Record<string, unknown>> {
-  const name = product.name.trim()
+export function confirmEvent(product: Pick<Product, 'broadcast' | 'no' | 'name' | 'price'>, pick: { readonly no?: number; readonly price?: number; readonly name?: string } = {}): Readonly<Record<string, unknown>> {
+  // 카드에서 품종 후보 단추를 눌렀으면 그 이름으로 (D-VARIETY-01)
+  const name = (pick.name ?? product.name).trim()
   return {
     type: 'product.confirm',
     b: product.broadcast,
@@ -111,4 +112,16 @@ export function confirmEvent(product: Pick<Product, 'broadcast' | 'no' | 'name' 
 /** 거두기: 상품 기록만 없앤다 — 그 번호로 기다리는 찜은 그대로 남는다 (판매 종료와 다르다) */
 export function withdrawEvent(product: Pick<Product, 'broadcast' | 'no'>): Readonly<Record<string, unknown>> {
   return { type: 'product.withdraw', b: product.broadcast, no: product.no }
+}
+
+/** 지금 품종이 아닌 품종 후보 (일꾼이 들은 이름, 서버가 준 순서대로) — 카드·수정창의 품종 단추 맨 앞 (D-VARIETY-01) */
+export function otherNames(product: Pick<Product, 'name' | 'tentative'>): string[] {
+  const current = product.name.trim()
+  const out: string[] = []
+  for (const name of product.tentative?.candidates.name ?? []) {
+    const value = name.trim()
+    if (value === '' || value === current || out.includes(value)) continue
+    out.push(value)
+  }
+  return out
 }

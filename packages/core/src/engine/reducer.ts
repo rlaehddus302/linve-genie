@@ -397,6 +397,21 @@ function settled(product: ProductRecord): Omit<ProductRecord, 'tentative'> {
   return rest
 }
 
+/**
+ * 개수를 고친 상품 기록 (D-PIECES-01): 2 이상이면 칸을 두고, 1이면 칸을 뺀다(기본 1인 상품의 기록은 이 칸이 없던 때와 글자까지 같다).
+ * pieces가 undefined면(고치지 않음) 그대로
+ */
+function withPieces<T extends { readonly pieces?: number }>(product: T, pieces: number | undefined): T {
+  if (pieces === undefined) return product
+  const { pieces: _pieces, ...rest } = product
+  return (pieces > 1 ? { ...rest, pieces } : rest) as T
+}
+
+/** 고치는 이벤트가 적은 개수가 지금과 다르면 그 값 (같거나 적지 않았으면 undefined) */
+function changedPieces(product: { readonly pieces?: number }, pieces: number | undefined): number | undefined {
+  return pieces !== undefined && pieces !== (product.pieces ?? 1) ? pieces : undefined
+}
+
 function register(d: Draft, e: ProductRegisterEvent): void {
   if (d.readSlot(slotKey(e.b, e.no))?.product) return
   const slot = d.slot(e.b, e.no)
@@ -419,6 +434,8 @@ function register(d: Draft, e: ProductRegisterEvent): void {
     options,
     variants,
     ...(e.tentative === undefined ? {} : { tentative: tentativeOf(d, e.tentative) }),
+    // 개수는 2 이상일 때만 칸을 둔다 (D-PIECES-01)
+    ...(e.pieces === undefined || e.pieces <= 1 ? {} : { pieces: e.pieces }),
   }
   slot.units = withPendingUnits(d, slot, variants.map(({ text }) => ({ ...emptyUnit(text), winners: [], waitlist: [] })))
   d.setProductKey(id, slot.key)
@@ -569,11 +586,12 @@ function update(d: Draft, e: ProductUpdateEvent): void {
   }
   const stocksChanged = optioned && JSON.stringify(variants) !== JSON.stringify(product.variants)
   const defaultStock = optioned && e.stock !== undefined && e.stock !== product.stock ? e.stock : undefined
-  if (name === undefined && price === undefined && stock === undefined && options === undefined && aliases === undefined && !stocksChanged && defaultStock === undefined) return
+  const pieces = changedPieces(product, e.pieces)
+  if (name === undefined && price === undefined && stock === undefined && options === undefined && aliases === undefined && !stocksChanged && defaultStock === undefined && pieces === undefined) return
   const target = draftSlot()
   const change = { seq: d.seq, at: d.at }
   target.product = {
-    ...product,
+    ...withPieces(product, pieces),
     ...(name === undefined ? {} : { name, nameHistory: [...product.nameHistory, { from: product.name, to: name, ...change }] }),
     ...(price === undefined ? {} : { price, priceHistory: [...product.priceHistory, { from: product.price, to: price, ...change }] }),
     ...(stock === undefined && defaultStock === undefined ? {} : { stock: (stock ?? defaultStock) as number }),
@@ -594,11 +612,12 @@ function update(d: Draft, e: ProductUpdateEvent): void {
       const newPrice = unitPrice(next, record.variant)
       const changed = newPrice !== unitPrice(product, record.variant)
       const reprice = changed && e.applyTo === 'UNPAID_CLAIMS' && record.price !== newPrice && groupReceived(d, record) === 0
-      if (!reprice && name === undefined) continue
+      // 개수만 고친 것은 감사 문구를 바꾸지 않고, 뽑은 라벨(품종 옆 개수)만 다시 인쇄 필요로 둔다 (D-PIECES-01)
+      if (!reprice && name === undefined && pieces === undefined) continue
       // 아직 게시되지 않은 감사 문구는 고친 품종·그 찜의 지금 단가를 따라간다 (R-13, D-RETRO-02). NEW_ONLY면 찜 단가가 그대로라 금액도 그대로.
       // 그 방송의 설정 스냅샷 thanks.followEdits가 참일 때만 — 이 칸이 없던 옛 방송은 다시 재생해도 문구가 그대로다
       const from = record.price as number
-      if (followEdits && record.price !== null) retextThanks(d, record, { name: product.name, price: from }, { name: next.name, price: reprice ? newPrice : from })
+      if (followEdits && record.price !== null && (reprice || name !== undefined)) retextThanks(d, record, { name: product.name, price: from }, { name: next.name, price: reprice ? newPrice : from })
       const printed = labelPrinted(d, record)
       if (!reprice && !printed) continue
       const claim = d.claim(id)
@@ -697,7 +716,7 @@ function confirmTentative(d: Draft, e: ProductConfirmEvent): void {
   const from = d.slot(e.b, e.no)
   const slot = toNo === e.no ? from : moveProduct(d, from, toNo)
   slot.product = {
-    ...settled(product),
+    ...withPieces(settled(product), changedPieces(product, e.pieces)),
     ...(name === undefined ? {} : { name, nameHistory: [...product.nameHistory, { from: product.name, to: name, ...change }] }),
     ...(price === undefined ? {} : { price, priceHistory: [...product.priceHistory, { from: product.price, to: price, ...change }] }),
     phase: 'SELLING',

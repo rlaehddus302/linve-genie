@@ -76,6 +76,9 @@ const money: Check = (v) => (isInt(v, 0) ? null : '0 이상 정수(원)여야 �
 const positive: Check = (v) => (isInt(v, 1) ? null : '1 이상 정수(원)여야 한다')
 const signed: Check = (v) => (typeof v === 'number' && Number.isSafeInteger(v) ? null : '정수(원)여야 한다')
 const stock: Check = (v) => (isInt(v, 1) ? null : '재고는 1 이상 정수여야 한다')
+/** 한 상품(번호 하나)에 묶어 파는 개수 1~99 ("채홍 3개", D-PIECES-01). 판정·금액과 상관없는 표시 칸이다 */
+export const PIECES_MAX = 99
+const pieces: Check = (v) => (isInt(v, 1) && (v as number) <= PIECES_MAX ? null : `개수는 1~${String(PIECES_MAX)} 정수여야 한다`)
 const bool: Check = (v) => (typeof v === 'boolean' ? null : 'true 또는 false여야 한다')
 const time: Check = (v) => (typeof v === 'number' && Number.isFinite(v) ? null : '유한한 수(UTC 밀리초)여야 한다')
 const received: Check = (v) => (isValidReceivedTime(v) ? null : '수신 시각은 HH:MM 또는 HH:MM:SS(00:00~23:59:59)여야 한다')
@@ -232,7 +235,7 @@ const SPECS: Readonly<Record<string, Spec>> = {
   'broadcast.pendingExpire': { required: { [BROADCAST]: id, expire: bool } },
   'product.register': {
     required: { ...BY_PRODUCT, name: freeText, price: money },
-    optional: { stock, status: oneOf('OPEN', 'READY'), ...PRODUCT_OPTIONS, tentative: nestedShape },
+    optional: { stock, status: oneOf('OPEN', 'READY'), ...PRODUCT_OPTIONS, tentative: nestedShape, pieces },
     nested: (e) => [...productOptionShapes(e), ...(e.tentative === undefined ? [] : checkTentativeShape(e.tentative).problems)],
     texts: (e) => [...productOptionTexts(e), ...(e.tentative === undefined ? [] : checkTentativeShape(e.tentative).texts)],
     // 확인 중으로 올리는 등록은 공개 전이다 — 바로 판매 중(OPEN)과 함께 쓸 수 없다 (R-2 "확인 중")
@@ -243,13 +246,13 @@ const SPECS: Readonly<Record<string, Spec>> = {
   'product.close': { required: BY_PRODUCT },
   'product.update': {
     required: BY_PRODUCT,
-    optional: { name: freeText, price: money, stock, applyTo: oneOf('NEW_ONLY', 'UNPAID_CLAIMS'), ...PRODUCT_OPTIONS },
+    optional: { name: freeText, price: money, stock, applyTo: oneOf('NEW_ONLY', 'UNPAID_CLAIMS'), ...PRODUCT_OPTIONS, pieces },
     nested: productOptionShapes,
     texts: productOptionTexts,
   },
   'product.renumber': { required: { [BROADCAST]: id, from: no, to: no }, optional: { reuseClosed: bool } },
   // 확인 중 상품 확정·거두기 (R-2 "확인 중", D-RETRO-80)
-  'product.confirm': { required: BY_PRODUCT, optional: { to: no, name: freeText, price: money } },
+  'product.confirm': { required: BY_PRODUCT, optional: { to: no, name: freeText, price: money, pieces } },
   'product.withdraw': { required: BY_PRODUCT },
   'product.focus': { required: BY_PRODUCT },
   chat: { required: { [BROADCAST]: id, id, ch: channel, nick: text, text }, optional: { owner: bool, publishedAt: time } },
