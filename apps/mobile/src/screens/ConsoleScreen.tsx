@@ -42,6 +42,7 @@ import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue
 import { VoicePanel } from './console/VoicePanel.tsx'
 import { useFollowScroll } from '../lib/use-follow-scroll.ts'
 import { HEARD_TAB, HeardTab, ListenLine, useKeptStream } from './console/StreamAudio.tsx'
+import { useTabBarHide } from './console/tab-hide.ts'
 import { ListenSourceChip, ListenSourceSheet } from './console/ListenSource.tsx'
 import { ClaimFeed } from './console/ClaimFeed.tsx'
 import { LiveTalk, TALK_TAB, TalkDock } from './console/LiveTalk.tsx'
@@ -149,7 +150,7 @@ export const SHOW_AFTER_BACK_MS = 600
 /** "그 상품 보기"로 스크롤할 때 그 줄 위에 남기는 자리 (붙는 탭 바 아래에 줄이 보이게) */
 const ROW_PEEK = 64
 
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; readonly refresh?: number }) {
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -196,11 +197,15 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   // 채팅·문자·음성 인식 탭만 라이브 채팅처럼 맨 아래(새 줄)에서 시작하고, 상품·찜 기록은 맨 위에서 (D-UX4-98 — 옛: 모든 탭이 맨 아래로 굴러가
   // 라이브 화면에 들어오거나 탭을 바꿀 때마다 목록이 아래로 튀었다)
   const bottomTab = tab === 'talk' || tab === 'heard'
+  // 탭 바 숨김은 손으로 굴린 거리만 센다 — 탭을 바꾸면 보이고, 맨 아래로 바로 가거나 새 줄을 따라가도 숨지 않는다 (D-UX4-155)
+  const tabHide = useTabBarHide()
+  const { show: showTabs } = tabHide
   useEffect(() => {
     resetFollow()
+    showTabs()
     if (bottomTab) scroll.current?.scrollToEnd({ animated: false })
     else scroll.current?.scrollTo({ y: 0, animated: false })
-  }, [tab, bottomTab, scroll, resetFollow])
+  }, [tab, bottomTab, scroll, resetFollow, showTabs])
   // 새로 추가한 상품을 잠깐 강조한다 — 쌓인 상품 추가 화면이 돌아오며 알려 준다 (D-UX4-57)
   const showAdded = useCallback((key: string) => {
     setTab('products')
@@ -271,7 +276,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
     const back = BackHandler.addEventListener('hardwareBackPress', () => { setOrderBuyer(null); return true })
     return () => back.remove()
   }, [orderBuyer])
-  const [salesPage, setSalesPage] = useState<'auto' | 'sales' | 'record'>('auto')
+  const [salesPage, setSalesPage] = useState<'auto' | 'sales' | 'record'>(startPage ?? 'auto')
   const labelsQueue = useSyncExternalStore(services.labels.subscribe, services.labels.getSnapshot)
   const paper = useLabelPaper(services.labels.paperDeviceId ?? null)
   // 자리를 비운 동안 줄의 라벨 몫: 뽑히는 대로 줄이고, 라벨 출력을 끄면 뺀다 (D-RETRO-141)
@@ -465,13 +470,16 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const help = closed ? '끝난 라이브예요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   if (salesPage === 'sales' || (closed && salesPage === 'auto')) {
     return <View style={{ flex: 1, backgroundColor: p.background, paddingTop: pageTop }}>
-      <AppHeader title={orderBuyer === null ? "정산 내역서" : "구매자 정산서"} onBack={orderBuyer !== null ? () => setOrderBuyer(null) : closed ? onBack : () => setSalesPage('auto')} right={closed && orderBuyer === null ? <HeaderTextButton label="라이브 기록" onPress={() => setSalesPage('record')} /> : undefined} />
+      <AppHeader title={orderBuyer === null ? "정산 내역서" : "구매자 정산서"} onBack={orderBuyer !== null ? () => setOrderBuyer(null) : closed ? onBack : () => setSalesPage('auto')} right={closed && orderBuyer === null ? <HeaderTextButton label="라이브 기록" onPress={() => (openRecord === undefined ? setSalesPage('record') : openRecord())} /> : undefined} />
       <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
       <BroadcastSalesList {...{ broadcastId, title, sales, inset, names, sealed, rehearsal }} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} justEnded={seller && endedNow && focused} />
     </View>
   }
   const close = () => setSheet('none')
   const closePage = () => setPage('none')
+  // 끝난 라이브 기록에서 뒤로는 정산 내역서로 (D-UX4-157 — 옛: 홈으로). 쌓인 화면이면 onBack이 정산 내역서로 돌아가고, 이 화면 안에서 바꿨으면 되돌린다
+  const fromSales = closed && salesPage === 'record'
+  const consoleBack = fromSales && startPage === undefined ? () => setSalesPage('auto') : onBack
   // 다육이 방송이면 상품 추가에서 품종도 묻는다 (D-UX4-31 — 판매 종류는 방송 제목에 들어 있다, NewBroadcastScreen)
   const askName = broadcast.title.includes('다육이')
   // 등록 안 된 번호의 찜 (D-RETRO-23): 번호를 누르면 그 번호가 채워진 상품 추가 — 기기는 쌓인 화면, 경로가 없으면(시험·웹) 이 화면 안에
@@ -515,8 +523,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         <View style={{ height: pageTop }} />
         <AppHeader
           title={heading}
-          onBack={onBack}
-          backLabel="홈으로"
+          onBack={consoleBack}
+          backLabel={fromSales ? '정산 내역서로' : '홈으로'}
           // 토스 카드 화면 오른쪽 위 "관리" 글자 단추 (D-UX4-42 — 옛 톱니 D-UX4-20). 듣기 상태는 아래 들린 말 창 왼쪽으로 옮겼다 (D-UX4-53)
           right={<HeaderTextButton label="관리" ariaLabel={MANAGE_LABEL} onPress={() => (openManage === undefined ? setPage('settings') : openManage())} />}
         />
@@ -537,27 +545,32 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           // 숫자판을 즉시 숨기되 손을 뗄 때까지 레이아웃을 유지해야 iOS가 첫 스크롤을 계속 받는다.
           onScrollBeginDrag={() => {
             follow.begin()
+            tabHide.drag(true)
             draggingSearch.current = searchPad
             if (searchPad) padOpacity.setValue(0)
           }}
           onScrollEndDrag={(event) => {
             follow.end(event)
+            tabHide.drag(false)
             if (draggingSearch.current) closeSearchPad()
             draggingSearch.current = false
           }}
+          onMomentumScrollBegin={() => tabHide.glide(true)}
+          onMomentumScrollEnd={() => tabHide.glide(false)}
           scrollEventThrottle={16}
           onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollOffset } } }], {
             useNativeDriver: Platform.OS !== 'web',
             listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
               if (Platform.OS === 'web' && searchPad) closeSearchPad()
+              tabHide.track(event.nativeEvent.contentOffset.y)
               if (bottomTab) follow.track(event)
             },
           })}
           onContentSizeChange={() => { if (bottomTab) follow.contentChanged() }}
-          // 탭 바 반고정 (D-UX4-93 → 98 → 104 → 109): 휴대폰이 직접 하는 붙는 머리 — 목록을 올리면 숨고 내리면 맨 위에 붙어 보인다. 둘째 자식(탭 바)
+          // 탭 바 반고정 (D-UX4-93 → 98 → 104 → 109 → 155): 휴대폰이 직접 하는 붙는 머리 — 목록을 올리면 숨고 내리면 맨 위에 붙어 보인다. 둘째 자식(탭 바)
           // D-UX4-104가 숨기기를 뺐다가 사용자 "올릴 때 탭 바 안 숨는데?"로 되살렸다 — "움직임"은 당길 때 늘어나는 것이었다(D-UX4-108)
+          // 숨기기는 휴대폰 것(stickyHeaderHiddenOnScroll) 대신 손으로 굴린 거리만 세는 tabHide (D-UX4-155 — 채팅·문자 탭에 들어가자마자 숨었다)
           stickyHeaderIndices={STICKY_TABS}
-          stickyHeaderHiddenOnScroll
           // 당겨도 늘어나지 않는다 (D-UX4-108, 사용자 지시 2026-11-10 "스크롤 땡기면 여전히 이렇게 늘어나는데?"): 아이폰 튕김·안드로이드 늘임을 끈다 — 탭 바가 맨 위에서 끌려 내려오지 않게
           bounces={false}
           overScrollMode="never"
@@ -577,15 +590,19 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           </View>
           {/* 둘째 자식: 탭 바 — 위에 붙을 때 밑 목록이 비치지 않게 바탕을 칠하고 화면 끝까지 */}
           {/* 위 여백은 탭 바 안에(TABS_TOP) — 목록 줄 사이(gap)를 위로 지워, 맨 위에 있을 때와 올리다 붙었을 때 머리↔알약 여백이 같다 (D-UX4-110) */}
-          <View testID="console-tabs" style={{ marginHorizontal: -GUTTER, paddingHorizontal: GUTTER, marginTop: -SPACE.sm, paddingTop: TABS_TOP, paddingBottom: SPACE.xs, marginBottom: -SPACE.xs, backgroundColor: p.background }}>
-            <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
-              {tabPills}
-            </View>
+          {/* 붙는 머리 칸(자리·여백)과 그 안에서 위로 밀려 숨는 탭 바(바탕·안 여백) — 칸 스타일은 휴대폰 붙는 머리가 가져가 숨김 이동을 따로 둔다 (D-UX4-155) */}
+          {/* 칸은 누름을 받지 않는다(box-none, 붙는 머리 겉 칸도 같은 스타일) — 탭 바가 숨은 자리 밑의 목록 줄이 눌린다 */}
+          <View testID="console-tabs-slot" collapsable={false} pointerEvents="box-none" onLayout={tabHide.onLayout} style={{ marginHorizontal: -GUTTER, marginTop: -SPACE.sm, marginBottom: -SPACE.xs, pointerEvents: 'box-none' }}>
+            <Animated.View testID="console-tabs" style={{ paddingHorizontal: GUTTER, paddingTop: TABS_TOP, paddingBottom: SPACE.xs, backgroundColor: p.background, transform: [{ translateY: tabHide.offset }] }}>
+              <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
+                {tabPills}
+              </View>
+            </Animated.View>
           </View>
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
           <View testID="console-list" ref={listNode} collapsable={false} onLayout={(event) => { listTop.current = event.nativeEvent.layout.y }} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
             <Appear instant={!listLate} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
-              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} claimedOnly={claimedOnly} onClaimedOnly={setClaimedOnly} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} onRow={onRow} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} onEditProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} /> : <LiveTalk />}
+              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} claimedOnly={claimedOnly} onClaimedOnly={setClaimedOnly} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} onRow={onRow} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} onEditProduct={setDetail} /> : shownTab === 'heard' ? <HeardTab session={services.voice} broadcastId={broadcastId} live={!closed} /> : <LiveTalk />}
             </Appear>
           </View>
           {/* (+) 단추·매출 캡슐에 마지막 줄이 가리지 않게 */}
@@ -604,7 +621,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         </Animated.ScrollView>
         {shownTab === 'products' && !closed && !searchPad ? <AddFab bottom={fabBottom} onPress={() => { if (openAdd === undefined) { setAddNo(null); setPage('add') } else openAdd() }} /> : null}
         {/* 매출 캡슐 (D-UX4-140): (+) 왼쪽 — 숫자판을 연 동안은 (+)처럼 숨는다 */}
-        {shownTab === 'products' && !searchPad ? <SalesPill closed={closed} total={sales.total} bottom={fabBottom} besideFab={!closed} onPress={() => setSalesPage('sales')} /> : null}
+        {shownTab === 'products' && !searchPad ? <SalesPill closed={closed} total={sales.total} bottom={fabBottom} besideFab={!closed} onPress={startPage === 'record' ? onBack : () => setSalesPage('sales')} /> : null}
         </View>
         {/* 확인 중(임시 등록) 상품 확인 카드 (D-RETRO-90): 목록과 아래 창 사이, 한 번에 한 장 — 어느 탭에서든 같은 자리에 뜬다 */}
         {closed ? null : <TentativeCards onEdit={setDetail} bottom={docked ? SPACE.sm : Math.max(inset, SPACE.sm)} />}

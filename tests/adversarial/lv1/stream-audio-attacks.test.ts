@@ -299,7 +299,7 @@ afterEach(async () => {
 })
 
 describe('TD-LV1 개인정보: 소리·글이 남지 않음', () => {
-  it('연습 흐름으로 등록까지 간 뒤에도 받아쓴 글 전체가 DB·로그·백업 어디에도 없다', async () => {
+  it('연습 흐름으로 등록까지 간 뒤에도 받아쓴 글 전체가 음성 인식 기록 밖의 DB·로그·백업 어디에도 없다', async () => {
     const database = await openTestDb()
     const fake = new FakeBroadcastAudio(database.db)
     const live = startServer(database, generateMasterKey(), { transcribeWorkerToken: TOKEN, streamAudio: { on: true, feed: fake, locate: async () => ({ kind: 'ok', url: 'fake:live' }) } })
@@ -322,7 +322,11 @@ describe('TD-LV1 개인정보: 소리·글이 남지 않음', () => {
       await waitFor(() => msgs.some((m) => m.type === 'voice.effect' && m.method === 'register'), 10_000)
       await new Promise((res) => setTimeout(res, 300))
       const variants = [PRACTICE_SPEECH, PRACTICE_SPEECH.replace(/ /g, ''), '이만 원']
-      const tables = await dumpAllTables(live.database)
+      // D-UX4-156 (사용자 "음성인식은 … 채팅처럼 다 저장해두는 거 아니야? 보이게 해줘"): 받아쓴 글은 그 판매자의 음성 인식 기록(voice_heard)에만 남긴다 —
+      // 그 밖의 DB·로그·백업 파일에는 여전히 없다 (옛 기대: DB 어디에도 없다)
+      await live.server.heard.settled()
+      expect(await dumpAllTables(live.database)).toContain(PRACTICE_SPEECH)
+      const tables = await dumpAllTables(live.database, ['voice_heard'])
       const logs = JSON.stringify(live.logs)
       let backup = Buffer.from(await createBackupBytes(live.database.db, seller.sellerId, live.clock.now()))
       if (backup[0] === 0x1f && backup[1] === 0x8b) backup = gunzipSync(backup)

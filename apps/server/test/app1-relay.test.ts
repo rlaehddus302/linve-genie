@@ -106,7 +106,9 @@ describe('APP1 받아쓰기 서버 실제 WebSocket', () => {
     await waitFor(() => first.ws.readyState === WebSocket.CLOSED)
     expect(world.server.voice.status()).toMatchObject({ workers: 1, streams: 1 })
   })
-  it('PCM에 흐름 번호를 붙이고 결과는 해당 기기에만 돌린다. 소리·글은 DB·로그에 없다', async () => {
+  // D-UX4-156 (사용자 "음성인식은 … 채팅처럼 다 저장해두는 거 아니야? 보이게 해줘"): 받아쓴 최종 글은 음성 인식 기록(voice_heard, 그 판매자·방송)에만 남는다.
+  // 옛 기대(D-APP-03): 글이 DB 어디에도 없다 — 이제 voice_heard 밖에는 없고, 로그에는 여전히 없다
+  it('PCM에 흐름 번호를 붙이고 결과는 해당 기기에만 돌린다. 소리는 DB·로그에 없고, 글은 그 판매자의 음성 인식 기록에만 남는다', async () => {
     const { world, url } = await setup()
     const w = await worker(url, world)
     const a = await addSeller(world), b = await addSeller(world)
@@ -124,7 +126,10 @@ describe('APP1 받아쓰기 서버 실제 WebSocket', () => {
     w.send({ type: 'result', stream, text: '십오번 이만원', startMs: 0, endMs: 100, procMs: 50 })
     expect(await first.message('result')).toEqual({ type: 'result', text: '십오번 이만원', startMs: 0, endMs: 100 })
     expect(second.messages).toEqual([])
-    expect(await dumpAllTables(world.database)).not.toContain('십오번 이만원')
+    await world.server.heard.settled()
+    expect(await dumpAllTables(world.database, ['voice_heard'])).not.toContain('십오번 이만원')
+    expect((await client(world, a.cookie).get(`/api/broadcasts/${ba.id}/heard`)).body).toEqual({ lines: [{ at: world.clock.now(), text: '십오번 이만원' }] })
+    expect((await client(world, b.cookie).get(`/api/broadcasts/${bb.id}/heard`)).body).toEqual({ lines: [] })
     expect(JSON.stringify(world.logs)).not.toContain('십오번 이만원')
     const before = world.server.voice.status().p95Ms
     for (const bad of [{ text: 'x'.repeat(2001) }, { startMs: -1 }, { startMs: 101 }, { text: 12 }]) {
@@ -309,8 +314,11 @@ describe('APP1b 서버 읽기 실제 WebSocket', () => {
     expect(effect.args).toMatchObject([{}, { no: 15, name: '선버스트', price: 20_000 }, 'instant', { source: 'voice', device: 'testdevice01' }])
     expect(effect.spokenEndAt).toBe(world.clock.now())
     // 서버 읽기를 거친 글은 쓰기 전에는 DB·로그에 남지 않는다 (옛 크롬 시험에서 옮긴 단언, APP-05 AC7)
+    // D-UX4-156: 음성 인식 기록(voice_heard)에는 남는다 — 그 밖의 표(이벤트·음성 등록 기록 등)에는 쓰기 전까지 없다 (옛 기대: DB 어디에도 없다)
     expect((await world.server.writer.read(seller.sellerId, b.date)).state.products.size).toBe(0)
-    expect(await dumpAllTables(world.database)).not.toContain('15번 선버스 2만 원')
+    await world.server.heard.settled()
+    expect(await dumpAllTables(world.database, ['voice_heard'])).not.toContain('15번 선버스 2만 원')
+    expect(await dumpAllTables(world.database)).toContain('15번 선버스 2만 원')
     expect(JSON.stringify(world.logs)).not.toContain('15번 선버스 2만 원')
   })
 })

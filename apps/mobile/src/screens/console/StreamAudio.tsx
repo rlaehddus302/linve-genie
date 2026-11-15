@@ -14,6 +14,7 @@ import { DotStatus, EmptyFill, Icon, Tap, Txt, useKit } from '../../ui/kit/index
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { BigButton, Body, Card, Hint } from '../../ui/parts.tsx'
 import type { StreamKeep } from '../../lib/stream-keep.ts'
+import { localHeard, mergeHeard, useSavedHeard } from './heard-history.ts'
 
 const POLL_MS = 1000
 const WATCH_MS = 10_000
@@ -365,25 +366,30 @@ function StillPill({ word }: { readonly word: string }) {
 export const HEARD_TAB = '음성 인식'
 export const HEARD_EMPTY = '아직 인식한 말이 없어요'
 export const HEARD_EMPTY_BODY = '음성 인식을 시작하면\n인식한 말이 여기에 나와요'
+/** 끝난 라이브에 남은 인식한 말이 없을 때 (D-UX4-156) */
+export const HEARD_EMPTY_ENDED = '인식한 말이 없어요'
+export const HEARD_EMPTY_ENDED_BODY = '음성 인식을 켠 라이브는\n인식한 말이 여기에 남아요'
 
 /**
  * 들린 말 탭: 이 방송에서 알아들은 말 전부를 채팅·문자 탭처럼 — 왼쪽 들린 시각(폭 고정 칸, 한국 시각 21:07:33), 오른쪽 말. 새 말이 맨 아래.
  * 화면 아래 창이 "들린 말"이면 같은 것이 겹쳐 보여 이 탭은 숨긴다(방송 화면이 정한다).
  */
-export function HeardTab({ session }: { readonly session: VoiceSession }) {
+export function HeardTab({ session, broadcastId, live }: { readonly session: VoiceSession; readonly broadcastId: string; /** 라이브 중이면 서버 기록을 가끔 다시 받는다 · 끝났으면 한 번만 */ readonly live: boolean }) {
   const view = useSyncExternalStore(session.subscribe, session.getView)
+  // 서버가 남긴 그 방송의 들린 말 + 이 기기가 지금 받는 줄 — 끝난 라이브·앱을 다시 켠 뒤에도 전체가 보인다 (D-UX4-156)
+  const saved = useSavedHeard(broadcastId, live)
+  const lines = mergeHeard(saved.lines, localHeard(view, broadcastId))
   const [timeWidth, setTimeWidth] = useState(0)
   const onTimeWidth = useCallback((width: number) => setTimeWidth((was) => Math.max(was, Math.ceil(width))), [])
-  if (view.transcript.length === 0) return <EmptyFill title={HEARD_EMPTY} body={HEARD_EMPTY_BODY} />
+  if (lines.length === 0) return saved.loaded ? (live ? <EmptyFill title={HEARD_EMPTY} body={HEARD_EMPTY_BODY} /> : <EmptyFill title={HEARD_EMPTY_ENDED} body={HEARD_EMPTY_ENDED_BODY} />) : null
   return (
     <View role="list" aria-label={HEARD_TAB} style={{ gap: SPACE.xs }}>
-      {view.transcript.map((text, index) => {
-        const at = view.transcriptAt[index]
+      {lines.map(({ at, text }, index) => {
         return (
           <View key={`${String(index)}:${text}`} role="listitem" testID="heard-tab-row" style={{ flexDirection: 'row', alignItems: 'flex-start', columnGap: SPACE.sm, paddingVertical: 2 }}>
             <View style={{ minWidth: timeWidth }}>
               <View style={{ alignSelf: 'flex-start' }} onLayout={(event) => onTimeWidth(event.nativeEvent.layout.width)}>
-                <Txt step="meta" color="textSub">{at === undefined ? '' : heardTime(at)}</Txt>
+                <Txt step="meta" color="textSub">{heardTime(at)}</Txt>
               </View>
             </View>
             <View style={{ flex: 1 }}>

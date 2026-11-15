@@ -2476,6 +2476,31 @@ export const voiceLog = pgTable(
   (t) => [unique('voice_log_uq').on(t.sellerId, t.requestId, t.kind), index('voice_log_date_idx').on(t.sellerId, t.date, t.at), index('voice_log_broadcast_idx').on(t.sellerId, t.broadcastId, t.at)],
 )
 
+/**
+ * 음성 인식 기록 (D-UX4-156, 사용자 지시 2026-11-16 "음성인식은 왜 끝난 라이브엔 볼 수 없어? 채팅처럼 다 저장해두는 거 아니야?"):
+ * 받아쓰기 일꾼이 돌려준 최종 글 한 줄씩 — 휴대폰 마이크·라이브 소리 모두. 들린 말 탭이 끝난 라이브·다른 기기에서도 그 방송 것을 시간순으로 읽는다.
+ * 소리는 두지 않는다. 글은 저장 전에 제어 문자를 빼고 긴 숫자(전화번호 등)를 가린다(voice-log maskHeard). 로그에는 남기지 않는다.
+ * 방송 ID로만 잇고 범위를 참조하지 않는다 — 복구·가져오기가 지우지 않는다(RESTORE_KEPT_TABLES, 백업 파일에 없다). 날짜 봉인 때 채팅 원문처럼 지운다(seal.ts)
+ */
+export const voiceHeard = pgTable(
+  'voice_heard',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    broadcastId: text('broadcast_id').notNull(),
+    /** 범위 날짜 (방송 날짜, KST) — 봉인 때 지울 줄을 찾는다 */
+    date: text('date').notNull(),
+    rehearsal: boolean('rehearsal').notNull(),
+    /** 서버가 글을 받은 시각 (라이브 소리는 그 말이 끝난 시각) */
+    at: timestamptz('at').notNull(),
+    /** 가린 한 줄 */
+    text: text('text').notNull(),
+  },
+  (t) => [index('voice_heard_broadcast_idx').on(t.sellerId, t.broadcastId, t.at), index('voice_heard_date_idx').on(t.sellerId, t.date)],
+)
+
 /** APP1b: 계정에 명시적으로 배운 품종 별칭만 둔다(인식 원문·세션은 저장하지 않음). */
 export const voiceAliases = pgTable('voice_aliases', {
   sellerId: text('seller_id').primaryKey().references(() => sellers.id),
@@ -2951,6 +2976,7 @@ export const schema = {
   customerArchiveDays,
   customerArchiveRows,
   voiceLog,
+  voiceHeard,
   voiceVarieties,
   // KP1 손님 장부
   ledgerSettings,

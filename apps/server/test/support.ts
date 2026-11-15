@@ -215,11 +215,13 @@ export async function countRows(database: Database, table: 'events' | 'outbox' |
 }
 
 /** DB 전체를 문자열로 (모든 사용자 테이블의 모든 행) */
-export async function dumpAllTables(database: Database): Promise<string> {
+/** 모든 표의 모든 행 (except: 빼고 볼 표 이름 — 음성 인식 기록 voice_heard처럼 일부러 남기는 표, D-UX4-156) */
+export async function dumpAllTables(database: Database, except: readonly string[] = []): Promise<string> {
   const pg = database.pglite as PGlite
   const tables = await pg.query<{ table_name: string }>(`select table_name from information_schema.tables where table_schema = 'public' order by table_name`)
   const parts: string[] = []
   for (const { table_name } of tables.rows) {
+    if (except.includes(table_name)) continue
     const rows = await pg.query(`select * from "${table_name}"`)
     parts.push(`${table_name}:${JSON.stringify(rows.rows)}`)
   }

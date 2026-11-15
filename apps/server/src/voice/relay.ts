@@ -1,5 +1,5 @@
 // APP1: 세션 인증·출처 검사를 거친 기기와 인증된 받아쓰기 일꾼을 잇는다.
-// 음성·받아쓴 글은 이 연결의 메모리만 거치며 DB·로그에 남기지 않는다.
+// 소리는 이 연결의 메모리만 거치며 DB·로그에 남기지 않는다. 받아쓴 최종 글은 음성 인식 기록(voice_heard, 가린 글)에만 남긴다 — 로그에는 없다 (D-UX4-156 — 옛 D-APP-03 저장 안 함).
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
@@ -39,6 +39,8 @@ export interface VoiceRelayOptions {
   /** 흐름을 열기 전에 장부를 읽어 둔다 */
   readonly warmHint?: (sellerId: string) => Promise<void>
   readonly reading?: (context: { session: SessionContext; broadcastId: string; device: string; mode: VoiceFlowMode; send: (message: unknown) => void }) => VoiceReadingSession | Promise<VoiceReadingSession>
+  /** D-UX4-156 휴대폰 마이크로 받아쓴 최종 글 한 줄 — 음성 인식 기록에 남긴다(기다리지 않는다). 라이브 소리 글은 stream-service가 남긴다 */
+  readonly heard?: (sellerId: string, broadcastId: string, text: string, at: number) => void
 }
 interface Peer { readonly ws: WebSocket; pongAt: number }
 /** 서버가 직접 여는 흐름 (방송 소리, LV1) — 기기 대신 서버가 소리를 넣고 글을 받는다 */
@@ -179,6 +181,7 @@ export class VoiceRelay {
       this.#samples.push({ at: this.#options.clock.now(), ms: value.procMs })
       this.#trimSamples()
       send(device.ws, { type: 'result', ...result })
+      if (device.session !== null) this.#options.heard?.(device.session.sellerId, device.broadcastId, result.text, this.#options.clock.now())
       if (device.reading !== null) this.#enqueue(device, () => device.reading?.onResult(result))
     })
   }

@@ -13,6 +13,7 @@ import { readingFactory, type VoiceHistoryObserver } from './voice/reading.ts'
 import { HeadlessVoice } from './voice/headless.ts'
 import { VoiceAliases } from './voice/aliases.ts'
 import { VoiceVarieties } from './voice/varieties.ts'
+import { HeardLog } from './voice/heard.ts'
 import { VoiceRelay, registerVoiceRelay, type VoiceRelayOptions } from './voice/relay.ts'
 import { FfmpegAudioFeed, ffmpegAvailable, notLiveBackoff, webStreamLocator, ytDlpResolver, ytDlpTiktokResolver, type AudioFeed, type MediaProxySetting, type StreamLocator } from './voice/stream-audio.ts'
 import { StreamAudioService } from './voice/stream-service.ts'
@@ -291,6 +292,8 @@ export interface ServerOptions {
 
 export interface LivejjimServer {
   readonly voice: VoiceRelay
+  /** D-UX4-156 음성 인식 기록 (시험: settled로 쓰기를 기다린다) */
+  readonly heard: HeardLog
   readonly streamAudio: StreamAudioService
   readonly app: Hono
   readonly service: Service
@@ -470,9 +473,13 @@ export function createServer(options: ServerOptions): LivejjimServer {
   // D-LV1-14 앱 없이 서버가 방송 소리를 읽고 등록 — 읽기는 앱과 같은 서버 읽기 세션, 등록은 같은 기록 경로 (service·writer는 아래에서 만든다 — 부를 때 쓴다)
   const screenProducts = options.screenWorkerToken !== undefined
   const readVoice: NonNullable<VoiceRelayOptions['reading']> = (context) => readingFactory({ screenProducts, db, service, writer, clock, aliases: voiceAliases, varieties: voiceVarieties, ...(options.voiceHistoryObserver === undefined ? {} : { historyObserver: options.voiceHistoryObserver }) })(context)
+  // D-UX4-156 음성 인식 기록 (휴대폰 마이크·라이브 소리 모두 — 끝난 라이브·다른 기기의 들린 말 탭이 읽는다)
+  const heardLog = new HeardLog(db, log)
+  const keepHeard = (sellerId: string, broadcastId: string, text: string, at: number) => heardLog.add(sellerId, broadcastId, text, at)
   const serverReading = new HeadlessVoice({ reading: readVoice, service: { writeEvent: (...args) => service.writeEvent(...args) }, clock, log })
   const streamAudio = new StreamAudioService({
     serverReading,
+    heard: keepHeard,
     available: streamSetting?.on === true && streamFeed !== null,
     feed: streamFeed ?? { open: (_url, sink) => { queueMicrotask(() => sink.fail()); return { close: () => {} } } },
     locate: streamSetting?.locate ?? ((sellerId, b) => webStreamLocator(db, youtube?.web ?? null, { resolve: streamResolve, tiktok: tiktokResolve, log })(sellerId, b)),
@@ -482,7 +489,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     warmHint: (sellerId) => voiceVarieties.warm(sellerId),
     ...(streamSetting?.schedule === undefined ? {} : { schedule: streamSetting.schedule }),
   })
-  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, oldAppOrigins: options.oldAppOrigins ?? [], clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), hint: (sellerId) => voiceVarieties.hint(sellerId), sharedHint: (sellerIds) => voiceVarieties.sharedHint(sellerIds), warmHint: (sellerId) => voiceVarieties.warm(sellerId), reading: readVoice, ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
+  const voice = new VoiceRelay({ auth, db, appOrigin: options.appOrigin, oldAppOrigins: options.oldAppOrigins ?? [], clock, log, onMicChange: (sellerId, active) => streamAudio.micChanged(sellerId, active), hint: (sellerId) => voiceVarieties.hint(sellerId), sharedHint: (sellerIds) => voiceVarieties.sharedHint(sellerIds), warmHint: (sellerId) => voiceVarieties.warm(sellerId), reading: readVoice, heard: keepHeard, ...(options.transcribeWorkerToken === undefined ? {} : { workerToken: options.transcribeWorkerToken }) })
   let print: PrintService | null = null
   let writerRef: ScopeWriter | null = null
   const billing = new BillingService({
@@ -890,6 +897,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       voiceAliases,
       voiceVarieties,
       voiceDoubts: { db, clock },
+      voiceHeard: { db },
       streamAudio: { db, service: streamAudio, heard: serverReading },
       billing,
       instagram: instagramModule,
@@ -948,6 +956,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
   return {
     app,
     voice,
+    heard: heardLog,
     streamAudio,
     service,
     writer,

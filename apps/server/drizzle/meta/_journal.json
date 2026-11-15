@@ -407,6 +407,13 @@
       "when": 1794960000031,
       "tag": "0057_thanks_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794960000032,
+      "tag": "0058_voice_heard",
+      "breakpoints": true
     }
   ]
 }

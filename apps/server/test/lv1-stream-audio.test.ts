@@ -169,7 +169,10 @@ describe('LV1 방송 소리로 듣기 (서버)', () => {
     expect((await phase(world, seller.cookie, b.id)).phase).toBe('listening')
     w.send({ type: 'result', stream: open.stream, text: '십오번 이만원', startMs: 0, endMs: 100, procMs: 40 })
     expect(await consoleFlow.message('result')).toMatchObject({ type: 'result', text: '십오번 이만원', startMs: 0, endMs: 100 })
-    expect(await dumpAllTables(world.database)).not.toContain('십오번 이만원')
+    // D-UX4-156: 라이브 소리로 받아쓴 글도 음성 인식 기록(voice_heard)에만 남는다 (옛 기대: DB 어디에도 없다). 로그에는 없다
+    await world.server.heard.settled()
+    expect(await dumpAllTables(world.database, ['voice_heard'])).not.toContain('십오번 이만원')
+    expect(((await client(world, seller.cookie).get(`/api/broadcasts/${b.id}/heard`)).body as { lines: { text: string }[] }).lines.map((line) => line.text)).toEqual(['십오번 이만원'])
     expect(JSON.stringify(world.logs)).not.toContain('십오번 이만원')
   })
   it('D-LIVETEST-03 방송 소리가 늦게 도착하면 기준을 옮겨, 받아쓴 말의 시각이 도착 시각보다 뒤처지지 않는다', async () => {
@@ -405,7 +408,9 @@ describe('LV1 방송 소리로 듣기 (서버)', () => {
     expect(JSON.stringify(effect.args)).toContain('"price":20000')
     expect(JSON.stringify(effect.args)).toContain('핑크프릴')
     expect((await phase(live, seller.cookie, b.id)).phase).toBe('listening')
-    expect(await dumpAllTables(live.database)).not.toContain(PRACTICE_SPEECH)
+    // D-UX4-156: 음성 인식 기록 밖에는 없다 (옛 기대: DB 어디에도 없다)
+    await live.server.heard.settled()
+    expect(await dumpAllTables(live.database, ['voice_heard'])).not.toContain(PRACTICE_SPEECH)
   })
   it('가짜 방송 소리: 이은 링크가 없으면 none, 끊기·되살리기·못 받는 방송', async () => {
     const { world } = await setup()
