@@ -1,5 +1,5 @@
 // 앱 뼈대 (expo-router): 서버 호출 설정(expo/fetch — 스트리밍 응답·기기 쿠키) → 앱 전체 서비스 → 세션 → 화면 묶음.
-// 바깥 링크는 기기 브라우저(Linking.openURL)로 연다 (APP-01 AC4). 방송 플랫폼 찾기는 그 앱, 없으면 앱 안 브라우저(D-UX3-10). 클립보드는 유튜브 주소 붙여넣기 단계만 읽고, 영수증 링크 복사 때만 쓴다(expo-clipboard).
+// 바깥 링크는 기기 브라우저(Linking.openURL)로 연다 (APP-01 AC4). 라이브 링크 찾기는 앱 안 브라우저 화면(D-UX4-160·161). 클립보드는 유튜브 주소 붙여넣기 단계만 읽고, 영수증 링크 복사 때만 쓴다(expo-clipboard).
 import { PrintBackground } from '../src/native/print-background.ts'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { configureVoiceStorage } from '../src/lib/voice-preferences.ts'
@@ -8,14 +8,15 @@ import { getStringAsync, setStringAsync } from 'expo-clipboard'
 import { CryptoDigestAlgorithm, CryptoEncoding, digestStringAsync, getRandomBytes, randomUUID } from 'expo-crypto'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import { openAuthSessionAsync, openBrowserAsync } from 'expo-web-browser'
+import { openAuthSessionAsync } from 'expo-web-browser'
 import { useEffect, useState } from 'react'
-import { Linking } from 'react-native'
+import { Linking, Platform } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { installProductionNative, PrinterDevicePicker } from '../src/native/production.tsx'
 import { configureApi } from '../src/api/config.ts'
 import { setWebOpener } from '../src/lib/open-web.ts'
-import { setPlatformOpener } from '../src/lib/open-app.ts'
+import { setLiveBrowserView } from '../src/screens/LiveBrowser.tsx'
+import { LiveBrowserWebView } from '../src/native/live-browser-view.tsx'
 import { setClipboardReader, setClipboardWriter } from '../src/lib/clipboard.ts'
 import { setSocialNative, toBase64Url } from '../src/lib/social-auth.ts'
 import { loadPrintMemory } from '../src/lib/printer-memory.ts'
@@ -30,16 +31,8 @@ import { useAppUpdateWatch } from '../src/lib/app-update.ts'
 
 configureApi({ fetch: (input, init) => expoFetch(input, init as Parameters<typeof expoFetch>[1]) as unknown as Promise<Response>, newId: randomUUID })
 setWebOpener((url) => Linking.openURL(url))
-// 방송 플랫폼: 앱이 있으면 앱, 없으면(열기 거절) 앱 안 브라우저 — 닫힐 때 끝난다 (D-UX3-10)
-setPlatformOpener(async (target) => {
-  try {
-    await Linking.openURL(target.app)
-    return 'app'
-  } catch {
-    await openBrowserAsync(target.web)
-    return 'browser'
-  }
-})
+// [링크를 모르겠어요]: 앱 안 라이브 찾기 브라우저의 웹 화면 (D-UX4-161 — 옛 D-UX3-10 "그 앱, 없으면 앱 밖 브라우저"). 웹은 주소 칸 대체 화면
+if (Platform.OS !== 'web') setLiveBrowserView(LiveBrowserWebView)
 setClipboardReader(() => getStringAsync())
 setClipboardWriter((text) => setStringAsync(text))
 installProductionNative()

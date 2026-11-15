@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setClipboardProbe, setClipboardReader } from '../src/lib/clipboard.ts'
 import { shortLinkError } from '../src/screens/console/YoutubeSection.tsx'
-import { LIVE_PLATFORMS, setPlatformOpener } from '../src/lib/open-app.ts'
+import { LIVE_PLATFORMS } from '../src/lib/open-app.ts'
 import { liveLinkOf } from '../src/lib/live-link.ts'
 import { NewBroadcastAddressScreen, NewBroadcastCategoryScreen, SALE_CATEGORIES, categoryBroadcastTitle } from '../src/screens/NewBroadcastScreen.tsx'
 import { MoreScreen } from '../src/screens/MoreScreen.tsx'
@@ -167,7 +167,6 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
   afterEach(() => {
     setClipboardReader(async () => '')
     setClipboardProbe(null)
-    setPlatformOpener(async () => 'browser')
   })
 
   it('제목은 판매 종류로 짓는다: 다육이·화분은 종류를 넣고 기타는 날짜·요일만', () => {
@@ -259,59 +258,47 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
     expect(nav.openConsole).not.toHaveBeenCalled()
   })
 
-  it('[링크를 모르겠어요] → 유튜브·틱톡·밴드(정식 앱 아이콘). 유튜브는 앱(없으면 앱 안 브라우저)을 열고, 돌아오면 [붙여넣기] 한 번으로 링크가 들어가고 잠깐 알림이 뜬다 (D-UX3-11)', async () => {
+  // D-UX4-160·162 (사용자 지시 2026-11-16 "그냥 우리 앱 안에서 브라우저 띄워서 해당 라이브 들어간 다음에, 밑에 [이 라이브에요] 버튼을 누르면 자동으로 그 라이브로 연결"):
+  // 옛 기대(D-UX3-11) — 유튜브는 앱(없으면 앱 안 브라우저)을 열고, 돌아오면 [붙여넣기] 한 번으로 링크가 들어감, 플랫폼마다 앱 주소·웹 주소(LIVE_PLATFORMS.web).
+  // 새 기대 — 고르면 앱 안 브라우저가 뜨고, 라이브 화면에서 [이 라이브예요]를 누르면 브라우저가 닫히고 링크가 칸에 들어가 [다음]과 똑같이 연결 확인 화면으로.
+  it('[링크를 모르겠어요] → 유튜브·틱톡·밴드(정식 앱 아이콘). 유튜브는 앱 안 브라우저 → [이 라이브예요] → 링크 칸에 넣고 연결 확인 화면 (D-UX4-160·162)', async () => {
     const world = linkableWorld()
-    const opened: string[] = []
-    let clipboard = ''
-    let reads = 0
-    setClipboardReader(async () => {
-      reads++
-      return clipboard
-    })
-    // 글이 있는지만 보는 확인(아이폰 hasStrings — 허용 창 없음)
-    setClipboardProbe(async () => clipboard !== '')
-    setPlatformOpener(async (target) => {
-      opened.push(target.key)
-      // 앱 안 브라우저에서 내 방송 → 공유 → 링크 복사 → 닫기
-      clipboard = 'https://youtube.com/live/LIVENOW0001?si=x'
-      return 'browser'
-    })
     render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={newNav()} />))
-    const field = (await screen.findByLabelText('라이브 링크')) as HTMLInputElement
+    await screen.findByLabelText('라이브 링크')
     fireEvent.click(screen.getByRole('button', { name: '링크를 모르겠어요' }))
     const platforms = within(screen.getByRole('group', { name: '라이브 플랫폼' })).getAllByRole('button')
     expect(platforms.map((button) => button.getAttribute('aria-label'))).toEqual(['유튜브', '틱톡', '밴드'])
-    expect(LIVE_PLATFORMS.map((target) => target.web)).toEqual(['https://m.youtube.com/', 'https://www.tiktok.com/', 'https://band.us/'])
-    expect(screen.queryByRole('button', { name: '붙여넣기' })).toBeNull()
+    expect(LIVE_PLATFORMS.map((target) => target.key)).toEqual(['youtube', 'tiktok', 'band'])
     fireEvent.click(screen.getByRole('button', { name: '유튜브' }))
-    // 돌아와도 클립보드를 저절로 읽지 않는다 — [붙여넣기]만 나타난다
-    fireEvent.click(await screen.findByRole('button', { name: '붙여넣기' }))
-    // 알림은 약 2초 뒤 사라지므로(POP_NOTE_MS) 누른 바로 뒤에 본다 — 느린 시험 기계에서 지나가 버리지 않게
-    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('복사한 링크를 넣었어요'))
-    expect(field.value).toBe('https://youtube.com/live/LIVENOW0001?si=x')
-    expect(reads).toBe(1)
-    expect(opened).toEqual(['youtube'])
-    // 칸 아래에 계속 남는 문장은 없다
-    expect(screen.queryByText('복사해 둔 주소를 넣었어요.')).toBeNull()
-    expect(screen.getByRole('button', { name: '다음' })).toBeTruthy() // D-UX4-117: 옛 [확인] → [다음]
+    const browser = await screen.findByRole('dialog', { name: '라이브 찾기' })
+    fireEvent.change(within(browser).getByRole('textbox', { name: '주소' }), { target: { value: 'https://m.youtube.com/watch?v=LIVENOW0001&pp=x' } })
+    fireEvent.click(within(browser).getByRole('button', { name: '이 라이브예요' }))
+    // [다음]을 누른 것과 같다: 연결 확인 화면에서 그 라이브를 미리 본다
+    await screen.findByTestId('link-confirm')
+    await waitFor(() => expect(world.server.callsTo('POST', /^\/api\/youtube\/preview$/)[0]?.body).toEqual({ video: 'https://www.youtube.com/watch?v=LIVENOW0001' }))
+    expect(screen.queryByRole('dialog', { name: '라이브 찾기' })).toBeNull()
+    // 링크 칸에 그 링크가 들어 있다 (확인 화면에서 뒤로)
+    fireEvent.click(within(screen.getByTestId('link-confirm')).getByRole('button', { name: '뒤로' }))
+    expect(((await screen.findByLabelText('라이브 링크')) as HTMLInputElement).value).toBe('https://www.youtube.com/watch?v=LIVENOW0001')
   })
 
   // D-UX3-14 (사용자 지시 2026-11-03 "왜 틱톡과 밴드는 링크를 통해 못해? 할 수 있게"): 옛 기대 — 틱톡·밴드는 계정 안내와 [이 방송 만들기],
-  // 유튜브를 잇지 않는 서버면 종류를 누르는 대로 방송을 만듦. 새 기대 — 세 플랫폼 모두 앱을 열고 링크로 잇는다, 종류는 늘 링크 단계로.
-  it('[링크를 모르겠어요]의 틱톡·밴드도 그 앱을 연다 (D-UX3-14)', async () => {
+  // 유튜브를 잇지 않는 서버면 종류를 누르는 대로 방송을 만듦. 새 기대 — 세 플랫폼 모두 링크로 잇는다, 종류는 늘 링크 단계로.
+  // D-UX4-160: 옛 기대 "틱톡·밴드도 그 앱을 연다(snssdk1233://·bandapp://)" → 틱톡·밴드도 앱 안 브라우저(그 플랫폼 모바일 웹)에서 찾는다.
+  it('[링크를 모르겠어요]의 틱톡·밴드도 앱 안 브라우저로 그 플랫폼 웹을 연다 (D-UX3-14 → D-UX4-160)', async () => {
     const world = linkableWorld()
-    const opened: string[] = []
-    setPlatformOpener(async (target) => {
-      opened.push(target.key)
-      return 'app'
-    })
     render(world.wrap(<NewBroadcastAddressScreen category="pot" nav={newNav()} />))
     await screen.findByLabelText('라이브 링크')
     fireEvent.click(screen.getByRole('button', { name: '링크를 모르겠어요' }))
     fireEvent.click(screen.getByRole('button', { name: '틱톡' }))
+    let browser = await screen.findByRole('dialog', { name: '라이브 찾기' })
+    expect((within(browser).getByRole('textbox', { name: '주소' }) as HTMLInputElement).value).toBe('https://www.tiktok.com/')
+    fireEvent.click(within(browser).getByRole('button', { name: '닫기' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '라이브 찾기' })).toBeNull())
     fireEvent.click(screen.getByRole('button', { name: '링크를 모르겠어요' }))
     fireEvent.click(screen.getByRole('button', { name: '밴드' }))
-    await waitFor(() => expect(opened).toEqual(['tiktok', 'band']))
+    browser = await screen.findByRole('dialog', { name: '라이브 찾기' })
+    expect((within(browser).getByRole('textbox', { name: '주소' }) as HTMLInputElement).value).toBe('https://band.us/')
     expect(screen.queryByText(/가게 계정으로/)).toBeNull()
   })
 
