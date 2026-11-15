@@ -2,6 +2,8 @@
 // 충돌: "그대로 유지"(앞선 찜은 대기로) · "바꾸기"(앞선 찜이 1등, 지금 1등은 대기 1순위). 취소 요청: "취소 승인" · "요청 무시"
 // (옵션을 적지 않은 요청은 취소할 찜을 먼저 고른다). 승계: 대기자 중 1등으로 올리기(사유) 또는 다시 판매(대기자 정리, 사유).
 // 고른 조치는 5초 뒤에 보낸다(되돌리기 — 방송 화면 띠). 정할 것이 여러 개면 첫 번째부터. product를 주면 그 상품 것만.
+// 손님이 번호 없이 "패스"라고 썼는데 찜이 둘 이상이면(D-RETRO-103·113) 엔진이 그 찜마다 같은 seq의 취소 요청을 건다 — 한 장으로 묶어
+// "○○님이 패스라고 썼어요"와 그 손님의 찜을 보이고, 고른 찜만 취소(나머지 요청은 무시)하거나 모두 그대로 둔다. 단추는 [취소하지 않기 | 고른 찜 취소].
 import { useState } from 'react'
 import { View } from 'react-native'
 import type { CancelRequest, Claim, Product } from '@livejjim/web/src/api/types.ts'
@@ -53,13 +55,16 @@ export function DecisionsView({ queue, product, onQueued }: { readonly queue: Un
   }
   if (conflict === undefined && variantConflicts.length === 0 && requests.length === 0 && succession === undefined) return <EmptyFill title={NOTHING_TO_DECIDE} />
   const request = requests[0]
+  // 패스 묶음은 그 상품만 볼 때도 묶음 전체(다른 번호의 찜 포함)로 보인다 — 고를 찜이 모두 보여야 한다
+  const pass = request === undefined ? null : passGroup([...api.data.cancelRequests.values()], request)
   return (
     <View style={{ gap: 16 }}>
       {conflict !== undefined ? <ConflictBody unit={conflict} queueHost={queueHost} /> : null}
       {variantConflicts.map((unit) => (
         <Notice key={unit.variant?.key ?? unit.product.key} tone="warning">{`${labelOf(api, unit.product.broadcast, unit.product.no)} ${unit.variant?.text ?? ''} 충돌 — 상품 자세히에서 그 변형의 찜을 취소하거나 거절해 정리해 주세요.`}</Notice>
       ))}
-      {request !== undefined ? <CancelBody key={request.claim} request={request} count={requests.length} queueHost={queueHost} /> : null}
+      {request !== undefined && pass !== null ? <PassBody key={`pass:${String(request.seq)}:${request.currentBuyer}`} group={pass} queueHost={queueHost} /> : null}
+      {request !== undefined && pass === null ? <CancelBody key={request.claim} request={request} count={requests.length} queueHost={queueHost} /> : null}
       {succession !== undefined ? <SuccessionBody key={`${succession.product.key}|${succession.variant?.text ?? ''}`} unit={succession} queueHost={queueHost} /> : null}
     </View>
   )
@@ -85,6 +90,63 @@ function ConflictBody({ unit, queueHost }: { readonly unit: DecisionUnit; readon
         <BigButton danger label="바꾸기" onPress={() => decide('SWITCH')} />
       </Row>
       <Hint>그대로 유지: 앞선 찜은 대기로 가요. 바꾸기: 앞선 찜이 1등이 되고 지금 1등은 대기 1순위로 가요.</Hint>
+    </View>
+  )
+}
+
+/**
+ * 번호 없는 "패스"로 생긴 요청 묶음 (D-RETRO-113): request와 같은 손님·같은 seq의 찜 요청(변형을 정하지 않은 요청 제외)이 둘 이상이면 그 요청들(seq·찜 순), 아니면 null.
+ * 한 메시지가 둘 이상의 찜에 같은 seq의 요청을 거는 것은 엔진에서 번호 없는 패스뿐이다(번호 취소는 번호 하나).
+ */
+export function passGroup(all: readonly CancelRequest[], request: CancelRequest): CancelRequest[] | null {
+  if (request.chooseVariant) return null
+  const group = all.filter((item) => !item.chooseVariant && item.seq === request.seq && item.currentBuyer === request.currentBuyer)
+  return group.length >= 2 ? group.sort((a, b) => (a.claim < b.claim ? -1 : a.claim > b.claim ? 1 : 0)) : null
+}
+
+export const PASS_KEEP = '취소하지 않기'
+export const PASS_CANCEL = '고른 찜 취소'
+export const passWords = (name: string): string => `${name}님이 채팅에 "패스"라고 썼어요. 찜이 여러 개라 어느 찜인지 몰라 아직 취소하지 않았어요.`
+
+function PassBody({ group, queueHost }: { readonly group: readonly CancelRequest[]; readonly queueHost: QueueHost }) {
+  const api = useConsoleApi()
+  const [chosen, setChosen] = useState<string | null>(null)
+  const first = group[0] as CancelRequest
+  const name = api.names.name(first.currentBuyer)
+  const claims = group.map((request) => api.data.claims.get(request.claim)).filter((claim): claim is Claim => claim !== undefined)
+  const picked = claims.find((claim) => claim.id === chosen)
+  const pickedProduct = picked === undefined ? undefined : api.data.products.get(picked.product)
+  const note = successionNote(api, pickedProduct, picked)
+  const event = (type: 'host.approveCancel' | 'host.dismissCancel', claim: Claim) => ({ type, b: claim.broadcast, no: claim.no, buyer: first.currentBuyer, ...claimOptionsField(claim) })
+  const what = (claim: Claim): string => {
+    const product = api.data.products.get(claim.product)
+    return [labelOf(api, claim.broadcast, claim.no), product === undefined ? '' : nameOf(product)].filter((part) => part !== '').join(' ')
+  }
+  const keepAll = () => {
+    for (const claim of claims) queueHost(`${what(claim)} ${name} 취소하지 않기`, event('host.dismissCancel', claim))
+  }
+  const cancelPicked = () => {
+    if (picked === undefined) return
+    queueHost(`${what(picked)} ${name} 취소 승인`, event('host.approveCancel', picked))
+    for (const claim of claims) if (claim.id !== picked.id) queueHost(`${what(claim)} ${name} 취소하지 않기`, event('host.dismissCancel', claim))
+  }
+  return (
+    <View style={{ gap: 8 }} role="group" aria-label={`패스 — ${name}`}>
+      <Body bold>{`패스 — ${name}`}</Body>
+      <Body>{passWords(name)}</Body>
+      <Hint>취소할 찜을 고르면 그 찜만 취소하고 나머지는 그대로 둬요.</Hint>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {claims.map((claim) => {
+          const words = `${what(claim)} · ${claimWord(api.data, claim)}`
+          return <Pill key={claim.id} on={chosen === claim.id} label={words} ariaLabel={`취소할 찜 ${words}`} onPress={() => setChosen(claim.id)} />
+        })}
+      </View>
+      {note !== null ? <Notice tone="warning">{note}</Notice> : null}
+      {/* 부정은 왼쪽 · 긍정은 오른쪽 (D-UX4-01) */}
+      <Row>
+        <BigButton label={PASS_KEEP} onPress={keepAll} />
+        <BigButton danger label={PASS_CANCEL} disabled={picked === undefined} onPress={cancelPicked} />
+      </Row>
     </View>
   )
 }

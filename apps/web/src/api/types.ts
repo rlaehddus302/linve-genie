@@ -155,6 +155,8 @@ export interface ChatMessage {
   readonly optionOrders?: readonly ChatOptionOrder[]
   /** 옵션 방송의 메시지만: 그 메시지의 남은 확인 필요 항목 (지우거나 바로잡으면 null) */
   readonly review?: ChatReview | null
+  /** 번호 없는 "패스"였던 메시지 (D-RETRO-113 — 번호 방송만, 있을 때만 true. 옛 서버면 없음) */
+  readonly pass?: true
 }
 
 export interface ChatOptionOrder {

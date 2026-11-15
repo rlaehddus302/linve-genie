@@ -4,7 +4,7 @@
 // 번호 읽기는 R-3 STRICT(parseChat) 그대로 쓴다 — 판정 엔진 규칙은 바꾸지 않는다.
 import { normalizePhone } from '../engine/phone.ts'
 import { checkSettings, type SaleSettings, type SettingsOverride } from '../settings.ts'
-import { parseChat, type ChatParseResult } from './chat.ts'
+import { parseChatWithoutPass as parseChat, type ChatParseResult } from './chat.ts'
 import { asText, normalizeText } from './text.ts'
 
 /** 확인 필요의 까닭 (R-26 결과) */

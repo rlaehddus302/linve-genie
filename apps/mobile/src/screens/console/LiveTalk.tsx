@@ -88,12 +88,16 @@ export function chatClaimTag(data: ScopeData, claim: Claim): TalkTag {
   return { word: `${no} ${claimWord(data, claim)}`, kind: 'warning' }
 }
 
-/** 찜이 아직 없는 채팅 — 서버가 읽은 낱말을 번호마다 "15번 주문" · "15번 취소" · "15번 언급" · "방송자" */
-export function chatWordTags(message: Pick<MessagesView['messages'][number], 'owner' | 'order' | 'cancel' | 'mentions' | 'orders' | 'cancels'>): TalkTag[] {
+/** 번호 없는 "패스" 메시지의 꼬리표 (D-RETRO-113) — 찜이 하나면 그 찜을 번호 취소처럼, 여럿이면 판매자가 정하기에서 고른다 */
+export const PASS_TAG = '패스'
+
+/** 찜이 아직 없는 채팅 — 서버가 읽은 낱말을 번호마다 "15번 주문" · "15번 취소" · "15번 언급" · "방송자" · 번호 없는 "패스" */
+export function chatWordTags(message: Pick<MessagesView['messages'][number], 'owner' | 'order' | 'cancel' | 'mentions' | 'orders' | 'cancels' | 'pass'>): TalkTag[] {
   const out: TalkTag[] = []
   if (message.owner) out.push({ word: CHAT_WORD.owner, kind: 'info' })
   if (message.order) out.push(...each(message.orders, CHAT_WORD.order, 'success'))
   if (message.cancel) out.push(...each(message.cancels, CHAT_WORD.cancel, 'warning'))
+  if (message.pass === true) out.push({ word: PASS_TAG, kind: 'warning' })
   if (!message.order && !message.cancel) out.push(...each(message.mentions, CHAT_WORD.mention, 'info'))
   return out
 }

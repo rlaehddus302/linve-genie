@@ -10,7 +10,7 @@
 //   애매한 댓글·모자란 수량·공개 때 옵션이 없는 보류 찜은 찜이 아니라 확인 필요 항목이 된다(재고·합계·효과에 들어가지 않는다, INV-O2).
 import { NotImplementedError } from '../not-implemented.ts'
 import { OPTION_TEXT_SEPARATOR, pickIndexes, variantTexts, type OptionItem, type OptionPick } from '../options.ts'
-import { parseChat } from '../parse/chat.ts'
+import { isBarePass, parseChat } from '../parse/chat.ts'
 import { parseOptionComment, type OptionCatalogEntry, type OptionFocus } from '../parse/options.ts'
 import { checkSettings, resolveSettings } from '../settings.ts'
 import { CorruptStateError, Draft, Unit, claimNumber, emptyUnit, messageKey, ownGet, slotKey, unitKeyOf, variantActiveKey, type ClaimDraft, type SlotDraft } from './draft.ts'
@@ -32,6 +32,7 @@ import {
   fillFromWaitlist,
   finish,
   groupReceived,
+  isActive,
   isLocked,
   isOptionBroadcast,
   labelPrinted,
@@ -786,10 +787,36 @@ function chat(d: Draft, e: ChatEvent): void {
   }
   // 그 방송 설정으로 R-3. 주문·취소 번호를 하나라도 읽었으면 "주문·취소였던 메시지" — 받을 때의 해석으로 정하고 나중에 다시 읽지 않는다 (D-062, D-076)
   const parsed = parseChat(e.text, settings)
-  d.newMessage(key, { ...message, order: parsed.claims.length > 0, cancel: parsed.cancels.length > 0 })
+  // 번호 없는 "패스"(D-RETRO-103·113)도 취소였던 메시지다 — 어느 번호로도 변환하지 않는다 (D-076)
+  const pass = parsed.claims.length === 0 && parsed.cancels.length === 0 && isBarePass(e.text)
+  d.newMessage(key, { ...message, order: parsed.claims.length > 0, cancel: parsed.cancels.length > 0 || pass })
   // ④ 주문 번호마다 나온 순서대로 R-4, 취소는 R-8, 언급은 아무것도 바꾸지 않는다
   for (const no of parsed.claims) makeClaim(d, { ...base, no, variant: null, options: null, qty: 1, qtyWritten: false })
   for (const no of parsed.cancels) viewerCancel(d, e.b, no, e.ch)
+  if (pass) barePass(d, e.b, e.ch)
+}
+
+/**
+ * 번호 없는 "패스" (R-8 "패스", D-RETRO-103·113). 그 채널 자신의 그 방송 살아 있는 찜(보류·1등·대기·충돌)이
+ * - 하나뿐이면: 어느 찜인지 확실하다 — 그 번호의 시청자 채팅 취소(R-8, viewerCancel)와 같다. AUTO면 취소(대기 순번도 같은 길로 당겨진다), REQUEST면 취소 요청.
+ * - 둘 이상이면: 취소하지 않는다. 아직 요청이 없는 그 찜마다 이 seq의 취소 요청을 건다(AUTO여도) — 판매자 화면이 한 묶음("○○님이 패스라고 썼어요")으로 보여 고르게 한다.
+ *   한 메시지가 둘 이상의 찜에 같은 seq의 요청을 거는 것은 이 경우뿐이다(번호 취소는 번호 하나, 변형을 정하지 않은 요청은 번호 자리에 걸린다).
+ * - 없으면 아무 일도 없다. cancel.buyerChat이 OFF면 번호 취소처럼 아무 일도 없다.
+ * 합친 다른 구매자의 찜은 보지 않는다 — 번호 취소와 같이 그 채널 자신의 찜만 (R-8 "대상 찾기").
+ */
+function barePass(d: Draft, b: string, channel: string): void {
+  if (d.settingsOf(b)['cancel.buyerChat'] === 'OFF') return
+  const live: AnyClaim[] = []
+  for (const id of d.claimIdsOf(channel)) {
+    const claim = d.readClaim(id)
+    if (claim !== undefined && claim.b === b && claim.buyer === channel && isActive(claim.status)) live.push(claim)
+  }
+  const only = live.length === 1 ? live[0] : undefined
+  if (only !== undefined) {
+    viewerCancel(d, b, only.no, channel)
+    return
+  }
+  for (const claim of live) if (claim.request === null) d.claim(claim.id).request = d.seq
 }
 
 /** 그 번호에서 지금의 구매자의 활성 찜 전부 (번호 자신 + 변형마다), 생성 순서 */

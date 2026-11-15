@@ -13,6 +13,7 @@ import {
   getBroadcast,
   getBuyer,
   getProduct,
+  isBarePass,
   isValidDate,
   listBlocked,
   listBroadcasts,
@@ -272,6 +273,11 @@ export interface MessageItem {
    * 그 방송 상품(판매 종료 포함) 중 비교 글자(compareChars)가 두 글자 이상인 이름·별칭이 메시지 비교 글자 안에 있는 번호, 상품 순서
    */
   readonly nameMentions?: readonly number[]
+  /**
+   * 번호 없는 "패스"였던 메시지 (D-RETRO-103·113 — 번호 방송만, 있을 때만 true). 엔진이 취소였던 메시지로 기록했고(cancel),
+   * 그 손님의 살아 있는 찜이 하나면 그 찜을 번호 취소처럼, 둘 이상이면 찜마다 같은 seq의 취소 요청으로 띄웠다. 화면이 "패스"라고 보인다
+   */
+  readonly pass?: true
 }
 
 export interface MessagesView {
@@ -1510,6 +1516,8 @@ export class Service {
         }
       }
       const parsed = snapshot === null ? null : parseChat(event.text, snapshot)
+      // 번호 없는 "패스" (D-RETRO-113): 엔진이 취소였던 메시지로 기록했는데 읽은 취소 번호가 없고 메시지 전체가 패스 말
+      const pass = cancel && parsed !== null && parsed.cancels.length === 0 && isBarePass(event.text)
       return {
         id: event.id,
         broadcast: event.b,
@@ -1529,6 +1537,7 @@ export class Service {
         converted: info === undefined ? [] : [...info.converted],
         claims: info === undefined ? [] : [...(lookup.claimsBySeq.get(row.seq) ?? [])],
         failed: row.failed,
+        ...(pass ? { pass: true as const } : {}),
       }
     })
   }

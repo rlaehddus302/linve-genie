@@ -3,6 +3,7 @@ export { NotImplementedError, isNotImplemented } from './not-implemented.ts'
 export { DEFAULT_SETTINGS, PRICE_UNITS, checkSettings, isPriceUnit, resolveSettings, type PriceUnit, type SaleSettings, type SettingKey, type SettingsOverride, type SettingsProblem } from './settings.ts'
 export {
   parseChat,
+  isBarePass,
   parseAmount,
   parseKoreanNumber,
   parseQuickInput,
