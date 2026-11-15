@@ -624,6 +624,57 @@ export const youtubeOwnMessages = pgTable(
   ],
 )
 
+/**
+ * 감사 채팅 정정 (D-RETRO-105, DOMAIN_RULES R-13 "게시 뒤 감사 정정"): 이미 올라간 실시간 채팅 감사 글(메시지 하나)마다 많아야 한 줄.
+ * 글에 든 값(번호·품종·가격·찜한 사람)이 고쳐지면 그 글을 지우고 고친 글을 새로 올린다. 엔진 효과가 아니다 — 발송함 실행기가 만들고 실행한다.
+ * 글 목록 칸(effect_ids·old_texts·old_remote_ids·sent_texts·new_remote_ids·new_texts)은 JSON 문자열이다(jsonb는 NUL 문자를 받지 않는다).
+ * 봉인하면 글 칸을 비운다
+ */
+export const thanksFixes = pgTable(
+  'thanks_fixes',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    scopeId: text('scope_id')
+      .notNull()
+      .references(() => scopes.id),
+    broadcastId: text('broadcast_id').notNull(),
+    /** 고칠 글: `outbox:{발송함 묶음 ID}`(처음 올린 감사) 또는 `fix:{정정 ID}`(앞 정정이 올린 글) */
+    source: text('source').notNull(),
+    /** 그 글에 든 감사 효과 ID (글 안 순서) */
+    effectIds: text('effect_ids').notNull(),
+    /** 그 글에 든 효과마다의 감사 문구 (올린 때의 것) */
+    oldTexts: text('old_texts').notNull(),
+    /** 처음 올린 감사의 실제 글 (묶음 문구). 앞 정정이 올린 글이면 null */
+    oldMessage: text('old_message'),
+    /** 지울 유튜브 메시지 ID (모르면 null 자리) */
+    oldRemoteIds: text('old_remote_ids').notNull(),
+    /** WAITING 기다림(연달아 고치면 늦춤) · WORKING 지우고 올리는 중 · DONE 마침 · SKIPPED 할 일 없음 · FAILED 하지 못함 */
+    state: text('state').notNull(),
+    reason: text('reason'),
+    /** 지우기 결과: null 아직 · true 지움(이미 없음 포함) · false 지우지 못함(새 글은 [수정]으로) */
+    deleted: boolean('deleted'),
+    /** 올릴 글 (지운 뒤 정함 — 이 글을 다시 정하지 않는다) */
+    sentTexts: text('sent_texts').notNull().default('[]'),
+    /** 올린 글의 메시지 ID (올린 차례대로, 모르면 null 자리) */
+    newRemoteIds: text('new_remote_ids').notNull().default('[]'),
+    /** 새 글에 남은 효과와 고친 문구 `[효과 ID, 문구][]` — 다음 정정이 이 글을 고칠 때 쓴다 */
+    newTexts: text('new_texts').notNull().default('[]'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAt: timestamptz('next_at'),
+    leaseOwner: text('lease_owner'),
+    leaseUntil: timestamptz('lease_until'),
+    /** 새 글을 올리기 시작한 시각 (수집기가 우리 글로 거르는 기준) */
+    attemptAt: timestamptz('attempt_at'),
+    createdAt: timestamptz('created_at').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+    doneAt: timestamptz('done_at'),
+  },
+  (t) => [unique('thanks_fixes_source_uq').on(t.sellerId, t.source), index('thanks_fixes_due_idx').on(t.state, t.nextAt), index('thanks_fixes_broadcast_idx').on(t.sellerId, t.broadcastId)],
+)
+
 /** 지운 메시지·유튜브 차단 알림 (AC-Y1-27). 엔진 입력이 아니다. 봉인하면 지운다 */
 export const youtubeNotices = pgTable(
   'youtube_notices',
@@ -2832,6 +2883,7 @@ export const schema = {
   youtubeLinks,
   youtubeCollectors,
   youtubeOwnMessages,
+  thanksFixes,
   youtubeNotices,
   youtubeQuota,
   printQueues,

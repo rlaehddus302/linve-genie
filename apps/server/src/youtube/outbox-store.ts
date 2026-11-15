@@ -4,7 +4,7 @@
 // 실행기는 감사(POST_THANKS)와 방송 후 요약 댓글(SUMMARY_COMMENT) 행만 다룬다. 라벨 행(PRINT_PRODUCT_LABEL·VOID_LABEL)은 건드리지 않는다(S08).
 import { and, asc, eq, gte, inArray, isNull, lte, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { igDmRows, outbox, scopes, youtubeLinks, youtubeOwnMessages } from '../db/schema.ts'
+import { igDmRows, outbox, scopes, thanksFixes, youtubeLinks, youtubeOwnMessages } from '../db/schema.ts'
 import { SUMMARY_KIND } from './texts.ts'
 
 /** 실행기가 다루는 행의 종류 */
@@ -117,6 +117,28 @@ export function newThanksRows(db: Db, limit = 500): Promise<RunnerRow[]> {
         REAL,
         isNull(outbox.state),
         eq(outbox.kind, 'POST_THANKS'),
+        sql`not exists (select 1 from ${igDmRows} where ${igDmRows.outboxId} = ${outbox.id} and ${igDmRows.sellerId} = ${outbox.sellerId})`,
+      ),
+    )
+    .orderBy(asc(outbox.id))
+    .limit(limit)
+}
+
+/**
+ * 감사 정정(D-RETRO-105)이 볼 이미 올라간 실시간 채팅 감사: since 뒤에 게시된(SENT) 서버가 올린 행(via 없음 — 크롬 확장·틱톡 행 빼고),
+ * 실제로 보낸 글이 있는 것(엔진이 이미 완료라 올리지 않은 행 빼고). 인스타그램 DM 행은 뺀다. 효과가 나온 순서
+ */
+export function recentSentLiveThanks(db: Db, since: Date, limit = 2000): Promise<RunnerRow[]> {
+  return select(db)
+    .where(
+      and(
+        REAL,
+        eq(outbox.kind, 'POST_THANKS'),
+        eq(outbox.target, 'LIVE_CHAT'),
+        eq(outbox.state, 'SENT'),
+        isNull(outbox.via),
+        sql`${outbox.sentText} is not null`,
+        gte(outbox.postedAt, since),
         sql`not exists (select 1 from ${igDmRows} where ${igDmRows.outboxId} = ${outbox.id} and ${igDmRows.sellerId} = ${outbox.sellerId})`,
       ),
     )
@@ -358,7 +380,25 @@ export async function isOurPost(db: Db, sellerId: string, broadcastId: string, m
       ),
     )
     .limit(1)
-  return rows.length > 0
+  if (rows.length > 0) return true
+  // 감사 정정이 올린 글 (D-RETRO-105): 올린 메시지 ID이거나, 10분 안에 올리려 한 글과 같은 것
+  const fixes = await db
+    .select({ newRemoteIds: thanksFixes.newRemoteIds, sentTexts: thanksFixes.sentTexts, attemptAt: thanksFixes.attemptAt })
+    .from(thanksFixes)
+    .where(and(eq(thanksFixes.sellerId, sellerId), eq(thanksFixes.broadcastId, broadcastId), sql`${thanksFixes.sentTexts} <> '[]'`))
+  return fixes.some(
+    (fix) => jsonStrings(fix.newRemoteIds).includes(messageId) || (fix.attemptAt !== null && fix.attemptAt.getTime() >= since.getTime() && jsonStrings(fix.sentTexts).includes(text)),
+  )
+}
+
+/** JSON 문자열 배열 칸 → 문자열만 (깨졌으면 빈 목록) */
+export function jsonStrings(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 // ── 게시 확인 짝짓기 (AC-Y1-93, D-Y1-03) ──────────────────────────────────
@@ -472,6 +512,9 @@ export async function claimRemote(db: Db, input: ClaimInput): Promise<ClaimResul
       .from(outbox)
       .where(and(REAL, eq(outbox.sellerId, sellerId), inArray(outbox.remoteId, [...byId.keys()]), notInArray(outbox.id, [...selfIds])))
     const taken = new Set(held.map((row) => row.remoteId))
+    // 감사 정정이 올린 글도 이미 임자가 있다 (D-RETRO-105)
+    const fixed = await tx.select({ newRemoteIds: thanksFixes.newRemoteIds }).from(thanksFixes).where(and(eq(thanksFixes.sellerId, sellerId), eq(thanksFixes.broadcastId, input.broadcastId)))
+    for (const fix of fixed) for (const id of jsonStrings(fix.newRemoteIds)) taken.add(id)
     const free = [...byId.values()].filter((candidate) => !taken.has(candidate.id)).sort((a, b) => a.publishedAt - b.publishedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     // 효과 순서대로 하나씩
     const groups = new Map<string, { first: number; since: number }>()

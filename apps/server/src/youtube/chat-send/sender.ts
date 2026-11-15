@@ -75,6 +75,11 @@ export interface ChatSender {
   readonly authorChannelId: string
   /** 글 하나를 올린다. 실패는 ChatSendError로 던진다. signal이 끊기면 멈춘다(timeout) */
   send(target: ChatSendTarget, text: string, signal?: AbortSignal): Promise<ChatSendResult>
+  /**
+   * 이 길로 올린 글 하나를 지운다 (감사 정정, D-RETRO-105). 없는 길은 지울 수 없다 — 발송함은 고친 글을 "[수정]"으로 올린다.
+   * 이미 없는 메시지는 성공으로 본다. 실패는 ChatSendError로 던진다
+   */
+  remove?(target: ChatSendTarget, messageId: string, signal?: AbortSignal): Promise<void>
   close(): Promise<void>
 }
 
@@ -150,6 +155,22 @@ export class FailoverSender implements MultiAuthorSender {
       const result = await this.#fallback.send(target, text, signal)
       return { ...result, authorChannelId: result.authorChannelId ?? this.#fallback.authorChannelId }
     }
+  }
+
+  /** 지우기: 앞 길이 지울 수 있으면 앞 길로, 아니면(또는 그 길이 확실히 하지 못하면) 넘김 길로 — 그 글을 넘김 길이 올렸을 수 있다 */
+  async remove(target: ChatSendTarget, messageId: string, signal?: AbortSignal): Promise<void> {
+    const primary = this.#primary.remove?.bind(this.#primary)
+    const fallback = this.#fallback.remove?.bind(this.#fallback)
+    if (primary !== undefined) {
+      try {
+        await primary(target, messageId, signal)
+        return
+      } catch (error) {
+        if (fallback === undefined || !(error instanceof ChatSendError) || (!NOT_POSTED.has(error.kind) && error.kind !== 'rejected')) throw error
+      }
+    }
+    if (fallback === undefined) throw new ChatSendError('rejected')
+    await fallback(target, messageId, signal)
   }
 
   async close(): Promise<void> {

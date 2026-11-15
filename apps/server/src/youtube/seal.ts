@@ -19,7 +19,7 @@ import {
 } from '@livejjim/core'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
-import { chatRaw, events as eventsTable, outbox, scopeLockKey, scopes, snapshots, youtubeCollectors, youtubeNotices, voiceLog, youtubeOwnMessages } from '../db/schema.ts'
+import { chatRaw, events as eventsTable, outbox, scopeLockKey, scopes, snapshots, thanksFixes, youtubeCollectors, youtubeNotices, voiceLog, youtubeOwnMessages } from '../db/schema.ts'
 import { errorKind, type LogSink } from '../log.ts'
 import { emptyState } from '../runtime.ts'
 import { sha256Hex } from '../secrets.ts'
@@ -315,6 +315,15 @@ export class Sealer {
             .set({ body, postText: null, sentText: null })
             .where(and(eq(outbox.sellerId, sellerId), eq(outbox.id, row.id)))
         }
+        // (1-2) 감사 정정 (D-RETRO-105): 끝나지 않은 정정은 하지 않음(봉인), 모든 줄의 글 칸을 비운다(구매자 이름이 든다)
+        await tx
+          .update(thanksFixes)
+          .set({ state: 'FAILED', reason: 'SEALED', nextAt: null, leaseOwner: null, leaseUntil: null, updatedAt: new Date(now) })
+          .where(and(eq(thanksFixes.sellerId, sellerId), eq(thanksFixes.scopeId, scopeId), inArray(thanksFixes.state, ['WAITING', 'WORKING'])))
+        await tx
+          .update(thanksFixes)
+          .set({ oldTexts: '[]', oldMessage: null, sentTexts: '[]', newTexts: '[]' })
+          .where(and(eq(thanksFixes.sellerId, sellerId), eq(thanksFixes.scopeId, scopeId)))
         // (3) 따로 둔 채팅 본문·이름, 스냅샷, 삭제·차단 알림, 수집 이어받기 지점, 우리 메시지 기록
         await tx.delete(chatRaw).where(and(eq(chatRaw.sellerId, sellerId), eq(chatRaw.scopeId, scopeId)))
         await tx.delete(snapshots).where(and(eq(snapshots.sellerId, sellerId), eq(snapshots.scopeId, scopeId)))

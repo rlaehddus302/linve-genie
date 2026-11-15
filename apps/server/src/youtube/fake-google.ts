@@ -29,6 +29,7 @@ export type FakeMethod =
   | 'liveChatMessages.insert'
   | 'commentThreads.list'
   | 'commentThreads.insert'
+  | 'liveChatMessages.delete'
 
 /** 넣을 수 있는 오류 */
 export type FakeFault =
@@ -242,6 +243,8 @@ export class FakeGoogle {
   readonly comments: FakeComment[] = []
   /** 우리가 게시한(insert로 받은) 메시지 */
   readonly posted: { readonly liveChatId: string; readonly id: string; readonly text: string; readonly authorChannelId: string }[] = []
+  /** 우리가 지운(liveChatMessages.delete로 받은) 메시지 (D-RETRO-105 감사 정정) */
+  readonly removed: { readonly liveChatId: string; readonly id: string; readonly channel: string }[] = []
   /** 채팅을 읽은 기록 (liveChatMessages.list·streamList — 어느 채널의 토큰으로 어느 채팅을 읽었나, INV1 초대 방송 시험) */
   readonly chatReads: { readonly liveChatId: string; readonly channel: string | null }[] = []
   /** 다음 승인 화면의 선택 */
@@ -652,6 +655,7 @@ export class FakeGoogle {
         'POST /liveChat/messages': 'liveChatMessages.insert',
         'GET /commentThreads': 'commentThreads.list',
         'POST /commentThreads': 'commentThreads.insert',
+        'DELETE /liveChat/messages': 'liveChatMessages.delete',
       } as Record<string, FakeMethod>
     )[route]
     if (method === undefined) return googleError(res, 404, 'notFound')
@@ -696,6 +700,8 @@ export class FakeGoogle {
         return this.#commentsList(res, url)
       case 'commentThreads.insert':
         return this.#commentInsert(req, res, token, fault)
+      case 'liveChatMessages.delete':
+        return this.#chatDelete(res, url, token)
       default:
         return googleError(res, 404, 'notFound')
     }
@@ -1019,6 +1025,23 @@ export class FakeGoogle {
     }
     const message = chat.messages.find((item) => item.id === messageId) as FakeChatMessage
     json(res, 200, resource(chat, message))
+  }
+
+  /**
+   * 메시지 지우기 (D-RETRO-105): 그 채팅의 주인(방송 채널) 토큰만 지울 수 있다고 본다(실제 권한은 방송에서 확인 — 주인·관리자).
+   * 없는 메시지는 404, 권한 없음은 403. 지우면 채팅에 messageDeletedEvent가 붙고 204(본문 없음)
+   */
+  #chatDelete(res: ServerResponse, url: URL, token: AccessToken): void {
+    if (!token.scopes.includes('https://www.googleapis.com/auth/youtube.force-ssl')) return googleError(res, 403, 'insufficientPermissions', 'global')
+    const messageId = url.searchParams.get('id') ?? ''
+    const chat = [...this.#chats.values()].find((candidate) => candidate.messages.some((message) => message.id === messageId && message.type === 'textMessageEvent'))
+    if (chat === undefined || this.removed.some((item) => item.id === messageId)) return googleError(res, 404, 'liveChatMessageNotFound', 'youtube.liveChat')
+    const channel = token.channel ?? ''
+    if (channel !== chat.channelId) return googleError(res, 403, 'forbidden', 'youtube.liveChat')
+    this.removed.push({ liveChatId: chat.id, id: messageId, channel })
+    this.deleteMessage(chat.id, messageId)
+    res.writeHead(204)
+    res.end()
   }
 
   /** 댓글 목록 (order=time 최신순): 최대 수(maxResults, 기본 20, 1~100)씩 쪽을 나누고 다음 쪽 지점(nextPageToken)을 준다 (AC-I3-86) */
