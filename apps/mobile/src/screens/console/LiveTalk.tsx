@@ -1,7 +1,7 @@
 // 방송 화면 "채팅·문자" 탭 (D-UX4-12, 사용자 지시 2026-11-08 "방송 중 화면에서 실시간 채팅, 문자 오는거 볼 수 있게 찜 기록 옆에 새로운 탭으로").
 // - 채팅: 이 방송의 최근 채팅(찜 기록·채팅 보기와 같은 useMessages — 범위가 바뀌면 다시 읽는다). 주문·취소·언급·방송자 표시는 채팅 보기와 같은 글자.
 // - 문자: 휴대폰 알림 받기로 서버에 온 손님 문자(GET /api/inbox/sms — 서버 메모리, 최신이 앞). 실시간 `inbox` { kind: 'sms', b }가 오면 다시 읽는다.
-// - 둘을 받은 시각으로 섞는다(정렬은 최신이 위, 화면은 최신이 맨 아래 — D-UX3-75). 한 줄에 시각(23:23, 폭 고정 칸)·닉네임(문자는 "문자-끝번호")·결과 꼬리표(찜 금색·대기 회색)·내용(D-UX4-66), 줄 바탕·출처 꼬리표 없음(D-UX3-80·82).
+// - 채팅은 서버 순번 차례, 문자는 받은 시각으로 그 사이에 끼운다(D-RETRO-140 — 모든 기기가 같은 차례. 정렬은 최신이 위, 화면은 최신이 맨 아래 — D-UX3-75). 한 줄에 시각(23:23, 폭 고정 칸)·닉네임(문자는 "문자-끝번호")·결과 꼬리표(찜 금색·대기 회색)·내용(D-UX4-66), 줄 바탕·출처 꼬리표 없음(D-UX3-80·82).
 //   본문·닉네임·보낸 이름은 손님이 쓴 글이라 글자로만 그린다. 판정은 하지 않는다(서버가 한 일을 낱말로만).
 import { displayNickname } from '@livejjim/core/format'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -109,18 +109,41 @@ export function chatResult(message: MessagesView['messages'][number], data: Scop
   return chatWordTags(message)
 }
 
-/** 채팅 + 문자 → 한 줄씩 (최신이 위) */
+/** 글자 코드 순 — localeCompare와 달리 기기·언어 설정과 상관없이 늘 같은 차례 */
+const byCode = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+const timeOf = (text: string): number => {
+  const at = Date.parse(text)
+  return Number.isFinite(at) ? at : 0
+}
+
+/**
+ * 채팅 + 문자 → 한 줄씩 (최신이 위).
+ * 차례는 서버가 정한다 (D-RETRO-140, 사용자 메모 11-13 "라이브 채팅 순서가 기기마다 다름"):
+ * - 채팅끼리는 서버가 기록한 순번(seq — 선착순 판정과 같은 차례). 옛: 받은 시각(at)으로 세우고 같으면 메시지 ID를 localeCompare로 견줬다.
+ *   한 번에 받은 채팅 묶음은 시각이 같은 밀리초라 ID 견주기가 차례를 정했는데, localeCompare는 아이폰·갤럭시·브라우저가 대소문자·'-'·'_'를
+ *   다르게 견줘 같은 채팅이 기기마다 다른 차례로 보였다. 늦게 받은 채팅도 순번 자리에 끼워진다.
+ * - 문자(순번 없음)는 받은 시각으로 채팅 사이에 끼운다. 같은 시각이면 채팅이 먼저, 문자끼리는 ID 글자 코드 순.
+ */
 export function talkRows(chat: MessagesView | null, sms: readonly SmsFeedView[], data: ScopeData, hideSuffix = false): TalkRow[] {
+  const chats = [...(chat?.messages ?? [])].sort((a, b) => a.seq - b.seq || byCode(a.id, b.id))
+  const texts = sms.map((entry) => ({ entry, at: timeOf(entry.at) })).sort((a, b) => a.at - b.at || byCode(a.entry.id, b.entry.id))
+  // 오래된 것부터 두 줄을 합친다 (채팅의 순번 차례는 그대로 둔다)
   const rows: TalkRow[] = []
-  for (const message of chat?.messages ?? []) {
-    const at = Date.parse(message.at)
-    rows.push({ key: `c:${message.id}`, at: Number.isFinite(at) ? at : 0, who: displayNickname(message.nick, hideSuffix), text: message.text, tags: chatResult(message, data) })
+  let c = 0
+  let s = 0
+  while (c < chats.length || s < texts.length) {
+    const message = chats[c]
+    const text = texts[s]
+    const chatAt = message === undefined ? Number.POSITIVE_INFINITY : timeOf(message.at)
+    if (message !== undefined && (text === undefined || chatAt <= text.at)) {
+      rows.push({ key: `c:${message.id}`, at: chatAt, who: displayNickname(message.nick, hideSuffix), text: message.text, tags: chatResult(message, data) })
+      c++
+    } else if (text !== undefined) {
+      rows.push({ key: `s:${text.entry.id}`, at: text.at, who: smsWho(text.entry), text: text.entry.text, tags: smsWord(text.entry) })
+      s++
+    }
   }
-  for (const entry of sms) {
-    const at = Date.parse(entry.at)
-    rows.push({ key: `s:${entry.id}`, at: Number.isFinite(at) ? at : 0, who: smsWho(entry), text: entry.text, tags: smsWord(entry) })
-  }
-  return rows.sort((a, b) => b.at - a.at || b.key.localeCompare(a.key))
+  return rows.reverse()
 }
 
 /** 이 방송에 온 최근 손님 문자 (리허설은 받지 않는다 — 빈 목록) */

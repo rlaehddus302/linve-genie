@@ -100,19 +100,32 @@ export function LiveNotice({ snapshot, onRetry }: { readonly snapshot: ScopeSnap
   )
 }
 
-function AwayLine() {
+/** "자리를 비운 동안 라벨 n장…" 줄을 누르면 가는 곳 (D-RETRO-141) — 화면 읽기 이름 */
+export const AWAY_LABELS_GO = '대기 라벨 뽑기로 가기'
+
+/**
+ * 자리를 비운 동안 한 줄 (APP-04). 라벨 몫이 있으면 줄을 누를 수 있다 — 누르면 대기 라벨 뽑기(라이브 관리의 "대기 n장 지금 뽑기", D-RETRO-40)로 간다 (D-RETRO-141).
+ * 라벨 몫은 남은 장 수대로 줄고, 다 뽑거나 라벨 출력을 끄면 빠진다(그때 10초가 지났으면 줄이 사라진다).
+ */
+function AwayLine({ onLabels }: { readonly onLabels: () => void }) {
   const { away } = useServices()
   const view = useSyncExternalStore(away.subscribe, away.getSnapshot)
   useEffect(() => {
-    if (view.line === null) return
+    if (view.line === null || view.labels > 0) return
     const handle = setTimeout(() => away.tick(Date.now()), Math.max(0, view.until - Date.now()))
     return () => clearTimeout(handle)
   }, [away, view])
   if (view.line === null) return null
-  return (
+  const notice = (
     <Notice tone="info" label="자리를 비운 동안">
-      {view.line}
+      {view.labels > 0 ? `${view.line} ›` : view.line}
     </Notice>
+  )
+  if (view.labels === 0) return notice
+  return (
+    <Tap role="button" aria-label={AWAY_LABELS_GO} testID="away-labels" onPress={onLabels} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+      {notice}
+    </Tap>
   )
 }
 
@@ -257,6 +270,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const [salesPage, setSalesPage] = useState<'auto' | 'sales' | 'record'>('auto')
   const labelsQueue = useSyncExternalStore(services.labels.subscribe, services.labels.getSnapshot)
   const paper = useLabelPaper(services.labels.paperDeviceId ?? null)
+  // 자리를 비운 동안 줄의 라벨 몫: 뽑히는 대로 줄이고, 라벨 출력을 끄면 뺀다 (D-RETRO-141)
+  const labelsLeft = labelsQueue.queue === null ? null : labelsQueue.queue.labelsEnabled ? labelsQueue.queue.waiting + labelsQueue.queue.printing : 0
+  useEffect(() => {
+    if (labelsLeft !== null) services.away.labelsNow(labelsLeft, Date.now())
+  }, [labelsLeft, services])
   const data = snapshot.data
   const broadcast = snapshot.broadcast
   const returning = useRef<{ at: number } | null>(null)
@@ -267,7 +285,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const finishReturn = useCallback(() => {
     if (returning.current === null) return
     returning.current = null
-    services.away.back(store.getSnapshot().data?.claims.keys() ?? [], services.labels.backlog, Date.now())
+    // 라벨 출력이 꺼져 있으면 장 수를 보이지 않는다 (D-RETRO-141)
+    services.away.back(store.getSnapshot().data?.claims.keys() ?? [], services.labels.getSnapshot().queue?.labelsEnabled === true ? services.labels.backlog : 0, Date.now())
   }, [services, store])
   useAppForeground({
     onBackground: () => services.away.leave(store.getSnapshot().data?.claims.keys() ?? [], Date.now()),
@@ -539,7 +558,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl + (searchPad ? padHeight : 0), gap: SPACE.sm }} keyboardShouldPersistTaps={searchPad ? 'always' : 'handled'}>
           {/* 첫째 자식: 탭 바 위 알림들 (한 묶음 — 붙는 머리 자리가 늘 둘째가 되게) */}
           <View style={{ gap: SPACE.sm }}>
-            <AwayLine />
+            <AwayLine onLabels={() => (openManage === undefined ? setPage('settings') : openManage())} />
             <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
             {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
             {labelsQueue.mine && labelsQueue.queue?.labelsEnabled && paper !== null && paper <= LOW_PAPER ? <Notice tone="warning" alert>{`라벨 용지가 약 ${paper}장 남았어요. 새 롤을 준비해 주세요.`}</Notice> : null}

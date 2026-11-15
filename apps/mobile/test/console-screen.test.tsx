@@ -8,7 +8,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { SessionProvider } from '../src/services.tsx'
-import { ConsoleScreen, LINK_TITLE, THANKS_TITLE } from '../src/screens/ConsoleScreen.tsx'
+import { AWAY_LABELS_GO, ConsoleScreen, LINK_TITLE, THANKS_TITLE } from '../src/screens/ConsoleScreen.tsx'
 import { END_LINK_LABEL } from '../src/screens/console/EndBroadcast.tsx'
 import { ASK_ADD, ASK_NAME, ASK_NO, ASK_PRICE } from '../src/screens/console/ProductAdd.tsx'
 import { DOCK_STATE } from '../src/screens/console/StreamAudio.tsx'
@@ -480,6 +480,45 @@ describe('ConsoleScreen', () => {
       await flush()
     })
     await waitFor(() => expect(screen.getByRole('status', { name: '자리를 비운 동안' }).textContent).toBe('자리를 비운 동안 찜 2건'))
+  })
+
+  /** 대기 라벨이 쌓인 채로 뒤로 갔다 돌아온다 */
+  async function awayWithLabels(labelsEnabled: boolean) {
+    const world = makeWorld({ products: [product(15)] })
+    world.server.on('GET', /^\/api\/me$/, () => ({ body: { loginId: 'test-seller' } }))
+    world.server.on('GET', /^\/api\/print$/, () => ({ body: { queue: { rev: 2, device: null, pause: null, waiting: 2, printing: 0, discard: 0, labelsEnabled }, jobs: [], discard: [] } }))
+    await open(world, true)
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 8, { claims: [claim('c1', 15, 'u1'), claim('c2', 15, 'u2', { status: 'WAITLISTED' })] }) }))
+    await act(async () => {
+      await world.services.labels.reload()
+      setVisibility('hidden')
+      world.source().fail()
+      await flush()
+    })
+    await act(async () => {
+      setVisibility('visible')
+      await flush()
+    })
+    await act(async () => {
+      world.source().open([{ date: '2026-10-29', rehearsal: false, seq: 8 }])
+      await flush()
+    })
+    return world
+  }
+
+  // D-RETRO-141 (사용자 메모 11-13 "[자리를 비운 동안 라벨 2개] 알려주는 거 누르면 넘어가든 해야 할 듯")
+  it('"자리를 비운 동안 라벨 n장" 줄을 누르면 대기 라벨 뽑기가 있는 라이브 관리로 간다', async () => {
+    await awayWithLabels(true)
+    const go = await screen.findByRole('button', { name: AWAY_LABELS_GO })
+    expect(within(go).getByRole('status', { name: '자리를 비운 동안' }).textContent).toBe('자리를 비운 동안 라벨 2장·찜 2건 ›')
+    fireEvent.click(go)
+    expect(await screen.findByRole('dialog', { name: '라이브 관리' })).toBeTruthy()
+  })
+
+  it('라벨 출력이 꺼져 있으면 장 수를 보이지 않고 줄도 누를 것이 없다 (D-RETRO-141)', async () => {
+    await awayWithLabels(false)
+    await waitFor(() => expect(screen.getByRole('status', { name: '자리를 비운 동안' }).textContent).toBe('자리를 비운 동안 찜 2건'))
+    expect(screen.queryByRole('button', { name: AWAY_LABELS_GO })).toBeNull()
   })
 
   it('듣기 시작 → 안내 창 → 듣는 중 → 서버가 읽은 결과가 바로 등록되고 되돌리기가 보인다 (APP-02·APP-05)', async () => {
