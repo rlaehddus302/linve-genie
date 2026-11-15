@@ -222,14 +222,30 @@ export function NavBar({ title, onBack, backLabel = '뒤로', right, testID }: {
   )
 }
 
-/** 머리 오른쪽 글자 단추 (토스 "관리", D-UX4-42): 제목과 같은 17, 진한 회색. 누르면 바탕이 옅게 진해진다 */
+/**
+ * 머리 오른쪽 글자 단추 한 벌 (D-UX4-164, 사용자 지시 2026-11-16 "사진 1,2 참고해서 화면 제목 오른쪽에 있는 버튼 스타일을 수정해 (모듈화해서 전역 적용)"):
+ * 제목과 같은 17 · 중간 두께(500) · 진한 회색 글자. 글자 끝은 화면 끝에서 16(캡슐 끝 8 + 안 여백 8).
+ * 누르면 둥근 캡슐(높이 34) 회색 바탕이 생기고 단추 전체가 0.9배로 꾹 줄어든다(옛: 네모 바탕 · 0.97배).
+ * 모든 화면 머리 오른쪽 글자 단추는 이것만 쓴다.
+ */
+export const HEADER_BUTTON = { height: 34, padX: SPACE.sm, edge: SPACE.sm, pressScale: 0.9, radius: RADIUS.pill } as const
+
+/** 머리 오른쪽 글자 단추 (토스 "관리", D-UX4-42 → D-UX4-164 모양) */
 export function HeaderTextButton({ label, ariaLabel, onPress, testID }: { readonly label: string; readonly ariaLabel?: string; readonly onPress: () => void; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <Tap role="button" aria-label={ariaLabel ?? label} onPress={onPress} testID={testID} hitSlop={6} style={({ pressed }) => ({ height: 40, minWidth: 48, paddingHorizontal: SPACE.sm + 2, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap
+      role="button"
+      aria-label={ariaLabel ?? label}
+      onPress={onPress}
+      testID={testID}
+      hitSlop={{ top: 7, bottom: 7, left: 6, right: 6 }}
+      pressScale={HEADER_BUTTON.pressScale}
+      style={({ pressed }) => ({ height: HEADER_BUTTON.height, minWidth: 44, marginRight: HEADER_BUTTON.edge - NAV.right, paddingHorizontal: HEADER_BUTTON.padX, alignItems: 'center', justifyContent: 'center', borderRadius: HEADER_BUTTON.radius, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}
+    >
       {/* 제목처럼 한글을 2.5 올려 뒤로 ‹·가운데 제목과 한 줄에 맞춘다 (D-UX4-55, 사용자 지시 "오른쪽에 있는 요소들이 수평 정렬이 안 된거 같아") */}
       <View style={{ transform: [{ translateY: NAV.titleLift }] }}>
-        <Txt step="nav" weight="book" ink={p.tabInk}>
+        <Txt step="nav" weight="book" ink={p.tabInk} numberOfLines={1}>
           {label}
         </Txt>
       </View>

@@ -38,7 +38,7 @@ import { formatWon, PAYMENT_WORD, RETRY_NOW } from '../lib/words.ts'
 import { nativeShareFile } from '../native/index.ts'
 import { useServices } from '../services.tsx'
 import { Pill } from '../ui/day-pills.tsx'
-import { Appear, EmptyFill, AppHeader, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { Appear, EmptyFill, AppHeader, HeaderTextButton, BigButton, BottomSheet, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { CARD_GAP, ChipButton, MenuRow, PAGE_SIDE, SectionCard } from './order-parts.tsx'
@@ -119,7 +119,7 @@ export function ReceiptsScreen({ onBack, initialBroadcast }: { readonly onBack: 
   const sameDay = broadcast !== null && list !== null && list.some((item) => item.id !== broadcast.id && item.date === broadcast.date)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="receipts-screen">
-      <AppHeader title={RECEIPTS_TITLE} onBack={onBack} right={<ChipButton label="기간 판매대장" ariaLabel="기간 판매대장 엑셀" onPress={() => setLedger(true)} />} />
+      <AppHeader title={RECEIPTS_TITLE} onBack={onBack} right={<HeaderTextButton label="기간 판매대장" ariaLabel="기간 판매대장 엑셀" onPress={() => setLedger(true)} />} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE_SIDE, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: CARD_GAP }} keyboardShouldPersistTaps="handled">
         {error !== null ? (
           <View style={{ gap: SPACE.sm }}>
