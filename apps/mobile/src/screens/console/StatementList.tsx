@@ -1,36 +1,54 @@
 // 화면의 정산서 (D-UX4-171, 사용자 지시 2026-11-16 "화면에 그냥 직사각형 표로 정산서를 그리는데, 그렇게 하지 말고 우리의 부드럽고 우아한 ui를 사용해서
 // 보기 좋게 다시 그리자. 정산 내역서 구매자별, 내 가게 이름, 날짜 이건 지우고"):
 // 옛: 사진과 같은 svg 직사각형 표(머리 "정산 내역서 · 구매자별"·가게 이름·날짜, 하늘색 띠) — D-RETRO-62·D-UX4-145.
-// 이제 화면은 흰 둥근 카드 안의 줄(토스 거래 내역처럼: 왼쪽 이름·개수, 오른쪽 금액)과 맨 아래 총계 카드(금액 · 구매자 수 · 개수)로 그린다.
+// 이제 화면은 흰 둥근 카드 안의 줄(토스 거래 내역처럼: 왼쪽 이름·개수, 오른쪽 금액)로 그린다. 총계는 화면 아래 고정 판(StatementFooter, D-UX4-178)에 있다.
 // 사진으로 저장할 때만 A4 그림(StatementPaper)을 쓴다 — 저장 전에 그 그림을 미리 보여 준다(StatementPhoto).
 // - 구매자별 줄을 누르면 그 손님 정산서가 열린다(옛 표의 투명한 누름 자리와 같은 이름). 상품별 줄은 누르지 않는다.
+// - 상품별 줄에는 그 상품을 산 구매자 이름을 모두 " · "로 잇는다 — 줄이지 않고 길면 다음 줄로 (D-UX4-179, 사용자 "상품별 목록에서 각 상품의 구매자가 안 적혀 있어").
 // - 손님 닉네임은 글자(Txt)로만 그린다 — 꺾쇠·기호도 그대로 글자다.
 import { View } from 'react-native'
-import { salesMoney, type StatementRow, type StatementTab } from '../../lib/broadcast-sales.ts'
+import { salesMoney, type BuyerOrder, type StatementRow, type StatementTab } from '../../lib/broadcast-sales.ts'
 import { Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../../ui/kit/tokens.ts'
 import { STATEMENT_EMPTY } from './StatementPhoto.tsx'
 
-export const TOTAL_WORD = '총계'
-/** 총계 카드의 구매자 수·개수 한 줄 */
-export const totalLine = (buyers: number, qty: number): string => `구매자 ${buyers}명 · ${qty}개`
+/** 여러 이름을 한 줄로 */
+export const BUYER_JOIN = ' · '
+
+/**
+ * 상품 줄(판매 줄 key)마다 산 구매자 이름 — 구매자별 줄과 같은 이름(name), 한글 순, 같은 이름은 한 번 (순수 함수).
+ * 구매자별 주문의 줄 key가 상품별 줄 key와 같다(broadcastSales가 같은 key로 묶는다)
+ */
+export function productBuyers(orders: readonly BuyerOrder[], name: (id: string) => string): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  for (const order of orders) {
+    const label = name(order.id)
+    for (const line of order.lines) {
+      const list = out.get(line.key) ?? []
+      if (!list.includes(label)) list.push(label)
+      out.set(line.key, list)
+    }
+  }
+  for (const list of out.values()) list.sort((a, b) => a.localeCompare(b, 'ko'))
+  return out
+}
 
 function Divider() {
   const { p } = useKit()
   return <View aria-hidden style={{ height: 1, backgroundColor: p.border, marginHorizontal: SPACE.xl }} />
 }
 
-function Money({ amount, strong }: { readonly amount: number | null; readonly strong?: boolean }) {
+function Money({ amount }: { readonly amount: number | null }) {
   return amount === null
     ? <Txt step="body" weight="medium" color="warnText" right>{salesMoney(null)}</Txt>
-    : <Txt step={strong === true ? 'title' : 'bodyLarge'} weight="bold" right>{salesMoney(amount)}</Txt>
+    : <Txt step="bodyLarge" weight="bold" right>{salesMoney(amount)}</Txt>
 }
 
-function Row({ row, tab, sent, label, onPress }: { readonly row: StatementRow; readonly tab: StatementTab; readonly sent: boolean; readonly label: string; readonly onPress?: (() => void) | undefined }) {
+function Row({ row, tab, sent, buyers, label, onPress }: { readonly row: StatementRow; readonly tab: StatementTab; readonly sent: boolean; readonly buyers: readonly string[]; readonly label: string; readonly onPress?: (() => void) | undefined }) {
   const { p } = useKit()
   const body = <>
     {tab === 'products' && row.no !== null ? (
-      <View aria-hidden style={{ minWidth: 40, height: 28, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+      <View aria-hidden style={{ minWidth: 40, height: 28, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start', marginTop: 1 }}>
         <Txt step="caption" weight="medium" color="textSub">{`${row.no}번`}</Txt>
       </View>
     ) : null}
@@ -40,6 +58,7 @@ function Row({ row, tab, sent, label, onPress }: { readonly row: StatementRow; r
         <Txt step="caption" color="textSub">{`${row.qty}개`}</Txt>
         {sent ? <View style={{ paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.secondary }}><Txt step="note" weight="medium" color="onSecondary">보냄</Txt></View> : null}
       </View>
+      {buyers.length > 0 ? <Txt step="caption" color="textSub" testID="product-buyers">{buyers.join(BUYER_JOIN)}</Txt> : null}
     </View>
     <Money amount={row.money} />
   </>
@@ -53,37 +72,27 @@ function Row({ row, tab, sent, label, onPress }: { readonly row: StatementRow; r
   )
 }
 
-export function StatementList({ tab, rows, total, qty, buyers, sent, onRow, rowLabel }: {
+export function StatementList({ tab, rows, sent, buyers, onRow, rowLabel }: {
   readonly tab: StatementTab; readonly rows: readonly StatementRow[]
-  readonly total: number | null; readonly qty: number; readonly buyers: number
   /** 문자를 보낸 구매자 */
   readonly sent: readonly string[]
+  /** 상품별: 줄 key마다 산 구매자 이름 (productBuyers) */
+  readonly buyers?: ReadonlyMap<string, readonly string[]>
   /** 줄을 누름 (구매자별만) */
   readonly onRow?: (key: string) => void
   readonly rowLabel: (row: StatementRow) => string
 }) {
   const { p } = useKit()
-  const card = { backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous' as const, overflow: 'hidden' as const }
   return (
-    <View style={{ gap: SPACE.md }}>
-      <View role="list" aria-label={tab === 'products' ? '상품별 정산' : '구매자별 정산'} style={{ ...card, paddingVertical: SPACE.xs }}>
-        {rows.length === 0 ? (
-          <View style={{ paddingVertical: SPACE.xxl, paddingHorizontal: SPACE.xl }}><Txt color="textSub" center>{STATEMENT_EMPTY}</Txt></View>
-        ) : rows.map((row, i) => (
-          <View key={row.key} role="listitem">
-            {i > 0 ? <Divider /> : null}
-            <Row row={row} tab={tab} sent={tab === 'buyers' && sent.includes(row.key)} label={rowLabel(row)} onPress={onRow === undefined ? undefined : () => onRow(row.key)} />
-          </View>
-        ))}
-      </View>
-      {/* 총계 — 금액 · 구매자 수 · 개수 (D-UX4-170: 옛 맨 위 작은 글 "판매 수량 n개 · 구매자 n명"을 여기로) */}
-      <View role="group" aria-label={`${TOTAL_WORD} ${salesMoney(total)} · ${totalLine(buyers, qty)}`} testID="statement-total" style={{ ...card, paddingVertical: SPACE.lg, paddingHorizontal: SPACE.xl, gap: SPACE.xs }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md }}>
-          <Txt step="bodyLarge" weight="bold">{TOTAL_WORD}</Txt>
-          <View style={{ flexShrink: 1 }}><Money amount={total} strong /></View>
+    <View role="list" aria-label={tab === 'products' ? '상품별 정산' : '구매자별 정산'} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', overflow: 'hidden', paddingVertical: SPACE.xs }}>
+      {rows.length === 0 ? (
+        <View style={{ paddingVertical: SPACE.xxl, paddingHorizontal: SPACE.xl }}><Txt color="textSub" center>{STATEMENT_EMPTY}</Txt></View>
+      ) : rows.map((row, i) => (
+        <View key={row.key} role="listitem">
+          {i > 0 ? <Divider /> : null}
+          <Row row={row} tab={tab} sent={tab === 'buyers' && sent.includes(row.key)} buyers={tab === 'products' ? buyers?.get(row.key) ?? [] : []} label={rowLabel(row)} onPress={onRow === undefined ? undefined : () => onRow(row.key)} />
         </View>
-        <Txt step="body" color="textSub">{totalLine(buyers, qty)}</Txt>
-      </View>
+      ))}
     </View>
   )
 }

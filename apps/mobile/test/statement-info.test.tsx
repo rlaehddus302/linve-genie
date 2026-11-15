@@ -10,7 +10,7 @@ import { IN_APP_SCREENS } from '../src/screens/MoreScreen.tsx'
 import { ASK_BODY, LATER_LABEL, SAVE_LABEL, SAVED_NOTE, SHIPPING_APPLY_NOTE, StatementInfoScreen, shippingSummary } from '../src/screens/StatementInfo.tsx'
 import { ENDED_WHILE_AWAY, ManageScreen } from '../src/screens/console/StackScreens.tsx'
 import { PHONE_CHECK_FAILED, SEND_ALL_NOBODY, SEND_ALL_TITLE, SEND_SHEET_TITLE, SMS_ALL_ROW } from '../src/screens/console/BroadcastSales.tsx'
-import { INFO_PILL_TEXT, SEND_PILL_TEXT } from '../src/screens/console/StatementPills.tsx'
+import { INFO_BUTTON_TEXT, SEND_TEXT } from '../src/screens/console/StatementControls.tsx'
 import { BLOCK_TITLE } from '../src/screens/console/statement-send.ts'
 import { makeWorld, type ScreenWorld } from './screen-support.tsx'
 import { BROADCAST, BROADCAST_VIEW, buyer, changes, claim, flush, fullView, product } from './support.ts'
@@ -67,7 +67,7 @@ function sms(result: 'sent' | 'cancelled' | 'unknown') {
 }
 /** [보내기] → "정산서 보내기" → 구매자에게 문자로 보내기 → 모두에게 정산서 보내기 판 */
 async function openSmsAll() {
-  fireEvent.click(screen.getByRole('button', { name: SEND_PILL_TEXT }))
+  fireEvent.click(screen.getByRole('button', { name: SEND_TEXT }))
   const menu = await screen.findByRole('dialog', { name: SEND_SHEET_TITLE })
   fireEvent.click(within(menu).getByRole('button', { name: SMS_ALL_ROW }))
   return screen.findByRole('dialog', { name: SEND_ALL_TITLE })
@@ -398,18 +398,29 @@ describe('모두에게 보내기 (D-RETRO-64 · D-UX4-173·174)', () => {
   })
 })
 
-describe('[보내기] 캡슐 (D-UX4-173)', () => {
+describe('[보내기] (D-UX4-173 · D-UX4-178)', () => {
   // 옛 기대: 상품별 표에는 [모두에게 보내기]가 없고 [내보내기]만. 새 기대(D-UX4-173): 두 탭 모두 같은 [보내기] 하나
-  it('두 탭 모두 아래에 떠 있는 [보내기] 하나 — 누르면 "정산서 보내기" 창에 문자·사진·엑셀·CSV 넷', async () => {
+  // 옛 기대(D-UX4-173): [보내기]는 아래에 떠 있는 흰 캡슐, 총계는 목록 끝 카드.
+  // 새 기대(D-UX4-178, 사용자 지시 2026-11-16 "총계, 보내기 버튼 합쳐서 맨 아래에 플로팅 형태로 고정 … 보내기 버튼은 캡슐 말고 기존 버튼 형태로 하고 포인트 컬러"): 총계와 큰 단추 [보내기]가 목록 밖 아래 고정 판 하나
+  it('두 탭 모두 아래 고정 판에 총계와 [보내기] 하나 — 누르면 "정산서 보내기" 창에 문자·사진·엑셀·CSV 넷', async () => {
     const { world } = salesWorld(FULL)
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
     await screen.findByRole('button', { name: /^가을여행 정산서/ })
     const wanted = ['구매자에게 문자로 보내기', '사진으로 저장하기', '엑셀 파일로 저장하기', 'CSV 파일로 저장하기']
     for (const tab of ['구매자별', '상품별'] as const) {
       fireEvent.click(screen.getByRole('button', { name: tab }))
-      const pills = screen.getAllByRole('button', { name: SEND_PILL_TEXT })
+      const pills = screen.getAllByRole('button', { name: SEND_TEXT })
       expect(pills).toHaveLength(1)
-      expect(getComputedStyle(screen.getByTestId('statement-send-pill').parentElement!).position).toBe('absolute')
+      const footer = screen.getByTestId('statement-footer')
+      expect(getComputedStyle(footer).position).toBe('absolute')
+      // 굴리는 목록 밖에 있어 늘 보이고, 총계와 [보내기]가 한 판에 (총계 왼쪽 · 단추 오른쪽)
+      expect(within(screen.getByTestId('statement-scroll')).queryByTestId('statement-footer')).toBeNull()
+      const total = within(footer).getByTestId('statement-total')
+      expect(total.textContent).toContain('90,000원')
+      expect(total.textContent).toContain('구매자 3명 · 3개')
+      expect(within(footer).getByRole('button', { name: SEND_TEXT })).toBe(pills[0])
+      expect(total.compareDocumentPosition(pills[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(screen.getAllByTestId('statement-total')).toHaveLength(1)
       fireEvent.click(pills[0]!)
       const menu = await screen.findByRole('dialog', { name: SEND_SHEET_TITLE })
       const names = within(menu).getAllByRole('button').map(button => button.getAttribute('aria-label') ?? '').filter(name => wanted.includes(name))
@@ -420,19 +431,26 @@ describe('[보내기] 캡슐 (D-UX4-173)', () => {
   })
 })
 
-describe('정산서에 넣을 정보 캡슐 (D-UX4-172)', () => {
-  it('계좌·전화번호를 모르면 탭 바 아래에 연한 빨강 캡슐이 뜨고, 누르면 가게 이름과 정산 정보를 한 판에서 저장한다 — 다 채우면 사라진다', async () => {
+describe('정산 정보 단추 (D-UX4-172 · D-UX4-177)', () => {
+  // 옛 기대(D-UX4-172): 탭 바 아래에 떠 있는 연한 빨강 캡슐 "정산서에 넣을 정보를 알려 주세요".
+  // 새 기대(D-UX4-177, 사용자 지시 2026-11-16 "에러 문구 같이 생겼어. 탭 바 맨 오른쪽에 배치하고 이름은 정산 정보를 알려주세요로 하고 > 기호 넣어서 누름직하게"): 탭 바 줄 맨 오른쪽 단추
+  it('계좌·전화번호를 모르면 탭 바 맨 오른쪽에 "정산 정보를 알려주세요 ›"가 있고, 누르면 가게 이름과 정산 정보를 한 판에서 저장한다 — 다 채우면 사라진다', async () => {
     const { world, puts } = salesWorld({ ...EMPTY, decided: true })
     const shops: unknown[] = []
     world.server.on('PUT', /order-shop$/, (call) => { shops.push(call.body); return { body: { name: (call.body as { name: string }).name } } })
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
-    const pill = await screen.findByRole('button', { name: INFO_PILL_TEXT })
-    expect(pill.textContent).toBe(INFO_PILL_TEXT)
+    const pill = await screen.findByRole('button', { name: INFO_BUTTON_TEXT })
+    expect(pill.textContent).toBe('정산 정보를 알려주세요')
     // 옛 [가게 이름]·[정산 정보] 단추는 없다
     expect(screen.queryByRole('button', { name: '가게 이름' })).toBeNull()
     expect(screen.queryByRole('button', { name: '정산 정보' })).toBeNull()
-    // 탭 바 아래에 떠 있다
-    expect(getComputedStyle(pill.parentElement!).position).toBe('absolute')
+    // 탭 바 같은 줄, 탭 알약 뒤(오른쪽)에 — 떠 있는 경고 캡슐이 아니다
+    const tabs = screen.getByTestId('statement-tabs')
+    expect(within(tabs).getByRole('button', { name: INFO_BUTTON_TEXT })).toBe(pill)
+    expect(within(tabs).getByRole('button', { name: '상품별' }).compareDocumentPosition(pill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(getComputedStyle(pill).position).not.toBe('absolute')
+    // › 기호가 함께 있다 (그림 — 이름에는 읽히지 않는다)
+    expect(pill.children.length).toBe(2)
     fireEvent.click(pill)
     const sheet = await screen.findByRole('dialog', { name: '정산 정보' })
     fireEvent.change(within(sheet).getByLabelText('가게 이름'), { target: { value: '초록다육' } })
@@ -443,23 +461,23 @@ describe('정산서에 넣을 정보 캡슐 (D-UX4-172)', () => {
     await waitFor(() => expect(sheetOf()).toBeNull())
     expect(shops).toEqual([{ name: '초록다육' }])
     expect(puts()).toHaveLength(1)
-    await waitFor(() => expect(screen.queryByRole('button', { name: INFO_PILL_TEXT })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: INFO_BUTTON_TEXT })).toBeNull())
   })
 
-  it('정보가 다 있으면 캡슐이 없다', async () => {
+  it('정보가 다 있으면 단추가 없다', async () => {
     const { world } = salesWorld(FULL)
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
     await screen.findByRole('button', { name: /^가을여행 정산서/ })
     await act(async () => { await flush() })
-    expect(screen.queryByRole('button', { name: INFO_PILL_TEXT })).toBeNull()
+    expect(screen.queryByRole('button', { name: INFO_BUTTON_TEXT })).toBeNull()
   })
 
   it('가게 이름이 비어 있으면 [보내기]는 막지 않고 정보 판을 연다', async () => {
     const { world } = salesWorld(FULL)
     world.server.on('GET', /order-shop$/, () => ({ body: { name: '' } }))
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
-    expect(await screen.findByRole('button', { name: INFO_PILL_TEXT })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: SEND_PILL_TEXT }))
+    expect(await screen.findByRole('button', { name: INFO_BUTTON_TEXT })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: SEND_TEXT }))
     expect(await screen.findByRole('dialog', { name: '정산 정보' })).toBeTruthy()
     expect(screen.queryByRole('dialog', { name: SEND_SHEET_TITLE })).toBeNull()
   })

@@ -4,9 +4,9 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { it, expect, vi, onTestFinished } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { statementGeometry, statementPages, STATEMENT_A4_HEIGHT, STATEMENT_WIDTH } from '../src/screens/console/StatementPhoto.tsx'
-import { StatementList } from '../src/screens/console/StatementList.tsx'
+import { productBuyers, StatementList } from '../src/screens/console/StatementList.tsx'
 import { SEND_SHEET_TITLE } from '../src/screens/console/BroadcastSales.tsx'
-import { SEND_PILL_TEXT } from '../src/screens/console/StatementPills.tsx'
+import { SEND_TEXT, StatementFooter } from '../src/screens/console/StatementControls.tsx'
 import type { StatementRow } from '../src/lib/broadcast-sales.ts'
 import { makeWorld } from './screen-support.tsx'
 import { buyer, claim, product, fullView, BROADCAST } from './support.ts'
@@ -24,7 +24,7 @@ function sharing() {
 
 /** [보내기] → "정산서 보내기" → 사진으로 저장하기 */
 async function photoMenu() {
-  fireEvent.click(screen.getByRole('button', { name: SEND_PILL_TEXT }))
+  fireEvent.click(screen.getByRole('button', { name: SEND_TEXT }))
   const menu = await screen.findByRole('dialog', { name: SEND_SHEET_TITLE })
   fireEvent.click(within(menu).getByRole('button', { name: '사진으로 저장하기' }))
 }
@@ -126,22 +126,80 @@ it('줄이 많아도 화면은 한 목록으로 잇고, 사진만 A4 장으로 �
 }, 20_000)
 
 // 옛 기대: svg 표 위 투명한 누름 자리(StatementPages). 새 기대(D-UX4-171): 카드 줄(StatementList) — 누르는 일은 같다
+// 옛 기대(D-UX4-171): 총계 카드가 목록 끝(StatementList 안). 새 기대(D-UX4-178): 총계는 아래 고정 판(StatementFooter)으로 옮겨 목록에는 없다
 it('구매자별 줄을 누르면 그 손님을 고르고, 상품별 줄은 누르는 자리가 없다 — 금액을 모르면 "금액 확인 필요"', () => {
   const world = makeWorld()
   const rows: StatementRow[] = [{ key: 'a', no: null, label: '가을여행', money: 40000, qty: 2 }, { key: 'b', no: null, label: '<나오미>다육', money: null, qty: 1 }]
   const picked: string[] = []
-  const mounted = render(world.wrap(<StatementList tab="buyers" rows={rows} total={null} qty={3} buyers={2} sent={['a']} onRow={key => picked.push(key)} rowLabel={row => `${row.label} 정산서`} />))
-  expect(screen.getAllByText('금액 확인 필요')).toHaveLength(2)
+  const mounted = render(world.wrap(<StatementList tab="buyers" rows={rows} sent={['a']} onRow={key => picked.push(key)} rowLabel={row => `${row.label} 정산서`} />))
+  expect(screen.getAllByText('금액 확인 필요')).toHaveLength(1)
   // 닉네임은 글자 그대로 (꺾쇠도 글자)
   expect(screen.getByText('<나오미>다육')).toBeTruthy()
   // 보낸 손님 표시
   expect(within(screen.getByRole('button', { name: '가을여행 정산서' })).getByText('보냄')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '<나오미>다육 정산서' }))
   expect(picked).toEqual(['b'])
-  expect(screen.getByTestId('statement-total').textContent).toContain('구매자 2명 · 3개')
+  expect(screen.queryByTestId('statement-total')).toBeNull()
   mounted.unmount()
-  render(world.wrap(<StatementList tab="products" rows={[{ key: 'p', no: 12, label: '색금', money: 30000, qty: 1 }]} total={30000} qty={1} buyers={1} sent={[]} rowLabel={row => row.label} />))
+  render(world.wrap(<StatementList tab="products" rows={[{ key: 'p', no: 12, label: '색금', money: 30000, qty: 1 }]} sent={[]} rowLabel={row => row.label} />))
   expect(screen.queryAllByRole('button')).toHaveLength(0)
   expect(screen.getByText('12번')).toBeTruthy()
-  expect(screen.getAllByText('30,000원')).toHaveLength(2)
+  expect(screen.getAllByText('30,000원')).toHaveLength(1)
+})
+
+// 새 기대(D-UX4-178, 사용자 지시 2026-11-16 "총계, 보내기 버튼 합쳐서 맨 아래에 플로팅 형태로 고정 … 기존 버튼 형태로 하고 포인트 컬러")
+it('아래 고정 판: 왼쪽 총계(금액 · 구매자 수 · 개수), 오른쪽 초록 큰 단추 [보내기]', () => {
+  const world = makeWorld()
+  let sent = 0
+  render(world.wrap(<StatementFooter total={null} qty={3} buyers={2} bottom={34} onSend={() => sent++} />))
+  const footer = screen.getByTestId('statement-footer')
+  expect(getComputedStyle(footer).position).toBe('absolute')
+  expect(getComputedStyle(footer).bottom).toBe('34px')
+  const total = screen.getByTestId('statement-total')
+  expect(total.textContent).toContain('총계')
+  expect(total.textContent).toContain('금액 확인 필요')
+  expect(total.textContent).toContain('구매자 2명 · 3개')
+  const send = screen.getByRole('button', { name: SEND_TEXT })
+  expect(send.getAttribute('data-testid')).toBe('statement-send-button')
+  // 포인트 색(주 단추 초록) 바탕 — 캡슐이 아니라 큰 단추 모양
+  expect(getComputedStyle(send).backgroundColor).toBe('rgb(31, 122, 77)')
+  expect(getComputedStyle(send).borderTopLeftRadius).toBe('16px')
+  fireEvent.click(send)
+  expect(sent).toBe(1)
+})
+
+// 새 기대(D-UX4-179, 사용자 지시 2026-11-16 "상품별 목록에서 각 상품의 구매자가 안 적혀 있어")
+it('상품별 줄마다 산 구매자 이름을 모두 " · "로 잇는다 — 줄이지 않고, 같은 이름은 한 번, 한글 순', () => {
+  const orders = [
+    { id: 'u3', lines: [{ key: 'k1', no: 1, name: '색금', variant: null, qty: 1, amount: 10000 }], qty: 1, subtotal: 10000 },
+    { id: 'u1', lines: [{ key: 'k1', no: 1, name: '색금', variant: null, qty: 1, amount: 10000 }, { key: 'k2', no: 2, name: '창금', variant: null, qty: 1, amount: 20000 }], qty: 2, subtotal: 30000 },
+    { id: 'u2', lines: [{ key: 'k1', no: 1, name: '색금', variant: null, qty: 2, amount: 20000 }], qty: 2, subtotal: 20000 },
+  ]
+  const label: Record<string, string> = { u1: '다솜', u2: '가람', u3: '<나무>' }
+  const map = productBuyers(orders, id => label[id]!)
+  expect(map.get('k1')).toEqual(['<나무>', '가람', '다솜'].sort((a, b) => a.localeCompare(b, 'ko')))
+  expect(map.get('k2')).toEqual(['다솜'])
+  const world = makeWorld()
+  render(world.wrap(<StatementList tab="products" rows={[{ key: 'k1', no: 1, label: '색금', money: 40000, qty: 4 }, { key: 'k2', no: 2, label: '창금', money: 20000, qty: 1 }]} sent={[]} buyers={map} rowLabel={row => row.label} />))
+  const shown = screen.getAllByTestId('product-buyers').map(node => node.textContent)
+  expect(shown).toEqual([map.get('k1')!.join(' · '), '다솜'])
+  // 닉네임은 글자 그대로
+  expect(shown[0]).toContain('<나무>')
+})
+
+it('화면의 상품별 목록에도 구매자 이름이 보인다 (D-UX4-179)', async () => {
+  const world = makeWorld()
+  const products = [product(301, { name: '색금', price: 10000 }), product(302, { name: '창금', price: 20000 })]
+  const claims = [claim('a', 301, '가람', { amount: 10000 }), claim('b', 302, '나무', { amount: 20000 }), claim('c', 302, '다솜', { amount: 20000 })]
+  world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, date: '2026-11-12' }] } }))
+  world.server.on('GET', /^\/api\/days\/2026-11-12$/, () => ({ body: fullView({ date: '2026-11-12', products, claims, buyers: ['가람', '나무', '다솜'].map(name => buyer(name, name)) }) }))
+  world.server.on('GET', /order-shop$/, () => ({ body: { name: '용용다육' } }))
+  render(world.wrap(<ConsoleScreen broadcastId="b1" seller justEnded onBack={() => {}} />))
+  await screen.findByRole('button', { name: /^가람 정산서/ })
+  // 구매자별에는 구매자 이름 줄을 따로 두지 않는다
+  expect(screen.queryAllByTestId('product-buyers')).toHaveLength(0)
+  fireEvent.click(screen.getByRole('button', { name: '상품별' }))
+  const list = screen.getByRole('list', { name: '상품별 정산' })
+  expect(within(list).getAllByTestId('product-buyers').map(node => node.textContent)).toEqual(['가람', '나무 · 다솜'])
+  expect(within(list).getAllByRole('listitem')[1]!.querySelector('[aria-label]')?.getAttribute('aria-label')).toBe('302번 창금 · 40,000원 · 2개 · 구매자 나무 · 다솜')
 })

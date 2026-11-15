@@ -1,11 +1,12 @@
 // 방송 정산 화면 "정산서" (D-RETRO-60~64, 판매자 요청 2026-11-12 "방송이 끝나면 바로 한 화면에서 정산 정보를 보고 …"):
-// 구매자별/상품별 탭 · 카드 줄 정산서와 총계 · [보내기](문자·사진·엑셀·CSV) · 구매자별 정산서 · 모두에게 보내기.
+// 구매자별/상품별 탭 · 카드 줄 정산서 · 아래 고정 판(총계 + [보내기]: 문자·사진·엑셀·CSV) · 구매자별 정산서 · 모두에게 보내기.
 // D-UX4-170~175 (사용자 지시 2026-11-16 "정산 내역서 화면 피드백"):
 // - 맨 위 작은 글 "판매 수량 n개 · 구매자 n명"을 지우고 구매자 수는 맨 아래 총계에 (170).
 // - 화면은 svg 직사각형 표 대신 흰 둥근 카드 줄(StatementList) — 머리 "정산 내역서 · 구매자별"·가게 이름·날짜는 화면에서 뺀다. 사진은 A4 그림 그대로(미리 보기를 거친다) (171).
 // - 탭 바는 머리 바로 아래 붙고, 손으로 내리면 숨고 올리면 보인다 — 라이브 화면과 같은 tabHide·붙는 머리(D-UX4-155) (171).
-// - [가게 이름]·[정산 정보] 단추를 합쳐 탭 바 아래 떠 있는 연한 빨강 캡슐 "! 정산서에 넣을 정보를 알려 주세요" — 정보가 빠졌을 때만 (172).
-// - [내보내기]·[모두에게 보내기]를 합쳐 아래에 떠 있는 [보내기] 캡슐 → "정산서 보내기" 아래 창: 문자 · 사진 · 엑셀 · CSV (173).
+// - [가게 이름]·[정산 정보] 단추를 합쳐 한 판으로 — 정보가 빠졌을 때만 단추가 보인다 (172). 단추는 탭 바 같은 줄 맨 오른쪽 옅은 초록 알약 "정산 정보를 알려주세요 ›" (177 — 옛: 탭 바 아래 연한 빨강 경고 캡슐).
+// - [내보내기]·[모두에게 보내기]를 합쳐 [보내기] 하나 → "정산서 보내기" 아래 창: 문자 · 사진 · 엑셀 · CSV (173). [보내기]는 총계와 한 판으로 화면 아래에 고정된 초록 큰 단추 (178 — 옛: 흰 캡슐·목록 끝 총계 카드).
+// - 상품별 줄마다 산 구매자 이름 (179).
 // - 문자로 보내기 판은 못 보내는 구매자를 까닭별 소제목 아래 " · "로 잇고, [보내기 시작]은 번호를 아는 구매자만 차례로 (174).
 // - 정산 정보(계좌·전화번호·배송비)를 한 번도 정하지 않았으면 방송을 끝낸 직후와 정산서를 처음 만들 때 한 번 묻는다. 건너뛸 수 있다 (D-RETRO-60).
 // - 모두에게 보내기(D-RETRO-64): 문자는 판매자 휴대폰의 문자 앱으로 한 명씩 보낸다(앱이 대신 보내지 않는다) — 보내면 다음 손님으로 바로 넘어가고 보낸 손님을 표시한다.
@@ -27,8 +28,8 @@ import { wait, SHEET_GAP_MS } from '../../lib/receipt-sms-flow.ts'
 import { LOAD_FAILED } from '../StatementInfo.tsx'
 import { StatementPhoto, statementPages } from './StatementPhoto.tsx'
 import { BuyerOrderPaper } from './BuyerOrderPaper.tsx'
-import { StatementList } from './StatementList.tsx'
-import { InfoPill, SendPill, STATEMENT_PILL_HEIGHT } from './StatementPills.tsx'
+import { BUYER_JOIN, productBuyers, StatementList } from './StatementList.tsx'
+import { InfoButton, StatementFooter } from './StatementControls.tsx'
 import { StatementSetupSheet } from './StatementSetup.tsx'
 import { BLOCK_TITLE, NAME_JOIN, sendGroups } from './statement-send.ts'
 import { useTabBarHide } from './tab-hide.ts'
@@ -37,6 +38,8 @@ type Sales = ReturnType<typeof broadcastSales>
 
 /** 붙는 머리: 목록의 첫째 자식(탭 바) */
 export const STATEMENT_STICKY = [0]
+/** 아래 고정 판 높이 어림 (재기 전) */
+const FOOTER_GUESS = 80
 
 /** [보내기] 아래 창 (D-UX4-173) */
 export const SEND_SHEET_TITLE = '정산서 보내기'
@@ -54,8 +57,8 @@ export const NOT_SENT_WORD = '아직'
 export const sendAllProgress = (total: number, sent: number): string => `구매자 ${total}명 가운데 ${sent}명에게 보냈어요.`
 
 /** 줄 이름 (화면 읽기·시험) — 구매자별은 누르면 그 손님 정산서 */
-function rowLabel(row: StatementRow, sent: boolean): string {
-  if (row.no !== null) return `${row.no}번 ${row.label} · ${salesMoney(row.money)} · ${row.qty}개`
+function rowLabel(row: StatementRow, sent: boolean, buyers: readonly string[] = []): string {
+  if (row.no !== null) return `${row.no}번 ${row.label} · ${salesMoney(row.money)} · ${row.qty}개${buyers.length > 0 ? ` · 구매자 ${buyers.join(BUYER_JOIN)}` : ''}`
   return `${row.label} 정산서 · ${salesMoney(row.money)} · ${row.qty}개${sent ? ` · ${SENT_WORD}` : ''}`
 }
 
@@ -70,7 +73,8 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   const statement = useStatementInfo()
   const { width: windowWidth } = useWindowDimensions()
   const tabHide = useTabBarHide()
-  const [tabsHeight, setTabsHeight] = useState(0)
+  /** 아래 고정 판 높이 (그리기 전 어림 — 총계 두 줄과 큰 단추) */
+  const [footerHeight, setFooterHeight] = useState(FOOTER_GUESS)
   const [products, setProducts] = useState(false)
   const [menu, setMenu] = useState(false)
   const [photo, setPhoto] = useState(false)
@@ -88,6 +92,8 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   const tab = products ? 'products' : 'buyers'
   const rows = useMemo(() => statementRows(sales, tab, id => names.name(id)), [tab, sales, names])
   const buyerRows = useMemo(() => statementRows(sales, 'buyers', id => names.name(id)), [sales, names])
+  // 상품별 줄마다 산 구매자 — 구매자별 줄과 같은 이름 (D-UX4-179)
+  const lineBuyers = useMemo(() => productBuyers(sales.orders, id => statementName(names.name(id))), [sales, names])
   // 사진만 A4 장으로 나눈다 (D-UX4-145)
   const pages = useMemo(() => statementPages(rows, tab), [rows, tab])
   const sheet = { tab, date, shop: shop?.name || title, total: sales.total, qty: sales.qty } as const
@@ -184,7 +190,7 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
     if (!shop?.name) {
       return <View style={{ padding: GUTTER, gap: SPACE.md }}>
         {shop !== null
-          ? <InfoPill onPress={openInfo} />
+          ? <InfoButton onPress={openInfo} />
           : <><Txt>정산서의 가게 이름을 불러오는 중이에요.</Txt><SmallButton label="다시 불러오기" onPress={() => void reload()} /></>}
         {askSheet}
       </View>
@@ -206,8 +212,8 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
     // 탭을 바꾸면 탭 바는 늘 보인다 (D-UX4-155와 같다)
     tabHide.show()
   }
-  /** [보내기] 캡슐의 아래 자리 (방송 화면 (+) 단추와 같은 높이) */
-  const sendBottom = Math.max(inset, SPACE.md) + SPACE.md
+  /** 아래 고정 판의 아래 자리 — 아이폰 홈 막대(안전 영역) 위, 안전 영역이 없으면 12 */
+  const footerBottom = Math.max(inset, SPACE.md)
   return <View style={{ flex: 1 }}>
     <ScrollView style={{ flex: 1 }} testID="statement-scroll"
       // 탭 바 반고정 (D-UX4-171 — 라이브 화면 D-UX4-155와 같은 방식): 첫째 자식(탭 바)이 휴대폰 붙는 머리로 맨 위에 붙고, 손으로 내리면 숨고 올리면 보인다
@@ -221,33 +227,32 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
       onMomentumScrollEnd={() => tabHide.glide(false)}
       scrollEventThrottle={16}
       onScroll={event => tabHide.track(event.nativeEvent.contentOffset.y)}
-      contentContainerStyle={{ paddingHorizontal: GUTTER, paddingBottom: sendBottom + STATEMENT_PILL_HEIGHT + SPACE.xl, gap: SPACE.md }}>
+      // 마지막 줄이 아래 고정 판에 가리지 않게 판 높이만큼 비운다
+      contentContainerStyle={{ paddingHorizontal: GUTTER, paddingBottom: footerBottom + footerHeight + SPACE.lg, gap: SPACE.md }}>
       {/* 붙는 머리 칸과 그 안에서 위로 밀려 숨는 탭 바 — 칸은 누름을 받지 않는다(box-none), 숨은 자리 밑의 줄이 눌린다 */}
       <View testID="statement-tabs-slot" collapsable={false} pointerEvents="box-none"
-        onLayout={event => { tabHide.onLayout(event); setTabsHeight(event.nativeEvent.layout.height) }}
+        onLayout={tabHide.onLayout}
         style={{ marginHorizontal: -GUTTER, pointerEvents: 'box-none' }}>
         <Animated.View testID="statement-tabs" style={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.sm, backgroundColor: p.background, transform: [{ translateY: tabHide.offset }] }}>
-          <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
-            <Pill label="구매자별" ariaLabel="구매자별" on={!products} onPress={() => pick(false)} />
-            <Pill label="상품별" ariaLabel="상품별" on={products} onPress={() => pick(true)} />
+          {/* 탭 알약 둘 · 맨 오른쪽 정보 단추(정보가 빠졌을 때만, D-UX4-177) — 글자를 키워 한 줄에 안 들어가면 단추가 다음 줄 오른쪽으로 */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm }}>
+            <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
+              <Pill label="구매자별" ariaLabel="구매자별" on={!products} onPress={() => pick(false)} />
+              <Pill label="상품별" ariaLabel="상품별" on={products} onPress={() => pick(true)} />
+            </View>
+            {needInfo ? <InfoButton onPress={openInfo} /> : null}
           </View>
         </Animated.View>
       </View>
-      {/* 떠 있는 정보 캡슐 자리 — 첫 줄을 가리지 않게 */}
-      {needInfo ? <View aria-hidden style={{ height: STATEMENT_PILL_HEIGHT }} /> : null}
       {doneNote ? <Txt color="textSub">{doneNote}</Txt> : null}
       {shareError ? <Txt color="dangerText">{shareError}</Txt> : null}
-      <StatementList tab={tab} rows={rows} total={sales.total} qty={sales.qty} buyers={sales.buyers} sent={sent}
-        rowLabel={row => rowLabel(row, sent.includes(row.key))}
+      <StatementList tab={tab} rows={rows} sent={sent} buyers={lineBuyers}
+        rowLabel={row => rowLabel(row, sent.includes(row.key), products ? lineBuyers.get(row.key) : [])}
         {...(products ? {} : { onRow: (key: string) => withInfo(() => select(key)) })} />
     </ScrollView>
-    {/* 정보 캡슐: 탭 바 바로 아래에 떠 있고, 탭 바가 숨으면 같이 올라간다 (D-UX4-172) */}
-    {needInfo ? (
-      <Animated.View pointerEvents="box-none" style={{ position: 'absolute', left: GUTTER, right: GUTTER, top: tabsHeight + SPACE.sm, alignItems: 'center', pointerEvents: 'box-none', transform: [{ translateY: tabHide.offset }] }}>
-        <InfoPill onPress={openInfo} />
-      </Animated.View>
-    ) : null}
-    <SendPill bottom={sendBottom} onPress={openSend} />
+    {/* 아래 고정 판: 총계 + [보내기] — 굴림과 상관없이 늘 보인다 (D-UX4-178) */}
+    <StatementFooter total={sales.total} qty={sales.qty} buyers={sales.buyers} bottom={footerBottom} onSend={openSend}
+      onLayout={event => setFooterHeight(event.nativeEvent.layout.height)} />
     <BottomSheet visible={menu} title={SEND_SHEET_TITLE} onClose={() => setMenu(false)} testID="statement-send">
       <View style={{ marginHorizontal: -SPACE.xl }}>
         <MenuRow title={SMS_ALL_ROW} {...(rehearsal ? { sub: SMS_ALL_REHEARSAL } : buyerRows.length === 0 ? { sub: SMS_ALL_NOBODY } : {})}
