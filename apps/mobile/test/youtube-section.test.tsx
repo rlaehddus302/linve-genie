@@ -11,7 +11,7 @@ import { setClipboardProbe, setClipboardReader } from '../src/lib/clipboard.ts'
 import { setWebOpener } from '../src/lib/open-web.ts'
 import { MOBILE_FALLBACK_HINT } from '../src/lib/youtube.ts'
 import { makeWorld } from './screen-support.tsx'
-import { flush, fullView, product } from './support.ts'
+import { BROADCAST, flush, fullView, product } from './support.ts'
 
 const BLOCKED = '유튜브가 채팅 읽기를 잠시 막았어요. 다시 될 때까지 주문은 손으로 넣어 주세요.'
 const OFF = '지금은 유튜브 채팅을 자동으로 받지 않아요. 주문은 손으로 넣어 주세요.'
@@ -195,6 +195,16 @@ describe('콘솔 유튜브 (앱)', () => {
     await open(world)
     expect(await screen.findByRole('textbox', { name: '라이브 링크' })).toBeTruthy()
     expect(screen.getByRole('dialog', { name: '라이브 연결' })).toBeTruthy()
+  })
+
+  it('틱톡에 이은 상품 없는 라이브는 다시 들어가도 연결 시트가 저절로 열리지 않는다 (D-LINK-TT-01)', async () => {
+    const { world } = youtubeWorld()
+    world.server.on('GET', /^\/api\/days\/2026-10-29(\?rehearsal=true)?$/, () => ({ body: fullView({ seq: world.seq, rehearsal: false, products: [] }) }))
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, platforms: ['tiktok'] }] } }))
+    await open(world)
+    await flush(10)
+    expect(screen.queryByRole('dialog', { name: '라이브 연결' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: '라이브 링크' })).toBeNull()
   })
 
   it('리허설은 유튜브 요청을 보내지 않는다', async () => {

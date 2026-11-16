@@ -297,6 +297,8 @@ export async function sendLiveLink(broadcastId: string, request: LiveLinkRequest
   const base = `/api/broadcasts/${encodeURIComponent(broadcastId)}`
   if (request.platform === 'youtube') return withRetry(() => post<LinkView>(`${base}/youtube`, request.body))
   await withRetry(() => post(request.platform === 'tiktok' ? `${base}/tiktok/link-url` : `${base}/band/link`, request.body))
+  // 틱톡·밴드로 이었으면 이 방송 화면이 연결 화면을 다시 저절로 열지 않는다 (D-LINK-TT-01 — 방송 목록이 아직 옛 값이어도)
+  markLinkAsked(broadcastId)
   return null
 }
 

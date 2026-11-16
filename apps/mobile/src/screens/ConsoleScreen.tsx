@@ -151,7 +151,7 @@ export const SHOW_AFTER_BACK_MS = 600
 /** "그 상품 보기"로 스크롤할 때 그 줄 위에 남기는 자리 (붙는 탭 바 아래에 줄이 보이게) */
 const ROW_PEEK = 64
 
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, openStatement, openSearch, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 정산서 화면 안에 겹쳐 그린다 */ readonly openStatement?: (buyer: string) => void; /** 머리 돋보기 — 찾기를 진짜 쌓인 화면으로 연다 (D-UX4-204). 없으면(시험·웹) 이 화면 안에 찾기 칸을 연다 */ readonly openSearch?: (kind: 'products' | 'feed') => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, openStatement, openSearch, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 정산서 화면 안에 겹쳐 그린다 */ readonly openStatement?: (buyer: string) => void; /** 머리 돋보기 — 찾기를 진짜 쌓인 화면으로 연다 (D-UX4-204, 상품·찜 기록 하나로 D-UX4-205). 없으면(시험·웹) 이 화면 안에 찾기 칸을 연다 */ readonly openSearch?: () => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -437,15 +437,17 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   }, [live, broadcastId])
 
   // 상품이 없는 새 방송이 유튜브에 이어져 있지 않으면 연결 화면을 한 번 연다 — 새 방송 화면에서 주소 단계를 이미 거쳤으면 열지 않는다 (D-UX3-06)
+  // 틱톡·밴드에 이은 방송도 열지 않는다(D-LINK-TT-01, 사용자 2026-11-16 "틱톡 라이브 연결하고 화면 나갔다가 다시 들어가면 [라이브 링크를 넣어 주세요] 창이 뜬다")
   const askedLink = useRef(wasLinkAsked(broadcastId))
+  const otherLinked = (broadcast?.platforms ?? []).some((platform) => platform !== 'youtube')
   const productCount = data === null ? -1 : boardProducts(data, broadcastId).length
   useEffect(() => {
     if (askedLink.current || yt.phase !== 'ready' || yt.link === null || yt.link.link !== null) return
-    if (ended || broadcast === null || (data?.sealed ?? true) || productCount !== 0) return
+    if (ended || broadcast === null || otherLinked || (data?.sealed ?? true) || productCount !== 0) return
     askedLink.current = true
     if (openLink !== undefined) openLink(false)
     else setSheet((now) => (now === 'none' ? 'youtube' : now))
-  }, [yt.phase, yt.link, ended, broadcast, data?.sealed, productCount])
+  }, [yt.phase, yt.link, ended, broadcast, otherLinked, data?.sealed, productCount])
   useEffect(() => {
     if (ended && voiceView.on && voiceView.broadcastId === broadcastId) void services.voice.turnOff()
   }, [ended, voiceView.on, voiceView.broadcastId, broadcastId, services])
@@ -548,12 +550,13 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
     </>
   )
   // 돋보기: 상품 탭은 번호 숫자판, 찜 기록 탭은 닉네임 키보드 (D-UX4-201)
-  const canSearch = (shownTab === 'products' && (searchDigits !== '' || productCountNow > 0)) || (shownTab === 'feed' && feedRows(data, names, broadcastId).length > 0)
+  // 따로 넘어가는 찾기 화면은 상품·찜 기록을 하나로 찾는다 (D-UX4-205) — 상품이나 찜이 하나라도 있으면
+  const canSearch = openSearch !== undefined ? (shownTab === 'products' || shownTab === 'feed') && (productCountNow > 0 || claimCount > 0) : (shownTab === 'products' && (searchDigits !== '' || productCountNow > 0)) || (shownTab === 'feed' && feedRows(data, names, broadcastId).length > 0)
   const startSearch = () => {
     // 기기에서는 토스 검색처럼 따로 넘어가는 화면 (D-UX4-204, 사용자 "검색 눌렀을 때 별도 화면으로 넘어가서 사진4처럼")
     if (openSearch !== undefined) {
       if (searchPad) closeSearchPad()
-      openSearch(shownTab === 'products' ? 'products' : 'feed')
+      openSearch()
       return
     }
     tabHide.show()
@@ -574,7 +577,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           backLabel={fromSales ? '정산서로' : '홈으로'}
           // 오른쪽 위 돋보기 · ⋯ (D-UX4-201, 사용자 "검색창을 오른쪽 위에 검색 아이콘으로 하고, 관리 버튼도 ... 버튼으로" — 토스 거래 내역 머리처럼. 옛: "관리" 글자 단추 D-UX4-42)
           right={<>
-            {canSearch ? <HeaderIconButton icon="search" label={shownTab === 'products' ? '상품 번호 검색 열기' : '찜 기록 찾기 열기'} testID="console-search" onPress={startSearch} /> : null}
+            {canSearch ? <HeaderIconButton icon="search" label={openSearch !== undefined ? '검색 열기' : shownTab === 'products' ? '상품 번호 검색 열기' : '찜 기록 찾기 열기'} testID="console-search" onPress={startSearch} /> : null}
             <HeaderIconButton icon="more" label={MANAGE_LABEL} testID="console-more" onPress={() => (openManage === undefined ? setPage('settings') : openManage())} />
           </>}
         />
