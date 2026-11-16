@@ -158,8 +158,8 @@ expect:
   claimCount: 5
 ---
 id: G-ENG-018
-title: 미리 등록(READY)한 상품 — 일시 중지는 받지 않고, 판매 종료하면 그 번호의 보류 찜도 거절, 공개 시각 기준 유효 시간 안 찜은 판정
-refs: [PRD-04, ORD-06, R-2, R-5, D-039]
+title: 미리 등록(READY)한 상품 — 일시 중지는 받지 않고, 판매 종료하면 그때의 보류 찜은 거절, 닫은 뒤 온 찜은 다시 보류, 공개 시각 기준 유효 시간 안 찜은 판정
+refs: [PRD-04, ORD-06, R-2, R-5, D-039, D-RETRO16-03]
 broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
 events:
   - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000, status: READY }
@@ -169,7 +169,7 @@ events:
   - { at: "20:00:07", type: product.hold, b: b1, no: 15 }                                   # READY는 hold를 받지 않는다 → 아무 일도 없음
   - { type: assert, expect: { products: { b1/15: { status: READY } }, pending: { b1/15: [UC_A], b1/16: [UC_B] } } }
   - { at: "20:00:08", type: product.close, b: b1, no: 16 }                                  # 확정·대기 없음 → CLOSED, 16번 보류 찜(B) → REJECTED(NOT_ON_SALE)
-  - { at: "20:00:09", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "16" }      # CLOSED → REJECTED(NOT_ON_SALE)
+  - { at: "20:00:09", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "16" }      # 지운(CLOSED) 번호 = 상품 없는 번호 → PENDING(UNOPENED) (D-RETRO16-03)
   # 15번 공개 T = 20:00:20 → 유효 구간 시작 19:59:50 ≤ A(20:00:05) → A 확정
   - { at: "20:00:20", type: product.open, b: b1, no: 15 }
 expect:
@@ -178,5 +178,5 @@ expect:
     b1/16: { exists: true, status: CLOSED, winner: null }
   claims:
     - { product: b1/16, buyer: UC_B, status: REJECTED, reason: NOT_ON_SALE }
-    - { product: b1/16, buyer: UC_C, status: REJECTED, reason: NOT_ON_SALE }
-  pending: { b1/15: [], b1/16: [] }
+    - { product: b1/16, buyer: UC_C, status: PENDING }
+  pending: { b1/15: [], b1/16: [UC_C] }

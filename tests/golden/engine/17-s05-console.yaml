@@ -5,45 +5,45 @@
 # - 방송자 조치는 누른 뒤 5초 뒤에 보낸다. 그사이 상태가 바뀌어 조치가 맞지 않으면 아무 일도 없다(D-039) — 화면은 "적용되지 않았어요".
 # 기본 설정: 접수순(ARRIVAL), 대기 한도 5, 자동 승계, 천원 단위, 확정마다 라벨 1 + 감사 1.
 id: G-ENG-167
-title: 등록 되돌리기는 판매 종료 — 찜이 없으면 닫히고 그 번호 찜은 판매 중 아님으로 거절, 같은 번호 다시 등록은 아무 일도 없고 고친 뒤 다시 공개하면 새 가격으로 판다. 공개 순간 보류 찜이 1등이 됐으면 되돌릴 수 없다
-refs: [PRD-01, PRD-02, PRD-04, UX-06, R-2, R-4, R-5, R-10, D-039, D-083]
+title: 등록 되돌리기는 판매 종료 — 찜이 없으면 닫히고 그 번호로 온 찜은 보류로 기다렸다가, 같은 번호 다시 등록은 아무 일도 없고 고친 뒤 다시 공개하면 새 가격으로 판정한다. 공개 순간 보류 찜이 1등이 됐으면 되돌릴 수 없다
+refs: [PRD-01, PRD-02, PRD-04, UX-06, R-2, R-4, R-5, R-10, D-039, D-083, D-RETRO16-03]
 broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
 events:
   # 빠른 입력 "15 핑크프릴 1000" — 천원 단위여도 1000 이상은 원 그대로(D-007) → 1,000원으로 잘못 등록
   - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 1000 }    # seq 1. OPEN, 찜 없음
   - { at: "20:00:02", type: product.close, b: b1, no: 15 }                                     # seq 2. 되돌리기: 확정·대기 찜 없음 → CLOSED
   - { type: assert, expect: { products: { b1/15: { exists: true, status: CLOSED, winner: null, price: 1000 } } } }
-  - { at: "20:00:03", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }         # seq 3. CLOSED → REJECTED(NOT_ON_SALE) (찜 1)
+  - { at: "20:00:03", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }         # seq 3. 지운 번호 = 상품 없는 번호 → PENDING(UNOPENED) (찜 1, D-RETRO16-03)
   # 다시 친 "15 핑크프릴 10000" — 같은 번호의 상품 기록(CLOSED)이 있어 등록은 아무 일도 없다(R-2) → 화면은 "고칠까요?"로 묻는다
   - { at: "20:00:05", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }   # seq 4. 아무 일도 없음 (가격 1,000 그대로)
   - { type: assert, expect: { products: { b1/15: { status: CLOSED, price: 1000, priceHistory: [] } } } }
   - { at: "20:00:06", type: product.update, b: b1, no: 15, price: 10000 }                      # seq 5. 상태와 상관없이 고친다(R-10) → 이력 [1000→10000], 상태 CLOSED 그대로
-  - { at: "20:00:07", type: product.open, b: b1, no: 15 }                                      # seq 6. CLOSED → 판매 중. R-5: 15번 보류 찜 없음(m1은 거절됨) → OPEN
-  - { type: assert, expect: { products: { b1/15: { status: OPEN, winner: null, price: 10000 } }, pending: { b1/15: [] } } }
-  - { at: "20:00:08", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }         # seq 7. 확정 0 < 재고 1 → B 확정(1), 가격 스냅샷 10,000 (찜 2)
-  - { at: "20:00:09", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "15" }         # seq 8. A의 m1 찜은 거절(활성 아님) → 새 찜, 자리 없음 → 대기 [A] (찜 3)
+  - { at: "20:00:07", type: product.open, b: b1, no: 15 }                                      # seq 6. CLOSED → 판매 중. R-5: T 20:00:07 − 30초 ≤ A(20:00:03) → A 확정(1), 가격 스냅샷 10,000
+  - { type: assert, expect: { products: { b1/15: { status: SOLD, winner: UC_A, price: 10000 } }, pending: { b1/15: [] } } }
+  - { at: "20:00:08", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }         # seq 7. 자리 없음 → 대기 [B] (찜 2)
+  - { at: "20:00:09", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "15" }         # seq 8. A는 이미 1등 → 새 찜 없음(DUPLICATE)
   # 16번: 방송자가 말하자마자 온 찜(보류) → 등록 순간 1등 → 되돌리기(판매 종료)는 받지 않는다 → 화면은 "찜이 들어와서 되돌릴 수 없어요"
-  - { at: "20:01:00", type: chat, b: b1, id: m4, ch: UC_C, nick: 이영희, text: "16" }         # seq 9. 16번 상품 없음 → PENDING(UNOPENED) (찜 4)
+  - { at: "20:01:00", type: chat, b: b1, id: m4, ch: UC_C, nick: 이영희, text: "16" }         # seq 9. 16번 상품 없음 → PENDING(UNOPENED) (찜 3)
   - { at: "20:01:05", type: product.register, b: b1, no: 16, name: 라울, price: 5000 }        # seq 10. R-5: T 20:01:05 − 30초 = 20:00:35 ≤ C(20:01:00) → C 확정(1)
   - { at: "20:01:07", type: product.close, b: b1, no: 16 }                                     # seq 11. 확정 찜이 있음 → 아무 일도 없음 (R-2)
 expect:
   products:
-    b1/15: { status: SOLD, winner: UC_B, waitlist: [UC_A], conflict: false, price: 10000, priceHistory: [{ from: 1000, to: 10000 }] }
+    b1/15: { status: SOLD, winner: UC_A, waitlist: [UC_B], conflict: false, price: 10000, priceHistory: [{ from: 1000, to: 10000 }] }
     b1/16: { status: SOLD, winner: UC_C, waitlist: [] }
   claims:
-    - { product: b1/15, buyer: UC_B, status: CONFIRMED }
-    - { product: b1/15, buyer: UC_A, status: WAITLISTED }                                      # A의 가장 최근 찜(m3)
+    - { product: b1/15, buyer: UC_A, status: CONFIRMED }                                       # 지운 사이에 온 m1이 다시 공개 때 1등
+    - { product: b1/15, buyer: UC_B, status: WAITLISTED }
     - { product: b1/16, buyer: UC_C, status: CONFIRMED }
   buyers:
-    UC_B: { items: [b1/15], subtotal: 10000 }                                                   # 스냅샷 = 확정 시점 가격 10,000 (잘못 등록한 1,000이 아니다)
+    UC_A: { items: [b1/15], subtotal: 10000 }                                                   # 스냅샷 = 확정 시점 가격 10,000 (잘못 등록한 1,000이 아니다)
     UC_C: { items: [b1/16], subtotal: 5000 }
-    UC_A: { items: [], subtotal: 0 }
+    UC_B: { items: [], subtotal: 0 }
   pending: { b1/15: [], b1/16: [] }
-  claimCount: 4                                                                                 # m1 A(거절), m2 B, m3 A(대기), m4 C
+  claimCount: 3                                                                                 # m1 A(1등), m2 B(대기), m4 C — m3은 같은 사람의 두 번째 찜이라 없음
   effects:
-    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_B, text: "15번 핑크프릴 10,000원 김철수님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, text: "15번 핑크프릴 10,000원 홍길동님 구매 감사합니다" }
     - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/16, buyer: UC_C, text: "16번 라울 5,000원 이영희님 구매 감사합니다" }
-  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2, VOID_LABEL: 0 }                       # B 15번(1)·C 16번(1)
+  effectCounts: { POST_THANKS: 2, PRINT_PRODUCT_LABEL: 2, VOID_LABEL: 0 }                       # A 15번(1)·C 16번(1)
 ---
 id: G-ENG-168
 title: 5초 뒤에 보낸 방송자 조치가 그사이 바뀐 상태에 맞지 않으면 아무 일도 없다 — 시청자가 먼저 자동 취소한 1등의 취소, 채팅이 먼저 채운 자리의 직접 배정, 자리가 없는 수동 승계

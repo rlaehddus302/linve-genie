@@ -25,7 +25,7 @@ import { RECEIVED_TIME, T0, chat, kst, play, register, sms } from './engine-help
 const HOUR = 3_600_000
 
 describe('AC-S03-10 문자찜 판정 — 채팅 찜과 같은 판정표', () => {
-  it('차단된 지정 구매자 → BLOCKED, 상품 없음·READY → 보류, HOLD·CLOSED → NOT_ON_SALE, 확정·대기·품절', () => {
+  it('차단된 지정 구매자 → BLOCKED, 상품 없음·READY·지운(CLOSED) 번호 → 보류(D-RETRO16-03), HOLD → NOT_ON_SALE, 확정·대기·품절', () => {
     const { state } = play(
       [
         register(1),
@@ -53,10 +53,11 @@ describe('AC-S03-10 문자찜 판정 — 채팅 찜과 같은 판정표', () => 
       ['sms:s4', 9, 'PENDING', 'UNOPENED', 'sms'],
       ['sms:s5', 2, 'PENDING', 'UNOPENED', 'sms'],
       ['sms:s6', 3, 'REJECTED', 'NOT_ON_SALE', 'sms'],
-      ['sms:s7', 4, 'REJECTED', 'NOT_ON_SALE', 'sms'],
+      ['sms:s7', 4, 'PENDING', 'UNOPENED', 'sms'],
     ])
     expect(listPending(state).map((p) => [p.product, p.buyers])).toEqual([
       ['b1/2', ['sms:s5']],
+      ['b1/4', ['sms:s7']],
       ['b1/9', ['sms:s4']],
     ])
   })

@@ -146,7 +146,7 @@ expect:
 ---
 id: G-ENG-085
 title: 상품 명령이 맞지 않으면 아무것도 바꾸지 않는다 — 같은 번호 재등록, 찜이 남은 상품 판매 종료, 없는 상품. 판매 종료한 상품은 다시 공개할 수 있다
-refs: [PRD-01, PRD-04, R-2, R-8, D-039]
+refs: [PRD-01, PRD-04, R-2, R-8, D-039, D-RETRO16-03]
 broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
 events:
   - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
@@ -156,8 +156,8 @@ events:
   - { type: assert, expect: { products: { b1/15: { status: SOLD, winner: UC_A, price: 10000, priceHistory: [] } } } }
   - { at: "20:00:10", type: product.register, b: b1, no: 16, name: 성미인, price: 8000 }
   - { at: "20:00:11", type: product.close, b: b1, no: 16 }                                    # 찜 없음 → CLOSED
-  - { at: "20:00:12", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "16" }        # CLOSED → REJECTED(NOT_ON_SALE) (찜 2)
-  - { at: "20:00:13", type: host.cancel, b: b1, no: 16, buyer: UC_B, reason: 착오 }          # B는 16번 활성 찜 없음 → 아무 일도 없음
+  - { at: "20:00:12", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "16" }        # 지운 번호 → PENDING(UNOPENED) (찜 2, D-RETRO16-03)
+  - { at: "20:00:13", type: host.cancel, b: b1, no: 16, buyer: UC_B, reason: 착오 }          # B의 보류 찜 취소 → CANCELLED (R-5)
   - { at: "20:00:20", type: product.open, b: b1, no: 16 }                                     # CLOSED → 다시 판매 중 (OPEN)
   - { at: "20:00:21", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "16" }        # C 확정 (찜 3)
   - { at: "20:00:22", type: product.open, b: b1, no: 15 }                                     # 이미 판매 중 → 아무 일도 없음
@@ -168,7 +168,7 @@ expect:
     b1/16: { status: SOLD, winner: UC_C, waitlist: [] }
     b1/99: { exists: false }
   claims:
-    - { product: b1/16, buyer: UC_B, status: REJECTED, reason: NOT_ON_SALE }
+    - { product: b1/16, buyer: UC_B, status: CANCELLED }
   claimCount: 3
   effects:
     - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, text: "15번 핑크프릴 10,000원 홍길동님 구매 감사합니다" }

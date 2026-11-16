@@ -144,7 +144,9 @@ export function decide(d: Draft, slot: AnySlot | undefined, text: string | null,
   if (holder !== undefined && holder !== self) return NONE
   if (d.isBlocked(buyer)) return reject('BLOCKED')
   const product = slot?.product ?? null
-  if (product === null || product.phase === 'READY') return PENDING
+  // 판매자가 지운(CLOSED) 번호는 상품이 없는 번호와 같다 — 잘못 등록해 지운 번호에 진짜 상품이 다시 나올 수 있으니 찜은 보류로 받고
+  // 다시 열 때(R-5) 판정한다 (D-RETRO16-03, 2026-11-16 방송 9번). 일시 중지(HOLD)는 그대로 판매 중 아님
+  if (product === null || product.phase === 'READY' || product.phase === 'CLOSED') return PENDING
   if (product.phase !== 'SELLING') return reject('NOT_ON_SALE')
   // slot은 상품이 있으면 반드시 있고, 자리는 부르는 쪽이 그 상품의 변형으로 정했다
   const record = unitRecordOf(slot as AnySlot, text)

@@ -225,3 +225,24 @@ expect:
   effects:
     - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, text: "15번 핑크프릴 10,000원 가님 구매 감사합니다" }
   effectCounts: { POST_THANKS: 1 }
+---
+id: G-ENG-RETRO-12
+title: (2026-11-16 방송 9번) 잘못 등록해 지운 번호에 진짜 상품이 다시 나온다 — 지운 번호로 온 찜은 보류로 기다렸다가 다시 열 때 1등이 되고 라벨이 나간다
+refs: [PRD-04, R-2, R-4, R-5, D-RETRO16-03]
+broadcasts: [{ id: b1, date: 2026-11-16, title: 다육 라이브 }]
+events:
+  - { at: "22:19:44", type: product.register, b: b1, no: 9, name: 산만금, price: 10000 }      # 일꾼이 450번을 9로 잘못 읽어 등록
+  - { at: "22:20:06", type: product.close, b: b1, no: 9 }                                     # 판매자가 지움 (찜 없음 → CLOSED)
+  - { at: "23:32:14", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "9" }             # 진짜 9번 소개 직후 — 지운 번호 = 상품 없는 번호 → 보류
+  - { at: "23:32:23", type: chat, b: b1, id: m2, ch: UC_A, nick: 가, text: "9번요" }         # 같은 사람 두 번째 → 새 찜 없음
+  - { type: assert, expect: { products: { b1/9: { status: CLOSED } }, pending: { b1/9: [UC_A] } } }
+  - { at: "23:32:26", type: product.update, b: b1, no: 9, name: 데뷔철화, price: 15000 }     # 서버의 다시 열기(일꾼 등록) — 고친 뒤 공개
+  - { at: "23:32:26", type: product.open, b: b1, no: 9 }                                      # R-5: T − 30초 ≤ A(23:32:14) → A 확정, 라벨
+expect:
+  products:
+    b1/9: { status: SOLD, winner: UC_A, price: 15000 }
+  pending: { b1/9: [] }
+  claimCount: 1
+  buyers:
+    UC_A: { items: [b1/9], subtotal: 15000 }
+  effectCounts: { POST_THANKS: 1, PRINT_PRODUCT_LABEL: 1 }
