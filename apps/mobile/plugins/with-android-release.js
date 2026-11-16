@@ -27,12 +27,12 @@ const LEGACY_MAX_SDK = '30'
 const REMOVED_PERMISSIONS = [
   'android.permission.ACCESS_COARSE_LOCATION',
   'android.permission.ACCESS_BACKGROUND_LOCATION',
-  'android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE',
   'android.permission.SYSTEM_ALERT_WINDOW',
   'android.permission.READ_EXTERNAL_STORAGE',
   'android.permission.WRITE_EXTERNAL_STORAGE',
   // VIBRATE는 지우지 않는다 — 안드로이드 손맛(expo-haptics)이 진동기를 써서 이 권한이 없으면 아무 느낌이 없다(D-UX3-67)
-  'android.permission.WAKE_LOCK',
+  // FOREGROUND_SERVICE_CONNECTED_DEVICE·WAKE_LOCK은 지우지 않는다 — 출력 기기 백그라운드 인쇄 서비스(packages/mobile-ble PrintStationService,
+  // connectedDevice 종류 + 머리 없는 JS 작업의 깨어 있기)가 쓴다. 지우면 안드로이드 14+에서 프린터를 잇자마자 앱이 꺼진다(D-PRN-FGS-01)
 ]
 
 const SDK23_LOCATION = ['android.permission.ACCESS_COARSE_LOCATION', 'android.permission.ACCESS_FINE_LOCATION']

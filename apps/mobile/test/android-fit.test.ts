@@ -18,6 +18,25 @@ describe('손맛(햅틱) 권한', () => {
   })
 })
 
+describe('출력 기기 백그라운드 인쇄 서비스 권한 (D-PRN-FGS-01)', () => {
+  const library = readFileSync(join(__dirname, '../../../packages/mobile-ble/android/src/main/AndroidManifest.xml'), 'utf8')
+  const appManifest = readFileSync(join(__dirname, '../android/app/src/main/AndroidManifest.xml'), 'utf8')
+  // 서비스가 쓰는 권한: connectedDevice 종류 포그라운드 서비스 + 머리 없는 JS 작업의 깨어 있기 잠금 — 지우면 안드로이드 14+에서 프린터를 잇자마자 앱이 꺼진다
+  const needed = ['android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE', 'android.permission.WAKE_LOCK']
+
+  it('모듈이 connectedDevice 서비스와 그 권한을 선언한다', () => {
+    expect(library).toContain('android:foregroundServiceType="connectedDevice"')
+    for (const name of needed) expect(library).toContain(`android:name="${name}"`)
+  })
+
+  it('출시 빌드 플러그인과 앱 매니페스트가 그 권한을 지우지 않는다', () => {
+    for (const name of needed) {
+      expect(plugin.REMOVED_PERMISSIONS).not.toContain(name)
+      expect(appManifest).not.toMatch(new RegExp(`android:name="${name.replace(/\./g, '\\.')}"[^>]*tools:node="remove"`))
+    }
+  })
+})
+
 describe('키보드 피하기', () => {
   it('아이폰·안드로이드 모두 padding, 웹은 없음', () => {
     expect(keyboardAvoidFor('ios')).toBe('padding')

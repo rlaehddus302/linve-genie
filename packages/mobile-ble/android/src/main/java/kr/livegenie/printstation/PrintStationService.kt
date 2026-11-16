@@ -33,12 +33,23 @@ class PrintStationService : HeadlessJsTaskService() {
     if (launch != null) {
       notification.setContentIntent(PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
     }
-    if (Build.VERSION.SDK_INT >= 29) startForeground(7102, notification.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-    else startForeground(7102, notification.build())
+    // A missing permission or a background-start refusal must never take the app down
+    // (D-PRN-FGS-01): printing in the foreground keeps working without this service.
+    try {
+      if (Build.VERSION.SDK_INT >= 29) startForeground(7102, notification.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+      else startForeground(7102, notification.build())
+    } catch (_: Exception) {
+      stopSelf()
+      return START_NOT_STICKY
+    }
     running = true
     // The existing queue and BLE driver use JS timers. Allow the same JS runtime
     // to finish their protocol timeouts and retries when the Activity is paused.
-    startTask(HeadlessJsTaskConfig("LiveGeniePrintStation", Arguments.createMap(), 0, true))
+    try {
+      startTask(HeadlessJsTaskConfig("LiveGeniePrintStation", Arguments.createMap(), 0, true))
+    } catch (_: Exception) {
+      stopSelf()
+    }
     return START_NOT_STICKY
   }
 
