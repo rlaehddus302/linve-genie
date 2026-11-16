@@ -44,7 +44,7 @@ class CodexCommandTest(unittest.TestCase):
                 f.write('{"products": []}')
             return SimpleNamespace(returncode=0, stderr="")
 
-        with patch("sw.llm_b6.subprocess.run", run):
+        with patch("sw.llm_b6.subprocess.run", run), patch("sw.llm_live.BACKEND", "codex"):   # 기본은 Claude 구독이 됐다(D-RECOG-40) — codex 길을 골라 본다
             self.assertEqual(llm_live.ask_llm("L0 [0:00:01] (화면: 없음) 안녕하세요"), '{"products": []}')
         self.assertEqual(seen[0][0:2], ["codex", "exec"])
         self.assertEqual("--ephemeral" in seen[0], llm_live.CODEX_LEAN)

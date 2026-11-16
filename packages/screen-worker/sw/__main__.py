@@ -401,7 +401,7 @@ def main():
     ap.add_argument("--token-file", help="--post: 일꾼 토큰 파일(없으면 환경변수 LG_SCREEN_TOKEN_FILE)")
     ap.add_argument("--video-id", help="--post: 유튜브 영상 번호(기본: 주소에서 뽑음)")
     ap.add_argument("--register", choices=["llm", "rule"], default="llm",
-                    help="상품 등록 방식: llm = 2분마다 지식판2(gpt-5.6-sol, codex 로그인 필요)에 물어 등록(기본) / rule = 예전 규칙 확정+금액")
+                    help="상품 등록 방식: llm = 2분마다 지식판2에 물어 등록(기본 — Claude 구독, ~/.lg_claude_token 또는 claude 로그인 필요, LLM_REG_BACKEND=codex면 Codex) / rule = 예전 규칙 확정+금액")
     ap.add_argument("--live-only", action="store_true", help="라이브가 아니면 바로 끝냄(종료 코드 3) — sw.serve가 씀")
     a = ap.parse_args()
     a.out = a.out or os.path.join("runs", datetime.now(KST).strftime("%Y%m%d_%H%M%S"))

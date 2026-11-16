@@ -8,6 +8,7 @@ import csv
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,17 +32,81 @@ TAG = ("" if SCREEN == "start" else "span_") + re.sub(r"[^A-Za-z0-9.-]", "_", MO
 EMPTY = os.path.join(HERE, "..", "runs", "codex_empty")
 
 
-def ask_claude(user, sys_path=None, model=None, effort=None):
-    """Claude 모델(BACKEND=claude, 2026-11-11 모델 비교): claude CLI -p, 시스템 프롬프트는 이 파일로 통째 바꾸고 도구 끔, 빈 폴더에서"""
+# ---------- Claude 구독으로 묻기 (D-RECOG-40, 2026-11-16 사용자 지시 "llm은 클로드 구독 이용해") ----------
+# claude CLI -p(구독 로그인)로 한 번 묻는다. 시스템 프롬프트는 우리 파일로 통째 바꾸고, 도구·MCP·스킬을 끄고, 세션을 남기지 않고, 빈 폴더에서.
+# 로그인: 맥 키체인은 SSH·관리자(launchd)에서 막히거나 만료되므로, `claude setup-token`으로 만든 오래 가는 표를 TOKEN_FILE(600)에 두면
+#   CLAUDE_CODE_OAUTH_TOKEN으로 넘긴다(값은 읽기만, 찍지 않는다). 표가 없으면 키체인 로그인을 그대로 쓴다.
+# 돈: ANTHROPIC_API_KEY·ANTHROPIC_AUTH_TOKEN이 환경에 있으면 claude가 API로 과금하므로 자식 환경에서 뺀다(D-RETRO-101 "돈 쓰지 마").
+#   --bare는 구독 로그인을 읽지 않아 쓰지 않는다.
+CLAUDE_BIN = os.environ.get("LLM_CLAUDE_BIN") or shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")   # 관리자 PATH에는 ~/.local/bin이 없다
+TOKEN_FILE = os.path.expanduser(os.environ.get("LLM_CLAUDE_TOKEN_FILE", "~/.lg_claude_token"))
+CLAUDE_TIMEOUT = float(os.environ.get("LLM_CLAUDE_TIMEOUT", 180))
+_NO_LOGIN = re.compile(r"Failed to authenticate|OAuth|not logged in|Invalid API key|/login", re.I)
+
+
+class ClaudeLoginError(RuntimeError):
+    """로그인이 안 됨 — 다시 물어도 소용없으니 기다리지 않고 바로 알린다"""
+
+
+def claude_env(base=None):
+    """claude 자식 프로세스의 환경: API 열쇠는 빼고, 표 파일이 있으면 구독 표를 넣는다"""
+    env = {k: v for k, v in (os.environ if base is None else base).items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
+    try:
+        with open(TOKEN_FILE, encoding="utf-8") as f:
+            tok = f.read().strip()
+        if tok:
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
+    except OSError:
+        pass
+    return env
+
+
+def claude_cmd(sys_path=None, model=None, effort=None, schema=None):
+    """claude -p 명령줄(목록). schema = 답 모양 JSON 파일 경로(있으면 --json-schema로 그 모양을 강제)"""
+    cmd = [CLAUDE_BIN, "-p", "--model", model or MODEL, "--system-prompt-file", sys_path or SYS, "--tools", "", "--strict-mcp-config",
+           "--disable-slash-commands", "--no-session-persistence", "--setting-sources", "project", "--output-format", "json"]
+    # --setting-sources project: 사용자 설정(~/.claude/settings.json)의 훅·환경을 읽지 않는다 — 맥 미니에는 훅이 13가지 걸려 있어 물음마다 돈다
+    if effort:
+        cmd[4:4] = ["--effort", effort]
+    if schema:
+        with open(schema, encoding="utf-8") as f:
+            cmd += ["--json-schema", json.dumps(json.load(f), ensure_ascii=False, separators=(",", ":"))]
+    return cmd
+
+
+def claude_answer(stdout):
+    """claude -p --output-format json의 답 → (답 글, 오류 글). 답 모양을 강제했으면 그 JSON을 글로, 아니면 result 글"""
+    try:
+        d = json.loads(stdout)
+    except ValueError:
+        return None, (stdout or "")[-300:] or "빈 출력"
+    if d.get("is_error"):
+        return None, str(d.get("result") or d.get("subtype") or "오류")[:300]
+    if d.get("structured_output") is not None:
+        return json.dumps(d["structured_output"], ensure_ascii=False), None
+    return d.get("result") or "", None   # 빈 답 = 내놓은 상품 없음(프롬프트 출력형식), 실패 아님
+
+
+def ask_claude(user, sys_path=None, model=None, effort=None, schema=None):
+    """Claude 구독으로 한 번 묻기. 로그인이 안 되면 ClaudeLoginError를 바로, 그 밖의 실패는 4번까지 다시 묻는다"""
     os.makedirs(EMPTY, exist_ok=True)
+    err = ""
     for k in range(4):
-        r = subprocess.run(["claude", "-p", "--model", model or MODEL, "--effort", effort or EFFORT, "--system-prompt-file", sys_path or SYS, "--tools", "",
-                            "--no-session-persistence", "--output-format", "text"],
-                           input=user, text=True, capture_output=True, cwd=EMPTY, timeout=900)
-        if r.returncode == 0:   # 빈 답 = 내놓은 상품 없음(프롬프트 출력형식), 실패 아님
-            return r.stdout
-        time.sleep(10 * (k + 1))
-    raise RuntimeError(f"claude 실패: {r.stderr[-300:]}")
+        try:
+            r = subprocess.run(claude_cmd(sys_path, model, effort, schema), input=user, text=True, capture_output=True, cwd=EMPTY,
+                               timeout=CLAUDE_TIMEOUT, env=claude_env())
+            out, err = claude_answer(r.stdout)
+            if out is not None and r.returncode == 0:
+                return out
+            err = err or (r.stderr or "")[-300:]
+        except subprocess.TimeoutExpired:
+            err = f"{CLAUDE_TIMEOUT:.0f}초 안에 답 없음"
+        except FileNotFoundError:
+            raise ClaudeLoginError(f"claude 없음({CLAUDE_BIN}): curl -fsSL https://claude.ai/install.sh | bash")
+        if _NO_LOGIN.search(err):
+            raise ClaudeLoginError(f"claude 로그인 안 됨: `claude setup-token`으로 만든 표를 {TOKEN_FILE}에 두세요 ({err[:120]})")
+        time.sleep(5 * (k + 1))
+    raise RuntimeError(f"claude 실패: {err}")
 
 
 # codex 호출의 군더더기 빼기(개선 계획 B-2의 L3, D-SCR-16): 호출마다 붙던 1만6천 토큰(사용자 설정·규칙 파일·세션 기록)을 빼고 답 모양을 고정한다.
@@ -67,10 +132,11 @@ def codex_cmd(out_p, sys_path=None, model=None, effort=None, lean=False, schema=
     return cmd + ["-o", out_p, "-"]
 
 
-def ask(user, sys_path=None, model=None, effort=None, lean=False, schema=None):
-    """시스템 프롬프트 파일·모델·노력은 안 주면 이 모듈 설정(환경변수)대로 — sw.llm_live가 지식판2로 부름"""
-    if os.environ.get("BACKEND") == "claude":
-        return ask_claude(user, sys_path, model, effort)
+def ask(user, sys_path=None, model=None, effort=None, lean=False, schema=None, backend=None):
+    """시스템 프롬프트 파일·모델·노력은 안 주면 이 모듈 설정(환경변수)대로 — sw.llm_live가 지식판2로 부름.
+    backend = "claude"(Claude 구독) / "codex"(Codex 구독). 안 주면 환경변수 BACKEND(끝난 방송 시험용), 그것도 없으면 codex"""
+    if (backend or os.environ.get("BACKEND")) == "claude":
+        return ask_claude(user, sys_path, model, effort, schema)
     os.makedirs(EMPTY, exist_ok=True)
     k = 0
     while k < 4:

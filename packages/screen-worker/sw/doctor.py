@@ -54,6 +54,13 @@ def main():
             ocr_frame(f.name)
         return "Apple Vision 글자 읽기"
 
+    def claude():
+        from . import llm_b6
+        if not os.path.exists(llm_b6.CLAUDE_BIN):
+            raise RuntimeError(f"claude 없음({llm_b6.CLAUDE_BIN}): curl -fsSL https://claude.ai/install.sh | bash")
+        how = f"표 파일 {llm_b6.TOKEN_FILE}" if "CLAUDE_CODE_OAUTH_TOKEN" in llm_b6.claude_env() else "claude 로그인(키체인)"
+        return f"{llm_b6.CLAUDE_BIN} · {how}"
+
     def codex():
         if not shutil.which("codex"):
             raise RuntimeError("codex 없음: npm i -g @openai/codex (또는 brew install codex)")
@@ -71,7 +78,7 @@ def main():
             raise RuntimeError(f"답이 이상함: {out[:200]}")
         r = rows[0]
         off = "·".join(sorted(llm_b6._UNSUPPORTED))
-        return f"{llm_live.MODEL} {llm_live.EFFORT} 답: {r['no']}번 {r['price']}원 {r['variety']}" + (f" (codex가 {off} 옵션을 받지 않아 옵션 없이 물음)" if off else "")
+        return f"{llm_live.BACKEND} {llm_live.MODEL} {llm_live.EFFORT} 답: {r['no']}번 {r['price']}원 {r['variety']}" + (f" (codex가 {off} 옵션을 받지 않아 옵션 없이 물음)" if off else "")
 
     def token():
         from . import post
@@ -83,7 +90,7 @@ def main():
             return f"HTTP {r.status}"
 
     rs = [check("ffmpeg", ffmpeg), check("yt-dlp", ytdlp), check("받아쓰기 모델", whisper), check("화면 글자 읽기", vision),
-          check("codex 로그인", codex), check("LLM 등록(지식판2) 시험 질문", sol)]
+          (check("Claude 구독", claude) if llm_live.BACKEND == "claude" else check("codex 로그인", codex)), check("LLM 등록(지식판2) 시험 질문", sol)]
     if a.token_file:
         rs.append(check("토큰 파일", token))
     if a.server:

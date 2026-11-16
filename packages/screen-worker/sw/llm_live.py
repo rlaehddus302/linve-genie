@@ -42,7 +42,8 @@ from .screen import EXPIRE, STABLE, Screen
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SYS = os.path.join(HERE, "prompts", os.environ.get("LLM_REG_PROMPT", "sales_instruct_system_regstt8k2.txt"))
-MODEL = os.environ.get("LLM_REG_MODEL", "gpt-5.6-sol")
+BACKEND = os.environ.get("LLM_REG_BACKEND", "claude")          # claude = Claude 구독(D-RECOG-40, 기본) / codex = Codex 구독(예전 — 무료 요금제에서는 sol이 거절된다)
+MODEL = os.environ.get("LLM_REG_MODEL", "sonnet" if BACKEND == "claude" else "gpt-5.6-sol")   # Claude는 별칭(sonnet·haiku) 또는 claude-… 이름
 EFFORT = os.environ.get("LLM_REG_EFFORT", "low")
 WINDOW = float(os.environ.get("LLM_REG_WINDOW", 60))   # 물을 때 넣는 최근 줄의 길이(방송 초)
 SAFETY = float(os.environ.get("LLM_REG_SAFETY", 60))   # 이벤트 없이 이만큼(방송 초) 지나면 한 번 묻는다
@@ -89,7 +90,7 @@ NAME_SELLER = os.environ.get("LLM_NAME_SELLER", "1") != "0"    # 판매자가 �
 NAME_FOLLOW = float(os.environ.get("LLM_NAME_FOLLOW", 60))     # 품종 없이 보낸 번호는 이만큼(방송 초) 더 물어 이름을 채운다(묻기 줄이기에서 뺌)
 NAME_PRE, NAME_POST = 30, 20                                   # 품종 사전이 보는 받아쓰기: 그 상품 첫 줄 앞 30초 ~ 뒤 20초(다른 번호를 말한 줄에서 끊는다)
 CODEX_LEAN = os.environ.get("LLM_CODEX_LEAN", "1") != "0"      # codex exec에 --ephemeral --ignore-user-config --ignore-rules
-CODEX_SCHEMA = os.environ.get("LLM_CODEX_SCHEMA", "1") != "0"  # codex exec에 --output-schema(답 JSON 모양 고정)
+CODEX_SCHEMA = os.environ.get("LLM_CODEX_SCHEMA", "1") != "0"  # 답 JSON 모양 고정(codex --output-schema / claude --json-schema)
 
 # ---------- 임시 등록 (D-SCR-18~22) ----------
 TENTATIVE = os.environ.get("LLM_TENTATIVE", "1") != "0"        # 0 = 임시 등록을 쓰지 않는다(다 모일 때까지 들고 기다렸다 바로 등록 — D-SCR-12~16 그대로)
@@ -145,7 +146,7 @@ def unit_from_server(value, default):
 
 def ask_llm(user, sys_path=None):
     """라이브 등록이 LLM에 한 번 묻기(sw.doctor도 같은 길로 시험한다)"""
-    return llm_b6.ask(user, sys_path or SYS, MODEL, EFFORT, lean=CODEX_LEAN, schema=llm_b6.SCHEMA_FILE if CODEX_SCHEMA else None)
+    return llm_b6.ask(user, sys_path or SYS, MODEL, EFFORT, lean=CODEX_LEAN, schema=llm_b6.SCHEMA_FILE if CODEX_SCHEMA else None, backend=BACKEND)
 
 
 def prompt_for_unit(unit, out):
@@ -267,7 +268,7 @@ def ask_name(user):
         with open(os.path.join(NAME_ASK_CACHE, "todo.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps({"key": key, "user": user}, ensure_ascii=False) + "\n")
         return ""
-    return llm_b6.ask(user, variety.ASK_SYS, MODEL, EFFORT, lean=CODEX_LEAN, schema=variety.ASK_SCHEMA if CODEX_SCHEMA else None)
+    return llm_b6.ask(user, variety.ASK_SYS, MODEL, EFFORT, lean=CODEX_LEAN, schema=variety.ASK_SCHEMA if CODEX_SCHEMA else None, backend=BACKEND)
 
 
 def span_note(i, t, ends, cand, mains):
