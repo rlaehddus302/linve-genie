@@ -25,9 +25,11 @@ class TiktokTest(unittest.TestCase):
             self.assertIsNone(tiktok.key_of(bad), bad)
 
     def test_pick_prefers_hd_hls_and_skips_audio_only(self):
-        self.assertEqual(tiktok.pick(room()), "https://pull-hls.example/hd/index.m3u8")
+        self.assertEqual(tiktok.pick(room()), "https://pull.example/hd.flv")   # FLV 먼저(HLS는 ffmpeg가 5초 뒤 멈춤)
         only_flv = room(streams={"ao": {"main": {"flv": "https://pull.example/ao.flv"}}, "ld": {"main": {"hls": "", "flv": "https://pull.example/ld.flv"}}})
         self.assertEqual(tiktok.pick(only_flv), "https://pull.example/ld.flv")
+        only_hls = room(streams={"sd": {"main": {"hls": "https://pull-hls.example/sd/index.m3u8", "flv": ""}}})
+        self.assertEqual(tiktok.pick(only_hls), "https://pull-hls.example/sd/index.m3u8")
         with self.assertRaises(tiktok.NotLive):
             tiktok.pick(room(status=4))
         with self.assertRaises(tiktok.NotLive):
@@ -40,7 +42,7 @@ class TiktokTest(unittest.TestCase):
             seen.append(req.full_url)
             return io.BytesIO(json.dumps(room()).encode())
 
-        self.assertEqual(tiktok.resolve("@bit_succulent_farm", opener=opener), ["https://pull-hls.example/hd/index.m3u8"])
+        self.assertEqual(tiktok.resolve("@bit_succulent_farm", opener=opener), ["https://pull.example/hd.flv"])
         self.assertTrue(seen[0].endswith("uniqueId=bit_succulent_farm"))
 
         def broken(req, timeout):

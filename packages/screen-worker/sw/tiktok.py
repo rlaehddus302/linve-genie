@@ -1,6 +1,6 @@
 # 틱톡 라이브 읽기 (D-SCR-TT-01): 서버가 지금 볼 라이브로 `@틱톡아이디`를 주면 일꾼이 그 라이브의 화면·소리를 받는다.
 # yt-dlp(2026.10.26)의 틱톡 라이브 읽기는 흉내 내기 꾸러미(curl_cffi) 없이 "지금 라이브 아님"으로 잘못 답해서(2026-11-16 실제 라이브 중 확인),
-# 틱톡 웹이 쓰는 공개 방 정보(api-live/user/room)를 읽어 HLS 주소를 바로 고른다. 읽기만 한다 — 틱톡에 아무것도 쓰지 않는다.
+# 틱톡 웹이 쓰는 공개 방 정보(api-live/user/room)를 읽어 스트림 주소(FLV 먼저)를 바로 고른다. 읽기만 한다 — 틱톡에 아무것도 쓰지 않는다.
 import json
 import re
 import urllib.parse
@@ -47,7 +47,7 @@ def pick(room):
     order = [q for q in QUALITY if q in streams] + [q for q in streams if q not in QUALITY and q != "ao"]   # ao = 소리만
     for q in order:
         main = (streams.get(q) or {}).get("main") or {}
-        for kind in ("hls", "flv"):
+        for kind in ("flv", "hls"):   # FLV 먼저: ffmpeg가 틱톡 HLS는 첫 5초만 읽고 멈춘다(2026-11-16 실측 35초에 5장 · FLV 37장)
             if str(main.get(kind) or "").startswith("https://"):
                 return main[kind]
     raise NotLive("틱톡 라이브 스트림 주소가 없어요")
