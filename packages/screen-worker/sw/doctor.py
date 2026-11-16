@@ -54,6 +54,15 @@ def main():
             ocr_frame(f.name)
         return "Apple Vision 글자 읽기"
 
+    def tags():
+        from . import tagbox
+        if not tagbox.ON:
+            return "꺼 둠(SCREEN_TAG_GATE=0) — 화면의 모든 숫자를 번호 후보로 받음"
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=white:s=320x240", "-frames:v", "1", f.name], check=True)
+            tagbox.Finder().boxes(f.name)
+        return "번호표 위의 숫자만 번호로"
+
     def claude():
         from . import llm_b6
         if not os.path.exists(llm_b6.CLAUDE_BIN):
@@ -89,7 +98,7 @@ def main():
         with urllib.request.urlopen(a.server.rstrip("/") + "/health", timeout=10) as r:
             return f"HTTP {r.status}"
 
-    rs = [check("ffmpeg", ffmpeg), check("yt-dlp", ytdlp), check("받아쓰기 모델", whisper), check("화면 글자 읽기", vision),
+    rs = [check("ffmpeg", ffmpeg), check("yt-dlp", ytdlp), check("받아쓰기 모델", whisper), check("화면 글자 읽기", vision), check("번호표 찾기 모델", tags),
           (check("Claude 구독", claude) if llm_live.BACKEND == "claude" else check("codex 로그인", codex)), check("LLM 등록(지식판2) 시험 질문", sol)]
     if a.token_file:
         rs.append(check("토큰 파일", token))

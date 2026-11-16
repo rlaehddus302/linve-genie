@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-from . import audio, llm_live, post, price, tiktok, variety
+from . import audio, llm_live, post, price, tagbox, tiktok, variety
 from .chat import buyer_numbers
 from .photo import best_frame
 from .decide import decide, loose_at, numbers_priced, numbers_with_beon
@@ -85,6 +85,13 @@ class Worker:
         self.ev = open(os.path.join(self.out, "events.jsonl"), "a", encoding="utf-8")
         self.tr = open(os.path.join(self.out, "transcript.jsonl"), "a", encoding="utf-8")
         self.sc = open(os.path.join(self.out, "screen.jsonl"), "a", encoding="utf-8")
+        # 번호표 위의 숫자만 번호로(D-SCR-TAG-01). 찾기 모델을 못 올리면 예전처럼 모든 숫자를 받되 일꾼 기록에 크게 남긴다
+        self.finder = None
+        if tagbox.ON:
+            try:
+                self.finder = tagbox.Finder()
+            except Exception as e:  # noqa: BLE001 — 모델·라이브러리가 없어도 방송은 이어 본다
+                print(f"!! 번호표 찾기 모델을 올리지 못함 — 화면의 모든 숫자를 번호 후보로 받음(줄자·가격표 숫자도 들어올 수 있음): {e}", flush=True)
         self.mains = {}
         self.lines = []                       # 받아쓴 글 [(초, 글)] — 금액 찾기용
         # 손님이 친 번호 [(초, 번호)]: 시험 모드는 채팅 다시보기 파일에서(그 시각까지 올라온 것만 씀). 라이브는 라이브지니 서버 채팅과 연결할 자리
@@ -367,8 +374,16 @@ class Worker:
                     k += 1
                 for i in [i for i, f in pending.items() if f.done()]:
                     toks = pending.pop(i).result()
-                    self.screen.add(self.base + i, toks)
-                    self.sc.write(json.dumps({"sec": self.base + i, "t": toks}) + "\n")
+                    row = {"sec": self.base + i, "t": toks}
+                    if self.finder is not None and toks:
+                        try:
+                            boxes = self.finder.boxes(os.path.join(frames_dir, f"{i:06d}.jpg"))
+                            kept, off = tagbox.split(toks, boxes)
+                            row = {"sec": self.base + i, "t": kept, "off": off, "tags": boxes}
+                        except Exception as e:  # noqa: BLE001 — 한 장을 못 보면 그 장의 숫자는 번호로 쓰지 않는다
+                            row = {"sec": self.base + i, "t": [], "off": toks, "tag_error": str(e)[:200]}
+                    self.screen.add(row["sec"], row["t"])
+                    self.sc.write(json.dumps(row) + "\n")
                 self.poll_prices()
                 self.flush_ready()
                 if time.time() - last_tick >= TICK:
