@@ -111,6 +111,14 @@ class NumberFirstTest(unittest.TestCase):
         st.reply()
         self.assertEqual(st.product(107)["state"], "임시")                  # 기다림을 접어도 거두지 않고 판매자가 고르게 둔다(11-13 1번)
         self.assertEqual([b["no"] for b in st.srv.of("withdraw")], [152])   # 앞 번호표만 보이던 152번(딱지만)은 60초에 거둔다
+        # 일꾼을 다시 켜도(11-13 두 번째 실행) 판매자에게 맡긴 107번은 거두지 않는다
+        again = Live(self, server=st.srv.server, prior_tent=llm_live.prior_tentative(st.events))
+        again.worker.tick()
+        again.wait(llm_live.HOLD_MAX + 1)
+        again.worker.tick()
+        self.assertEqual(again.srv.of("withdraw"), [])
+        self.assertEqual(again.product(107)["state"], "임시")
+        self.assertEqual([e["no"] for e in again.kinds_of("LLM임시남김")], [107])
 
     def test_off_by_default_keeps_the_current_way(self):
         with patch.object(llm_live, "NUMBER_FIRST", False):

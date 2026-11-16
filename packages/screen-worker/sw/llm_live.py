@@ -253,6 +253,8 @@ def prior_tentative(events):
             t[field], t["n" + field] = e.get("to"), t["n" + field] + 1
         elif kind == "LLM임시맞음":
             t["rule"], t["ok"] = False, t["ok"] or bool(e.get("ok_no"))
+        elif kind == "LLM임시남김" and e.get("keep"):        # 판매자가 고르게 두기로 한 것(빠른 길 카드, D-RECOG-30~)
+            t["keep"] = True
         elif kind == "LLM등록" and e.get("via") == "확정":
             t["confirm"] = {"to": e.get("no"), "price": e.get("price"), "name": e.get("name")}
         elif kind == "LLM거두기":
@@ -416,6 +418,8 @@ class LlmRegister:
             t = {"no": no, "rid": rid, "n": str(rid).rsplit("-", 1)[-1], "price": d.get("price"), "name": d.get("name") or "", "state": "up", "ok": bool(d.get("ok")),
                  "pair": tuple(d["pair"]) if d.get("pair") else None, "rule": bool(d.get("rule")), "nprice": int(d.get("nprice") or 0), "nname": int(d.get("nname") or 0),
                  "prior": True, "until": None, "tries": 0}
+            if d.get("keep"):
+                t["keep"] = True
             self.tent_rids.add(rid)
             if d.get("confirm") or d.get("withdraw"):
                 self.resume.append((t, d.get("confirm"), d.get("withdraw")))
@@ -1382,7 +1386,7 @@ class LlmRegister:
         self.left[t["no"]] = t
         if not t.get("noted"):
             t["noted"] = True
-            self.emit({"kind": "LLM임시남김", "no": t["no"], "rid": t["rid"], "why": why, "price": t["price"], "name": t["name"]})
+            self.emit({"kind": "LLM임시남김", "no": t["no"], "rid": t["rid"], "why": why, "price": t["price"], "name": t["name"], **({"keep": True} if t.get("keep") else {})})
             print(f"           임시 등록 {t['no']}번은 그대로 둬요 — 판매자가 확정 ({why})", flush=True)
 
     def _tent_expire(self, p, final):
@@ -1397,7 +1401,9 @@ class LlmRegister:
             self.rule_dropped.add(t["no"])
             self._withdraw(t, "그 줄을 본 LLM 답이 이 번호를 적지 않음")
         elif TENT_KEEP and (p.get("ok_no") or p["pair"] or t.get("ok") or t.get("pair") or (self._fp_rec(p) or {}).get("keep")):
-            # 빠른 길이 "말과 화면이 다름" 카드를 띄운 번호(두 번 들림)도 거두지 않고 판매자가 고르게 둔다
+            # 빠른 길이 "말과 화면이 다름" 카드를 띄운 번호(두 번 들림)도 거두지 않고 판매자가 고르게 둔다 — 다시 켠 일꾼도 거두지 않게 표를 남긴다
+            if (self._fp_rec(p) or {}).get("keep"):
+                t["keep"] = True
             self._leave(t, "가격을 정하지 못함" if p.get("ok_no") else "번호를 정하지 못함")
         else:
             self._withdraw(t, "번호 근거를 끝내 얻지 못함")
@@ -1413,7 +1419,7 @@ class LlmRegister:
                 t["until"] = now + HOLD_MAX                  # 이번 실행이 돌기 시작한 때부터 잰다
             if not final and now < t["until"]:
                 continue
-            if final or (TENT_KEEP and (t.get("ok") or t.get("pair"))):
+            if final or (TENT_KEEP and (t.get("ok") or t.get("pair") or t.get("keep"))):
                 self._leave(t, "방송 끝" if final else "앞선 실행이 올린 것 — 이번 실행에서 근거가 더 모이지 않음")
             else:
                 self._withdraw(t, "앞선 실행이 올린 것 — 번호 근거가 없거나 두지 않기로 함")
