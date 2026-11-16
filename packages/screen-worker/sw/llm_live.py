@@ -127,6 +127,8 @@ NAME_ASK = os.environ.get("LLM_NAME_ASK", "0") != "0"               # 상품마�
 NAME_ASK_AFTER = float(os.environ.get("LLM_NAME_ASK_AFTER", 25))    # 그 상품 첫 줄에서 이만큼(방송 초) 지난 뒤에 묻는다(받아쓰기가 NAME_POST초까지 모인 뒤)
 NAME_ASK_CACHE = os.environ.get("LLM_NAME_ASK_CACHE")               # 재현용: 답을 이 폴더에서 찾는다. 없으면 묻는 글을 todo.jsonl에 적고 답 없음으로 넘긴다(LLM을 부르지 않는다)
 NAME_ASK_SYNC = bool(NAME_ASK_CACHE)                                # 재현·시험: 답을 그 자리에서 받는다
+# 품종 묻기의 모델(D-RECOG-42): Claude면 Opus 노력 low, 답 모양 강제(--json-schema) 없이 — Sonnet은 노력을 올려도 61 ~ 64%, Sonnet에 답 모양을 강제하면 빈 글 칸이 33%쯤 깨졌다
+NAME_MODEL = os.environ.get("LLM_NAME_MODEL", "opus" if BACKEND == "claude" else MODEL)
 NAME_CLEAN_DICT = os.environ.get("LLM_NAME_CLEAN_DICT", "1") != "0" # 가게 장부 방식은 품종과 옵션을 따로 정리한 사전(data/varieties_clean.json)을 읽는다(D-SCR-38). 0 = 정리 전 사전
 NAME_MODE = os.environ.get("LLM_NAME_MODE", "shop")                 # shop = LLM 이름을 가게 장부에 맞추고 장부에 없으면 확인 중 품종으로(D-SCR-29~32) · dict = 전국 사전으로 거르기(D-SCR-15)
 SHOP_LEDGER = os.environ.get("LLM_SHOP_LEDGER")                     # 가게 품종 장부 파일(없으면 빈 장부 — 처음 오는 가게)
@@ -275,7 +277,7 @@ def read_nicks(out):
 
 
 def ask_name(user):
-    """품종만 묻기(D-SCR-37): 등록과 같은 모델·노력으로, 품종 지시문(prompts/name_ask_system.txt)과 답 모양으로 묻는다"""
+    """품종만 묻기(D-SCR-37): 노력은 등록과 같고 모델은 NAME_MODEL(D-RECOG-42), 품종 지시문(prompts/name_ask_system.txt)과 답 모양으로 묻는다"""
     from . import variety
     if NAME_ASK_CACHE:
         import hashlib
@@ -288,7 +290,8 @@ def ask_name(user):
         with open(os.path.join(NAME_ASK_CACHE, "todo.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps({"key": key, "user": user}, ensure_ascii=False) + "\n")
         return ""
-    return llm_b6.ask(user, variety.ASK_SYS, MODEL, EFFORT, lean=CODEX_LEAN, schema=variety.ASK_SCHEMA if CODEX_SCHEMA else None, backend=BACKEND)
+    schema = variety.ASK_SCHEMA if CODEX_SCHEMA and BACKEND != "claude" else None   # Claude는 답 글의 {…}를 parse_ask가 읽는다(D-RECOG-42)
+    return llm_b6.ask(user, variety.ASK_SYS, NAME_MODEL, EFFORT, lean=CODEX_LEAN, schema=schema, backend=BACKEND)
 
 
 def span_note(i, t, ends, cand, mains):

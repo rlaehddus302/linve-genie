@@ -66,6 +66,24 @@ class ClaudeCommandTest(unittest.TestCase):
         self.assertEqual(kw["input"], "L0 [0:00:01] (화면: 없음) 안녕하세요")             # 물음은 표준 입력으로
         self.assertNotIn("ANTHROPIC_API_KEY", kw["env"])
 
+    def test_name_ask_goes_to_opus_without_the_answer_shape(self):
+        """D-RECOG-42: 품종 묻기는 Opus 노력 low, --json-schema 없이 — 답 글의 {…}를 parse_ask가 읽는다"""
+        seen = []
+
+        def run(cmd, **kw):
+            seen.append(cmd)
+            return ok({"result": '```json\n{"name": "라울", "pattern": "", "confidence": "high"}\n```', "is_error": False})
+
+        with patch("sw.llm_b6.subprocess.run", run), patch("sw.llm_live.BACKEND", "claude"), patch("sw.llm_live.NAME_MODEL", "opus"), \
+                patch("sw.llm_live.NAME_ASK_CACHE", None):
+            out = llm_live.ask_name("물음")
+        cmd = seen[0]
+        self.assertEqual(cmd[cmd.index("--model") + 1], "opus")
+        self.assertEqual(cmd[cmd.index("--effort") + 1], llm_live.EFFORT)
+        self.assertNotIn("--json-schema", cmd)
+        from sw import variety
+        self.assertEqual(variety.parse_ask(out)["name"], "라울")
+
     def test_login_failure_is_reported_at_once(self):
         calls = []
 
