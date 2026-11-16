@@ -7,7 +7,7 @@ import { expect, it } from 'vitest'
 import { STATEMENT_SHIPPING_DEFAULT, type StatementInfo } from '../src/lib/broadcast-sales.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { LATER_LABEL } from '../src/screens/StatementInfo.tsx'
-import { PLANE_PATH, StatementFooter, TOTAL_WORD } from '../src/screens/console/StatementControls.tsx'
+import { StatementFooter, TOTAL_WORD } from '../src/screens/console/StatementControls.tsx'
 import { StatementList } from '../src/screens/console/StatementList.tsx'
 import { PALETTE } from '../src/ui/kit/tokens.ts'
 import { makeWorld } from './screen-support.tsx'
@@ -16,14 +16,16 @@ import { BROADCAST, BROADCAST_VIEW, buyer, claim, fullView, product } from './su
 const EMPTY: StatementInfo = { bank: '', accountNumber: '', accountHolder: '', phone: '', hostName: '', shipping: STATEMENT_SHIPPING_DEFAULT, decided: false }
 const rgb = (hex: string) => `rgb(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`
 
-it('[보내기]는 사진 1의 둥근 세모 종이비행기, 왼쪽 글은 "총액" (D-UX4-181)', () => {
+// 옛 기대(D-UX4-181): [보내기] 안에 둥근 세모 종이비행기. 새 기대(D-UX4-185, 사용자 "그냥 아이콘 빼라"): 아이콘 없이 글자만
+it('[보내기]는 아이콘 없이 글자만, 왼쪽 글은 "총액" (D-UX4-181·185)', () => {
   const world = makeWorld()
   render(world.wrap(<StatementFooter total={30000} qty={2} buyers={1} bottom={12} onSend={() => {}} />))
   expect(TOTAL_WORD).toBe('총액')
   expect(screen.getByTestId('statement-total').textContent).toContain('총액')
   expect(screen.getByTestId('statement-total').textContent).not.toContain('총계')
   const button = screen.getByTestId('statement-send-button')
-  expect(button.querySelector('path')?.getAttribute('d')).toBe(PLANE_PATH)
+  expect(button.querySelector('svg')).toBeNull()
+  expect(button.textContent).toBe('보내기')
 })
 
 it('상품별 줄: "상품명 · n개" 한 줄, 그 아래 산 구매자마다 금색 캡슐 (D-UX4-182)', () => {
