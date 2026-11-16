@@ -14,7 +14,7 @@ import { and, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm'
 import type { Context, Hono } from 'hono'
 import { bearerMatches } from '../app.ts'
 import type { Db } from '../db/database.ts'
-import { broadcasts, events, youtubeLinks } from '../db/schema.ts'
+import { broadcasts, events, tiktokLinks, youtubeLinks } from '../db/schema.ts'
 import type { Service } from '../service.ts'
 import { carriedBy } from './catalog.ts'
 
@@ -75,7 +75,10 @@ export async function deployedCommit(dir: string | undefined = process.env['LIVE
   }
 }
 
-const VIDEO_RE = /^[A-Za-z0-9_-]{11}$/
+// 일꾼이 볼 라이브 열쇠(videoId 칸): 유튜브 영상 번호 11자 또는 틱톡 `@아이디`(D-SCR-TT-01 — 틱톡 아이디는 소문자·숫자·.·_ 2~24자, tiktok/target.ts와 같게).
+// `@`는 유튜브 영상 번호에 없는 글자라 둘이 겹치지 않는다
+const VIDEO_RE = /^(?:[A-Za-z0-9_-]{11}|@[a-z0-9._]{2,24})$/
+const TIKTOK_KEY_RE = /^@[a-z0-9._]{2,24}$/
 const REQUEST_RE = /^screen-[A-Za-z0-9_.:-]{1,100}$/
 const HEARD_MAX = 300
 const NAME_MAX = 60
@@ -145,13 +148,19 @@ function tentativeSkip(product: ProductInfo | null, facts: Awaited<ReturnType<ty
   return facts.madeBy === registerRequestId ? undefined : 'OTHER_REGISTER'
 }
 
-/** 유튜브 영상 번호 → 지금 이어진 방송 (판매자 상관없이, 판매자·방송 순서로 늘 같은 순서) */
+/** 라이브 열쇠(유튜브 영상 번호 또는 틱톡 `@아이디`, D-SCR-TT-01) → 지금 이어진 방송 (판매자 상관없이, 판매자·방송 순서로 늘 같은 순서) */
 export async function openBroadcastsOfVideo(db: Db, videoId: string): Promise<{ sellerId: string; broadcastId: string }[]> {
-  const rows = await db
-    .select({ sellerId: youtubeLinks.sellerId, broadcastId: youtubeLinks.broadcastId })
-    .from(youtubeLinks)
-    .innerJoin(broadcasts, and(eq(broadcasts.id, youtubeLinks.broadcastId), eq(broadcasts.sellerId, youtubeLinks.sellerId)))
-    .where(and(eq(youtubeLinks.videoId, videoId), isNull(youtubeLinks.unlinkedAt), isNull(broadcasts.endedAt)))
+  const rows = TIKTOK_KEY_RE.test(videoId)
+    ? await db
+        .select({ sellerId: tiktokLinks.sellerId, broadcastId: tiktokLinks.broadcastId })
+        .from(tiktokLinks)
+        .innerJoin(broadcasts, and(eq(broadcasts.id, tiktokLinks.broadcastId), eq(broadcasts.sellerId, tiktokLinks.sellerId)))
+        .where(and(eq(tiktokLinks.tiktokId, videoId.slice(1)), eq(tiktokLinks.state, 'LINKED'), isNull(tiktokLinks.unlinkedAt), isNull(broadcasts.endedAt)))
+    : await db
+        .select({ sellerId: youtubeLinks.sellerId, broadcastId: youtubeLinks.broadcastId })
+        .from(youtubeLinks)
+        .innerJoin(broadcasts, and(eq(broadcasts.id, youtubeLinks.broadcastId), eq(broadcasts.sellerId, youtubeLinks.sellerId)))
+        .where(and(eq(youtubeLinks.videoId, videoId), isNull(youtubeLinks.unlinkedAt), isNull(broadcasts.endedAt)))
   const seen = new Map<string, { sellerId: string; broadcastId: string }>()
   for (const row of rows) seen.set(`${row.sellerId}/${row.broadcastId}`, row)
   return [...seen.values()].sort((x, y) => (x.sellerId === y.sellerId ? (x.broadcastId < y.broadcastId ? -1 : 1) : x.sellerId < y.sellerId ? -1 : 1))
@@ -174,7 +183,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     const name = b.name ?? ''
     const heard = b.heard ?? ''
     const conf = b.conf
-    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
+    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호나 틱톡 아이디가 아니에요.')
     if (typeof no !== 'number' || !Number.isInteger(no) || no < 1 || no > 9999) return bad('no는 1~9999 정수예요.')
     if (typeof price !== 'number' || !Number.isInteger(price) || price < 0 || price > 100_000_000) return bad('price는 0~100,000,000 정수(원)예요.')
     if (typeof name !== 'string' || [...name].length > NAME_MAX) return bad(`name은 ${String(NAME_MAX)}자까지예요.`)
@@ -258,7 +267,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (hasUnknownField(kind, body)) return bad('받을 수 없는 항목이 있어요.')
     const { videoId, no, requestId, registerRequestId } = body
     const isNo = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 9999
-    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
+    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호나 틱톡 아이디가 아니에요.')
     if (!isNo(no)) return bad('no는 1~9999 정수예요.')
     if (typeof requestId !== 'string' || !REQUEST_RE.test(requestId)) return bad('requestId는 screen-로 시작해야 해요.')
     if (typeof registerRequestId !== 'string' || !REQUEST_RE.test(registerRequestId)) return bad('registerRequestId는 screen-로 시작해야 해요.')
@@ -350,7 +359,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (hasUnknownField('renumber', b)) return bad('받을 수 없는 항목이 있어요.')
     const { videoId, from, to, requestId, registerRequestId } = b
     const drop = b['drop'] === true
-    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
+    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호나 틱톡 아이디가 아니에요.')
     const isNo = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 9999
     if (!isNo(from) || !isNo(to) || from === to) return bad('from·to는 서로 다른 1~9999 정수예요.')
     if (typeof requestId !== 'string' || !REQUEST_RE.test(requestId)) return bad('requestId는 screen-로 시작해야 해요.')
@@ -420,7 +429,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (hasUnknownField(field === 'name' ? 'rename' : 'reprice', b)) return bad('받을 수 없는 항목이 있어요.')
     const { videoId, no, requestId } = b
     const value = b[field]
-    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
+    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호나 틱톡 아이디가 아니에요.')
     if (typeof no !== 'number' || !Number.isInteger(no) || no < 1 || no > 9999) return bad('no는 1~9999 정수예요.')
     if (field === 'name' && (typeof value !== 'string' || value.trim() === '' || [...value].length > NAME_MAX)) return bad(`name은 1~${String(NAME_MAX)}자예요.`)
     if (field === 'price' && (typeof value !== 'number' || !Number.isInteger(value) || value < 100 || value > 10_000_000)) return bad('price는 100~10,000,000원 정수예요.')
@@ -519,7 +528,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) return bad('JSON 객체여야 해요.')
     const { videoId } = body as Record<string, unknown>
     if (hasUnknownField('end-stale', body)) return bad('받을 수 없는 항목이 있어요.')
-    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호가 아니에요.')
+    if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호나 틱톡 아이디가 아니에요.')
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
     const results: { broadcastId: string; date: string; result: string }[] = []
     for (const { sellerId, broadcastId } of await openBroadcastsOfVideo(deps.db, videoId)) {
@@ -534,7 +543,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     }
     return json({ ok: true, videoId, broadcasts: results }, 200)
   })
-  // 지금 볼 라이브 (D-SCR-02): 일꾼이 30초마다 묻고, 목록에 생긴 영상에 붙고 빠진 영상에서 떨어진다 — 끊지 않은 연결 + 끝나지 않은 방송의 유튜브 영상 번호만(판매자 정보 없이)
+  // 지금 볼 라이브 (D-SCR-02): 일꾼이 30초마다 묻고, 목록에 생긴 영상에 붙고 빠진 영상에서 떨어진다 — 끊지 않은 연결 + 끝나지 않은 방송의 유튜브 영상 번호·틱톡 `@아이디`만(판매자 정보 없이, D-SCR-TT-01)
   // 가격 단위 (D-RETRO-84, 복기 A6): 영상마다 그 방송의 설정 스냅샷 `price.unit`을 priceUnit으로 싣는다 — 일꾼이 단위 없는 가격을 판매자와 같은 단위로 읽게.
   // 같은 영상에 이어진 방송들의 값이 서로 다르거나 읽지 못하면 null(일꾼은 자기 규칙대로). 판매자·방송 정보는 여전히 없다
   app.get('/internal/screen/live', async (c) => {
@@ -574,12 +583,18 @@ async function priceUnitOfVideo(deps: ScreenIntakeDeps, videoId: string): Promis
   }
 }
 
-/** 지금 이어진 유튜브 영상 번호 (끊지 않은 연결·끝나지 않은 방송, 겹치면 하나) */
+/** 지금 이어진 라이브 열쇠 (끊지 않은 연결·끝나지 않은 방송, 겹치면 하나) — 유튜브 영상 번호와 틱톡 `@아이디`(D-SCR-TT-01) */
 export async function liveVideos(db: Db): Promise<string[]> {
   const rows = await db
     .selectDistinct({ videoId: youtubeLinks.videoId })
     .from(youtubeLinks)
     .innerJoin(broadcasts, and(eq(broadcasts.id, youtubeLinks.broadcastId), eq(broadcasts.sellerId, youtubeLinks.sellerId)))
     .where(and(isNull(youtubeLinks.unlinkedAt), isNull(broadcasts.endedAt)))
-  return rows.map((row) => row.videoId).filter((id): id is string => typeof id === 'string' && VIDEO_RE.test(id)).sort()
+  const tiktok = await db
+    .selectDistinct({ tiktokId: tiktokLinks.tiktokId })
+    .from(tiktokLinks)
+    .innerJoin(broadcasts, and(eq(broadcasts.id, tiktokLinks.broadcastId), eq(broadcasts.sellerId, tiktokLinks.sellerId)))
+    .where(and(eq(tiktokLinks.state, 'LINKED'), isNull(tiktokLinks.unlinkedAt), isNull(broadcasts.endedAt)))
+  const keys = [...rows.map((row) => row.videoId), ...tiktok.map((row) => `@${row.tiktokId}`)]
+  return [...new Set(keys.filter((id): id is string => typeof id === 'string' && VIDEO_RE.test(id)))].sort()
 }

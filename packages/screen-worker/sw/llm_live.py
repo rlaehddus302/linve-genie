@@ -1132,9 +1132,9 @@ class LlmRegister:
             return
         seen = self.seen.get(line, now)
         observed = int(seen * 1000)
-        while f"screen-{self.video_id}-{no}-{observed}" in self.tent_rids:
+        while f"screen-{post.rid_key(self.video_id)}-{no}-{observed}" in self.tent_rids:
             observed += 1                                    # 같은 줄에서 다시 올릴 때(거둔 뒤)도 요청 번호가 겹치지 않게
-        rid = f"screen-{self.video_id}-{no}-{observed}"
+        rid = f"screen-{post.rid_key(self.video_id)}-{no}-{observed}"
         body.update(observedAt=observed, requestId=rid)
         self.tent_rids.add(rid)
         t = {"no": no, "rid": rid, "n": str(observed), "price": shown, "name": name or "", "state": "sending", "ok": bool(ok), "pair": p["pair"], "rule": rule,
@@ -1818,9 +1818,9 @@ class LlmRegister:
                                  pieces=ni.get("qty") if ni and name else None)   # 품종에서 떼어 낸 개수(D-PIECES-01)
             if body is not None and tent is None:
                 observed = int(self.seen.get(line, now) * 1000)
-                while f"screen-{self.video_id}-{no}-{observed}" in self.tent_rids:
+                while f"screen-{post.rid_key(self.video_id)}-{no}-{observed}" in self.tent_rids:
                     observed += 1                            # 그 요청 번호는 (올라가지 못했거나 거둔) 임시 등록이 썼다 — 서버가 "이미 받은 것"으로 넘기지 않게
-                body.update(observedAt=observed, requestId=f"screen-{self.video_id}-{no}-{observed}")
+                body.update(observedAt=observed, requestId=f"screen-{post.rid_key(self.video_id)}-{no}-{observed}")
                 rec["rid"] = body["requestId"]
             if body is None:
                 why = "보낼 수 없는 값"

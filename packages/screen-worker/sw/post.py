@@ -19,8 +19,11 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
+from . import tiktok
+
 KST = timezone(timedelta(hours=9))
-VIDEO_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+# 라이브 열쇠: 유튜브 영상 번호 11자 또는 틱톡 `@아이디`(D-SCR-TT-01 — 서버 screen/routes.ts와 같게)
+VIDEO_RE = re.compile(r"^(?:[A-Za-z0-9_-]{11}|@[a-z0-9._]{2,24})$")
 RETRY_FOR = 600          # 처음 넣은 뒤 이만큼(초)까지 다시 보낸다
 RENUMBER_WAIT = 30       # 번호 바로잡기: 그 번호의 등록 답을 이만큼(초)까지 기다렸다 보낸다(D-SCR-23)
 RENUMBER_AGAIN, RENUMBER_GAP = 2, 2.0   # 서버가 "그런 상품 없음"이라 하면 이만큼(초) 뒤 다시, 이만큼(번)까지
@@ -46,10 +49,19 @@ def log(msg):
     print(f"[{stamp()}] {msg}", flush=True)
 
 
+def rid_key(vid):
+    """요청 번호에 넣는 라이브 열쇠: 서버 요청 번호에 `@`를 쓸 수 없어 틱톡은 `tt.아이디`로(D-SCR-TT-01)"""
+    return "tt." + vid[1:] if vid and vid.startswith("@") else vid
+
+
 def video_id(src):
-    """유튜브 주소(watch?v= · youtu.be/ · /live/ · /shorts/ · /embed/) 또는 영상 번호 11자 → 영상 번호. 못 찾으면 None"""
+    """유튜브 주소(watch?v= · youtu.be/ · /live/ · /shorts/ · /embed/) 또는 영상 번호 11자 → 영상 번호,
+    틱톡 라이브 주소(tiktok.com/@아이디/live) 또는 `@아이디` → `@아이디`. 못 찾으면 None"""
     if not src:
         return None
+    tt = tiktok.key_of(src)
+    if tt:
+        return tt
     if VIDEO_RE.match(src):
         return src
     try:
@@ -149,7 +161,7 @@ def make_body(vid, no, price, name=None, heard=None, conf=None, tentative=None, 
     price = int(price)
     if not 0 <= price <= 100_000_000:
         return None
-    body = {"videoId": vid, "no": no, "price": price, "requestId": f"screen-{vid}-{no}"}
+    body = {"videoId": vid, "no": no, "price": price, "requestId": f"screen-{rid_key(vid)}-{no}"}
     if name:
         body["name"] = str(name)[:NAME_MAX]
     if heard:
@@ -278,7 +290,7 @@ class Poster:
         """잘못 들은 번호 바로잡기(D-SCR-06): from → to를 뒤 스레드에서 한 번 보낸다(네트워크 오류면 3번까지). 서버가 지금 상태로 다시 보고 안전할 때만 바꾼다"""
         base = self.url.rsplit("/", 1)[0]
         # rid = 이 일꾼이 frm을 등록한 요청 번호 — 서버는 그 등록이 만든 상품일 때만 바꾼다(D-SCR-10: 다시 켠 일꾼이 옛 429를 371로 옮김)
-        body = {"videoId": vid, "from": int(frm), "to": int(to), "requestId": f"screen-{vid}-fix-{int(frm)}-{int(to)}", "registerRequestId": rid}
+        body = {"videoId": vid, "from": int(frm), "to": int(to), "requestId": f"screen-{rid_key(vid)}-fix-{int(frm)}-{int(to)}", "registerRequestId": rid}
         if drop:
             body["drop"] = True                              # to를 뒤에 따로 등록함 — 서버가 from을 지운다(찜 없을 때만)
         body = self._fit("renumber", body)
@@ -322,18 +334,18 @@ class Poster:
 
     def rename(self, vid, no, name, n):
         """품종 이름 고치기(D-SCR-07): 서버가 일꾼 등록이고 판매자가 이름을 고친 적 없을 때만 바꾼다. n = 이 번호의 몇 번째 고침(요청 번호용)"""
-        body = {"videoId": vid, "no": int(no), "name": str(name)[:NAME_MAX], "requestId": f"screen-{vid}-name-{int(no)}-{int(n)}"}
+        body = {"videoId": vid, "no": int(no), "name": str(name)[:NAME_MAX], "requestId": f"screen-{rid_key(vid)}-name-{int(no)}-{int(n)}"}
         self._fix("rename", body, f"이름 고치기 {no}번 → {name}")
 
     def reprice(self, vid, no, price, n):
         """금액 고치기(D-SCR-09): 같은 번호를 다른 금액으로 다시 내놓았을 때. 판매자가 금액을 고친 적 없을 때만 서버가 바꾼다"""
-        body = {"videoId": vid, "no": int(no), "price": int(price), "requestId": f"screen-{vid}-price-{int(no)}-{int(n)}"}
+        body = {"videoId": vid, "no": int(no), "price": int(price), "requestId": f"screen-{rid_key(vid)}-price-{int(no)}-{int(n)}"}
         self._fix("reprice", body, f"금액 고치기 {no}번 → {int(price):,}원")
 
     def confirm(self, vid, no, rid, to=None, price=None, name=None, n=1, on_result=None):
         """임시 등록 확정(계약서 2.2): rid = 그 임시 등록의 요청 번호. to·price·name은 적은 것만 바꾼다. 서버가 방송마다 지금 상태로 다시 보고
         판매자가 먼저 확정·수정한 것은 그대로 둔다(skip·kept). on_result(응답)로 결과를 돌려준다"""
-        body = {"videoId": vid, "no": int(no), "registerRequestId": rid, "requestId": f"screen-{vid}-ok-{int(no)}-{n}"}
+        body = {"videoId": vid, "no": int(no), "registerRequestId": rid, "requestId": f"screen-{rid_key(vid)}-ok-{int(no)}-{n}"}
         if to is not None and int(to) != int(no):
             body["to"] = int(to)
         if price is not None:
@@ -344,7 +356,7 @@ class Poster:
 
     def withdraw(self, vid, no, rid, n=1, on_result=None):
         """임시 등록 거두기(계약서 2.3): 판매자가 손댄 상품은 서버가 거두지 않는다(SELLER_EDITED)"""
-        body = {"videoId": vid, "no": int(no), "registerRequestId": rid, "requestId": f"screen-{vid}-no-{int(no)}-{n}"}
+        body = {"videoId": vid, "no": int(no), "registerRequestId": rid, "requestId": f"screen-{rid_key(vid)}-no-{int(no)}-{n}"}
         self._fix("withdraw", body, f"임시 등록 거두기 {no}번", on_result, done="거둠", record="withdraw")
 
     def _fix(self, path, body, label, on_result=None, done="바꿈", record=None):

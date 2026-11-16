@@ -20,7 +20,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-from . import audio, llm_live, post, price, variety
+from . import audio, llm_live, post, price, tiktok, variety
 from .chat import buyer_numbers
 from .photo import best_frame
 from .decide import decide, loose_at, numbers_priced, numbers_with_beon
@@ -40,9 +40,15 @@ def hms(t):
 
 
 def resolve(src):
-    """→ (입력 목록, 라이브인지). 파일이면 그대로, 유튜브 주소면 yt-dlp로 실제 스트림 주소"""
+    """→ (입력 목록, 라이브인지). 파일이면 그대로, 틱톡 라이브면 방 정보에서(D-SCR-TT-01), 유튜브 주소면 yt-dlp로 실제 스트림 주소"""
     if os.path.exists(src):
         return [src], False
+    tt = tiktok.key_of(src)
+    if tt:
+        try:
+            return tiktok.resolve(tt), True
+        except tiktok.NotLive as e:
+            raise subprocess.CalledProcessError(2, ["tiktok", tt], stderr=str(e)) from e
     ytdlp = os.path.join(os.path.dirname(sys.executable), "yt-dlp")
     info = json.loads(subprocess.run([ytdlp, "-J", "--no-warnings", src], capture_output=True, text=True, check=True).stdout)
     live = bool(info.get("is_live"))
@@ -411,7 +417,7 @@ def main():
         a.token_file = post.token_path(a.token_file)
         a.video_id = a.video_id or post.video_id(a.source)
         if not a.video_id or not post.VIDEO_RE.match(a.video_id):
-            sys.exit("--post에는 유튜브 영상 번호가 필요해요(주소에서 못 찾으면 --video-id)")
+            sys.exit("--post에는 유튜브 영상 번호나 틱톡 @아이디가 필요해요(주소에서 못 찾으면 --video-id)")
     # sw.serve가 멈출 때(SIGTERM) 정리하고 끝나게: ffmpeg·글자 읽기 프로세스를 닫는다
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:

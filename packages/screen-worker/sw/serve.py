@@ -22,6 +22,7 @@ import time
 from datetime import datetime
 
 from . import post
+from . import tiktok
 from .post import KST, VIDEO_RE, log
 
 POLL = 30          # 서버에 묻는 간격(초)
@@ -103,7 +104,7 @@ class Serve:
 
     # ---------- 일꾼 ----------
     def command(self, vid, out):
-        url = f"https://www.youtube.com/watch?v={vid}"
+        url = tiktok.url_of(vid) if vid.startswith("@") else f"https://www.youtube.com/watch?v={vid}"   # 틱톡은 `@아이디`(D-SCR-TT-01)
         if self.a.worker_cmd:   # 시험용: {url} {video_id} {out} 자리 채우기
             return [p.format(url=url, video_id=vid, out=out) for p in shlex.split(self.a.worker_cmd)]
         cmd = [pin_python(sys.executable, HERE), "-m", "sw", url, "--post", self.server, "--token-file", self.a.token_file, "--live-only", "--out", out]
