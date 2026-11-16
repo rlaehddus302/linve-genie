@@ -12,18 +12,17 @@
 // 앱은 판정하지 않는다. 닉네임·채팅 글은 그리지 않는다. 품종은 글자로만 그린다.
 import { productTitle } from '@livejjim/core/format'
 import { useRef, useState } from 'react'
-import { Platform, View } from 'react-native'
+import { View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { productKey } from '../../lib/derive.ts'
-import { TENTATIVE_TAG, confirmEvent, isTentative, needsPrice, otherNames, otherNumbers, otherPrices, reasonLine, tentativeProducts, waitingAt, waitingWords, withdrawEvent } from '../../lib/tentative.ts'
+import { TENTATIVE_TAG, confirmEvent, isTentative, needsPrice, otherNames, otherNumbers, otherPrices, reasonLine, waitingAt, waitingWords, withdrawEvent } from '../../lib/tentative.ts'
 import { formatWon, priceWords } from '../../lib/words.ts'
-import { Appear, BigButton, ButtonRow, ErrorLine, PopupDialog, Tap, Txt, useKit } from '../../ui/kit/index.ts'
-import { GUTTER, RADIUS, SHADOW, SPACE } from '../../ui/kit/tokens.ts'
+import { BigButton, ButtonRow, ErrorLine, PopupDialog, Tap, Txt, useKit } from '../../ui/kit/index.ts'
+import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
 import { VarietyChips } from './VarietyChips.tsx'
 
-export const TENTATIVE_REGION = '확인 중인 상품'
 export const ASK_WHICH_NUMBER = '몇 번이 맞나요?'
 export const ASK_WHICH_PRICE = '얼마가 맞나요?'
 /** 가격 없이 올라온 상품에 금액 후보도 없을 때 (D-RECOG-22) */
@@ -46,11 +45,6 @@ export const numberTaken = (no: number): string => `${String(no)}번에는 이�
 /** 번호 단추 글: "333번", 그 번호로 기다리는 찜이 있으면 "333번 · 찜 2건" (손님 찜이 들어온 번호가 고르는 근거 — 계획표 C3) */
 export const numberChoice = (no: number, waiting: number): string => (waiting > 0 ? `${String(no)}번 · 찜 ${String(waiting)}건` : `${String(no)}번`)
 
-/**
- * 카드가 뜨거나 다음 카드로 바뀐 직후 잠깐은 누름을 받지 않는다 — 앞 카드를 누르던 손가락이나, 그 자리의 다른 것을 누르려던 손가락이
- * 방금 뜬 카드를 확정하지 않게. 웹(시험)은 0
- */
-export const CARD_GUARD_MS = 600
 
 /** 카드 머리 오른쪽의 작은 단추 (거두기 · 번호 다시 · 고치기) */
 function SmallAction({ label, ariaLabel, disabled, onPress }: { readonly label: string; readonly ariaLabel: string; readonly disabled: boolean; readonly onPress: () => void }) {
@@ -232,25 +226,6 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
         onCancel={() => setAsking(false)}
         onConfirm={() => void send(withdrawEvent(product), WITHDRAW_FAILED)}
       />
-    </View>
-  )
-}
-
-/**
- * 방송 화면의 확인 카드: 확인 중 상품이 있으면 화면 아래(목록과 아래 창 사이)에 한 장 — 먼저 올라온 것부터, 확정·거두면 다음 것이 같은 자리에 뜬다.
- * onEdit: [고치기] — 그 상품 자세히(수정창)를 연다. [가격 적기]는 field 'price' — 가격 칸을 바로 연다(D-RECOG-29). bottom: 아래 여백(아래 창이 없으면 홈 막대 자리)
- */
-export function TentativeCards({ onEdit, bottom, guardMs = Platform.OS === 'web' ? 0 : CARD_GUARD_MS }: { readonly onEdit: (key: string, field?: 'price') => void; readonly bottom: number; readonly guardMs?: number }) {
-  const api = useConsoleApi()
-  const { p } = useKit()
-  const waitingList = api.ended || api.sealed ? [] : tentativeProducts(api.data, api.b)
-  const first = waitingList[0]
-  if (first === undefined) return null
-  return (
-    <View role="region" aria-label={TENTATIVE_REGION} testID="tentative-card" style={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: bottom, backgroundColor: p.background }}>
-      <Appear key={first.key} style={{ padding: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', borderWidth: 1.5, borderColor: p.warnText, backgroundColor: p.surface, ...SHADOW.card }}>
-        <TentativePanel product={first} more={waitingList.length - 1} guardMs={guardMs} onEdit={(field) => onEdit(first.key, field)} />
-      </Appear>
     </View>
   )
 }

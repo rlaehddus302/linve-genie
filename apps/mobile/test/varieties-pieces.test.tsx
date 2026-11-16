@@ -15,7 +15,7 @@ import { ConsoleContext, type ConsoleApi } from '../src/screens/console/context.
 import { ProductAddFlow } from '../src/screens/console/ProductAdd.tsx'
 import { rowName } from '../src/screens/console/ProductBoard.tsx'
 import { EDIT_DONE, editPlan } from '../src/screens/console/ProductEdit.tsx'
-import { CONFIRM_AS_IS, TentativeCards } from '../src/screens/console/TentativeCard.tsx'
+import { CONFIRM_AS_IS, TentativePanel } from '../src/screens/console/TentativeCard.tsx'
 import { PIECES_MORE, VARIETY_ROW } from '../src/screens/console/VarietyChips.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { changes, flush, fullView, product } from './support.ts'
@@ -76,12 +76,13 @@ describe('품종 후보 고르기 (D-VARIETY-01)', () => {
     expect(chipNames(detail)).toEqual(['라울'])
   })
 
-  it('확인 카드: 일꾼이 품종을 여러 가지로 들었으면 품종 단추 — 고른 품종으로 확정한다', async () => {
+  // D-UX4-209: 방송 화면 확인 카드가 없어져 같은 확정 칸(TentativePanel)을 바로 그린다
+  it('확정 칸: 일꾼이 품종을 여러 가지로 들었으면 품종 단추 — 고른 품종으로 확정한다', async () => {
     const data = fromFull(fullView({ products: [product(313, { status: 'READY', name: '채홍', price: 10_000, tentative: mark({ candidates: { no: [], price: [], name: ['채홍', '청옥'] } }) })] }))
     const sent: Record<string, unknown>[] = []
     const api: ConsoleApi = { b: 'b1', data, names: new BuyerNames(data.buyers, data.claims), ended: false, sealed: false, command: async (event) => { sent.push({ ...event }); return { date: '2026-10-29', rehearsal: false, seq: 6, type: String(event.type), changed: true, effects: [] } }, select: () => {}, selected: null, labelWords: new Map() }
-    render(<ConsoleContext.Provider value={api}><TentativeCards onEdit={() => {}} bottom={0} guardMs={0} /></ConsoleContext.Provider>)
-    const card = screen.getByTestId('tentative-card')
+    render(<ConsoleContext.Provider value={api}><TentativePanel product={data.products.get('b1/313')!} /></ConsoleContext.Provider>)
+    const card = screen.getByRole('group', { name: '확인 중 — 313번' })
     expect(chipNames(card)).toEqual(['채홍', '청옥'])
     fireEvent.click(within(card).getByRole('button', { name: '청옥' }))
     expect(within(card).getByTestId('tentative-values').textContent).toBe('313번 청옥 10,000원')

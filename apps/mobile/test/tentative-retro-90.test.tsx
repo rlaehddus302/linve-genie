@@ -11,12 +11,10 @@ import { fromFull } from '../src/lib/scope-data.ts'
 import { REASON_UNKNOWN, TENTATIVE_TAG, confirmEvent, isTentative, needsPrice, otherNumbers, otherPrices, reasonLine, tentativeAttention, tentativeProducts, waitingAt, withdrawEvent } from '../src/lib/tentative.ts'
 import { PRICE_WAITING, priceWords } from '../src/lib/words.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
-import { ConsoleContext, type ConsoleApi } from '../src/screens/console/context.ts'
 import { ASK_ADD, ASK_CONFIRM_HELD, CONFIRM_HELD, heldWords } from '../src/screens/console/ProductAdd.tsx'
 import { EDIT_CONFIRM, EDIT_DONE, PRICE_NEEDED } from '../src/screens/console/ProductEdit.tsx'
 import { NO_CLAIMS } from '../src/screens/console/ProductBoard.tsx'
-import { ASK_PRICE, ASK_WHICH_NUMBER, ASK_WHICH_PRICE, CARD_GUARD_MS, CONFIRM_AS_IS, PICK_NUMBER_AGAIN, TENTATIVE_EDIT, TENTATIVE_REGION, TentativeCards, WITHDRAW, WITHDRAW_ASK, WITHDRAW_CLOSE, WITHDRAW_NOTE, WRITE_PRICE, WRITE_PRICE_ABOVE, numberTaken } from '../src/screens/console/TentativeCard.tsx'
-import { BuyerNames } from '../src/lib/derive.ts'
+import { ASK_PRICE, ASK_WHICH_NUMBER, ASK_WHICH_PRICE, CONFIRM_AS_IS, PICK_NUMBER_AGAIN, TENTATIVE_EDIT, WITHDRAW, WITHDRAW_ASK, WITHDRAW_CLOSE, WITHDRAW_NOTE, WRITE_PRICE, WRITE_PRICE_ABOVE, numberTaken } from '../src/screens/console/TentativeCard.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { buyer, changes, claim, flush, fullView, product } from './support.ts'
 
@@ -53,7 +51,11 @@ async function open(world: World) {
     await flush()
   })
 }
-const card = () => screen.getByRole('region', { name: TENTATIVE_REGION })
+/** 확인 중 상품의 확정 칸 — 상품 줄을 눌러 연 자세히 안 (D-UX4-209, 옛: 방송 화면 아래 확인 카드) */
+async function panel(no: number): Promise<HTMLElement> {
+  fireEvent.click(within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: `상품 자세히 — ${String(no)}번` }))
+  return screen.findByRole('group', { name: `${TENTATIVE_TAG} — ${String(no)}번` })
+}
 const bigButtons = (root: HTMLElement) => within(root).getAllByRole('button').map((button) => button.textContent)
 /** 두 단추가 같은 줄(좌우)에 있고 왼쪽이 먼저다 */
 function expectSideBySide(left: HTMLElement, right: HTMLElement) {
@@ -146,7 +148,7 @@ describe('상품 목록의 확인 중 표시 (D-RETRO-90)', () => {
     const world = worldWith({ products: [product(15, { status: 'READY' })] })
     follow(world)
     await open(world)
-    expect(screen.queryByRole('region', { name: TENTATIVE_REGION })).toBeNull()
+    expect(screen.queryByTestId('tentative-card')).toBeNull()
     const row = within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 15번' })
     expect(within(row).queryByText(TENTATIVE_TAG)).toBeNull()
     fireEvent.click(row)
@@ -158,14 +160,24 @@ describe('상품 목록의 확인 중 표시 (D-RETRO-90)', () => {
   })
 })
 
-describe('방송 화면 확인 카드 (D-RETRO-90, 개선 계획표 C2)', () => {
+// D-UX4-209로 바뀐 기대 (사용자 2026-11-16 휴대폰 사진 "저렇게 확인 중 뜨는 팝업 지워."): 옛(D-RETRO-90 C2)은 방송 화면 아래에 확인 카드가 저절로 떴다.
+// 이제 라이브 화면에는 카드가 없고, 확인 중 상품 줄(빈 품종·가격은 … — D-UX4-207)을 눌러 연 자세히에서 같은 물음·단추(TentativePanel)로 확정·거둔다.
+// 카드에만 있던 것(맨 위 값 한 줄·"외 N개"·뜬 직후 누름 막기·[고치기]·[가격 적기])은 함께 없어졌다 — 자세히에는 위에 값 칸(수정창)이 늘 있다
+describe('확인 중 상품 확정은 자세히에서 (D-RETRO-90 → D-UX4-209)', () => {
+  it('라이브 화면에는 확인 카드가 뜨지 않는다 — 확인 중 상품이 여럿이어도 줄만 있다', async () => {
+    await open(worldWith({ products: [held(20, { seq: 9 }, { name: '나중' }), held(10, { seq: 7 }, { name: '먼저' })] }))
+    expect(screen.queryByTestId('tentative-card')).toBeNull()
+    expect(screen.queryByRole('group', { name: `${TENTATIVE_TAG} — 10번` })).toBeNull()
+    expect(within(screen.getByRole('list', { name: '상품 목록' })).getAllByRole('button', { name: /^상품 자세히 — / })).toHaveLength(2)
+    expect(await panel(10)).toBeTruthy()
+  })
+
   it('번호 후보가 둘이면 좌우 단추로 — 지금 번호가 오른쪽, 번호마다 기다리는 찜 수. 다른 번호를 한 번 누르면 그 번호로 확정을 보낸다', async () => {
     const world = worldWith(MISMATCH)
     follow(world, () => ({ products: [product(333, { id: 'p334', name: '색금', price: 20_000 })], removed: removedOnly(['b1/334']) }))
     await open(world)
-    const box = card()
+    const box = await panel(334)
     expect(within(box).getByText(TENTATIVE_TAG)).toBeTruthy()
-    expect(within(box).getByTestId('tentative-values').textContent).toBe('334번 색금 20,000원')
     expect(within(box).getByRole('note').textContent).toBe('말한 번호와 번호표가 달라요 · 가격을 한 번만 확인했어요')
     expect(within(box).getByText(ASK_WHICH_NUMBER)).toBeTruthy()
     const left = within(box).getByRole('button', { name: '333번으로 확정' })
@@ -175,30 +187,27 @@ describe('방송 화면 확인 카드 (D-RETRO-90, 개선 계획표 C2)', () => 
     expectSideBySide(left, right)
     // 닉네임은 그리지 않는다
     expect(box.textContent).not.toContain('홍길동')
-    // 탭 바·목록보다 아래(화면 아래쪽)
-    expect(screen.getByTestId('console-list').compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(left)
     await waitFor(() => expect(world.events).toHaveLength(1))
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.confirm', b: 'b1', no: 334, to: 333, price: 20_000, name: '색금' })
-    await waitFor(() => expect(screen.queryByRole('region', { name: TENTATIVE_REGION })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('group', { name: `${TENTATIVE_TAG} — 334번` })).toBeNull())
   })
 
   it('지금 번호(오른쪽)를 누르면 번호를 옮기지 않고 확정한다', async () => {
     const world = worldWith(MISMATCH)
     follow(world, () => ({ products: [product(334, { name: '색금', price: 20_000 })] }))
     await open(world)
-    fireEvent.click(within(card()).getByRole('button', { name: '334번으로 확정' }))
+    fireEvent.click(within(await panel(334)).getByRole('button', { name: '334번으로 확정' }))
     await waitFor(() => expect(world.events).toHaveLength(1))
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.confirm', b: 'b1', no: 334, price: 20_000, name: '색금' })
-    await waitFor(() => expect(screen.queryByRole('region', { name: TENTATIVE_REGION })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('group', { name: `${TENTATIVE_TAG} — 334번` })).toBeNull())
   })
 
   it('금액 후보가 둘이면 같은 방식 — 지금 값이 오른쪽, 한 번 누르면 그 금액으로 확정', async () => {
     const world = worldWith({ products: [held(305, { reasons: ['PRICE_DISAGREE'], candidates: { no: [305], price: [35_000, 350_000], name: [] } }, { name: '', price: 35_000 })] })
     follow(world, () => ({ products: [product(305, { name: '', price: 350_000 })] }))
     await open(world)
-    const box = card()
-    expect(within(box).getByTestId('tentative-values').textContent).toBe('305번 35,000원')
+    const box = await panel(305)
     expect(within(box).getByText(ASK_WHICH_PRICE)).toBeTruthy()
     const left = within(box).getByRole('button', { name: '350,000원으로 확정' })
     const right = within(box).getByRole('button', { name: '35,000원으로 확정' })
@@ -213,13 +222,12 @@ describe('방송 화면 확인 카드 (D-RETRO-90, 개선 계획표 C2)', () => 
     const world = worldWith({ products: [held(334, { reasons: ['NUMBER_MISMATCH', 'PRICE_DISAGREE'], candidates: { no: [334, 333], price: [20_000, 200_000], name: [] } }, { name: '색금', price: 20_000 })] })
     follow(world, () => ({ products: [product(333, { id: 'p334', name: '색금', price: 200_000 })], removed: removedOnly(['b1/334']) }))
     await open(world)
-    const box = card()
+    const box = await panel(334)
     expect(within(box).getByText(ASK_WHICH_NUMBER)).toBeTruthy()
     fireEvent.click(within(box).getByRole('button', { name: '333번 고르기' }))
     // 번호만 골랐을 때는 아무것도 보내지 않는다
     expect(world.events).toHaveLength(0)
     expect(within(box).getByText(ASK_WHICH_PRICE)).toBeTruthy()
-    expect(within(box).getByTestId('tentative-values').textContent).toBe('333번 색금 20,000원')
     fireEvent.click(within(box).getByRole('button', { name: PICK_NUMBER_AGAIN }))
     expect(within(box).getByText(ASK_WHICH_NUMBER)).toBeTruthy()
     fireEvent.click(within(box).getByRole('button', { name: '333번 고르기' }))
@@ -233,7 +241,7 @@ describe('방송 화면 확인 카드 (D-RETRO-90, 개선 계획표 C2)', () => 
     const world = worldWith({ products: [held(313, { by: 'SYNC', reasons: ['OTHER_ACCOUNT', 'PENDING_CLAIMS'], candidates: { no: [313], price: [10_000], name: ['빅뱅'] } }, { name: '빅뱅', price: 10_000 })], claims: [waiting('c1', 313, 'u1', 12)], pending: [slot(313, ['c1'], ['u1'])], buyers: [buyer('u1', '홍길동')] })
     follow(world, () => ({ products: [product(313, { name: '빅뱅', price: 10_000 })] }))
     await open(world)
-    const box = card()
+    const box = await panel(313)
     expect(within(box).getByRole('note').textContent).toBe('다른 계정에서 넣은 상품이에요 · 기다리는 찜 1건')
     const withdraw = within(box).getByRole('button', { name: `${WITHDRAW} — 313번` })
     const go = within(box).getByRole('button', { name: `${CONFIRM_AS_IS} — 313번` })
@@ -250,7 +258,8 @@ describe('방송 화면 확인 카드 (D-RETRO-90, 개선 계획표 C2)', () => 
     const world = worldWith({ products: [held(313, {}, { name: '빅뱅', price: 10_000 })] })
     follow(world, () => ({ removed: removedOnly(['b1/313']) }))
     await open(world)
-    fireEvent.click(within(card()).getByRole('button', { name: `${WITHDRAW} — 313번` }))
+    const box = await panel(313)
+    fireEvent.click(within(box).getByRole('button', { name: `${WITHDRAW} — 313번` }))
     const ask = await screen.findByRole('alertdialog', { name: WITHDRAW_ASK })
     expect(WITHDRAW_ASK).toBe('이 상품을 거둘까요?')
     expect(ask.textContent).toContain(`313번 빅뱅 10,000원\n${WITHDRAW_NOTE}`)
@@ -260,67 +269,53 @@ describe('방송 화면 확인 카드 (D-RETRO-90, 개선 계획표 C2)', () => 
     fireEvent.click(within(ask).getByRole('button', { name: WITHDRAW_CLOSE }))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
     expect(world.events).toHaveLength(0)
-    fireEvent.click(within(card()).getByRole('button', { name: `${WITHDRAW} — 313번` }))
+    fireEvent.click(within(box).getByRole('button', { name: `${WITHDRAW} — 313번` }))
     fireEvent.click(within(await screen.findByRole('alertdialog', { name: WITHDRAW_ASK })).getByRole('button', { name: WITHDRAW }))
     await waitFor(() => expect(world.events).toHaveLength(1))
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.withdraw', b: 'b1', no: 313 })
-    await waitFor(() => expect(screen.queryByRole('region', { name: TENTATIVE_REGION })).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('group', { name: `${TENTATIVE_TAG} — 313번` })).toBeNull())
     expect(screen.queryByRole('alertdialog')).toBeNull()
   })
 
-  it('후보가 있는 카드의 [거두기]는 머리의 작은 단추 — [거두기] 왼쪽 · [고치기] 오른쪽 한 줄', async () => {
+  it('후보가 있으면 [거두기]는 머리의 작은 단추 — 자세히에는 [고치기]가 없다(위 값 칸을 바로 고친다)', async () => {
     await open(worldWith(MISMATCH))
-    const box = card()
+    const box = await panel(334)
     const withdraw = within(box).getByRole('button', { name: `${WITHDRAW} — 334번` })
-    const edit = within(box).getByRole('button', { name: `${TENTATIVE_EDIT} — 334번` })
-    expect(withdraw.parentElement).toBe(edit.parentElement)
     expect(getComputedStyle(withdraw.parentElement!).flexDirection).toBe('row')
-    expect(withdraw.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(box).queryByRole('button', { name: `${TENTATIVE_EDIT} — 334번` })).toBeNull()
   })
 
-  it('서버가 "바뀐 것 없음"이면(그사이 일꾼·다른 기기가 확정) 잘못 글 없이 카드를 닫고 따라잡은 상태를 보인다', async () => {
+  it('서버가 "바뀐 것 없음"이면(그사이 일꾼·다른 기기가 확정) 잘못 글 없이 확인 칸을 닫고 따라잡은 상태를 보인다', async () => {
     const world = worldWith({ products: [held(313, {}, { name: '빅뱅', price: 10_000 })] })
     refuse(world, () => true)
     // 그사이 다른 쪽이 30,000원으로 확정했다
     follow(world, () => ({ products: [product(313, { name: '빅뱅', price: 30_000 })] }))
     await open(world)
-    fireEvent.click(within(card()).getByRole('button', { name: `${CONFIRM_AS_IS} — 313번` }))
-    await waitFor(() => expect(screen.queryByRole('region', { name: TENTATIVE_REGION })).toBeNull())
+    fireEvent.click(within(await panel(313)).getByRole('button', { name: `${CONFIRM_AS_IS} — 313번` }))
+    await waitFor(() => expect(screen.queryByRole('group', { name: `${TENTATIVE_TAG} — 313번` })).toBeNull())
     expect(screen.queryByRole('alert')).toBeNull()
     const row = within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 313번' })
     expect(within(row).getByText('30,000원')).toBeTruthy()
     expect(within(row).queryByText(TENTATIVE_TAG)).toBeNull()
   })
 
-  it('바뀐 것이 없는데 아직 확인 중이면(옮길 번호에 그사이 상품이 생김) 그 까닭을 알리고 카드를 그대로 둔다', async () => {
+  it('바뀐 것이 없는데 아직 확인 중이면(옮길 번호에 그사이 상품이 생김) 그 까닭을 알리고 확인 칸을 그대로 둔다', async () => {
     const world = worldWith(MISMATCH)
     refuse(world, () => true)
     follow(world, () => ({ products: [product(333, { name: '수박색금', price: 50_000 })] }))
     await open(world)
-    fireEvent.click(within(card()).getByRole('button', { name: '333번으로 확정' }))
-    expect((await within(card()).findByRole('alert')).textContent).toBe(numberTaken(333))
+    const box = await panel(334)
+    fireEvent.click(within(box).getByRole('button', { name: '333번으로 확정' }))
+    expect((await within(box).findByRole('alert')).textContent).toBe(numberTaken(333))
     expect(numberTaken(333)).toBe('333번에는 이미 상품이 있어요. 다른 번호를 고르거나 고쳐 주세요.')
     expect(world.events).toHaveLength(1)
     // 이미 상품이 있는 번호를 다시 누르면 보내지 않고 바로 알린다
-    fireEvent.click(within(card()).getByRole('button', { name: '333번으로 확정' }))
+    fireEvent.click(within(box).getByRole('button', { name: '333번으로 확정' }))
     await flush()
     expect(world.events).toHaveLength(1)
   })
 
-  it('여럿이면 먼저 올라온 것부터 한 번에 한 장 — "외 1개", 확정하면 다음 것이 같은 자리에 뜬다', async () => {
-    const world = worldWith({ products: [held(20, { seq: 9 }, { name: '나중' }), held(10, { seq: 7 }, { name: '먼저' })] })
-    follow(world, () => ({ products: [product(10, { name: '먼저' })] }))
-    await open(world)
-    expect(screen.getAllByRole('region', { name: TENTATIVE_REGION })).toHaveLength(1)
-    expect(within(card()).getByTestId('tentative-values').textContent).toBe('10번 먼저 10,000원')
-    expect(within(card()).getByText('외 1개')).toBeTruthy()
-    fireEvent.click(within(card()).getByRole('button', { name: `${CONFIRM_AS_IS} — 10번` }))
-    await waitFor(() => expect(within(card()).getByTestId('tentative-values').textContent).toBe('20번 나중 10,000원'))
-    expect(within(card()).queryByText('외 1개')).toBeNull()
-    expect(world.events).toHaveLength(1)
-  })
-
-  it('끝난 라이브에는 카드를 띄우지 않는다', async () => {
+  it('끝난 라이브에도 확인 카드는 없다', async () => {
     const world = worldWith({ products: [held(313)] })
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller justEnded onBack={() => {}} />))
     await waitFor(() => expect(world.source()).toBeTruthy())
@@ -328,27 +323,7 @@ describe('방송 화면 확인 카드 (D-RETRO-90, 개선 계획표 C2)', () => 
       world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
       await flush()
     })
-    expect(screen.queryByRole('region', { name: TENTATIVE_REGION })).toBeNull()
-  })
-
-  it('카드가 뜬 직후에는 누름을 받지 않는다 — 다른 것을 누르려던 손가락이 방금 뜬 카드를 확정하지 않게', async () => {
-    expect(CARD_GUARD_MS).toBeGreaterThanOrEqual(400)
-    const data = fromFull(fullView({ products: [held(313)] }))
-    const sent: unknown[] = []
-    const api: ConsoleApi = { b: 'b1', data, names: new BuyerNames(data.buyers, data.claims), ended: false, sealed: false, command: async (event) => { sent.push(event); return { date: '2026-10-29', rehearsal: false, seq: 6, type: String(event.type), changed: true, effects: [] } }, select: () => {}, selected: null, labelWords: new Map() }
-    const opened: string[] = []
-    const { rerender } = render(<ConsoleContext.Provider value={api}><TentativeCards onEdit={(key) => opened.push(key)} bottom={0} guardMs={60_000} /></ConsoleContext.Provider>)
-    fireEvent.click(screen.getByRole('button', { name: `${CONFIRM_AS_IS} — 313번` }))
-    fireEvent.click(screen.getByRole('button', { name: `${WITHDRAW} — 313번` }))
-    fireEvent.click(screen.getByRole('button', { name: `${TENTATIVE_EDIT} — 313번` }))
-    await flush()
-    expect(sent).toHaveLength(0)
-    expect(opened).toHaveLength(0)
-    expect(screen.queryByRole('alertdialog')).toBeNull()
-    // 시간이 지난 뒤(여기서는 기다리는 시간 0)에는 받는다
-    rerender(<ConsoleContext.Provider value={api}><TentativeCards onEdit={(key) => opened.push(key)} bottom={0} guardMs={0} /></ConsoleContext.Provider>)
-    fireEvent.click(screen.getByRole('button', { name: `${CONFIRM_AS_IS} — 313번` }))
-    await waitFor(() => expect(sent).toHaveLength(1))
+    expect(screen.queryByTestId('tentative-card')).toBeNull()
   })
 })
 
@@ -374,12 +349,11 @@ describe('확인 중 상품의 자세히·수정창 (D-RETRO-91)', () => {
     await waitFor(() => expect(screen.queryByTestId('product-sheet')).toBeNull())
   })
 
-  it('카드의 [고치기]로 수정창을 열어 가격을 고치면 단추가 [이 값으로 확정] — 값을 먼저 고치고 그다음 확정을 보낸다 (적용 범위 물음 없음)', async () => {
+  // D-UX4-209: 옛 시작점은 방송 화면 확인 카드의 [고치기] — 카드가 없어져 자세히의 값 칸에서 바로 고친다
+  it('자세히에서 가격을 고치면 단추가 [이 값으로 확정] — 값을 먼저 고치고 그다음 확정을 보낸다 (적용 범위 물음 없음)', async () => {
     const world = worldWith({ products: [held(305, { reasons: ['PRICE_OUT_OF_RANGE'] }, { name: '금', price: 35_000 })], claims: [waiting('c1', 305, 'u1', 12)], pending: [slot(305, ['c1'], ['u1'])], buyers: [buyer('u1', '홍길동')] })
     follow(world, (events) => (events.some((event) => event.type === 'product.confirm') ? { products: [product(305, { name: '금', price: 350_000 })] } : { products: [held(305, { reasons: ['PRICE_OUT_OF_RANGE'] }, { name: '금', price: 350_000 })] }))
-    await open(world)
-    fireEvent.click(within(card()).getByRole('button', { name: `${TENTATIVE_EDIT} — 305번` }))
-    const detail = await screen.findByRole('group', { name: '상품 자세히' })
+    const detail = await openDetail(world, 305)
     fireEvent.click(within(detail).getByRole('button', { name: '가격 고치기' }))
     typePad('350000')
     expect(screen.queryByRole('button', { name: EDIT_DONE })).toBeNull()
@@ -390,7 +364,6 @@ describe('확인 중 상품의 자세히·수정창 (D-RETRO-91)', () => {
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.update', b: 'b1', noText: '305', priceText: '350000원' })
     expect(world.events[1]?.body).toEqual({ requestId: expect.any(String), type: 'product.confirm', b: 'b1', no: 305 })
     await waitFor(() => expect(screen.queryByTestId('product-sheet')).toBeNull())
-    await waitFor(() => expect(screen.queryByRole('region', { name: TENTATIVE_REGION })).toBeNull())
   })
 
   it('수정창에서 아무것도 고치지 않고 [이 값으로 확정]을 눌러도 확정을 보낸다', async () => {
@@ -429,7 +402,7 @@ describe('확인 중 상품의 자세히·수정창 (D-RETRO-91)', () => {
     })
     fireEvent.click(await screen.findByRole('button', { name: '라이브 기록' }))
     // 끝난 라이브에는 방송 화면 카드를 띄우지 않는다 — 상품 줄에서 연다
-    expect(screen.queryByRole('region', { name: TENTATIVE_REGION })).toBeNull()
+    expect(screen.queryByTestId('tentative-card')).toBeNull()
     fireEvent.click(within(await screen.findByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 313번' }))
     const detail = await screen.findByRole('group', { name: '상품 자세히' })
     expect(within(detail).getByRole('button', { name: `${WITHDRAW} — 313번` })).toBeTruthy()
@@ -498,51 +471,32 @@ describe('가격 없는 확인 중 — "N번"만 듣고 올라온 상품 (D-RECO
     expect(heldWords({ no: 356, name: '', price: null })).toBe('확인 중인 356번은 지금 가격을 듣는 중이에요.')
   })
 
-  it('상품 목록 줄·확인 카드에 "가격 듣는 중"이 보이고 그 상품을 0원으로 적지 않는다 (매출 합계 "0원"은 판 것이 없어서다)', async () => {
+  it('상품 목록 줄·자세히에 "가격 듣는 중"이 보이고 그 상품을 0원으로 적지 않는다 (매출 합계 "0원"은 판 것이 없어서다)', async () => {
     await open(worldWith(BARE))
     const row = within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 356번' })
     // D-UX4-207로 바뀐 기대 (사용자 "... 애니메이션으로"; 옛 D-RECOG-22: 줄에 흐린 글 "가격 듣는 중"): 줄의 빈 가격은 … 점 셋, 읽어 주기는 "가격 듣는 중". 확인 카드는 글 그대로
     expect(within(row).getByRole('img', { name: PRICE_WAITING })).toBeTruthy()
-    expect(card().textContent).toContain(PRICE_WAITING)
-    for (const text of [row.textContent ?? '', card().textContent ?? '']) expect(text).not.toMatch(/(^|[^0-9,])0원/)
+    // D-UX4-209: 옛 확인 카드 대신 자세히(값 칸)
+    await panel(356)
+    const detail = screen.getByRole('group', { name: '상품 자세히' })
+    expect(detail.textContent).toContain(PRICE_WAITING)
+    for (const text of [row.textContent ?? '', detail.textContent ?? '']) expect(text).not.toMatch(/(^|[^0-9,])0원/)
   })
 
-  it('확인 카드: 금액 후보가 없으면 "가격이 얼마예요?" — 왼쪽 [거두기] · 오른쪽 [가격 적기] 한 줄, [이대로 확정]은 없다. [가격 적기]는 수정창의 가격 칸을 연다', async () => {
+  // D-UX4-209로 바뀐 기대: 옛 확인 카드의 [가격 적기](수정창 가격 칸을 바로 엶, D-RECOG-29)는 카드와 함께 없어졌다 — 자세히에는 위에 가격 칸이 늘 있다
+  it('자세히: 금액 후보가 없으면 "가격이 얼마예요?"와 "위 가격 칸을 눌러…" — [이대로 확정]·[가격 적기] 없이 [거두기]만', async () => {
     const world = worldWith(BARE)
     await open(world)
-    const box = card()
-    expect(within(box).getByTestId('tentative-values').textContent).toBe(`356번 ${PRICE_WAITING}`)
+    const box = await panel(356)
     expect(within(box).getByText(ASK_PRICE)).toBeTruthy()
+    expect(within(box).getByText(WRITE_PRICE_ABOVE)).toBeTruthy()
     expect(within(box).queryByRole('button', { name: `${CONFIRM_AS_IS} — 356번` })).toBeNull()
-    const withdraw = within(box).getByRole('button', { name: `${WITHDRAW} — 356번` })
-    const write = within(box).getByRole('button', { name: `${WRITE_PRICE} — 356번` })
-    expect(write.textContent).toBe(WRITE_PRICE)
-    expectSideBySide(withdraw, write)
-    fireEvent.click(write)
-    // D-RECOG-29: 자세히 대신 수정창의 가격 칸(숫자판)이 바로 열린다 (옛 기대: 자세히 묶음 '상품 자세히'가 보임 — D-RECOG-27)
-    expect(await screen.findByTestId('product-edit')).toBeTruthy()
+    expect(within(box).queryByRole('button', { name: `${WRITE_PRICE} — 356번` })).toBeNull()
+    expect(within(box).getByRole('button', { name: `${WITHDRAW} — 356번` })).toBeTruthy()
     expect(world.events).toHaveLength(0)
   })
 
-  it('확인 카드 [가격 적기]: 수정창을 열며 가격 칸 숫자판이 바로 뜬다 — 칸을 또 누르지 않고 적어 확정한다 (D-RECOG-29)', async () => {
-    const world = worldWith(BARE)
-    follow(world, (events) => (events.some((event) => event.type === 'product.confirm') ? { products: [product(356, { name: '', price: 20_000 })] } : { products: [held(356, { reasons: ['PRICE_SINGLE_SOURCE'] }, { name: '', price: 20_000 })] }))
-    await open(world)
-    fireEvent.click(within(card()).getByRole('button', { name: `${WRITE_PRICE} — 356번` }))
-    // 가격 칸이 열려 있다: 숫자판이 보이고 고치는 칸은 가격("가격 듣는 중"을 묻는다, 번호 "356번"이 아니다) — 칸을 또 누르지 않는다
-    await screen.findByRole('group', { name: '숫자판' })
-    const editor = screen.getByTestId('product-edit')
-    expect(within(editor).getByText(PRICE_WAITING)).toBeTruthy()
-    expect(within(editor).queryByText('356번')).toBeNull()
-    expect(screen.queryByText(PRICE_NEEDED)).toBeNull()
-    typePad('20000')
-    fireEvent.click(screen.getByRole('button', { name: EDIT_CONFIRM }))
-    await waitFor(() => expect(world.events).toHaveLength(2))
-    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.update', b: 'b1', noText: '356', priceText: '20000원' })
-    expect(world.events[1]?.body).toEqual({ requestId: expect.any(String), type: 'product.confirm', b: 'b1', no: 356 })
-  })
-
-  it('상품 목록에서 연 수정창은 칸을 저절로 열지 않는다 (D-RECOG-29는 [가격 적기]만)', async () => {
+  it('상품 목록에서 연 자세히는 수정 칸을 저절로 열지 않는다', async () => {
     await open(worldWith(BARE))
     fireEvent.click(within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 356번' }))
     await screen.findByRole('group', { name: '상품 자세히' })
@@ -550,11 +504,11 @@ describe('가격 없는 확인 중 — "N번"만 듣고 올라온 상품 (D-RECO
     expect(screen.queryByTestId('product-edit')).toBeNull()
   })
 
-  it('확인 카드: 금액 후보가 있으면 후보 단추만(지금 값 단추 없음) — 누르면 그 금액으로 확정', async () => {
+  it('자세히: 금액 후보가 있으면 후보 단추만(지금 값 단추 없음) — 누르면 그 금액으로 확정', async () => {
     const world = worldWith({ ...BARE, products: [held(356, { reasons: ['PRICE_DISAGREE'], candidates: { no: [], price: [20_000, 25_000], name: [] } }, { name: '색금', price: null })] })
     follow(world, () => ({ products: [product(356, { name: '색금', price: 25_000 })] }))
     await open(world)
-    const box = card()
+    const box = await panel(356)
     expect(within(box).getByText(ASK_WHICH_PRICE)).toBeTruthy()
     const left = within(box).getByRole('button', { name: '20,000원으로 확정' })
     const right = within(box).getByRole('button', { name: '25,000원으로 확정' })

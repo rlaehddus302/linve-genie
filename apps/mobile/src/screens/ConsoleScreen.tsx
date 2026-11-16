@@ -37,7 +37,6 @@ import { AddFab, DIGIT_PAD_HEIGHT, NumberKeys, ProductAddPage } from './console/
 import { SlidePage } from './console/parts.tsx'
 import { DecisionsView } from './console/Decisions.tsx'
 import { UnlistedClaims, unlistedNumbers } from './console/UnlistedClaims.tsx'
-import { TentativeCards } from './console/TentativeCard.tsx'
 
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { VoicePanel } from './console/VoicePanel.tsx'
@@ -159,11 +158,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const pageTop = usePageTop()
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<string | null>(null)
-  // 자세히를 열 때 바로 열 칸 — 확인 카드의 [가격 적기]로 연 그 상품만 'price' (D-RECOG-29). 자세히가 닫히거나 다른 상품으로 바뀌면 비운다
-  const [detailFocus, setDetailFocus] = useState<{ readonly key: string; readonly field: 'price' } | null>(null)
-  useEffect(() => {
-    if (detailFocus !== null && detailFocus.key !== detail) setDetailFocus(null)
-  }, [detail, detailFocus])
   type SheetName = 'none' | 'youtube' | 'decide' | 'pending' | 'listen'
   const [sheet, setSheet] = useState<SheetName>('none')
   // 상품 추가·방송 관리 (D-UX4-57): 기기에서는 진짜 쌓인 화면(openAdd·openManage). 경로가 없을 때(시험·웹)만 이 화면 안에 겹쳐 그린다
@@ -706,7 +700,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         {shownTab === 'products' && !searchPad ? <SalesPill closed={closed} total={sales.total} bottom={fabBottom} besideFab={!closed} onPress={startPage === 'record' ? onBack : () => setSalesPage('sales')} /> : null}
         </View>
         {/* 확인 중(임시 등록) 상품 확인 카드 (D-RETRO-90): 목록과 아래 창 사이, 한 번에 한 장 — 어느 탭에서든 같은 자리에 뜬다 */}
-        {closed ? null : <TentativeCards onEdit={(key, field) => { setDetailFocus(field === undefined ? null : { key, field }); setDetail(key) }} bottom={docked ? SPACE.sm : Math.max(inset, SPACE.sm)} />}
+        {/* 확인 중 상품 카드는 띄우지 않는다 (D-UX4-209, 사용자 "저렇게 확인 중 뜨는 팝업 지워.") — 상품 줄을 눌러 자세히에서 확정·거둔다 */}
         {/* 들린 말 창은 맨 아래 (D-UX4-53 — 옛 목록 위) */}
         {/* 맨 아래 창은 관리 "화면 아래 창"에서 고른 것 (D-UX4-71): 들린 말 · 채팅·문자 · 안 보기 */}
         {/* 음성 창 오른쪽 끝: 지금 듣는 쪽 표시 — 누르면 소리 듣기 고르는 판 (D-RETRO-72) */}
@@ -715,7 +709,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
 
         {/* 상품 자세히 (D-UX4-30): 번호·품종·가격은 판 안 점선 칸이 보이므로 판 제목은 두지 않는다 */}
         {/* 고치기는 반 화면 판 · 확인 시 저장 (D-UX4-106) */}
-        <ProductSheet product={detailProduct} focus={detailFocus?.key === detail ? detailFocus.field : null} onClose={() => setDetail(null)} onKey={setDetail} onShow={showProduct} {...(seller && !sealed && detailProduct !== undefined ? { onDecide: () => { setDecideFor(detailProduct.key); setDetail(null); setSheet('decide') } } : {})} />
+        <ProductSheet product={detailProduct} onClose={() => setDetail(null)} onKey={setDetail} onShow={showProduct} {...(seller && !sealed && detailProduct !== undefined ? { onDecide: () => { setDecideFor(detailProduct.key); setDetail(null); setSheet('decide') } } : {})} />
         <BottomSheet visible={sheet === 'decide'} onClose={close} title="정하기">
           {sheet === 'decide' && hostQueue !== null ? <DecisionsView queue={hostQueue} {...(decideFor === null || data.products.get(decideFor) === undefined ? {} : { product: data.products.get(decideFor) })} onQueued={close} /> : null}
         </BottomSheet>
