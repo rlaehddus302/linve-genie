@@ -179,14 +179,14 @@ class PairRuleTest(unittest.TestCase):
         # 뒤에 진짜 333번 번호표가 나오면 등록한다
         st.show(100, 110, 333)
         st.say(100, "333번 수박색금 5만원", row(2, 333, 50000, "수박색금", no_from="말+화면"))
-        self.assertEqual(st.posted[-1], (333, 50000, "수박색금"))
+        self.assertEqual(st.posted[-1], (333, 50000, "수박 색금"))  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
 
     def test_eye_confusable_pair_follows_the_spoken_number(self):
         # 눈으로 헷갈리는 쌍(8↔3): 번호표 읽기가 틀렸을 가능성이 크다 — LLM이 화면 번호(339)로 답해도 말한 번호(389)로
         st = Stage(self)
         st.show(0, 9, 339)
         st.say(0, "389번 삼광색금 27만원", row(0, 339, 270000, "삼광색금"))
-        self.assertEqual(st.posted, [(389, 270000, "삼광색금")])
+        self.assertEqual(st.posted, [(389, 270000, "삼광 색금")])  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
         self.assertEqual(st.kinds("LLM번호쌍판정")[0]["to"], 389)
 
     def test_other_pairs_wait_for_enough_frames(self):
@@ -232,7 +232,7 @@ class PriceRuleTest(unittest.TestCase):
         self.assertIn("10배", ask[0]["why"])
         self.assertEqual(st.posted, [])                                    # 상한을 채워도 보내지 않는다
         st.say(40, "자 305번 35 왕색금", row(3, 305, 350000, "왕색금", no_from="말+화면"))
-        self.assertEqual(st.posted, [(305, 350000, "왕색금")])
+        self.assertEqual(st.posted, [(305, 350000, "왕색 금")])  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
         self.assertTrue(st.kinds("LLM등록")[0]["flagged"])
 
     def test_cut_off_price_is_not_sent(self):
@@ -253,7 +253,7 @@ class PriceRuleTest(unittest.TestCase):
         a = st.say(0, "407번 빅뱅금 칠시", row(0, 407, 70000, "빅뱅금", no_from="말+화면"))
         self.assertEqual(st.posted, [])
         st.say(5, "빅뱅금 진짜 만족하실 거예요", row(a, 407, 70000, "빅뱅금", no_from="말+화면"))
-        self.assertEqual(st.posted, [(407, 70000, "빅뱅금")])
+        self.assertEqual(st.posted, [(407, 70000, "빅뱅 금")])  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
         self.assertEqual(st.kinds("LLM등록")[0]["why_price"], "같은 답 2번")
 
     def test_split_answers_become_a_confirm_request(self):
@@ -276,7 +276,7 @@ class PriceRuleTest(unittest.TestCase):
         self.assertEqual(len(st.asked), 2)
         self.assertEqual(st.asked[0], st.asked[1])
         self.assertEqual(st.worker.confirm_calls, 1)
-        self.assertEqual(st.posted, [(407, 70000, "빅뱅금")])
+        self.assertEqual(st.posted, [(407, 70000, "빅뱅 금")])  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
 
     def test_finish_does_not_send_what_was_not_settled(self):
         st = Stage(self)
@@ -304,7 +304,7 @@ class PriceRuleTest(unittest.TestCase):
         a = st.say(5, "자 305번 35", row(1, 305, 35000, "왕색금", no_from="말+화면"))
         st.say(9, "305번 35 왕색금", row(a, 305, 35000, "왕색금", no_from="말+화면"))
         st.say(13, "305번 35", row(a, 305, 35000, "왕색금", no_from="말+화면"))
-        self.assertEqual(st.posted, [(305, 350000, "왕색금")])
+        self.assertEqual(st.posted, [(305, 350000, "왕색 금")])  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
         st.poster.reprice.assert_not_called()
 
     def test_price_of_the_next_product_does_not_reprice_the_tag_still_up(self):

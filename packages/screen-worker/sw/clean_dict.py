@@ -1,10 +1,11 @@
 # 품종 사전 정리(D-SCR-38): 품종과 옵션을 따로 본다(사용자 2026-11-15 "품종과 거기에 붙는 옵션은 별개로 봐야 한다").
 #   기본 사전(varieties.ko.json)·지난 방송에서 거둔 이름(varieties_harvest.json)·판매자가 고친 이름(varieties_seller.json)은
-#   "몰디브색금", "SP색금", "수입색금", "아리엘_분채", "블루엘프특가"처럼 옵션·파는 꼴·행사 말이 붙은 이름이 섞여 있다.
-#   이름마다 품종 / 옵션 / 형태 / 갈래(수입·실생·창)로 떼어 품종별로 모은 것이 data/varieties_clean.json이다.
-#   품종이 남지 않는 이름("녹금무지")과 품종이 아닌 말은 품종 목록에 넣지 않고 "removed"에 까닭과 함께 적는다.
+#   "몰디브색금", "SP색금", "수입색금", "아리엘_분채", "블루엘프특가"처럼 옵션·행사 말이 붙은 이름이 섞여 있다.
+#   이름마다 품종과 옵션으로 떼어 품종별로 모은 것이 data/varieties_clean.json이다.
+#   떼는 규칙과 옵션 목록은 방송 중 이름을 읽을 때와 같은 것 하나다(variety.parts, D-DICT-OPT-01) — 무늬·형태·갈래를 나누지 않고 모두 옵션이다.
 #   SP·종자는 옵션이 아니라 품종이다(D-DICT-SP-02, 사용자 2026-11-17 "sp(종자 모름), 종자(고급 SP)는 옵션이 아니라 품종에 넣어라"):
-#   "SP색금"·"색금종자"는 품종 SP·종자에 옵션 색금이 붙은 이름이다.
+#   "SP색금"·"색금종자"는 품종 SP·종자에 옵션 색금이 붙은 이름이다. 행사 말(이벵·특가)은 옵션이 아니어서 지운다.
+#   품종이 남지 않는 이름("녹금무지")과 품종이 아닌 말은 품종 목록에 넣지 않고 "removed"에 까닭과 함께 적는다.
 # 사용: python -m sw.clean_dict            → data/varieties_clean.json을 다시 만든다
 #       python -m sw.clean_dict --csv 폴더  → 사람이 볼 CSV 두 개(정리한 품종 / 뺀 이름)도 쓴다
 import argparse
@@ -19,17 +20,8 @@ from . import variety as V
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "..", "data")
 
-# 옵션(무늬·종류) — 이름 끝에 붙는다. 긴 것부터 뗀다
-OPTIONS = ("복륜금", "녹색금", "창녹금", "창색금", "수박금", "변이금", "창금", "색금", "녹금", "백금", "찐녹", "철화", "산반", "복륜", "수박", "힘줄", "핏줄",
-           "무지", "변이종", "변이", "금")
-FORMS = ("군생", "자구", "분채", "대품", "중품", "소품", "통째", "통채", "쌍두", "외두", "커팅")     # 형태·파는 꼴
-KIND_TAIL = ("교배종", "특이종", "실생", "종자", "SP")                                               # 갈래를 이르는 말(끝)
-KIND_HEAD = ("SP", "수입", "실생")                                                                   # 갈래를 이르는 말(앞)
-# 품종 이름을 모르는 것을 부르는 품종(D-DICT-SP-02). 다른 품종 이름이 남지 않으면 이것이 품종이다("SP색금" → SP + 색금). 둘 다 있으면 종자("SP 종자")
+# 품종 이름을 모르는 것을 부르는 품종(D-DICT-SP-02)과 그 뜻. 둘 다 있으면 종자("SP 종자")
 UNNAMED = {"종자": "고급 SP", "SP": "종자를 모르는 것"}
-EVENT = ("꿀이벵", "이벵", "특가", "툭가")                                                           # 행사·값을 이르는 말
-# 옵션만으로 된 말(품종이 아니다)
-OPTION_ONLY = set(OPTIONS) | set(FORMS) | set(KIND_TAIL) | set(KIND_HEAD) | {"창", "녹색", "창녹", "창색", "환엽", "골드"}
 # 품종이 아닌 말(영수증·쇼핑몰 이름에서 눈으로 고른 것). 거둔 이름의 품종 아닌 말은 varieties_harvest.json에서 지웠다
 #   "보스"는 영수증의 "보스실생"(그 가게가 씨로 키운 것)에서 실생을 떼면 남는 가게 이름이다 — 품종으로 두면 판매자를 부른 말이 품종이 된다(11-13 방송 4번)
 NOT_VARIETY = {"선인장", "다육", "다육이", "다육식물", "화분", "세트", "랜덤", "모음", "보스"}
@@ -38,41 +30,14 @@ SOURCE = {"hand": "손으로 만든 기본 사전", "receipt": "지난 판매 �
 
 
 def split(name):
-    """사전에 적힌 이름 → (품종, [옵션…], [형태…], [갈래…]). 품종이 남지 않으면 품종은 ""
-    "몰디브색금무지" → (몰디브, [색금, 무지]), "SP창녹금" → (SP, [창녹금]), "색금종자" → (종자, [색금]), "아리엘 분채" → (아리엘, [], [분채]), "블루엘프특가" → (블루엘프),
-    "에스피색금" → (SP, [색금]), "SP아리아골드" → (아리아골드, [], [], [SP])"""
-    s = V.norm(V.sp_read(V._SAEK_LIVE.sub("색금", name or "")))                # 한글로 읽어 적은 "에스피"는 SP로 합친다(D-DICT-SP-01)
-    options, forms, kinds = [], [], []
-    for head in KIND_HEAD:
-        if s.upper().startswith(head) and len(s) > len(head):
-            kinds.append(head)
-            s = s[len(head):]
-            break
-    changed = True
-    while changed and s:
-        changed = False
-        for words, bucket in ((EVENT, None), (FORMS, forms), (KIND_TAIL, kinds), (OPTIONS, options)):
-            for w in words:
-                # 품종이 한 글자만 남게는 떼지 않는다("황금" → 황 + 금 아님). 남는 것이 없으면 옵션뿐인 말이다
-                if s.upper().endswith(w) and (len(s) - len(w) >= 2 or len(s) == len(w) or s[:-len(w)] in OPTION_ONLY):
-                    if bucket is not None:
-                        bucket.insert(0, w)
-                    s = s[:-len(w)]
-                    changed = True
-                    break
-            if changed:
-                break
-    if s.upper() in OPTION_ONLY or s in OPTION_ONLY:
-        if s.upper() in KIND_HEAD:
-            kinds.insert(0, s.upper())
-        elif s:
-            options.insert(0, s)
-        s = ""
-    if not s:                                                             # 다른 품종 이름이 없다: SP·종자가 품종이다
-        s = next((u for u in UNNAMED if u in kinds), "")
-        if s:
-            kinds = [k for k in kinds if k not in UNNAMED]
-    return s, options, forms, kinds
+    """사전에 적힌 이름 → (품종, [옵션…]). 품종이 남지 않으면 품종은 "". 방송 중과 같은 규칙(variety.parts)
+    "몰디브색금무지" → (몰디브, [색금, 무지]), "SP창녹금" → (SP, [창, 녹금]), "색금종자" → (종자, [색금]), "아리엘 분채" → (아리엘, [분채]),
+    "블루엘프특가" → (블루엘프, []), "수입몰디브" → (몰디브, [수입]), "SP아리아골드" → (SP아리아골드, [])"""
+    base, heads, opts, _ = V.parts(name, heard=False)
+    un = [u for u in UNNAMED if u in opts]
+    if not base and un:
+        base = un[0]
+    return base, heads + [o for o in opts if o not in UNNAMED]
 
 
 def entries():
@@ -89,26 +54,28 @@ def entries():
 
 
 def build():
-    """→ (품종 목록, 뺀 이름 목록). 품종 = {name, aliases, options, forms, kinds, sources, written} (+ SP·종자는 unnamed = 그 말의 뜻)"""
+    """→ (품종 목록, 뺀 이름 목록). 품종 = {name, aliases, options, sources, written} (+ SP·종자는 unnamed = 그 말의 뜻)"""
     found = collections.OrderedDict()
     removed = []
     for name, src, aliases in entries():
-        base, options, forms, kinds = split(name)
+        base, options = split(name)
         if "님" in name:
             continue                                                      # 손님을 부른 말(○○님)은 어디에도 적지 않는다
         if not base:
-            why = "품종 없이 옵션·갈래뿐" if options or forms or kinds else "품종이 아닌 말"
-            removed.append({"name": name, "source": SOURCE[src], "why": why, "options": options, "forms": forms, "kinds": kinds})
+            why = "품종 없이 옵션뿐" if options else "품종이 아닌 말"
+            removed.append({"name": name, "source": SOURCE[src], "why": why, "options": options})
             continue
-        if base not in UNNAMED and (base in NOT_VARIETY or V.not_a_name(base) or re.fullmatch(r"\d+", base)):
-            removed.append({"name": name, "source": SOURCE[src], "why": "품종이 아닌 말", "options": options, "forms": forms, "kinds": kinds})
+        bare = base[2:] if base.upper().startswith("SP") else base           # "SP선인장"도 품종이 아닌 말
+        if base not in UNNAMED and (bare in NOT_VARIETY or V.not_a_name(base) or re.fullmatch(r"\d+", base)):
+            removed.append({"name": name, "source": SOURCE[src], "why": "품종이 아닌 말", "options": options})
             continue
-        v = found.setdefault(base, {"name": base, "aliases": [], "options": [], "forms": [], "kinds": [], "sources": [], "written": []})
+        v = found.setdefault(base, {"name": base, "aliases": [], "options": [], "sources": [], "written": []})
         if base in UNNAMED:
             v["unnamed"] = UNNAMED[base]
         if V.norm(name) == base and " " in name.strip() and " " not in v["name"]:
             v["name"] = " ".join(name.split())                            # 띄어 적은 이름("환엽 지젤", "녹금의 제왕")은 띄어 적은 대로 보인다
-        for key, values in (("options", ["".join(options)] if options else []), ("forms", forms), ("kinds", kinds), ("sources", [SOURCE[src]]),
+        # 함께 팔린 옵션 묶음은 보내는 이름처럼 띄어 적는다("창 녹금")
+        for key, values in (("options", [" ".join(options)] if options else []), ("sources", [SOURCE[src]]),
                             ("written", [name] if V.norm(name) != base else [])):
             for x in values:
                 if x and x not in v[key]:
@@ -120,13 +87,13 @@ def build():
     # "창맥라이징"·"창간츠": 앞의 "창"이 옵션이고 뒤가 이미 있는 품종이면 그 품종에 붙인다
     for base in [b for b in found if b.startswith("창") and len(b) >= 3 and b[1:] in found]:
         v, to = found.pop(base), found[base[1:]]
-        for key in ("aliases", "options", "forms", "sources"):
+        for key in ("aliases", "options", "sources"):
             for x in v[key]:
                 if x not in to[key]:
                     to[key].append(x)
-        for x in ["창"] + v["kinds"]:
-            if x not in to["kinds"]:
-                to["kinds"].append(x)
+        for x in ["창"] + v["options"]:                                     # "창맥라이징" → 맥라이징 + 옵션 창(창과 무늬는 따로, D-DICT-OPT-04)
+            if x not in to["options"]:
+                to["options"].append(x)
         for x in v["written"] + [base]:
             if x not in to["written"]:
                 to["written"].append(x)
@@ -142,7 +109,7 @@ def main():
     a = ap.parse_args()
     varieties, removed = build()
     note = ("품종과 옵션을 따로 본 품종 사전(D-SCR-38). sw/clean_dict.py가 varieties.ko.json·varieties_harvest.json·varieties_seller.json에서 만든다 — 손으로 고치지 않는다. "
-            "options = 그 품종에 붙어 적혀 있던 옵션, kinds = 수입·실생·창 같은 갈래, written = 사전에 적혀 있던 그대로의 이름, "
+            "options = 그 품종에 붙어 적혀 있던 옵션, written = 사전에 적혀 있던 그대로의 이름, "
             "unnamed = 품종 이름을 모르는 것을 부르는 품종(SP·종자)의 뜻.")
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump({"note": note, "varieties": varieties, "removed": removed}, f, ensure_ascii=False, indent=0)
@@ -151,14 +118,14 @@ def main():
     if a.csv:
         with open(os.path.join(a.csv, "2026-11-15-clean-varieties.csv"), "w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["품종", "붙어 적혀 있던 옵션", "형태·파는 꼴", "갈래", "틀리게 들리는 모양(별칭)", "출처", "사전에 적혀 있던 그대로"])
+            w.writerow(["품종", "붙어 적혀 있던 옵션", "틀리게 들리는 모양(별칭)", "출처", "사전에 적혀 있던 그대로"])
             for v in sorted(varieties, key=lambda v: V.norm(v["name"])):
-                w.writerow([v["name"]] + [" · ".join(v[k]) for k in ("options", "forms", "kinds", "aliases", "sources", "written")])
+                w.writerow([v["name"]] + [" · ".join(v[k]) for k in ("options", "aliases", "sources", "written")])
         with open(os.path.join(a.csv, "2026-11-15-clean-removed.csv"), "w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["사전에 적혀 있던 이름", "뺀 까닭", "옵션", "형태·파는 꼴", "갈래", "출처"])
+            w.writerow(["사전에 적혀 있던 이름", "뺀 까닭", "옵션", "출처"])
             for r in sorted(removed, key=lambda r: (r["why"], r["name"])):
-                w.writerow([r["name"], r["why"], " · ".join(r["options"]), " · ".join(r["forms"]), " · ".join(r["kinds"]), r["source"]])
+                w.writerow([r["name"], r["why"], " · ".join(r["options"]), r["source"]])
 
 
 if __name__ == "__main__":

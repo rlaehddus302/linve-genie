@@ -181,7 +181,7 @@ class ShopNameTest(unittest.TestCase):
         st.say(20, "158번 테라로사 세금 5만원", row(1, 158, 50000, "테라로사 색금", no_from="말+화면"))
         st.show(40, 49, 266)
         st.say(40, "266번 은갈치 퍼플 3만원", row(2, 266, 30000, "은갈치퍼플", no_from="말+화면"))
-        self.assertEqual(st.posted, [(104, 30000, "쉘브르"), (158, 50000, "테라로사색금"), (266, 30000, "은갈치")])
+        self.assertEqual(st.posted, [(104, 30000, "쉘브르"), (158, 50000, "테라로사 색금"), (266, 30000, "은갈치")])  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
         self.assertEqual([e["name_unsure"] for e in st.kinds("LLM등록")], [False, False, False])
 
     def test_words_that_are_not_varieties_are_still_dropped(self):
@@ -239,7 +239,7 @@ class RepickTest(unittest.TestCase):
         st.say(300, "아까 13번 다시 갑니다 13번 20만원", row(2, 13, 200000, None, no_from="말+화면"))
         st.say(306, "13번 색금 20만원", row(3, 13, 200000, "색금", no_from="말+화면"))
         st.say(310, "13번 색금 20만원 갑니다", row(4, 13, 200000, "색금", no_from="말+화면"))
-        self.assertEqual(st.worker.names[13]["now"], "레다색금")
+        self.assertEqual(st.worker.names[13]["now"], "레다 색금")  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
         self.assertEqual([e for e in st.kinds("LLM이름고치기") if e["no"] == 13], [])
 
     def test_blank_name_on_the_server_is_filled_when_the_product_is_offered_again_with_a_name(self):
@@ -311,7 +311,7 @@ class RepickTest(unittest.TestCase):
     def test_pattern_words_as_the_transcript_writes_them(self):
         self.assertEqual(variety.split_parts("찐노"), ("", "찐녹", "", ""))
         self.assertEqual(variety.split_parts("진농"), ("", "찐녹", "", ""))
-        self.assertEqual(variety.split_parts("창록금"), ("", "창녹금", "", ""))
+        self.assertEqual(variety.split_parts("창록금"), ("", "창녹금", "", ""))               # 창 + 녹금(D-DICT-OPT-03 — 창으로 묶던 D-DICT-OPT-02 기대를 바꿈)
         self.assertEqual(variety.split_parts("연두찐농"), ("연두", "찐녹", "", ""))
         self.assertEqual(variety.pattern_said([(0, "이름 없네 SP로 갑니다"), (3, "SP로 드렸네 세금 예쁘다")]), {"SP": 2, "색금": 1})
 
@@ -423,7 +423,7 @@ class NameAskTest(unittest.TestCase):
         st.say(80, "자 다음 갑니다", None)
         renamed = [c.args[1:3] for c in st.poster.rename.call_args_list]
         self.assertIn((248, "맥라이징"), renamed)
-        self.assertEqual(st.worker.names[33]["now"], "천나비금")
+        self.assertEqual(st.worker.names[33]["now"], "천나비 금")  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
 
     def test_a_name_gathered_from_the_register_answers_is_not_replaced_by_another_name(self):
         # 이름과 이름이 다를 때는 등록 답을 모은 쪽을 둔다(131번: 토스카나색금 → 가우디색금으로 바꾸면 틀린다)
@@ -443,11 +443,11 @@ class NameAskTest(unittest.TestCase):
         self.assertNotIn("별빛", text)
 
     def test_when_the_answer_is_used(self):
-        self.assertEqual(variety.ask_name_of({"name": "", "pattern": "종자 색금", "confidence": "high"}), ("종자색금", "무늬"))
+        self.assertEqual(variety.ask_name_of({"name": "", "pattern": "종자 색금", "confidence": "high"}), ("종자 색금", "무늬"))  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
         self.assertEqual(variety.ask_name_of({"name": "", "pattern": "색금", "confidence": "high"}, variety.Ledger(habits={"색금": "SP"})), ("SP", "무늬"))
         self.assertEqual(variety.ask_name_of({"name": "", "pattern": "금", "confidence": "high"}), ("", None))
         self.assertEqual(variety.ask_name_of({"name": "청수", "pattern": "", "confidence": "high"}), ("", None))
-        self.assertEqual(variety.ask_name_of({"name": "셀브로", "pattern": "색금", "confidence": "high"}, variety.Ledger(names=["쉘브르"])), ("쉘브르색금", "장부"))
+        self.assertEqual(variety.ask_name_of({"name": "셀브로", "pattern": "색금", "confidence": "high"}, variety.Ledger(names=["쉘브르"])), ("쉘브르 색금", "장부"))  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
         self.assertTrue(variety.use_ask("", "모름", True))                        # 빈칸은 채운다
         self.assertFalse(variety.use_ask("", "모름", False))
         self.assertTrue(variety.use_ask("넘버원", "무늬", True, 2))                # 이름 없이 무늬 말로만 판 상품이라는 확실한 답
@@ -460,46 +460,92 @@ class NameAskTest(unittest.TestCase):
 class CleanDictionaryTest(unittest.TestCase):
     """D-SCR-38: 품종과 옵션을 따로 본 품종 사전(sw/clean_dict.py → data/varieties_clean.json)"""
 
-    def test_name_is_split_into_variety_options_forms_and_kinds(self):
+    def test_same_option_is_written_one_way(self):
+        # D-DICT-OPT-02(사용자 2026-11-17): X와 X금은 같은 옵션
+        # D-DICT-OPT-03: 창 뒤의 무늬는 남긴다(창녹금 → 창 녹금 — 창으로 묶던 기대를 바꿈), 복륜은 영수증에 쓴 "복륜"으로(복륜금으로 적던 기대를 바꿈)
+        # D-DICT-OPT-04: 창은 모양, 금·녹금·색금은 그 위에 더한 무늬 — 창금·창녹·창색을 창으로 묶던 D-DICT-OPT-02 기대를 바꿈
+        for said, sent in (("창금", "창 금"), ("창녹", "창 녹금"), ("창색", "창 색금"), ("창녹금", "창 녹금"), ("몰디브창색금", "몰디브 창 색금"), ("창녹색금", "창 녹색금"),
+                           ("청개구리 창 금", "청개구리 창 금"), ("연두창금", "연두 창 금"), ("맥라이징창녹금", "맥라이징 창 녹금"), ("몰디브창녹", "몰디브 창 녹금"),
+                           ("찐녹금", "찐녹"), ("찐녹 금", "찐녹"), ("몰디브복륜", "몰디브 복륜"), ("루밍복륜금", "루밍 복륜"), ("몰디브수박금", "몰디브 수박"), ("변이금", "변이"),
+                           ("몰디브금", "몰디브 금")):                                     # 따로 쓰는 금은 그대로
+            self.assertEqual(variety.join_parts(*variety.split_parts(said)[:2]), sent, said)
+        # D-DICT-OPT-03(사용자 2026-11-17): 녹색은 없는 옵션 — 처음 기대 "녹색 → 녹색금"을 바꿈. 녹색금은 녹금·색금과 다른 옵션
+        self.assertNotIn("녹색", variety.OPTIONS)
+        self.assertNotIn("녹색", variety.SAME)
+        for said, sent in (("몰디브녹색금", "몰디브 녹색금"), ("녹색금", "녹색금"), ("몰디브녹금", "몰디브 녹금"), ("몰디브색금", "몰디브 색금")):
+            self.assertEqual(variety.join_parts(*variety.split_parts(said)[:2]), sent, said)
+        self.assertEqual(variety.same(["녹금", "색금"]), ["녹금", "색금"])            # 녹금과 색금을 녹색금으로 합치지 않는다
+        self.assertEqual(variety.same(["녹색금"]), ["녹색금"])
+        # D-DICT-OPT-05(사용자 2026-11-17): 핏줄은 색금에 드는 금 — 핏줄·핏줄색금·핏줄 색금은 "핏줄금"(처음 기대 "라울 핏줄"을 바꿈). 힘줄은 금이 아닌 돌기
+        for said, sent in (("라울핏줄", "라울 핏줄금"), ("로제핏줄색금", "로제 핏줄금"), ("먼디핏줄금", "먼디 핏줄금"), ("SP핏줄금", "SP 핏줄금"), ("로제핏줄 색금", "로제 핏줄금"),
+                           ("몰디브힘줄금", "몰디브 힘줄 금"), ("힘줄색금", "힘줄 색금")):
+            self.assertEqual(variety.join_parts(*variety.split_parts(said)[:2]), sent, said)
+        # 환엽(넓은 잎)은 이름 앞에 붙는 옵션: 환엽마리아 → 품종 마리아 + 옵션 환엽
+        for said, base, sent in (("환엽마리아", "마리아", "환엽 마리아"), ("환엽 지젤", "지젤", "환엽 지젤"), ("환엽실생", "", "환엽 실생"), ("마리아환엽", "마리아", "환엽 마리아")):
+            got = variety.split_parts(said)
+            self.assertEqual((got[0], variety.join_parts(*got[:2])), (base, sent), said)
+        for gone in ("아랫동", "커팅", "중품", "소품"):                                       # 사전·두 방송에 한 번도 나온 적 없는 옵션은 뺐다
+            self.assertNotIn(gone, variety.OPTIONS, gone)
+        self.assertEqual(variety.split_parts("몰디브커팅")[0], "몰디브커팅")
+
+    def test_name_is_split_into_variety_and_options(self):
+        # D-DICT-OPT-01(사용자 2026-11-17): 처음 기대 "품종 / 옵션 / 형태 / 갈래 네 칸"을 바꿈 — 품종과 옵션 두 칸, 옵션 목록은 방송 중과 같은 하나
         from sw import clean_dict
-        self.assertEqual(clean_dict.split("몰디브색금무지"), ("몰디브", ["색금", "무지"], [], []))
-        self.assertEqual(clean_dict.split("청개구리금 철화"), ("청개구리", ["금", "철화"], [], []))
-        self.assertEqual(clean_dict.split("쿠스백금"), ("쿠스", ["백금"], [], []))
-        self.assertEqual(clean_dict.split("아리엘 분채"), ("아리엘", [], ["분채"], []))
-        self.assertEqual(clean_dict.split("먼로쌍두"), ("먼로", [], ["쌍두"], []))
-        self.assertEqual(clean_dict.split("블루엘프특가"), ("블루엘프", [], [], []))
-        self.assertEqual(clean_dict.split("SP아리아골드"), ("아리아골드", [], [], ["SP"]))
+        self.assertEqual(clean_dict.split("몰디브색금무지"), ("몰디브", ["색금", "무지"]))
+        self.assertEqual(clean_dict.split("청개구리금 철화"), ("청개구리", ["금", "철화"]))
+        self.assertEqual(clean_dict.split("쿠스백금"), ("쿠스", ["백금"]))
+        self.assertEqual(clean_dict.split("아리엘 분채"), ("아리엘", ["분채"]))
+        self.assertEqual(clean_dict.split("먼로쌍두"), ("먼로", ["쌍두"]))
+        self.assertEqual(clean_dict.split("블루엘프특가"), ("블루엘프", []))                  # 행사 말은 옵션이 아니다 — 지운다
+        self.assertEqual(clean_dict.split("수입몰디브"), ("몰디브", ["수입"]))
+        self.assertEqual(clean_dict.split("SP아리아골드"), ("SP아리아골드", []))              # SP 뒤에 다른 이름이 있으면 적힌 이름 그대로
         # D-DICT-SP-02(사용자 2026-11-17 "sp(종자 모름), 종자(고급 SP)는 옵션이 아니라 품종에 넣어라"): 처음 기대 "SP·종자뿐이면 품종 없음"을 바꿈 — SP·종자가 품종
-        self.assertEqual(clean_dict.split("SP창녹금"), ("SP", ["창녹금"], [], []))
-        self.assertEqual(clean_dict.split("수입색금SP"), ("SP", ["색금"], [], ["수입"]))
-        self.assertEqual(clean_dict.split("SP"), ("SP", [], [], []))
-        self.assertEqual(clean_dict.split("종자"), ("종자", [], [], []))
-        self.assertEqual(clean_dict.split("색금종자"), ("종자", ["색금"], [], []))
-        self.assertEqual(clean_dict.split("SP 종자"), ("종자", [], [], []))                   # 둘 다 있으면 종자(고급 SP)
-        self.assertEqual(clean_dict.split("SP군생"), ("SP", [], ["군생"], []))
-        self.assertEqual(clean_dict.split("녹금무지"), ("", ["녹금", "무지"], [], []))        # 품종 없이 옵션뿐
+        self.assertEqual(clean_dict.split("SP창녹금"), ("SP", ["창", "녹금"]))                 # 창 + 녹금(D-DICT-OPT-03 — 창으로 묶던 기대를 바꿈)
+        self.assertEqual(clean_dict.split("수입색금SP"), ("SP", ["수입", "색금"]))
+        self.assertEqual(clean_dict.split("SP"), ("SP", []))
+        self.assertEqual(clean_dict.split("종자"), ("종자", []))
+        self.assertEqual(clean_dict.split("색금종자"), ("종자", ["색금"]))
+        self.assertEqual(clean_dict.split("SP 종자"), ("종자", []))                           # 둘 다 있으면 종자(고급 SP)
+        self.assertEqual(clean_dict.split("SP군생"), ("SP", ["군생"]))
+        self.assertEqual(clean_dict.split("SP골드"), ("SP", ["골드"]))
+        self.assertEqual(clean_dict.split("녹금무지"), ("", ["녹금", "무지"]))                # 품종 없이 옵션뿐
+        self.assertEqual(clean_dict.split("모노금"), ("모노", ["금"]))                        # 사전 이름에는 받아쓰기 소리 바로잡기(노금 → 녹금)를 하지 않는다
+        # 사전을 만들 때와 방송 중 이름을 읽을 때 같은 규칙: 방송 중에 판 이름은 "품종 옵션"으로 띄어 보낸다
+        for said, sent in (("SP색금", "SP 색금"), ("색금종자", "종자 색금"), ("청개구리백금", "청개구리 백금"), ("라울핏줄", "라울 핏줄금"),
+                           ("아리엘분채", "아리엘 분채"), ("황소윗동", "황소 윗동"), ("몰디브색금무지", "몰디브 색금 무지"), ("블루엘프특가", "블루엘프"), ("색금", "색금"),
+                           ("동자SP", "동자 SP"), ("SP 종자", "종자")):                   # 품종 이름이 있으면 SP를 버리지 않는다(11-12 방송 363번)
+            self.assertEqual(variety.join_parts(*variety.split_parts(said)[:2]), sent, said)
+        # 옵션뿐인 이름("특이종")으로 먼저 올라갔어도 품종 SP가 거듭 나오면 SP로(11-12 방송 220번: LLM 답 SP 10번·특이종 2번)
+        said = {"특이종": 2, "SP": 10}
+        self.assertTrue(variety.should_rename("특이종", "SP", {"votes": 10, "rank": 0, "source": "무늬 말", "only": said}))
+        self.assertFalse(variety.should_rename("SP", "특이종", {"votes": 2, "rank": 0, "source": "무늬 말", "only": said}))
+        self.assertFalse(variety.should_rename("특이종", "SP", {"votes": 2, "rank": 0, "source": "무늬 말", "only": {"특이종": 2, "SP": 2}}))   # 같으면 둔다
+        # 번호를 다시 쓴 다른 장면의 답(지금 옵션이 없음)으로는 바꾸지 않는다(11-13 방송 31번: 녹색금 → 종자로 바뀌던 것)
+        self.assertFalse(variety.should_rename("녹색금", "종자", {"votes": 2, "rank": 0, "source": "무늬 말", "only": {"종자": 2}}))
         self.assertEqual(clean_dict.split("원종자라고사")[0], "원종자라고사")                 # 이름 가운데 든 글자는 그대로
         for read in ("에스피색금", "에스피 색금"):                                            # 한글로 읽어 적은 에스피는 SP로 합친다(D-DICT-SP-01)
             self.assertEqual(clean_dict.split(read), clean_dict.split("SP색금"), read)
         self.assertEqual(clean_dict.split("에스피"), clean_dict.split("SP"))
-        self.assertEqual(clean_dict.split("에스피아리아골드"), ("아리아골드", [], [], ["SP"]))
+        self.assertEqual(clean_dict.split("에스피아리아골드"), ("SP아리아골드", []))
         self.assertEqual(variety.split_parts("에스피 색금"), variety.split_parts("SP색금"))   # 방송 중 이름을 쪼갤 때도 같다
         self.assertEqual(variety.split_parts("에스피 금")[:2], ("", "SP금"))
         self.assertEqual(variety.split_parts("에스피")[:2], ("", "SP"))
         self.assertEqual(variety.split_parts("카에스피나")[0], "카에스피나")                 # 이름 가운데 든 글자는 건드리지 않는다
         # 2026-11-16 방송: 받아쓰기가 SP를 NSP·ASP·엔스피로 적어 3·7·14·484번이 "NSP"로 등록됐다(D-RETRO16-02)
-        for read in ("NSP", "NSP 분채", "ASP", "엔스피", "nsp"):
+        for read in ("NSP", "ASP", "엔스피", "nsp"):
             self.assertEqual(variety.split_parts(read)[:2], ("", "SP"), read)
+        self.assertEqual(variety.join_parts(*variety.split_parts("NSP 분채")[:2]), "SP 분채")   # 분채는 옵션(D-DICT-OPT-01)
         for keep in ("RASP", "TNSP", "카엔스피나"):                                          # 다른 말에 붙은 글자는 그대로
             self.assertEqual(variety.split_parts(keep)[1], "", keep)
-        # 27번 "슈빌셋금 분채로 7000원" — 셋금은 색금, 분채(화분째)는 파는 꼴이라 이름에서 뗀다(D-RETRO16-01)
-        self.assertEqual(variety.split_parts("슈빌셋금분채"), ("슈빌", "색금", "분채", ""))
-        self.assertEqual(variety.split_parts("데뷔철화 분채"), ("데뷔", "철화", "분채", ""))
+        # 27번 "슈빌셋금 분채로 7000원" — 셋금은 색금(D-RETRO16-01). 분채(화분째)는 옵션이라 이름에 남긴다(D-DICT-OPT-01이 D-RETRO16-01 ②를 바꿈)
+        self.assertEqual(variety.split_parts("슈빌셋금분채"), ("슈빌", "색금분채", "", ""))
+        self.assertEqual(variety.join_parts("슈빌", "색금분채"), "슈빌 색금 분채")
+        self.assertEqual(variety.split_parts("데뷔철화 분채"), ("데뷔", "철화분채", "", ""))
         self.assertEqual(variety.tidy("선셋금"), "선셋금")                                 # 사전 품종 선셋(금)은 그대로
         self.assertEqual(variety.tidy("썬셋금"), "썬셋금")
         self.assertEqual(variety.ask_name_of({"name": "", "pattern": "에스피", "confidence": "high"}), ("SP", "무늬"))
         for whole in ("황금사", "소금", "청수박", "녹금의 제왕", "마리아"):                    # 한 글자만 남게는 떼지 않는다 / 끝이 옵션 말이 아닌 이름
-            self.assertEqual(clean_dict.split(whole)[1:], ([], [], []), whole)
+            self.assertEqual(clean_dict.split(whole)[1], [], whole)
 
     def test_cleaned_dictionary_has_varieties_only(self):
         from sw import clean_dict
@@ -517,11 +563,14 @@ class CleanDictionaryTest(unittest.TestCase):
         self.assertFalse([n for n in names if "님" in n])                                   # 손님을 부른 말이 없다
         self.assertFalse([v["name"] for v in varieties if "에스피" in v["name"] or any("에스피" in w for w in v["written"])])   # 에스피는 SP로 합쳤다(D-DICT-SP-01)
         gone = {r["name"]: r["why"] for r in removed}
-        self.assertEqual(gone["녹금무지"], "품종 없이 옵션·갈래뿐")
+        self.assertEqual(gone["녹금무지"], "품종 없이 옵션뿐")
+        for v in varieties:                                                                 # 칸은 품종·옵션·틀리게 들리는 모양·출처·적힌 그대로(형태·갈래 칸 없음, D-DICT-OPT-01)
+            self.assertLessEqual(set(v), {"name", "aliases", "options", "sources", "written", "unnamed"}, v["name"])
+            self.assertFalse([o for o in v["options"] if any(e in o for e in ("이벵", "특가", "툭가"))], v["name"])   # 행사 말은 옵션이 아니다
         # SP·종자는 품종이다(D-DICT-SP-02): 옵션이 붙어 적힌 이름은 그 품종의 옵션으로 모인다
         sp, seed = (next(v for v in varieties if v["name"] == n) for n in ("SP", "종자"))
         self.assertEqual((sp["unnamed"], seed["unnamed"]), ("종자를 모르는 것", "고급 SP"))
-        for option in ("색금", "녹금", "창금", "수박금"):
+        for option in ("색금", "녹금", "창", "수박"):                                             # 창금 → 창 + 금(D-DICT-OPT-04), 수박금 → 수박(D-DICT-OPT-02)
             self.assertIn(option, sp["options"], option)
         self.assertIn("SP색금", sp["written"])
         self.assertEqual(sp["aliases"], [])                                                 # "에스피녹음" 같은 모양이 SP의 다른 이름으로 들어가지 않는다
@@ -532,7 +581,7 @@ class CleanDictionaryTest(unittest.TestCase):
         self.assertFalse([v["name"] for v in varieties if any("종자" in o or "SP" in o for o in v["options"])])   # 옵션 칸에는 없다
         self.assertEqual(gone["이벵"], "품종이 아닌 말")
         maek = next(v for v in varieties if v["name"] == "맥라이징")
-        self.assertIn("창", maek["kinds"])                                                  # "창맥라이징"은 옵션 창 + 품종 맥라이징
+        self.assertIn("창", maek["options"])                                                # "창맥라이징"은 옵션 창 + 품종 맥라이징(갈래 칸 없음, D-DICT-OPT-01)
 
     def test_generated_file_is_up_to_date_and_read_by_the_shop_mode(self):
         from sw import clean_dict
@@ -593,7 +642,7 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual(variety.split_parts("테라로사 색금"), ("테라로사", "색금", "", ""))
         self.assertEqual(variety.split_parts("채홍 3개"), ("채홍", "", "", "3개"))
         self.assertEqual(variety.split_parts("열애 통째"), ("열애", "", "", "통째"))
-        self.assertEqual(variety.split_parts("황소윗동"), ("황소", "", "윗동", ""))
+        self.assertEqual(variety.split_parts("황소윗동"), ("황소", "윗동", "", ""))  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
         self.assertEqual(variety.split_parts("최강노금"), ("최강", "녹금", "", ""))
         self.assertEqual(variety.split_parts("세금"), ("", "색금", "", ""))
         self.assertEqual(variety.split_parts("힘줄색금"), ("", "힘줄색금", "", ""))

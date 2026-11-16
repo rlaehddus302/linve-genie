@@ -443,10 +443,34 @@ def _pick_name(llm_names, lines, dic, nicks):
 # 전국 사전으로 거르던 D-SCR-15는 맞는 이름을 버렸다(11-13 방송: 틀린 이름 21개를 막고 맞는 이름 47개를 버림 — 그 가게 품종 118가지 중 64가지가 사전에 없었다).
 # 바꾼 것: LLM이 적은 이름을 기본으로 쓰고, 그 가게가 파는 품종 목록(장부)에서 소리가 가장 가까운 이름으로 철자를 맞춘다.
 #   장부에 없는 이름은 버리지 않고 "확인 중 품종"(unsure)으로 보낸다 — 판매자가 확정하면 장부에 더해진다. 품종이 아닌 말(닉네임·인사·재고)만 거른다.
-#   이름은 품종 / 무늬 / 형태 / 개수로 나눈다: "은갈치퍼플"·"밀레창"·"황소윗동"처럼 옆 말이 붙은 것과 "테라로사색금"을 "색금"으로 줄이던 것을 막는다.
-PATTERNS = ("복륜금", "색금종자", "녹색금", "창녹금", "창색금", "창금", "색금", "녹금", "찐녹", "철화", "산반", "복륜", "수박", "힘줄", "종자", "무지", "금")   # 무늬·종류를 이르는 말(긴 것부터)
-PATTERN_ONLY = set(PATTERNS) | {"SP", "창", "녹색", "창녹", "창색"}
-FORMS = ("군생", "윗동", "아랫동", "커팅", "자구", "통째", "통채", "통으로", "분채", "대품", "중품", "소품")                                  # 모양·파는 꼴을 이르는 말
+#   이름은 품종 / 옵션 / 개수로 나눈다: "은갈치퍼플"·"밀레창"·"황소윗동"처럼 옆 말이 붙은 것과 "테라로사색금"을 "색금"으로 줄이던 것을 막는다.
+# 옵션 목록은 하나다(D-DICT-OPT-01, 사용자 2026-11-17 "방송 중에 'SP색금'이라고 말하면 품종은 SP, 옵션은 색금 이렇게 따로 인식한 다음 품명에는 'SP 색금'"):
+#   사전을 만들 때(clean_dict)와 방송 중 이름을 읽을 때(split_parts) 같은 목록·같은 함수로 뗀다. 무늬·형태·갈래를 나누지 않고 모두 옵션이다.
+#   보내는 이름은 "품종 옵션"(띄어 씀): "SP 색금", "청개구리 백금", "슈빌 색금 분채". 품종 이름이 없으면 옵션만("색금").
+#   분채 같은 파는 꼴도 옵션이라 이름에 남긴다 — D-RETRO16-01 ②의 "분채는 이름에서 뗀다"를 바꿈(판매자가 말한 것을 버리지 않는다)
+# 같은 옵션의 다른 모양 → 한 모양(D-DICT-OPT-02, 사용자 2026-11-17 "창, 창금, 창녹, 창색 → 다 창으로 통일", "찐녹, 찐녹금 둘 다 같은걸로 통일
+#   (복륜, 복륜금와 같은 형태면 같은걸로 본다)"). X와 X금은 같은 옵션 — 사전·두 방송에서 더 많이 쓴 모양으로 적는다
+# 녹색은 없는 옵션이고, 녹색금(녹금 + 색금)은 녹금·색금과 다른 옵션이다(D-DICT-OPT-03, 사용자 2026-11-17).
+#   X와 X금의 대표 모양은 판매자가 영수증에 쓴 쪽: 복륜(루밍복륜)·수박·찐녹, 영수증에 없으면 사전에 많은 쪽(변이)
+SAME = {"복륜금": "복륜", "수박금": "수박", "변이금": "변이", "찐녹금": "찐녹",
+        # 핏줄은 빨간 색이 올라온 금이라 색금에 든다: 핏줄 = 핏줄금 = 핏줄색금 → "핏줄금"(D-DICT-OPT-05, 사용자 2026-11-17 "품종은 SP, 옵션은 핏줄금").
+        #   힘줄은 금이 아니라 돌기다 — 힘줄금은 힘줄 + 금으로 따로 둔다
+        "핏줄": "핏줄금", "핏줄색금": "핏줄금"}
+# 창은 모양이고 그 위에 금·녹금·색금이 더해진다 — 창과 무늬를 따로 적는다(D-DICT-OPT-04, 사용자 2026-11-17 "창금 창녹 창색에서 창과 따로 봐야 해.
+#   창 이라는 모양에 금, 녹금, 색금이 추가된 구조"): 창금 → 창 금, 창녹 → 창 녹금, 창색 → 창 색금, 창녹금 → 창 녹금, 창녹색금 → 창 녹색금
+SPLIT = {"창금": ("창", "금"), "창녹": ("창", "녹금"), "창색": ("창", "색금")}
+# 사전·두 방송에 한 번이라도 나온 옵션만 둔다(D-DICT-OPT-02, 사용자 "아무데도 등록된 적 없는 애들은 … 필요없으면 지워": 아랫동·커팅·중품·소품을 뺌)
+OPTIONS = tuple(sorted(set(SAME) | set(SPLIT) | {
+    "녹색금", "복륜", "색금", "녹금", "백금", "찐녹", "철화", "산반", "수박", "힘줄", "핏줄금", "무지", "변이종", "변이", "금",   # 무늬
+    "군생", "윗동", "자구", "분채", "대품", "쌍두", "외두",                                                                 # 파는 꼴
+    "교배종", "특이종", "실생", "환엽"}, key=lambda w: (-len(w), w)))                                         # 어떻게 난 것인가(긴 것부터 뗀다)
+# 환엽(넓은 잎)은 품종이 아니라 옵션 — 쇼핑몰에서 "환엽"으로 찾으면 환엽 마리아·환엽 실생·SP가 다 나온다(D-DICT-OPT-05). 이름 앞에 붙는다
+HEADS = ("수입", "실생", "환엽")                                                   # 이름 앞에 붙는 옵션("수입몰디브" → 몰디브 + 수입)
+UNNAMED = ("종자", "SP")                                                   # 품종 이름을 모르는 것을 부르는 품종(D-DICT-SP-02): 종자 = 고급 SP, SP = 종자를 모르는 것. 둘 다 있으면 종자
+EVENT = ("꿀이벵", "이벵", "특가", "툭가")                                 # 행사·값 말 — 옵션이 아니다. 이름에서 지운다("블루엘프특가" → 블루엘프)
+# 옵션만으로 된 말(품종이 아니다)
+PATTERN_ONLY = set(OPTIONS) | set(HEADS) | set(UNNAMED) | {"창", "환엽", "골드"}
+PATTERNS, FORMS = OPTIONS, ()                                              # 옛 이름(다른 도구가 읽는다)
 _QTY = re.compile(r"\s*((?:\d+|한|두|세|네|다섯)\s*(?:개|포기|두|촉|장|세트)|통째|통채|통으로)\s*$")
 LEDGER_CUT = float(os.environ.get("LLM_LEDGER_CUT", 72))                  # 장부 이름과 자모 편집 거리 비율이 이만큼 넘으면 그 이름으로 맞춘다
 LEDGER_CUT_SHORT = float(os.environ.get("LLM_LEDGER_CUT_SHORT", 80))      # 두 글자쯤의 짧은 이름은 더 엄하게("청수"가 청춘에, "산마"가 삼광에 붙지 않게)
@@ -520,38 +544,109 @@ class Ledger:
                 best = k
         if best is None:                                                   # 두 글자 이름은 앞에 있고 나머지가 무늬·형태 말일 때만("밀레창", "황소윗동")
             for k in self.keys:
-                if len(k) == 2 and key.startswith(k) and (key[2:] in PATTERN_ONLY or key[2:] in FORMS):
+                if len(k) == 2 and key.startswith(k) and key[2:] in PATTERN_ONLY:
                     best = k
         return self.names[best] if best else None
 
 
-def split_parts(name):
-    """LLM이 적은 이름 → (품종, 무늬, 형태, 개수). "테라로사 색금" → (테라로사, 색금, "", ""), "채홍 3개" → (채홍, "", "", 3개), "색금" → ("", 색금, "", "")"""
+def parts(name, heard=True):
+    """heard=False(사전에 적힌 이름): 받아쓰기 소리 바로잡기(녹음 → 녹금 등)를 하지 않는다("모노금"이 모녹금이 되지 않게).
+    이름 → (품종, [앞 옵션…], [옵션…], 개수). 사전을 만들 때와 방송 중이 같이 쓴다(D-DICT-OPT-01).
+    "몰디브색금무지" → (몰디브, [], [색금, 무지]), "수입몰디브" → (몰디브, [수입], []), "SP색금" → ("", [], [SP, 색금]), "색금종자" → ("", [], [색금, 종자]),
+    "블루엘프특가" → (블루엘프, [], []), "채홍 3개" → (채홍, [], [], 3개). 품종 이름이 없으면 품종은 "" — SP·종자도 옵션 자리에 둔다(label이 앞으로 옮긴다)"""
     text = clean(name)
     qty = ""
     m = _QTY.search(text)
     if m:
         qty, text = "".join(m.group(1).split()), text[:m.start()]
     text = sp_read(_SAEK_LIVE.sub("색금", text)).strip()
-    fix = lambda k: _JJIN_TAIL.sub("찐녹", _NOK_TAIL.sub("녹금", k))
+    fix = (lambda k: _JJIN_TAIL.sub("찐녹", _NOK_TAIL.sub("녹금", k))) if heard else (lambda k: k)
     key = fix(norm(text))
-    if len(key) >= 3 and key[0] in "이자요저그" and key[1:] in PATTERN_ONLY:   # "이 색금"·"자 색금"을 붙여 적은 것
+    if heard and len(key) >= 3 and key[0] in "이자요저그" and key[1:] in PATTERN_ONLY:   # "이 색금"·"자 색금"을 붙여 적은 것
         key = key[1:]
-    form = ""
-    for f in FORMS:
-        if key.endswith(f) and len(key) > len(f):
-            form, key = f, fix(key[:-len(f)])
+    heads, opts = [], []
+    for h in HEADS:
+        if key.startswith(h) and (len(key) - len(h) >= 2 or key[len(h):].upper() in PATTERN_ONLY):
+            heads.append(h)
+            key = key[len(h):]
             break
-    if key.upper() in PATTERN_ONLY or key in PATTERN_ONLY:
-        return "", key, form, qty
-    pat = ""
-    for suf in PATTERNS:
-        if key.endswith(suf) and len(key) - len(suf) >= 2:
-            pat, key = suf, fix(key[:-len(suf)])
+    changed = True
+    while changed and key:
+        changed = False
+        for w in EVENT + UNNAMED + OPTIONS:
+            rest = key[:-len(w)]
+            # 품종이 한 글자만 남게는 떼지 않는다("황금" → 황 + 금 아님). 남는 것이 옵션뿐인 말이면 뗀다
+            if w == "SP" and rest[-1:].isascii() and rest[-1:].isalpha():
+                continue                                                   # "RASP"처럼 다른 로마자에 붙은 SP는 그대로
+            if key.upper().endswith(w) and (len(rest) >= 2 or not rest or rest.upper() in PATTERN_ONLY):
+                if w not in EVENT:
+                    opts.insert(0, w)
+                key = fix(rest)
+                changed = True
+                break
+    if opts and opts[0] in ("녹금", "색금", "녹색금") and key.endswith("창") and len(key) >= 3:
+        opts.insert(0, "창")                                               # "몰디브창색금" → 몰디브 + 창 + 색금(D-DICT-OPT-03·04 — 창과 무늬를 따로)
+        key = fix(key[:-1])
+    if key.upper() in PATTERN_ONLY:
+        opts.insert(0, key.upper() if key.upper() in UNNAMED else key)
+        key = ""
+    for u in UNNAMED:                                                      # "SP골드"·"SP창": 앞의 SP 뒤가 옵션뿐이면 SP + 옵션
+        if key.upper().startswith(u) and key[len(u):].upper() in PATTERN_ONLY:
+            opts[:0] = [u, key[len(u):]]
+            key = ""
+    return key, heads, same(opts), qty
+
+
+def same(opts):
+    """옵션을 한 모양으로(SAME): "복륜금" → 복륜, 창 + 무늬는 나눠서(SPLIT): "창녹" → 창, 녹금.
+    뒤에 따로 붙은 "금"이 앞 옵션과 같은 것이면 뺀다("찐녹 금" → 찐녹). "창 금"은 창 + 금 그대로"""
+    out = []
+    for word in opts:
+        for o in SPLIT.get(word, (word,)):
+            o = SAME.get(o, o)
+            if o == "금" and out and out[-1] + "금" in SAME:
+                continue
+            if o in ("금", "색금") and out and out[-1] == "핏줄금":            # "핏줄 색금"·"핏줄 금" → 핏줄금 하나
+                continue
+            if out and out[-1] == o:
+                continue
+            out.append(o)
+    return out
+
+
+def _unnamed(pat):
+    """옵션 글에 품종 SP·종자가 들어 있나"""
+    return any(u in _words(pat)[1] for u in UNNAMED)
+
+
+def label(base, opts=(), heads=()):
+    """보낼 이름: "품종 옵션"(띄어 씀). 품종 이름이 없고 SP·종자가 있으면 그것이 품종이다(D-DICT-SP-02)
+    ("몰디브", [색금, 무지]) → "몰디브 색금 무지", ("", [SP, 색금]) → "SP 색금", ("", [색금, 종자]) → "종자 색금", ("", [SP, 종자]) → "종자", ("", [색금]) → "색금" """
+    opts = [o for o in opts if o]
+    un = [u for u in UNNAMED if u in opts]
+    if not base and un:                                                    # 품종 이름이 없으면 SP·종자가 품종
+        base, opts = un[0], [o for o in opts if o not in UNNAMED]
+    return " ".join(x for x in (*heads, base, *opts) if x)                 # 품종 이름이 있으면 SP도 버리지 않는다("동자SP" → "동자 SP")
+
+
+def split_parts(name):
+    """LLM이 적은 이름 → (품종, 옵션, "", 개수). "테라로사 색금" → (테라로사, 색금, "", ""), "채홍 3개" → (채홍, "", "", 3개), "색금" → ("", 색금, "", ""),
+    "아리엘 분채" → (아리엘, 분채, "", ""), "SP색금" → ("", SP색금, "", ""). 옵션은 앞 옵션까지 붙여 적은 글(label이 다시 나눈다)"""
+    base, heads, opts, qty = parts(name)
+    return base, "".join(heads + opts), "", qty
+
+
+def _words(pat):
+    """붙여 적은 옵션 글 → (앞 옵션, 옵션). "수입색금" → ([수입], [색금]), "SP색금" → ([], [SP, 색금]), "창녹금" → ([], [창, 녹금]).
+    이름 나누기(parts)와 같은 규칙으로 뒤에서부터 뗀다 — 앞에서부터 떼면 "창녹금"이 창녹 + 금(→ 창)이 된다(D-DICT-OPT-03)"""
+    heads, s = [], pat or ""
+    for h in HEADS:                                                        # 앞 옵션은 앞에 둔다("수입", "환엽" → 환엽 마리아)
+        if s.startswith(h):
+            heads.append(h)
+            s = s[len(h):]
             break
-    if key in PATTERN_ONLY:                                                # "힘줄색금"·"찐녹색금"처럼 무늬 말만 겹친 것
-        return "", key + pat, form, qty
-    return key, pat, form, qty
+    base, more, opts, _ = parts(s, heard=False)
+    return heads + more, ([base] if base else []) + opts
 
 
 # 판매자가 품종 없이 무늬·종류만 말하는 모양(받아쓰기 그대로). "종자"는 칭찬으로 늘 하는 말이라 세지 않는다
@@ -628,7 +723,11 @@ def ledger_said(lines, ledger, nicks=(), no=None):
 
 
 def join_parts(base, pat):
-    return base + pat if pat and not norm(base).endswith(pat) else base
+    """품종과 옵션 글 → 보낼 이름(label). 품종 이름이 이미 옵션으로 끝나면("황제수박") 그대로"""
+    if pat and base and norm(base).endswith(norm(pat)):
+        return base
+    heads, opts = _words(pat)
+    return label(base, same(opts), heads)
 
 
 def shop_name(raw, ledger, dic=None):
@@ -683,7 +782,7 @@ def pick_shop(llm_names, lines, dic, ledger=None, nicks=(), no=None):
         if pat:
             pats[(key, pat)] += 1
     extra = {"form": forms.most_common(1)[0][0] if forms else "", "qty": qtys.most_common(1)[0][0] if qtys else "",
-             "pattern": "", "votes": 0, "in_ledger": False, "rank": 0, "source": "", "tally": dict(votes)}
+             "pattern": "", "votes": 0, "in_ledger": False, "rank": 0, "source": "", "tally": dict(votes), "only": {norm(k): n for k, n in only.items()}}
     heard = ledger_said(lines, ledger, nicks, no) if LEDGER_SAID and ledger is not None else collections.Counter()
     best = max(heard, key=lambda n: (heard[n], len(norm(n)))) if heard else None
     top = max(votes, key=lambda k: (votes[k], info[k][1], info[k][2], order[k])) if votes else None
@@ -714,7 +813,7 @@ def pick_shop(llm_names, lines, dic, ledger=None, nicks=(), no=None):
         if only or said[pat] >= MENTIONS:
             habit = ledger.habits.get(pat) if ledger is not None else None
             extra.update(pattern=pat, votes=only[pat] if only else said[pat], source="무늬 말")
-            return habit or pat, "무늬 말만 들림" + (f" → 가게 말버릇 {habit}" if habit else ""), False, False, extra
+            return habit or join_parts("", pat), "무늬 말만 들림" + (f" → 가게 말버릇 {habit}" if habit else ""), False, False, extra
     named = said_counts(lines, dic, nicks) if dic is not None else collections.Counter()
     named = {n: c - denied(n, lines) for n, c in named.items() if norm(n) not in GENERIC}
     if named and not votes:                                                # LLM이 이름을 적지 않았다: 받아쓰기에 여러 번 나온 사전 이름(D-SCR-15의 (b)와 같다)
@@ -740,6 +839,10 @@ def should_rename(now, name, extra, now_rank=0):
         return votes >= NAME_FILL if source == "무늬 말" or (source == "LLM" and rank == 0) else True
     old, new = split_parts(now), split_parts(name)
     if not old[0]:                                                         # 지금은 무늬 말뿐
+        had = (extra.get("only") or {}).get(norm(old[1]), 0)
+        if not new[0] and votes >= 2 and _unnamed(new[1]) and not _unnamed(old[1]) and 0 < had < votes:
+            return True                                                    # 같은 장면에서 옵션뿐("특이종")보다 품종 SP·종자가 더 많이 나왔다(D-DICT-OPT-01, 11-12 방송 220번)
+                                                                           # 지금 옵션이 이 답들에 없으면(번호를 다시 쓴 다른 장면) 바꾸지 않는다(11-13 방송 31번)
         return bool(new[0]) and rank == 2 and (votes >= 2 or source == "장부 말")
     if not new[0]:                                                         # 이름 → 무늬 말: 모르는 이름일 때만
         return now_rank == 0 and votes >= 2
@@ -803,7 +906,7 @@ def ask_name_of(ans, ledger=None, dic=None):
             return join_parts(fixed, pat or tail), ("장부" if in_ledger else "사전" if in_dic else "모름")
         pat = pat or tail
     if pat and pat != "금":                                                 # "금"만으로는 이름 없는 상품이라고 하지 않는다
-        return ((ledger.habits.get(pat) if ledger is not None else None) or pat), "무늬"
+        return ((ledger.habits.get(pat) if ledger is not None else None) or join_parts("", pat)), "무늬"
     return "", None
 
 

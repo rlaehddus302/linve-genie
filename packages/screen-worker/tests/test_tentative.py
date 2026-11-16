@@ -362,16 +362,16 @@ class TentativeFlowTest(unittest.TestCase):
         st.show(0, 60, 305)
         st.say(0, "자 요거 35", row(0, 305, 35000, "왕색금"))
         body = st.srv.of("tentative")[0]
-        self.assertEqual((body["no"], body["price"], body["name"]), (305, 350000, "왕색금"))
+        self.assertEqual((body["no"], body["price"], body["name"]), (305, 350000, "왕색 금"))  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
         self.assertEqual(body["tentative"]["reasons"], ["NUMBER_SINGLE_SOURCE", "PRICE_DISAGREE"])
-        self.assertEqual(body["tentative"]["candidates"], {"no": [305], "price": [350000, 35000], "name": ["왕색금"]})
+        self.assertEqual(body["tentative"]["candidates"], {"no": [305], "price": [350000, 35000], "name": ["왕색 금"]})  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
         st.say(4, "305번 왕색금 예쁘죠", row(0, 305, 35000, "왕색금", no_from="말+화면"))
         self.assertEqual(st.srv.kinds(), ["tentative"])                    # 35,000 답이 거듭 와도 확정하지 않는다
         st.wait(llm_live.PRICE_WAIT + 1)
         self.assertEqual([e["no"] for e in st.kinds("LLM확인요청")], [305])  # 기록은 지금처럼 남긴다(상품은 이미 확인 중으로 올라가 있다)
         st.say(40, "자 305번 35 왕색금", row(2, 305, 350000, "왕색금", no_from="말+화면"))
         self.assertEqual(st.srv.kinds(), ["tentative", "confirm"])
-        self.assertEqual((st.product(305)["price"], st.product(305)["name"], st.product(305)["state"]), (350000, "왕색금", "판매"))
+        self.assertEqual((st.product(305)["price"], st.product(305)["name"], st.product(305)["state"]), (350000, "왕색 금", "판매"))  # D-DICT-OPT-01: 보내는 이름은 "품종 옵션"(띄어 씀) — 처음 기대 붙여 쓴 이름을 바꿈
 
     def test_pair_wait_goes_up_with_both_numbers_and_is_confirmed_onto_the_screen_number(self):
         # 그 밖의 숫자 쌍(1↔3): 번호표가 충분히 보이기 전에는 말한 번호로 임시 등록하고 두 번호를 후보로 싣는다. 번호표가 충분히 보이면 화면 번호로 옮겨 확정한다

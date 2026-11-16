@@ -149,7 +149,16 @@ def make_tentative(reasons, nos=(), prices=(), names=()):
     whole = lambda v: isinstance(v, int) and not isinstance(v, bool)
     no_list = [n for n in dict.fromkeys(nos) if whole(n) and 1 <= n <= 9999][:CANDIDATES_MAX]
     price_list = [p for p in dict.fromkeys(prices) if whole(p) and 0 <= p <= 100_000_000][:CANDIDATES_MAX]
-    name_list = list(dict.fromkeys(" ".join(str(n).split())[:NAME_MAX] for n in names if n and str(n).strip()))[:CANDIDATES_MAX]
+    seen, name_list = set(), []
+    for n in names:
+        if not n or not str(n).strip():
+            continue
+        name = " ".join(str(n).split())[:NAME_MAX]
+        key = "".join(name.split())                                        # 띄어쓰기만 다른 이름은 하나로("왕색 금"·"왕색금", D-DICT-OPT-01) — 먼저 온 모양
+        if key not in seen:
+            seen.add(key)
+            name_list.append(name)
+    name_list = name_list[:CANDIDATES_MAX]
     return {"reasons": rs, "candidates": {"no": no_list, "price": price_list, "name": name_list}}
 
 

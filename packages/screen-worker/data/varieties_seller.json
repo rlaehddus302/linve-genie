@@ -38,7 +38,7 @@
     {"name": "환엽 지젤", "aliases": [], "src": ["xhv-E5HEWUw"]},
     {"name": "닐케", "aliases": [], "src": ["xhv-E5HEWUw"]},
     {"name": "루밍금", "aliases": [], "src": ["xhv-E5HEWUw"]},
-    {"name": "UF", "aliases": [], "src": ["xhv-E5HEWUw"]},
+    {"name": "UFO", "aliases": ["UF"], "src": ["xhv-E5HEWUw"]},
     {"name": "SP 수박", "aliases": [], "src": ["xhv-E5HEWUw"]},
     {"name": "SP 종자", "aliases": [], "src": ["xhv-E5HEWUw"]},
     {"name": "백금 SP", "aliases": [], "src": ["xhv-E5HEWUw"]}
