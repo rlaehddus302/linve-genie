@@ -35,8 +35,8 @@ SOURCE = {"hand": "손으로 만든 기본 사전", "receipt": "지난 판매 �
 
 def split(name):
     """사전에 적힌 이름 → (품종, [옵션…], [형태…], [갈래…]). 품종이 남지 않으면 품종은 ""
-    "몰디브색금무지" → (몰디브, [색금, 무지]), "SP창녹금" → ("", [창녹금], [], [SP]), "아리엘 분채" → (아리엘, [], [분채]), "블루엘프특가" → (블루엘프)"""
-    s = V.norm(V._SAEK_LIVE.sub("색금", name or ""))
+    "몰디브색금무지" → (몰디브, [색금, 무지]), "SP창녹금" → ("", [창녹금], [], [SP]), "아리엘 분채" → (아리엘, [], [분채]), "블루엘프특가" → (블루엘프), "에스피색금" → ("", [색금], [], [SP])"""
+    s = V.norm(V.sp_read(V._SAEK_LIVE.sub("색금", name or "")))                # 한글로 읽어 적은 "에스피"는 SP로 합친다(D-DICT-SP-01)
     options, forms, kinds = [], [], []
     for head in KIND_HEAD:
         if s.upper().startswith(head) and len(s) > len(head):

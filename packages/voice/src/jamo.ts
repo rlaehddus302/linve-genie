@@ -18,9 +18,11 @@ export function foldLatin(text: string): string {
   return text.replace(/[A-Z]/g, (char) => char.toLowerCase())
 }
 
-/** 공백만 다른 맞춤의 키: 공백 뺀 글, 로마자 대소문자 무시 (D-V3-120 — 크롬이 "에스피"를 `sp`로 적어도 `SP창금`) */
+/** 공백만 다른 맞춤의 키: 공백 뺀 글, 로마자 대소문자 무시 (D-V3-120 — 크롬이 "에스피"를 `sp`로 적어도 `SP창금`),
+ *  한글로 읽어 적은 `에스피`도 `sp`로 (D-DICT-SP-01 — `에스피 창금`·`에스피금` → SP창금·SP금) */
 export function exactKey(text: string): string {
-  return foldLatin(compact(text))
+  const key = foldLatin(compact(text))
+  return key.includes('에스피') ? key.split('에스피').join('sp') : key
 }
 
 /** 공백만 다른 맞춤의 자모 키 (exactKey의 자모 — byJamo) */

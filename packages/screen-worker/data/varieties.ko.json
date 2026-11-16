@@ -6631,12 +6631,6 @@
    "source": "xplant"
   },
   {
-   "name": "에스피금",
-   "aliases": [],
-   "exactOnly": true,
-   "source": "xplant"
-  },
-  {
    "name": "엔젤세비얼 철화",
    "aliases": [],
    "exactOnly": true,
@@ -10904,12 +10898,6 @@
   },
   {
    "name": "야생콜로라타철화",
-   "aliases": [],
-   "exactOnly": true,
-   "source": "xplant"
-  },
-  {
-   "name": "에스피색금",
    "aliases": [],
    "exactOnly": true,
    "source": "xplant"

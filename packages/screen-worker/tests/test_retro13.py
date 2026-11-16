@@ -472,6 +472,15 @@ class CleanDictionaryTest(unittest.TestCase):
         self.assertEqual(clean_dict.split("SP창녹금"), ("", ["창녹금"], [], ["SP"]))          # 품종 없이 옵션뿐
         self.assertEqual(clean_dict.split("수입색금SP"), ("", ["색금"], [], ["SP", "수입"]))
         self.assertEqual(clean_dict.split("SP"), ("", [], [], ["SP"]))                       # SP는 옵션이 아니라 "품종 없음" 표시
+        for read in ("에스피색금", "에스피 색금"):                                            # 한글로 읽어 적은 에스피는 SP로 합친다(D-DICT-SP-01)
+            self.assertEqual(clean_dict.split(read), clean_dict.split("SP색금"), read)
+        self.assertEqual(clean_dict.split("에스피"), clean_dict.split("SP"))
+        self.assertEqual(clean_dict.split("에스피아리아골드"), ("아리아골드", [], [], ["SP"]))
+        self.assertEqual(variety.split_parts("에스피 색금"), variety.split_parts("SP색금"))   # 방송 중 이름을 쪼갤 때도 같다
+        self.assertEqual(variety.split_parts("에스피 금")[:2], ("", "SP금"))
+        self.assertEqual(variety.split_parts("에스피")[:2], ("", "SP"))
+        self.assertEqual(variety.split_parts("카에스피나")[0], "카에스피나")                 # 이름 가운데 든 글자는 건드리지 않는다
+        self.assertEqual(variety.ask_name_of({"name": "", "pattern": "에스피", "confidence": "high"}), ("SP", "무늬"))
         for whole in ("황금사", "소금", "청수박", "녹금의 제왕", "마리아"):                    # 한 글자만 남게는 떼지 않는다 / 끝이 옵션 말이 아닌 이름
             self.assertEqual(clean_dict.split(whole)[1:], ([], [], []), whole)
 
@@ -489,6 +498,7 @@ class CleanDictionaryTest(unittest.TestCase):
         for junk in ("다육방송", "다육판매영상", "배송비", "선인장", "SP색금", "녹금", "SP", "이벵"):
             self.assertNotIn(junk, names, junk)
         self.assertFalse([n for n in names if "님" in n])                                   # 손님을 부른 말이 없다
+        self.assertFalse([v["name"] for v in varieties if "에스피" in v["name"] or any("에스피" in w for w in v["written"])])   # 에스피는 SP로 합쳤다(D-DICT-SP-01)
         gone = {r["name"]: r["why"] for r in removed}
         self.assertEqual(gone["SP색금"], "품종 없이 옵션·갈래뿐")
         self.assertEqual(gone["이벵"], "품종이 아닌 말")

@@ -21,9 +21,11 @@ const DICT = prepareVoiceDictionary()
 const nameOf = (text: string) => readSegments(text, { dictionary: DICT, final: true, maxNumber: 999 }).picks.map((p) => p.name)
 
 describe('AC-V3-101 엑스플랜트 유통명 사전 (D-V3-121)', () => {
-  it('(a) 거른 이름 869개를 데이터 끝(영수증 이름 다음)에 별칭 없이, 출처 표시 source: "xplant"', () => {
+  // D-DICT-SP-01: 869개에서 `에스피금`·`에스피색금`을 뺌 — 영수증 이름 SP금·SP색금과 같은 것이라 그쪽으로 합쳤다(사용자 지시 2026-11-16)
+  it('(a) 거른 이름 867개를 데이터 끝(영수증 이름 다음)에 별칭 없이, 출처 표시 source: "xplant"', () => {
     expect(start).toBeGreaterThan(0)
-    expect(added).toHaveLength(869)
+    expect(added).toHaveLength(867)
+    for (const name of ['에스피금', '에스피색금']) expect(file.varieties.map((item) => item.name)).not.toContain(name)
     expect(before.at(-1)?.receipt).toBe(true)
     for (const item of added) {
       expect(item.source, item.name).toBe('xplant')
@@ -57,6 +59,15 @@ describe('AC-V3-101 엑스플랜트 유통명 사전 (D-V3-121)', () => {
     expect(nameOf('10번 토스카넬라 5만 원')).toEqual([null])
     expect(extractVoice('15번 토스카넬리 5만 원', { dictionary: DICT }).name).toBe('토스카넬리')
     expect(extractVoice('15번 토스카넬라 5만 원', { dictionary: DICT }).name).toBeNull()
+  })
+
+  it('한글로 읽어 적은 `에스피`는 SP — `에스피금`·`에스피 색금`은 영수증 이름 SP금·SP색금으로 (D-DICT-SP-01)', () => {
+    expect(nameOf('10번 에스피금 5만 원')).toEqual(['SP금'])
+    expect(nameOf('10번 에스피 금 5만 원')).toEqual(['SP금'])
+    expect(nameOf('10번 에스피 색금 5만 원')).toEqual(['SP색금'])
+    expect(nameOf('10번 에스피색금 5만 원')).toEqual(['SP색금'])
+    expect(nameOf('10번 에스피 5만 원')).toEqual(['SP'])
+    expect(extractVoice('15번 에스피 색금 5만 원', { dictionary: DICT }).name).toBe('SP색금')
   })
 
   it('(d) 이번 방송 상품 이름이 엑스플랜트 이름이면 이력 자리에서도 exactOnly (D-V3-116 (마)와 같게)', () => {

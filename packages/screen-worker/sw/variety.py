@@ -1,6 +1,6 @@
 # 품종: 상품을 파는 동안 판매자가 한 말에서 품종 후보를 만들고(사전과 소리가 비슷한 말), 규칙(가장 비슷한 것)과 맥 LLM(후보 중 고르기)으로 1순위를 정한다.
 # 금액과 같은 원칙: LLM은 이름을 지어내지 않고 후보 번호만 고른다. 판매자가 확인한다.
-#  - 사전 = 라이브지니 품종 사전(2,084개 + 별칭) + 채팅·방송 제목에서 거둔 이름(sw/harvest.py)
+#  - 사전 = 라이브지니 품종 사전(2,082개 + 별칭) + 채팅·방송 제목에서 거둔 이름(sw/harvest.py)
 #  - 소리 비슷한 정도 = 한글을 자모로 풀어 편집 거리 비율(rapidfuzz). 받아쓰기가 "유나스쿨"을 "은하스쿨"로 적어도 잡힌다
 #  - "레오파드색금"처럼 이름 뒤에 금·색금·철화 등이 붙으면 앞부분을 사전과 맞추고 뒤를 그대로 붙인다
 import collections
@@ -316,6 +316,15 @@ _ONLY_COUNT = re.compile(r"^\s*(?:\d+|한|두|세|네|다섯|여러)\s*(?:개|�
 _GREET = re.compile(r"감사|고맙|고마워|축하|안녕|어서\s?오|반갑|잡으셨|잡아요|잡으세요|들어오세요|수고|사랑해|땡큐")
 # 받아쓰기·LLM이 '색금'을 적는 모양(2026-11-12 방송: 세금 62 · 새껌 8 · 3금 6 · 새금 6 · 세 끔 6 · 새 끔 6 · 새꿈 3 · 색급 3 · 세크 1, LLM 첫 답 세검·새검)
 _SAEK_LIVE = re.compile(r"(?:세|새|색|섹|쌕)\s?(?:금|끔|껌|꿈|검|급|컴|김)|세크|(?<=[가-힣A-Za-z])\s?3\s?금|^3\s?금")
+# 한글로 읽어 적은 "에스피"는 SP다(D-DICT-SP-01, 사용자 2026-11-16 "사전에 에스피 들어있는데 이거 다 SP로 병합해") — 이름의 앞·끝·따로 선 말일 때만
+_SP_READ = re.compile(r"(?<![가-힣])에스\s?피|에스\s?피(?![가-힣])")
+
+
+def sp_read(text):
+    """ "에스피색금"·"에스피 금" → "SP색금"·"SP 금". 사전을 만들 때(clean_dict)와 방송 중 이름을 쪼갤 때(split_parts) 같이 쓴다"""
+    return _SP_READ.sub("SP", text or "")
+
+
 AFFIX = ("복륜금", "색금종자", "색금", "창금", "녹금", "철화", "산반", "복륜", "종자", "무지", "금")   # 이름 뒤에 붙는 말 — 앞 이름만 사전과 맞추고 그대로 붙인다
 PREFIX = ("창",)                                                          # 이름 앞에 붙는 말("창녹금")
 
@@ -520,7 +529,7 @@ def split_parts(name):
     m = _QTY.search(text)
     if m:
         qty, text = "".join(m.group(1).split()), text[:m.start()]
-    text = _SAEK_LIVE.sub("색금", text).strip()
+    text = sp_read(_SAEK_LIVE.sub("색금", text)).strip()
     fix = lambda k: _JJIN_TAIL.sub("찐녹", _NOK_TAIL.sub("녹금", k))
     key = fix(norm(text))
     if len(key) >= 3 and key[0] in "이자요저그" and key[1:] in PATTERN_ONLY:   # "이 색금"·"자 색금"을 붙여 적은 것
@@ -780,7 +789,7 @@ def ask_name_of(ans, ledger=None, dic=None):
     """묻기 답 → (보낼 이름, 종류). 종류: "장부"·"사전"·"모름"(품종 이름) / "무늬"(이름 없이 무늬·종류 말뿐) / None(쓸 답 없음)"""
     if not ans:
         return "", None
-    raw = "".join(ans.get("pattern", "").split())
+    raw = sp_read("".join(ans.get("pattern", "").split()))
     pat = split_parts(raw)[1] if raw else ""
     if not pat and raw.upper() == "SP":
         pat = "SP"
