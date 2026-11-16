@@ -58,6 +58,15 @@ def resolve(src):
     return urls, live
 
 
+def wants_gemma(a):
+    """맥 LLM(Gemma 3 12B)을 띄울지. 그 답(금액 확인·품종 뽑기)은 예전 규칙 등록(--register rule)만 쓴다.
+    LLM 등록 길(기본, 서버로 보내는 유일한 길)은 그 답을 읽지 않으므로 띄우지 않는다 — 2026-11-16 틱톡 방송에서
+    금액·품종 157번씩 답했지만 서버로 간 값은 하나도 없었고 받아쓰기와 맥 GPU만 나눠 썼다(D-SCR-GEMMA-01). 견줘 보려면 --gemma"""
+    if a.no_llm:
+        return False
+    return getattr(a, "register", "llm") == "rule" or bool(getattr(a, "gemma", False))
+
+
 class Worker:
     def __init__(self, a):
         self.a = a
@@ -80,7 +89,7 @@ class Worker:
         self.lines = []                       # 받아쓴 글 [(초, 글)] — 금액 찾기용
         # 손님이 친 번호 [(초, 번호)]: 시험 모드는 채팅 다시보기 파일에서(그 시각까지 올라온 것만 씀). 라이브는 라이브지니 서버 채팅과 연결할 자리
         self.chat_all = buyer_numbers(a.chat) if a.chat else []
-        self.llm = None if a.no_llm else price.Llm()
+        self.llm = price.Llm() if wants_gemma(a) else None
         self.priced = {}                      # key → (상품 기록, 규칙 값, 후보, 말)
         self.dic = variety.Dictionary()
         self.vwins = {}                        # 품종을 물어본 상품의 말(손님 이름 거르기용)
@@ -291,6 +300,8 @@ class Worker:
         self.ev.flush()
         won = lambda v: f"{v:,}원" if v is not None else "모름"
         mark = "✓ 규칙·AI 같음" if agree else "확인 필요"
+        if self.llmreg:   # LLM 등록 길: 이 줄은 규칙 기록일 뿐 서버 값이 아니다(서버 값은 위의 LLM등록·고치기 줄)
+            mark = "규칙 기록만" if not self.llm else f"{mark} · 기록만"
         print(f"           금액  {rec['no']:>4}번  {won(pick)}  ({mark}, 후보: {' / '.join(won(c) for c in cands) or '없음'})", flush=True)
         if self.poster and not self.llmreg:
             # 흔한 값으로 채운 금액은 짐작이라 보내지 않는다(서버는 금액이 꼭 있어야 하고, 틀린 금액 등록이 가장 나쁨)
@@ -403,6 +414,8 @@ def main():
     ap.add_argument("--workers", type=int, default=3, help="화면 글자 읽기 프로세스 수")
     ap.add_argument("--chat", help="시험: 채팅 다시보기 파일(yt-dlp live_chat.json) — 손님이 친 번호를 근거로")
     ap.add_argument("--no-llm", action="store_true", help="금액 1순위를 규칙만으로(맥 LLM을 띄우지 않음)")
+    ap.add_argument("--gemma", action="store_true",
+                    help="LLM 등록 길에서도 맥 LLM(Gemma)을 띄워 금액·품종 답을 기록에 남김(견주기용 — 서버로는 보내지 않음). 규칙 등록은 늘 띄움")
     ap.add_argument("--post", metavar="SERVER", help="확정 상품을 라이브지니 서버에 등록(예: https://livegenie.kr)")
     ap.add_argument("--token-file", help="--post: 일꾼 토큰 파일(없으면 환경변수 LG_SCREEN_TOKEN_FILE)")
     ap.add_argument("--video-id", help="--post: 유튜브 영상 번호(기본: 주소에서 뽑음)")

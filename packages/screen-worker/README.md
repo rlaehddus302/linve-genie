@@ -10,7 +10,7 @@ uv venv -p 3.12 .venv
 VIRTUAL_ENV=$PWD/.venv uv pip install -r requirements.lock.txt      # 정확히 같은 버전
 brew install ffmpeg
 ```
-- 맥 전용 부품: Apple Vision OCR(ocrmac), MLX(Whisper·Gemma). 리눅스/GPU에서는 `STT_BACKEND=faster`(faster-whisper), `LLM_BACKEND=llamacpp`로 바꿀 수 있다. OCR은 아직 맥 전용.
+- 맥 전용 부품: Apple Vision OCR(ocrmac), MLX(Whisper, 그리고 규칙 등록·`--gemma`에서만 Gemma — D-SCR-GEMMA-01). 리눅스/GPU에서는 `STT_BACKEND=faster`(faster-whisper), `LLM_BACKEND=llamacpp`로 바꿀 수 있다. OCR은 아직 맥 전용.
 
 ## 2. 데이터
 공유받은 데이터 묶음을 같은 곳에 풀고 위치를 알려 준다.
