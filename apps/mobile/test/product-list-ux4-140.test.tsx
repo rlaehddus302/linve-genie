@@ -187,3 +187,14 @@ describe('상품 줄 손님 캡슐 (D-UX4-206)', () => {
     expect(fit.more).toBeGreaterThan(0)
   })
 })
+
+// D-UX4-207 (사용자 "상품 목록에서 아직 찜이 없어요 뜰 때랑 찜 들어올 때랑 높이가 다르다"): 품종 아랫줄은 찜 없음 글이든 손님 캡슐이든 같은 높이 칸
+describe('상품 줄 아랫줄 높이 (D-UX4-207)', () => {
+  it('"아직 찜이 없어요" 칸과 손님 캡슐 칸이 같은 최소 높이·같은 위아래 여백', async () => {
+    await open(worldWith(VIEW))
+    const empty = screen.getAllByTestId('product-row-empty')[0]!.parentElement!
+    const buyers = screen.getByRole('list', { name: '218번 찜한 손님' })
+    for (const key of ['minHeight', 'marginTop', 'marginBottom'] as const) expect(getComputedStyle(empty)[key], key).toBe(getComputedStyle(buyers)[key])
+    expect(getComputedStyle(buyers).minHeight).toBe('24px')
+  })
+})

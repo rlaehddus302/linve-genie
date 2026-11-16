@@ -17,7 +17,7 @@
 // D-RETRO-54 (복기 F7): 메뉴 줄 [찜 넣기] — 누르면 메뉴 자리에 손님 이름·전화번호 끝 네 자리 칸이 나오고 [닫기 | 찜 넣기]로 그 상품에 문자찜을 넣는다(ClaimAdd). 옵션 상품·끝난 라이브는 없다.
 import { displayNickname, productTitle } from '@livejjim/core/format'
 import { memo, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
-import { Animated, Keyboard, LayoutAnimation, Platform, View } from 'react-native'
+import { Animated, Easing, Keyboard, LayoutAnimation, Platform, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
 import { ProductLabelAction, QueueLabelButton } from '../ProductLabelAction.tsx'
@@ -141,7 +141,9 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
   const { p, fontScale } = useKit()
   const [width, setWidth] = useState(0)
   // 확인 중 상품은 주황 줄 "확인 중 · 기다리는 찜 n건 · 눌러서 확정하기" (D-RETRO-90)
-  const attention = tentativeAttention(product, waiting) ?? rowAttention(product, conflicts)
+  // 등록 확인 전(확인 중) 상품은 주황 글 대신 … 움직임 (D-UX4-207) — 주황 줄은 찜이 겹친 상품(rowAttention)만
+  const pending = tentativeAttention(product, waiting)
+  const attention = pending === null ? rowAttention(product, conflicts) : null
   const { tags, keep } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id), undefined, outside)
   // 손님 캡슐은 한 줄에 들어가는 만큼만, 나머지는 [+N] — 줄을 넘기지 않는다 (D-UX4-206)
   const fit = fitTags(tags, width, TYPE.meta * Math.min(fontScale, MAX_FONT_SCALE), keep)
@@ -186,18 +188,24 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
           <View testID="product-row-main" style={{ flex: 1, minWidth: 0 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
               {/* 품종이 비면 "-" 대신 빨간 글로 알린다 (D-UX4-206 — 옛 D-UX4-111: 칸만 비웠다) */}
+              {/* 확인 중 상품의 빈 품종·가격은 글 대신 … 움직임 (D-UX4-207, 사용자 "그런거 빨갛게 띄우지 말고, ... 애니메이션으로") */}
               <View {...(name === '' ? {} : { testID: 'product-row-name' })} style={{ flex: 1, minWidth: 0 }}>
-                {name === '' ? <Txt step="nav" weight="book" ink={p.dangerText} numberOfLines={1} testID="product-row-no-name">{NO_NAME}</Txt> : <Txt step="nav" weight="book">{name}</Txt>}
+                {name !== '' ? <Txt step="nav" weight="book">{name}</Txt> : pending !== null ? <WaitDots label={NAME_WAITING} line={NAV_LINE} testID="product-row-name-dots" /> : <Txt step="nav" weight="book" ink={p.dangerText} numberOfLines={1} testID="product-row-no-name">{NO_NAME}</Txt>}
               </View>
               <View testID="product-row-price" style={{ flexShrink: 0 }}>
-                {/* 가격이 빈 확인 중 상품은 "가격 듣는 중"을 흐리게 (D-RECOG-22) */}
-                <Txt step="nav" weight="medium" right numberOfLines={1} {...(product.price === null ? { ink: p.placeholder } : {})}>{priceWords(product.price)}</Txt>
+                {product.price === null && pending !== null ? <WaitDots label={priceWords(null)} line={NAV_LINE} testID="product-row-price-dots" /> : (
+                  // 가격이 빈 상품은 "가격 듣는 중"을 흐리게 (D-RECOG-22)
+                  <Txt step="nav" weight="medium" right numberOfLines={1} {...(product.price === null ? { ink: p.placeholder } : {})}>{priceWords(product.price)}</Txt>
+                )}
               </View>
             </View>
             {/* 아랫줄은 토스처럼 윗줄에 바짝 붙는다 (D-UX4-203) */}
             <View style={{ marginVertical: SUB_PULL }}>
-            {attention !== null ? (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
+            {pending !== null ? (
+              // 확인 중 — 글 대신 … 움직임. 읽어 주기는 "확인 중 · 기다리는 찜 n건 · 눌러서 확정하기" 그대로 (D-UX4-207)
+              <View style={SUB_LINE}><WaitDots label={`${pending.who} ${pending.what}`} line={CHIP_HEIGHT} testID="product-row-pending" /></View>
+            ) : attention !== null ? (
+              <View style={[SUB_LINE, { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }]}>
                 <Txt step="meta" weight="bold" ink={p.warnText}>
                   {attention.who}
                 </Txt>
@@ -207,11 +215,12 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
               </View>
             ) : tags.length === 0 ? (
               // 찜이 없으면 회색 글 (D-UX4-206)
-              <Txt step="meta" ink={p.placeholder} numberOfLines={1} testID="product-row-empty">{NO_CLAIMS}</Txt>
+              // 찜 캡슐 줄과 같은 높이 — 찜이 들어와도 줄 높이가 그대로 (D-UX4-207)
+              <View style={SUB_LINE}><Txt step="meta" ink={p.placeholder} numberOfLines={1} testID="product-row-empty">{NO_CLAIMS}</Txt></View>
             ) : (
               // 찜한 손님 캡슐 — 1등 금색 · 대기 회색 · 대기 밖 흐린 회색 (D-UX4-206, D-UX4-197 꼴로 되돌림). 한 줄만: 들어가는 만큼 놓고 나머지는 [+N],
               // 어림이 틀려도 줄을 넘기지 않고 캡슐 글이 … 로 줄어든다
-              <View role="list" aria-label={`${String(product.no)}번 찜한 손님`} testID="product-row-buyers" onLayout={(event) => setWidth(Math.floor(event.nativeEvent.layout.width))} style={{ flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: TAG_GAP, overflow: 'hidden', marginVertical: SPACE.xs }}>
+              <View role="list" aria-label={`${String(product.no)}번 찜한 손님`} testID="product-row-buyers" onLayout={(event) => setWidth(Math.floor(event.nativeEvent.layout.width))} style={[SUB_LINE, { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: TAG_GAP, overflow: 'hidden' }]}>
                 {fit.shown.map((tag, index) => (
                   <View key={`${tag.kind}-${String(index)}`} role="listitem" {...(tag.kind === 'out' ? { 'aria-label': `${tag.text} 대기 밖` } : {})} style={[tagStyle(tag.kind === 'win' ? p.goldBg : p.soft), { flexShrink: 1, minWidth: 0 }, tag.kind === 'out' ? { opacity: OUTSIDE_DIM } : null]}>
                     <Txt step="meta" weight={tag.kind === 'win' ? 'bold' : 'medium'} ink={tag.kind === 'win' ? p.goldText : p.textSub} numberOfLines={1}>
@@ -252,6 +261,44 @@ const ROW_PAD_Y = 10
 const CHIP_HEIGHT = 24
 /** 손님 캡슐 모양 */
 const tagStyle = (fill: string) => ({ height: CHIP_HEIGHT, justifyContent: 'center' as const, paddingHorizontal: TAG_PAD_X + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous' as const, backgroundColor: fill })
+/** 품종 아랫줄 칸 — 찜 없음 글·손님 캡슐·확인 중 … 모두 같은 높이 (D-UX4-207, 사용자 "아직 찜이 없어요 뜰 때랑 찜 들어올 때랑 높이가 다르다") */
+const SUB_LINE = { minHeight: CHIP_HEIGHT, marginVertical: SPACE.xs, justifyContent: 'center' as const }
+/** 윗줄(17) 글 줄 높이 — … 움직임이 글과 같은 자리를 차지하게 */
+const NAV_LINE = Math.round(TYPE.nav * 1.4)
+/** 확인 중 상품의 빈 품종 읽어 주기 */
+export const NAME_WAITING = '품종 듣는 중'
+
+/**
+ * 확인 중 … 움직임 (D-UX4-207): 회색 점 셋이 차례로 짙어졌다 옅어진다(채팅의 "입력 중" 점처럼). 글이 아니라 읽어 주기 이름(label)만 있다.
+ * 웹·시험은 움직이지 않는 점 셋
+ */
+function WaitDots({ label, line, testID }: { readonly label: string; readonly line: number; readonly testID: string }) {
+  const { p } = useKit()
+  const phase = useRef(new Animated.Value(0)).current
+  useEffect(() => {
+    if (Platform.OS === 'web') return
+    const run = Animated.loop(Animated.timing(phase, { toValue: 1, duration: DOTS_MS, easing: Easing.linear, useNativeDriver: true }))
+    run.start()
+    return () => run.stop()
+  }, [phase])
+  return (
+    <View role="img" aria-label={label} testID={testID} style={{ height: line, flexDirection: 'row', alignItems: 'center', gap: DOT_GAP }}>
+      {DOT_STEPS.map((steps, index) => (
+        <Animated.View key={index} style={{ width: DOT, height: DOT, borderRadius: DOT / 2, borderCurve: 'continuous', backgroundColor: p.placeholder, opacity: Platform.OS === 'web' ? DOT_STILL : phase.interpolate({ inputRange: DOT_TIMES, outputRange: steps }) }} />
+      ))}
+    </View>
+  )
+}
+
+/** 점 셋이 차례로 짙어지는 마디 — 한 바퀴(0→1)를 셋으로 나눠 점마다 한 마디씩 짙다. 처음과 끝이 같아 이음매 없이 돈다 */
+const DOT_TIMES = [0, 1 / 3, 2 / 3, 1]
+const DOT_DIM = 0.3
+const DOT_STEPS = [[1, DOT_DIM, DOT_DIM, 1], [DOT_DIM, 1, DOT_DIM, DOT_DIM], [DOT_DIM, DOT_DIM, 1, DOT_DIM]]
+const DOT_STILL = 0.6
+const DOT = 6
+const DOT_GAP = 4
+const DOTS_MS = 1200
+
 /** 품종을 못 알아들은 상품 (D-UX4-206) */
 export const NO_NAME = '상품명을 인식하지 못했어요'
 /** 찜이 아직 없는 상품 (D-UX4-206) */

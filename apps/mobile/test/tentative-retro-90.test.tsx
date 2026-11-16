@@ -131,8 +131,11 @@ describe('상품 목록의 확인 중 표시 (D-RETRO-90)', () => {
   it('확인 중 상품 줄에 "확인 중"과 기다리는 찜 수가 보이고, 영어 상태값·까닭 낱말은 화면 어디에도 없다', async () => {
     await open(worldWith({ ...MISMATCH, claims: [...(MISMATCH.claims ?? []), waiting('c3', 334, 'u1', 14)], pending: [...(MISMATCH.pending ?? []), slot(334, ['c3'], ['u1'])] }))
     const row = within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 334번' })
-    expect(within(row).getByText(TENTATIVE_TAG)).toBeTruthy()
-    expect(within(row).getByText('· 기다리는 찜 1건 · 눌러서 확정하기')).toBeTruthy()
+    // D-UX4-207로 바뀐 기대 (사용자 "확인 중 눌러서 확정하기 이런 말 뜨는데 그런거 빨갛게 띄우지 말고, ... 애니메이션으로 넣어줘"; 옛 D-RETRO-90: 주황 글 "확인 중 · 기다리는 찜 1건 · 눌러서 확정하기"):
+    // 줄에는 글 대신 … 점 셋, 읽어 주기는 그 문장 그대로. 주황 바탕도 없다
+    expect(within(row).queryByText(TENTATIVE_TAG)).toBeNull()
+    expect(within(row).getByRole('img', { name: `${TENTATIVE_TAG} · 기다리는 찜 1건 · 눌러서 확정하기` })).toBeTruthy()
+    expect(getComputedStyle(within(row).getByTestId('product-row-fill')).backgroundColor).toBe('rgb(255, 255, 255)')
     const all = screen.getByTestId('console-screen').textContent ?? ''
     for (const raw of ['tentative', 'TENTATIVE', 'READY', 'NUMBER_MISMATCH', 'PRICE_SINGLE_SOURCE', 'WORKER', 'SYNC', '임시']) expect(all, raw).not.toContain(raw)
   })
@@ -496,7 +499,9 @@ describe('가격 없는 확인 중 — "N번"만 듣고 올라온 상품 (D-RECO
   it('상품 목록 줄·확인 카드에 "가격 듣는 중"이 보이고 그 상품을 0원으로 적지 않는다 (매출 합계 "0원"은 판 것이 없어서다)', async () => {
     await open(worldWith(BARE))
     const row = within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 356번' })
-    expect(row.textContent).toContain(PRICE_WAITING)
+    // D-UX4-207로 바뀐 기대 (사용자 "... 애니메이션으로"; 옛 D-RECOG-22: 줄에 흐린 글 "가격 듣는 중"): 줄의 빈 가격은 … 점 셋, 읽어 주기는 "가격 듣는 중". 확인 카드는 글 그대로
+    expect(within(row).getByRole('img', { name: PRICE_WAITING })).toBeTruthy()
+    expect(card().textContent).toContain(PRICE_WAITING)
     for (const text of [row.textContent ?? '', card().textContent ?? '']) expect(text).not.toMatch(/(^|[^0-9,])0원/)
   })
 
