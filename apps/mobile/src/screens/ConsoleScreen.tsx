@@ -151,7 +151,7 @@ export const SHOW_AFTER_BACK_MS = 600
 /** "그 상품 보기"로 스크롤할 때 그 줄 위에 남기는 자리 (붙는 탭 바 아래에 줄이 보이게) */
 const ROW_PEEK = 64
 
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, openStatement, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 정산서 화면 안에 겹쳐 그린다 */ readonly openStatement?: (buyer: string) => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, openStatement, openSearch, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 정산서 화면 안에 겹쳐 그린다 */ readonly openStatement?: (buyer: string) => void; /** 머리 돋보기 — 찾기를 진짜 쌓인 화면으로 연다 (D-UX4-204). 없으면(시험·웹) 이 화면 안에 찾기 칸을 연다 */ readonly openSearch?: (kind: 'products' | 'feed') => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -550,6 +550,12 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   // 돋보기: 상품 탭은 번호 숫자판, 찜 기록 탭은 닉네임 키보드 (D-UX4-201)
   const canSearch = (shownTab === 'products' && (searchDigits !== '' || productCountNow > 0)) || (shownTab === 'feed' && feedRows(data, names, broadcastId).length > 0)
   const startSearch = () => {
+    // 기기에서는 토스 검색처럼 따로 넘어가는 화면 (D-UX4-204, 사용자 "검색 눌렀을 때 별도 화면으로 넘어가서 사진4처럼")
+    if (openSearch !== undefined) {
+      if (searchPad) closeSearchPad()
+      openSearch(shownTab === 'products' ? 'products' : 'feed')
+      return
+    }
     tabHide.show()
     setSearching(true)
     if (shownTab === 'products') openSearchPad()
@@ -642,8 +648,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           <View testID="console-tabs-slot" collapsable={false} pointerEvents="box-none" onLayout={(event) => { tabHide.onLayout(event); tabsHeight.current = event.nativeEvent.layout.height }} style={{ marginHorizontal: -GUTTER, marginTop: -SPACE.sm, marginBottom: -SPACE.xs, pointerEvents: 'box-none' }}>
             <Animated.View testID="console-tabs" style={{ paddingHorizontal: GUTTER, paddingTop: TABS_TOP, paddingBottom: SPACE.xs, backgroundColor: p.surface, transform: [{ translateY: tabHide.offset }] }}>
               {/* 밑줄 글자 탭 (D-UX4-201, 사용자 "탭도 사진1 스타일로" — 토스 거래 내역 [전체 카드 입·출금…]): 화면 끝까지 옅은 선, 고른 탭은 굵은 검정 글·검정 밑줄. 넘치면 옆으로 민다 */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -GUTTER, borderBottomWidth: 1, borderBottomColor: p.border }} contentContainerStyle={{ paddingHorizontal: GUTTER - LINE_TAB_PAD + SPACE.xs }}>
-                <View role="tablist" aria-label="보기" style={{ flexDirection: 'row' }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -GUTTER, borderBottomWidth: 1, borderBottomColor: p.border }} contentContainerStyle={{ paddingHorizontal: LINE_TAB_EDGE }}>
+                <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.md }}>
                   {tabPills}
                 </View>
               </ScrollView>
@@ -768,21 +774,23 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   )
 }
 
-/** 밑줄 글자 탭 안쪽 양옆 여백 */
-const LINE_TAB_PAD = SPACE.sm + 2
+/** 밑줄 글자 탭 안쪽 양옆 여백 — 밑줄이 글보다 양옆으로 12씩 길다 (토스 거래 내역 탭 재기, D-UX4-203) */
+const LINE_TAB_PAD = SPACE.md
+/** 첫 탭 밑줄이 화면 끝에서 22 — 상품 줄 번호 네모와 같은 세로 줄 (D-UX4-203) */
+const LINE_TAB_EDGE = 22
 
 /**
- * 라이브 화면 탭 하나 (D-UX4-201 — 옛 알약 Pill): 토스 거래 내역 탭처럼 글자만, 고르면 굵은 검정 글과 글 폭만큼 검정 밑줄(탭 줄 아래 옅은 선 위에 겹친다),
+ * 라이브 화면 탭 하나 (D-UX4-201 — 옛 알약 Pill): 토스 거래 내역 탭처럼 글자만(16, D-UX4-203), 고르면 굵은 검정 글과 탭 폭만큼 검정 밑줄(글 양옆 12씩 더 길게, 탭 줄 아래 옅은 선 위에 겹친다),
  * 안 고르면 회색 글. 포인트 색은 쓰지 않는다
  */
 function LineTab({ on, label, ariaLabel, onPress }: { readonly on: boolean; readonly label: string; readonly ariaLabel: string; readonly onPress: () => void }) {
   const { p } = useKit()
   return (
     <Tap role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} pressScale={1} style={({ pressed }) => ({ minHeight: TOUCH.min, paddingHorizontal: LINE_TAB_PAD, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
-      <Txt step="nav" weight={on ? 'bold' : 'medium'} ink={on ? p.text : p.borderStrong} numberOfLines={1}>
+      <Txt step="bodyLarge" weight={on ? 'bold' : 'medium'} ink={on ? p.text : p.borderStrong} numberOfLines={1}>
         {label}
       </Txt>
-      {on ? <View aria-hidden testID="line-tab-bar" style={{ position: 'absolute', left: LINE_TAB_PAD - 2, right: LINE_TAB_PAD - 2, bottom: -1, height: 2.5, borderRadius: 2, borderCurve: 'continuous', backgroundColor: p.text }} /> : null}
+      {on ? <View aria-hidden testID="line-tab-bar" style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 3, borderRadius: 2, borderCurve: 'continuous', backgroundColor: p.text }} /> : null}
     </Tap>
   )
 }

@@ -167,50 +167,54 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
       aria-label={`상품 자세히 — ${String(product.no)}번`}
       testID="product-row"
       onPress={() => { Keyboard.dismiss(); onOpen(product.key) }}
-      pressScale={1}
       style={{ marginHorizontal: -GUTTER }}
     >
       {({ pressed }) => (
-      <Animated.View testID="product-row-fill" style={{ minHeight: TOUCH.min + SPACE.md, justifyContent: 'center', paddingVertical: SPACE.md, paddingHorizontal: GUTTER + ROW_SIDE, backgroundColor: bg }}>
-        {pressed ? <View aria-hidden pointerEvents="none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: pressedFill(p, attention !== null ? p.warnBg : p.surface) }} /> : null}
+      <Animated.View testID="product-row-fill" style={{ minHeight: TOUCH.min + SPACE.md, justifyContent: 'center', paddingVertical: ROW_PAD_Y, paddingLeft: GUTTER + ROW_LEFT, paddingRight: GUTTER + ROW_RIGHT, backgroundColor: bg }}>
+        {/* 꾹 누르면 토스 줄처럼 줄 안쪽에 둥근 회색 판이 깔리고 줄이 살짝 들어간다 (D-UX4-203; 들어가는 정도는 전역 규칙 D-UX4-202) */}
+        {pressed ? <View aria-hidden testID="product-row-pressed" pointerEvents="none" style={{ position: 'absolute', top: SPACE.xs / 2, bottom: SPACE.xs / 2, left: SPACE.sm, right: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressedFill(p, attention !== null ? p.warnBg : p.surface) }} /> : null}
         {/* 토스 거래 내역 줄처럼 (D-UX4-201): 왼쪽 번호(아이콘 자리, 줄 가운데) · 가운데 품종(위)과 찜(아래 회색 한 줄) · 품종 줄 오른쪽 가격 */}
         <View testID="product-row-line" aria-label={rowLine(product)} style={{ flexDirection: 'row', alignItems: 'center', gap: ROW_GAP }}>
-          <View aria-hidden testID="product-row-no" style={{ flexShrink: 0, minWidth: NO_WIDTH }}>
-            <Txt step="nav" weight="bold" numberOfLines={1}>{String(product.no)}</Txt>
+          {/* 번호는 토스 줄의 아이콘 자리 — 옅은 회색 둥근 네모 안에 진한 글 (D-UX4-203) */}
+          <View aria-hidden testID="product-row-no" style={{ flexShrink: 0, minWidth: NO_SIZE, height: NO_SIZE, paddingHorizontal: SPACE.xs, borderRadius: NO_RADIUS, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+            <Txt step="body" weight="bold" center numberOfLines={1}>{String(product.no)}</Txt>
           </View>
-          <View testID="product-row-main" style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <View testID="product-row-main" style={{ flex: 1, minWidth: 0 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
               {/* 품종이 비면 칸만 비운다 — "-"를 쓰지 않는다 (D-UX4-111) */}
               <View {...(name === '' ? {} : { testID: 'product-row-name' })} style={{ flex: 1, minWidth: 0 }}>
-                {name === '' ? null : <Txt step="nav" weight="medium">{name}</Txt>}
+                {name === '' ? null : <Txt step="nav" weight="book">{name}</Txt>}
               </View>
               <View testID="product-row-price" style={{ flexShrink: 0 }}>
                 {/* 가격이 빈 확인 중 상품은 "가격 듣는 중"을 흐리게 (D-RECOG-22) */}
-                <Txt step="nav" weight="bold" right numberOfLines={1} {...(product.price === null ? { ink: p.placeholder } : {})}>{priceWords(product.price)}</Txt>
+                <Txt step="nav" weight="medium" right numberOfLines={1} {...(product.price === null ? { ink: p.placeholder } : {})}>{priceWords(product.price)}</Txt>
               </View>
             </View>
+            {/* 아랫줄은 토스처럼 윗줄에 바짝 붙는다 (D-UX4-203) */}
+            <View style={{ marginTop: SUB_PULL }}>
             {attention !== null ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
-                <Txt step="body" weight="bold" ink={p.warnText}>
+                <Txt step="meta" weight="bold" ink={p.warnText}>
                   {attention.who}
                 </Txt>
-                <Txt step="body" ink={p.warnText}>
+                <Txt step="meta" ink={p.warnText}>
                   {attention.what}
                 </Txt>
               </View>
             ) : who.length === 0 ? null : (
               // 찜한 손님 — 회색 글 한 줄(토스 줄의 "내 KB국민은행 계좌" 자리). 1등 · 대기 · 대기 밖(더 옅게) 차례, 길면 두 줄까지
-              <Txt step="body" ink={p.placeholder} numberOfLines={2} role="list" aria-label={`${String(product.no)}번 찜한 손님`} testID="product-row-buyers">
+              <Txt step="meta" ink={p.placeholder} numberOfLines={2} role="list" aria-label={`${String(product.no)}번 찜한 손님`} testID="product-row-buyers">
                 {who.map((part) => (
                   <Fragment key={part.key}>
                     {part.lead}
-                    <Txt step="body" ink={part.kind === 'out' ? p.iconPressed : p.placeholder} role="listitem" {...(part.kind === 'out' ? { 'aria-label': `${part.name} 대기 밖` } : {})}>{part.name}</Txt>
+                    <Txt step="meta" ink={part.kind === 'out' ? p.iconPressed : p.placeholder} role="listitem" {...(part.kind === 'out' ? { 'aria-label': `${part.name} 대기 밖` } : {})}>{part.name}</Txt>
                   </Fragment>
                 ))}
               </Txt>
             )}
             {/* 채팅 의심 표시 (D-V3-129): 자동으로 고치지 않고 판매자가 확인한다 */}
-            {doubt === undefined ? null : <Txt step="body" weight="bold" ink={p.warnText} role="note" aria-label={`번호 확인 — ${String(product.no)}번`}>{doubt}</Txt>}
+            {doubt === undefined ? null : <Txt step="meta" weight="bold" ink={p.warnText} role="note" aria-label={`번호 확인 — ${String(product.no)}번`}>{doubt}</Txt>}
+            </View>
           </View>
         </View>
       </Animated.View>
@@ -219,12 +223,19 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
   )
 })
 
-/** 번호 칸 폭 — 세 자리 번호까지 품종 시작 줄이 맞는다 (토스 줄의 아이콘 자리) */
-const NO_WIDTH = 40
-/** 번호와 품종 사이 */
-const ROW_GAP = SPACE.lg
-/** 줄 안쪽 양옆 여백 — 목록 여백(12)에 더해 토스 줄처럼 화면 끝에서 17쯤 */
-const ROW_SIDE = 5
+/** 번호 네모 크기 — 토스 줄의 아이콘(34~40)과 같은 자리, 세 자리 번호까지 품종 시작 줄이 맞는다 (D-UX4-203) */
+const NO_SIZE = 40
+/** 번호 네모 모서리 — 토스 아이콘 판처럼 둥근 네모 */
+const NO_RADIUS = 12
+/** 번호와 품종 사이 — 토스 아이콘과 글 사이 12 */
+const ROW_GAP = SPACE.md
+/** 줄 안쪽 왼쪽·오른쪽 여백 — 목록 여백(12)에 더해 화면 끝에서 22 · 24 (토스 거래 내역 사진 재기, D-UX4-203) */
+const ROW_LEFT = 10
+const ROW_RIGHT = 12
+/** 줄 위아래 — 줄 간격 63쯤 (토스 62.6) */
+const ROW_PAD_Y = 10
+/** 아랫줄을 윗줄 쪽으로 당김 — 윗글 머리에서 아랫글 머리까지 20쯤 (토스 20.4) */
+const SUB_PULL = -2
 
 /** 찜 손님 한 줄의 조각: 앞 글(이음표·"대기 "·"대기 밖 ") + 이름 */
 export interface BuyerPart {

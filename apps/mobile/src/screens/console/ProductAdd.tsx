@@ -22,7 +22,7 @@ import { isTentative } from '../../lib/tentative.ts'
 import { localRecent, useVarietyLists, varietyChoices } from '../../lib/varieties.ts'
 import { formatWon } from '../../lib/words.ts'
 import { tapHaptic } from '../../native/haptics.ts'
-import { BigButton, ButtonRow, ErrorLine, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
+import { BigButton, ButtonRow, ErrorLine, PRESS_EASING, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { edgeSwipeCloses, startsEdgeSwipe, useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
 import { useConsoleApi } from './context.ts'
@@ -188,7 +188,7 @@ export function padKeyAt(x: number, y: number, width: number, pad: readonly (rea
 
 /** 키 하나의 꾸욱 움직임 (kit usePressMotion과 같은 시간·곡선) */
 function pressTo(value: Animated.Value, target: number) {
-  Animated.timing(value, { toValue: target, duration: target === 1 ? PRESS_IN_MS : PRESS_OUT_MS, easing: Easing.out(Easing.quad), useNativeDriver: true }).start()
+  Animated.timing(value, { toValue: target, duration: target === 1 ? PRESS_IN_MS : PRESS_OUT_MS, easing: PRESS_EASING, useNativeDriver: true }).start()
 }
 
 /**
