@@ -166,6 +166,8 @@ export const TENTATIVE_REASONS = Object.freeze({
   PRICE_DISAGREE: 'PRICE_DISAGREE',
   /** 자릿수·가격대가 이 판매자와 맞지 않음 */
   PRICE_OUT_OF_RANGE: 'PRICE_OUT_OF_RANGE',
+  /** 번호만 들려 가격 없이 올림 — 가격은 빈 칸(null), 채운 뒤에만 판매 (D-RECOG-22·31) */
+  PRICE_MISSING: 'PRICE_MISSING',
   /** 품종 답이 갈리거나 사전에 없음 */
   NAME_UNSURE: 'NAME_UNSURE',
   /** 다른 계정이 넣은 값 (계정 동기화) */

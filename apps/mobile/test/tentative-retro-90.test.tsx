@@ -84,6 +84,8 @@ describe('확인 중 상품의 낱말 (D-RETRO-90)', () => {
     }
     expect(reasonLine({ by: 'WORKER', reasons: ['NUMBER_MISMATCH'] })).toBe('말한 번호와 번호표가 달라요')
     expect(reasonLine({ by: 'WORKER', reasons: ['PRICE_DISAGREE'] })).toBe('가격이 두 가지로 들렸어요')
+    // 번호만 들려 가격 없이 올린 것 (D-RECOG-31)
+    expect(reasonLine({ by: 'WORKER', reasons: ['PRICE_MISSING', 'NAME_UNSURE'] })).toBe('가격을 아직 못 들었어요 · 품종을 확인해 주세요')
     // 둘까지, 값이 갈린 것이 앞
     expect(reasonLine({ by: 'WORKER', reasons: ['PRICE_SINGLE_SOURCE', 'NAME_UNSURE', 'NUMBER_MISMATCH'] })).toBe('말한 번호와 번호표가 달라요 · 가격을 한 번만 확인했어요')
   })

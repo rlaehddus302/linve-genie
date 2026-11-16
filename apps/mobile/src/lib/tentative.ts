@@ -20,6 +20,8 @@ export const REASON_WORDS: Readonly<Record<string, string>> = {
   NUMBER_MISMATCH: '말한 번호와 번호표가 달라요',
   NUMBER_OUT_OF_RANGE: '오늘 번호와 많이 달라요',
   PRICE_SINGLE_SOURCE: '가격을 한 번만 확인했어요',
+  /** 번호만 들려 가격 없이 올린 것 (D-RECOG-31) */
+  PRICE_MISSING: '가격을 아직 못 들었어요',
   PRICE_DISAGREE: '가격이 두 가지로 들렸어요',
   PRICE_OUT_OF_RANGE: '가격이 평소와 많이 달라요',
   NAME_UNSURE: '품종을 확인해 주세요',
@@ -28,7 +30,7 @@ export const REASON_WORDS: Readonly<Record<string, string>> = {
 }
 
 /** 한 줄에 먼저 보일 순서 — 값이 갈린 것(고를 것이 있는 것)이 앞, 근거가 하나뿐인 것이 뒤 */
-const REASON_ORDER = ['NUMBER_MISMATCH', 'PRICE_DISAGREE', 'OTHER_ACCOUNT', 'NUMBER_OUT_OF_RANGE', 'PRICE_OUT_OF_RANGE', 'NUMBER_SINGLE_SOURCE', 'PRICE_SINGLE_SOURCE', 'NAME_UNSURE'] as const
+const REASON_ORDER = ['NUMBER_MISMATCH', 'PRICE_DISAGREE', 'OTHER_ACCOUNT', 'NUMBER_OUT_OF_RANGE', 'PRICE_OUT_OF_RANGE', 'PRICE_MISSING', 'NUMBER_SINGLE_SOURCE', 'PRICE_SINGLE_SOURCE', 'NAME_UNSURE'] as const
 /** 한 줄에 보이는 까닭 수 */
 const REASON_SHOWN = 2
 

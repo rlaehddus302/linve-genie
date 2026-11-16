@@ -161,7 +161,7 @@
 
 1. **`_pend_add`** — 그 번호의 모음(`p`)을 처음 만들 때, 번호와 가격 후보가 하나라도 있으면 바로 임시 등록을 보낸다.
    - 본문: `post.make_body(...)`에 `observedAt`·`requestId`(지금 `_send`와 같은 식 `screen-<영상>-<번호>-<observed>`)·`tentative`를 더한다. `p["rid"]`에 요청 번호를 적어 둔다.
-   - `reasons`: 말한 번호가 아니면(`p["spoken"]`이 거짓) 또는 번호표를 아직 `TAG_FRAMES`장 못 봤으면 `NUMBER_SINGLE_SOURCE`, `r.get("pair_wait")`가 있으면 `NUMBER_MISMATCH`, 번호대 밖(`R.band_of`)이면 `NUMBER_OUT_OF_RANGE`, 가격이 말한 금액(`explicit`·`short`)과 아직 맞지 않으면 `PRICE_SINGLE_SOURCE`, 품종이 사전과 맞지 않으면 `NAME_UNSURE`.
+   - `reasons`: 말한 번호가 아니면(`p["spoken"]`이 거짓) 또는 번호표를 아직 `TAG_FRAMES`장 못 봤으면 `NUMBER_SINGLE_SOURCE`, `r.get("pair_wait")`가 있으면 `NUMBER_MISMATCH`, 번호대 밖(`R.band_of`)이면 `NUMBER_OUT_OF_RANGE`, 가격이 말한 금액(`explicit`·`short`)과 아직 맞지 않으면 `PRICE_SINGLE_SOURCE`, 품종이 사전과 맞지 않으면 `NAME_UNSURE`. 번호만 들려 가격 없이 올리면(번호 먼저, D-RECOG-31) `PRICE_MISSING` — 앱은 "가격을 아직 못 들었어요".
    - `candidates.no`: `pair_wait`의 `(said, screen)` 둘 — **따르기로 한 쪽을 `no`로 등록하고 둘 다 후보에 넣는다**(C절: 눈으로 헷갈리는 쌍은 말한 번호, 귀로 헷갈리는 쌍은 화면 번호, `R.pair_verdict`). `candidates.price`: 지금까지의 `p["votes"]` 금액과 말한 금액. `candidates.name`: LLM 이름과 사전 후보.
    - 임시 등록은 LLM 답을 기다리지 않아도 된다(B2·L1): 규칙이 번호와 가격을 한 구절에서 읽었으면 그것만으로 올리고 LLM은 확정에만 쓴다. 이 부분은 `_pend_add`보다 앞(`run`에서 받아쓰기 줄을 받는 곳)에 규칙 등록을 더하는 일이다.
    - 이미 `self.sent`에 있는 번호(다시 내놓은 상품)는 임시 등록하지 않는다 — 지금처럼 금액·이름 고치기 투표로만.
