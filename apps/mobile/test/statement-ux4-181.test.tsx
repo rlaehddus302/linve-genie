@@ -7,9 +7,9 @@ import { expect, it } from 'vitest'
 import { STATEMENT_SHIPPING_DEFAULT, type StatementInfo } from '../src/lib/broadcast-sales.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { LATER_LABEL } from '../src/screens/StatementInfo.tsx'
-import { StatementFooter, TOTAL_WORD } from '../src/screens/console/StatementControls.tsx'
+import { FOOTER_SIDE, StatementFooter, TOTAL_WORD } from '../src/screens/console/StatementControls.tsx'
 import { StatementList } from '../src/screens/console/StatementList.tsx'
-import { PALETTE } from '../src/ui/kit/tokens.ts'
+import { GUTTER, PALETTE } from '../src/ui/kit/tokens.ts'
 import { makeWorld } from './screen-support.tsx'
 import { BROADCAST, BROADCAST_VIEW, buyer, claim, fullView, product } from './support.ts'
 
@@ -40,13 +40,14 @@ it('상품별 줄: "상품명 · n개" 한 줄, 그 아래 산 구매자마다 �
   for (const tag of tags) expect(getComputedStyle(tag).backgroundColor).toBe(rgb(PALETTE.light.goldBg))
 })
 
-it('구매자별 줄: 닉네임은 회색 둥근 네모(단추 모양), 개수는 금액 왼쪽 같은 줄 (D-UX4-182)', () => {
+// 닉네임 바탕 옛 기대(D-UX4-182): 회색 surfaceAlt. 새 기대(D-UX4-189, 사용자 "구매자별 정산서 목록에서 구매자 닉네임 배경 금색으로 해줘"): 금색
+it('구매자별 줄: 닉네임은 금색 둥근 네모(단추 모양), 개수는 금액 왼쪽 같은 줄 (D-UX4-182·189)', () => {
   const world = makeWorld()
   render(world.wrap(<StatementList tab="buyers" rows={[{ key: 'u1', no: null, label: '가람', money: 30000, qty: 2 }]} sent={['u1']} rowLabel={row => `${row.label} 정산서`} onRow={() => {}} />))
   const row = screen.getByRole('button', { name: '가람 정산서' })
   const name = within(row).getByTestId('buyer-name')
   expect(name.textContent).toBe('가람')
-  expect(getComputedStyle(name).backgroundColor).toBe(rgb(PALETTE.light.surfaceAlt))
+  expect(getComputedStyle(name).backgroundColor).toBe(rgb(PALETTE.light.goldBg))
   // 캡슐(pill)이 아니라 단추 같은 둥근 네모
   expect(getComputedStyle(name).borderTopLeftRadius).not.toBe('999px')
   const qty = within(row).getByTestId('buyer-qty')
@@ -78,8 +79,10 @@ it('정산 정보는 아래 판이 아니라 머리까지 덮는 다음 화면 �
   expect(screen.getByRole('list', { name: '구매자별 정산' })).toBeTruthy()
 })
 
-// D-UX4-186 (사용자 2026-11-16 "정산서 상품별에서 닉네임도 개수 옆에 붙여서 한줄로 만들어. 글자크기도 번호, 품종, 개수, 닉네임, 가격 다 일정하게 맞추고")
-it('상품별 줄: 번호 · 품종 · 개수 · 닉네임 캡슐이 한 줄 칸에 이어지고, 가격까지 글자 크기가 모두 같다 (D-UX4-186)', () => {
+// D-UX4-186 (사용자 2026-11-16 "정산서 상품별에서 닉네임도 개수 옆에 붙여서 한줄로 만들어 …")
+// 글자 크기 옛 기대(186): 번호·품종·개수·닉네임·가격 모두 16. 새 기대(D-UX4-188, 사용자 "텍스트 크기 맞추니까 가독성 별로다. 가독성 좋게 다시 맞춰"):
+// 품종·가격 16 굵게, 번호·개수·닉네임 14 — 한 줄 칸은 그대로
+it('상품별 줄: 번호 · 품종 · 개수 · 닉네임 캡슐이 한 줄 칸에 이어지고, 품종·가격은 크게·번호·개수·닉네임은 한 단계 작게 (D-UX4-186·188)', () => {
   const world = makeWorld()
   const buyers = new Map([['k1', ['가람', '나무']]])
   render(world.wrap(<StatementList tab="products" rows={[{ key: 'k1', no: 7, label: '색금', money: 40000, qty: 3 }]} sent={[]} buyers={buyers} rowLabel={row => row.label} />))
@@ -88,6 +91,19 @@ it('상품별 줄: 번호 · 품종 · 개수 · 닉네임 캡슐이 한 줄 칸
   // 닉네임 묶음은 품종·개수와 같은 가로 칸 안 (옛 D-UX4-182: 아랫줄)
   expect(tags.parentElement).toBe(name.parentElement)
   expect(getComputedStyle(tags.parentElement!).flexDirection).toBe('row')
-  const sizes = new Set([screen.getByText('7번'), name, ...within(tags).getAllByText(/가람|나무/), screen.getByText('40,000원')].map(node => getComputedStyle(node).fontSize))
-  expect([...sizes]).toEqual(['16px'])
+  const size = (node: Element) => getComputedStyle(node).fontSize
+  expect([size(name), size(screen.getByText('40,000원'))]).toEqual(['16px', '16px'])
+  const qty = screen.getByText('· 3개')
+  // 품종은 개수보다 굵다
+  expect(Number(getComputedStyle(name).fontWeight)).toBeGreaterThan(Number(getComputedStyle(qty).fontWeight))
+  expect([size(screen.getByText('7번')), size(qty), ...within(tags).getAllByText(/가람|나무/).map(size)]).toEqual(['14px', '14px', '14px', '14px'])
+})
+
+// D-UX4-190 (사용자 2026-11-16 "맨 아래 총액, 보내기 있는 영역 너비를 조금 줄여줘"): 옛 기대 양옆 GUTTER → 양쪽 12씩 더 안쪽
+it('아래 고정 판은 화면 여백보다 양쪽 12씩 더 안쪽 (D-UX4-190)', () => {
+  const world = makeWorld()
+  render(world.wrap(<StatementFooter total={30000} qty={2} buyers={1} bottom={12} onSend={() => {}} />))
+  const footer = screen.getByTestId('statement-footer')
+  expect(FOOTER_SIDE).toBe(GUTTER + 12)
+  expect([getComputedStyle(footer).left, getComputedStyle(footer).right]).toEqual([`${FOOTER_SIDE}px`, `${FOOTER_SIDE}px`])
 })

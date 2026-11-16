@@ -152,6 +152,19 @@ export interface LiveBroadcastItem {
   readonly channelTitle?: string | null
 }
 
+/** 최근 연결한 채널을 몇 곳까지 찾는지 (D-UX4-187, 사용자 "최근 5군데 채널 다 보여주도록 해" — 옛 3곳) */
+export const RECENT_CHANNELS_MAX = 5
+
+/**
+ * 최근 연결한 채널 한 곳 (D-UX4-187): 최근 연결한 것이 먼저. 지금 라이브·예정이 있으면 그 영상(videoId — broadcasts의 같은 줄),
+ * 없으면 null. 채널 이름은 바깥 글(글자로만).
+ */
+export interface RecentChannel {
+  readonly channelId: string
+  readonly channelTitle: string | null
+  readonly videoId: string | null
+}
+
 /** 처음 잇는 채널 확인 줄 (YT-11 서버 잇기, D-YT-SRV-03 — 코드·확인 방식은 INV1 그대로) */
 export const FIRST_CHANNEL_CONFIRM_MESSAGE = '처음 잇는 채널이에요. 이 방송이 맞나요?'
 
@@ -444,7 +457,7 @@ export class YoutubeSystem {
 
   // ── 내 라이브 목록 (AC-Y1-10) ─────────────────────────────────────────
 
-  async liveBroadcasts(sellerId: string): Promise<{ kind: 'ok'; broadcasts: LiveBroadcastItem[] } | { kind: 'rejected'; status: number; code: LinkCode }> {
+  async liveBroadcasts(sellerId: string): Promise<{ kind: 'ok'; broadcasts: LiveBroadcastItem[]; channels?: RecentChannel[] } | { kind: 'rejected'; status: number; code: LinkCode }> {
     if (this.web !== null) return this.#recentBroadcasts(sellerId, this.web)
     const view = await this.connections.status(sellerId)
     if (view.status === 'NOT_CONNECTED') return { kind: 'rejected', status: 409, code: 'YOUTUBE_NOT_CONNECTED' }
@@ -755,19 +768,26 @@ export class YoutubeSystem {
    * 최근 채널 찾기 (YT-11 AC2, D-YT-SRV-03 목록 ②): 최근 이은 채널 3개의 공개 채널 라이브 주소에서 지금·예정 공개 방송을 찾는다(채널마다 한 번, 하나씩).
    * 부를 때만 찾는다(되풀이하지 않음). 막히거나 못 읽은 채널은 건너뛴다. 운영자가 끄면 거절
    */
-  async #recentBroadcasts(sellerId: string, web: WebChatSource): Promise<{ kind: 'ok'; broadcasts: LiveBroadcastItem[] } | { kind: 'rejected'; status: number; code: LinkCode }> {
+  async #recentBroadcasts(sellerId: string, web: WebChatSource): Promise<{ kind: 'ok'; broadcasts: LiveBroadcastItem[]; channels: RecentChannel[] } | { kind: 'rejected'; status: number; code: LinkCode }> {
     if (web.off) return { kind: 'rejected', status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
     const list: Omit<LiveBroadcastItem, 'linkedBroadcast'>[] = []
-    for (const channel of await linkedChannels(this.#options.db, sellerId, 3)) {
+    // 라이브가 없는 채널도 최근 순서 그대로 알린다 (D-UX4-187). 채널은 한 곳씩 차례로 본다 — 한꺼번에 여러 번 부르면 유튜브가 막을 수 있다
+    const channels: RecentChannel[] = []
+    for (const channel of await linkedChannels(this.#options.db, sellerId, RECENT_CHANNELS_MAX)) {
       let page: WatchPage
       try {
         page = await web.channelLive(channel.id)
       } catch (error) {
         if (error instanceof WebChatError && error.kind === 'OFF') return { kind: 'rejected', status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
         if (error instanceof WebChatError && error.kind === 'BLOCKED') this.#options.log({ level: 'warn', code: 'YT_CHAT_BLOCKED' })
+        channels.push({ channelId: channel.id, channelTitle: channel.title, videoId: null })
         continue
       }
-      if ((page.state !== 'LIVE' && page.state !== 'UPCOMING') || page.videoId === null || page.channelId !== channel.id) continue
+      if ((page.state !== 'LIVE' && page.state !== 'UPCOMING') || page.videoId === null || page.channelId !== channel.id) {
+        channels.push({ channelId: channel.id, channelTitle: page.channelId === channel.id ? (page.channelTitle ?? channel.title) : channel.title, videoId: null })
+        continue
+      }
+      channels.push({ channelId: channel.id, channelTitle: page.channelTitle ?? channel.title, videoId: page.videoId })
       const at = page.startedAt === null ? null : new Date(page.startedAt).toISOString()
       list.push({
         videoId: page.videoId,
@@ -781,7 +801,7 @@ export class YoutubeSystem {
     }
     const linked = await openLinksForVideo(this.#options.db, sellerId, list.map((item) => item.videoId))
     const byVideo = new Map(linked.map((row) => [row.videoId, row.broadcastId]))
-    return { kind: 'ok', broadcasts: list.map((item) => ({ ...item, linkedBroadcast: byVideo.get(item.videoId) ?? null })) }
+    return { kind: 'ok', broadcasts: list.map((item) => ({ ...item, linkedBroadcast: byVideo.get(item.videoId) ?? null })), channels }
   }
 
   /** 끊기 (AC-Y1-13): 수집기가 멈추고, 그 방송의 기다리던 실시간 채팅 감사는 보내지 못함(NO_LINK) */

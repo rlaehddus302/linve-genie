@@ -501,6 +501,13 @@ export interface LiveBroadcastItem {
   readonly channelTitle?: string | null
 }
 
+/** 최근 연결한 채널 한 곳 (D-UX4-187, 최근 연결한 것이 먼저) — 지금 라이브·예정이 있으면 그 영상(broadcasts의 같은 줄), 없으면 null */
+export interface RecentChannel {
+  readonly channelId: string
+  readonly channelTitle: string | null
+  readonly videoId: string | null
+}
+
 export type CollectorStatus = 'STARTING' | 'LIVE' | 'RETRYING' | 'STOPPED' | 'FINISHED' | 'CHAT_ENDED'
 
 /** 수집 상태 (문장은 서버 것을 그대로 보인다 — 받는 방식 mode는 보이지 않는다) */

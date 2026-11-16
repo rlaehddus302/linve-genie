@@ -353,6 +353,33 @@ describe('AC6 운영자 끄기, AC9 구글 연결과 무관, AC5 운영 상태',
   })
 })
 
+describe('D-UX4-187 최근 연결한 채널 5곳', () => {
+  // 사용자 2026-11-16 "최근 연결한 채널 라이브 보여주는거 젤 최근 1개만 보여주는걸로 되어있는걸로 보이는데, 최근 5군데 채널 다 보여주도록 해. 맨위가 젤 최근으로."
+  it('최근 이은 채널 5곳을 최근 것부터 알린다 — 라이브가 없는 채널도 videoId null로, 여섯째 채널은 찾지 않는다', async () => {
+    const w = await world()
+    const seller = await addSeller(w)
+    const videos = []
+    for (let i = 0; i < 6; i++) {
+      const linked = await webLinked(w, { seller, video: w.web.addVideo({ channelTitle: `채널${String(i + 1)}` }), date: `2026-10-${String(10 + i)}` })
+      videos.push(linked.video)
+      await pass(w, 60_000, 60_000)
+    }
+    // 채널2·채널4는 지금 라이브가 없다
+    videos[1]!.state = 'ended'
+    videos[3]!.state = 'ended'
+    const before = w.web.calls('channelLive')
+    const found = await client(w, seller.cookie).get('/api/youtube/live-broadcasts')
+    expect(found.status).toBe(200)
+    const channels = found.body.channels as { channelId: string; channelTitle: string | null; videoId: string | null }[]
+    expect(channels.map((row) => row.channelTitle)).toEqual(['채널6', '채널5', '채널4', '채널3', '채널2'])
+    expect(channels.map((row) => row.videoId)).toEqual([videos[5]!.videoId, videos[4]!.videoId, null, videos[2]!.videoId, null])
+    // 라이브 줄(broadcasts)은 옛 모양 그대로 — 라이브인 채널만
+    expect((found.body.broadcasts as { videoId: string }[]).map((row) => row.videoId)).toEqual([videos[5]!.videoId, videos[4]!.videoId, videos[2]!.videoId])
+    // 채널마다 한 번씩만 (여섯째는 부르지 않는다)
+    expect(w.web.calls('channelLive') - before).toBe(5)
+  })
+})
+
 describe('D-YT-SRV-20 한 방송은 유튜브에서 한 번만 읽는다', () => {
   it('두 판매자 계정이 같은 영상을 이으면 채팅 요청은 한 수집기 만큼만 가고, 두 계정 모두 같은 채팅을 각자 기록한다', async () => {
     const w = await world()

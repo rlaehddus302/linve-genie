@@ -19,6 +19,9 @@ export const TOTAL_WORD = '총액'
 /** 총계의 구매자 수·개수 한 줄 */
 export const totalLine = (buyers: number, qty: number): string => `구매자 ${buyers}명 · ${qty}개`
 
+/** 아래 고정 판 양옆 여백 (D-UX4-190, 사용자 "맨 아래 총액, 보내기 있는 영역 너비를 조금 줄여줘" — 옛: 화면 여백 GUTTER와 같음) — 양쪽 12씩 더 들어간다 */
+export const FOOTER_SIDE = GUTTER + SPACE.md
+
 /** 떠 있는 판 그림자 (매출 캡슐 D-UX4-140과 같은 결, 위아래로 고르게) */
 const FLOAT = { shadowColor: '#000000', shadowOpacity: 0.12, shadowRadius: 12, shadowOffset: { width: 0, height: 2 }, elevation: 6 } as const
 
@@ -50,7 +53,7 @@ export function StatementFooter({ total, qty, buyers, bottom, onSend, onLayout }
   const { p } = useKit()
   return (
     <View testID="statement-footer" onLayout={onLayout}
-      style={{ position: 'absolute', left: GUTTER, right: GUTTER, bottom, flexDirection: 'row', alignItems: 'center', gap: SPACE.md,
+      style={{ position: 'absolute', left: FOOTER_SIDE, right: FOOTER_SIDE, bottom, flexDirection: 'row', alignItems: 'center', gap: SPACE.md,
         paddingVertical: SPACE.md, paddingLeft: SPACE.xl, paddingRight: SPACE.md,
         backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', ...FLOAT }}>
       <View role="group" aria-label={`${TOTAL_WORD} ${salesMoney(total)} · ${totalLine(buyers, qty)}`} testID="statement-total" style={{ flex: 1, gap: 2 }}>

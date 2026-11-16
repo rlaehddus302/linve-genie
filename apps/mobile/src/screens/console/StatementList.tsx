@@ -45,8 +45,11 @@ function Divider() {
   return <View aria-hidden style={{ height: 1, backgroundColor: p.border, marginHorizontal: SPACE.xl }} />
 }
 
-/** 상품별 줄 글자 크기 — 번호·품종·개수·닉네임·가격 모두 (D-UX4-186, 라이브 화면 상품 줄 16과 같다 D-UX3-84) */
+/** 상품별 줄 글자 크기 (D-UX4-188): 품종·가격 16 · 번호·개수·닉네임 14 (라이브 화면 상품 줄 16, D-UX3-84) */
 const STEP = 'bodyLarge'
+const SUB = 'meta'
+/** 번호 표·닉네임 캡슐 높이 — 같은 줄에서 키가 같게 */
+const CHIP_HEIGHT = 24
 
 function Money({ amount, step }: { readonly amount: number | null; readonly step?: typeof STEP }) {
   return amount === null
@@ -56,22 +59,23 @@ function Money({ amount, step }: { readonly amount: number | null; readonly step
 
 function Row({ row, tab, sent, buyers, label, onPress }: { readonly row: StatementRow; readonly tab: StatementTab; readonly sent: boolean; readonly buyers: readonly string[]; readonly label: string; readonly onPress?: (() => void) | undefined }) {
   const { p } = useKit()
-  // 상품별 줄 (D-UX4-186): 번호 · 품종 · 개수 · 산 구매자(금색 캡슐) · 가격을 한 줄에, 글자 크기는 모두 16(STEP).
-  // 한 줄에 다 안 들어가면 줄이지 않고 다음 줄로 넘긴다(가격은 늘 오른쪽).
+  // 상품별 줄 (D-UX4-186): 번호 · 품종 · 개수 · 산 구매자(금색 캡슐) · 가격을 한 줄에. 한 줄에 다 안 들어가면 줄이지 않고 다음 줄로 넘긴다(가격은 늘 오른쪽).
+  // 글자 크기 (D-UX4-188, 사용자 "텍스트 크기 맞추니까 가독성 별로다. 가독성 좋게 다시 맞춰" — 옛 186: 모두 16): 눈이 먼저 갈 품종·가격은 16 굵게,
+  // 거드는 번호·개수·닉네임은 14로 한 단계 작게 — 라이브 화면 상품 줄처럼 품종과 가격이 먼저 읽힌다. 번호·캡슐은 같은 높이(24)로 품종 줄 가운데에 맞춘다.
   const body = tab === 'products' ? <>
     <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, rowGap: SPACE.xs }}>
       {row.no !== null ? (
-        <View aria-hidden style={{ minWidth: 40, paddingHorizontal: SPACE.sm, paddingVertical: 2, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center' }}>
-          <Txt step={STEP} weight="medium" color="textSub">{`${row.no}번`}</Txt>
+        <View aria-hidden style={{ minWidth: 36, height: CHIP_HEIGHT, paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+          <Txt step={SUB} weight="medium" color="textSub">{`${row.no}번`}</Txt>
         </View>
       ) : null}
-      <Txt step={STEP} weight="medium">{row.label}<Txt step={STEP} color="textSub">{`${BUYER_JOIN}${row.qty}개`}</Txt></Txt>
+      <Txt step={STEP} weight="bold">{row.label}<Txt step={SUB} color="textSub">{`${BUYER_JOIN}${row.qty}개`}</Txt></Txt>
       {/* 산 구매자 — 라이브 화면 찜 꼬리표와 같은 금색 캡슐, 같은 글자 크기 */}
       {buyers.length > 0 ? (
         <View role="list" aria-label="산 구매자" testID="product-buyers" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: TAG_GAP, flexShrink: 1, maxWidth: '100%' }}>
           {buyers.map(name => (
-            <View key={name} role="listitem" style={{ paddingHorizontal: TAG_PAD_X, paddingVertical: 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.goldBg, maxWidth: '100%' }}>
-              <Txt step={STEP} weight="bold" ink={p.goldText} numberOfLines={1}>{name}</Txt>
+            <View key={name} role="listitem" style={{ height: CHIP_HEIGHT, justifyContent: 'center', paddingHorizontal: TAG_PAD_X + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.goldBg, maxWidth: '100%' }}>
+              <Txt step={SUB} weight="bold" ink={p.goldText} numberOfLines={1}>{name}</Txt>
             </View>
           ))}
         </View>
@@ -79,10 +83,11 @@ function Row({ row, tab, sent, buyers, label, onPress }: { readonly row: Stateme
     </View>
     <Money amount={row.money} step={STEP} />
   </> : <>
-    {/* 닉네임은 작은 단추 모양 회색 둥근 네모 · 보냄 꼬리표 · 오른쪽에 개수와 금액 (D-UX4-182) */}
+    {/* 닉네임은 작은 단추 모양 둥근 네모 · 보냄 꼬리표 · 오른쪽에 개수와 금액 (D-UX4-182).
+        바탕은 금색 (D-UX4-189, 사용자 "구매자별 정산서 목록에서 구매자 닉네임 배경 금색으로 해줘" — 옛: 회색 surfaceAlt) — 상품별 닉네임 캡슐과 같은 색 */}
     <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-      <View testID="buyer-name" style={{ flexShrink: 1, minHeight: 32, paddingHorizontal: SPACE.md, justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
-        <Txt step="body" weight="bold" numberOfLines={1}>{row.label}</Txt>
+      <View testID="buyer-name" style={{ flexShrink: 1, minHeight: 32, paddingHorizontal: SPACE.md, justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: p.goldBg }}>
+        <Txt step="body" weight="bold" ink={p.goldText} numberOfLines={1}>{row.label}</Txt>
       </View>
       {sent ? <View style={{ paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.secondary }}><Txt step="note" weight="medium" color="onSecondary">보냄</Txt></View> : null}
     </View>

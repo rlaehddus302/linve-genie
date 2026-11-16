@@ -6,7 +6,7 @@
 // - 방송 시작의 "주소 붙여넣기" 단계 (D-UX2-07): 클립보드에 유튜브 주소가 있으면 [붙여 넣기] 하나로 잇는다(앱으로 돌아올 때 다시 본다).
 //   옛 공식 읽기 서버(구글 연결로 읽음)도 앱에서 잇는다 — 연결돼 있으면 같은 잇기 칸, 아니면 "먼저 연결" 안내와 연결 화면(웹으로 열기)·[다시 확인].
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { CollectorView, ConnectionStatus, LinkView, LiveBroadcastItem, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
+import type { CollectorView, ConnectionStatus, LinkView, LiveBroadcastItem, RecentChannel, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../../api/client.ts'
 import { clipboardHasText } from '../../lib/clipboard.ts'
 import { liveLinkOf } from '../../lib/live-link.ts'
@@ -407,6 +407,10 @@ export function LinkUnknownChip({ onPress }: { readonly onPress: () => void }) {
 
 /** 링크 화면 "최근 연결한 채널의 라이브" 제목 (D-UX4-112 — 옛 "최근 이은 채널의 라이브") */
 export const RECENT_LIVE_TITLE = '최근 연결한 채널의 라이브가 있어요'
+/** 최근 연결한 채널 5곳 묶음 이름 (D-UX4-187 — 라이브가 없는 채널도 보인다) */
+export const RECENT_CHANNELS_TITLE = '최근 연결한 채널'
+/** 지금 라이브·예정이 없는 채널 줄의 회색 글 (D-UX4-187) */
+export const NO_LIVE_NOW = '지금 라이브가 없어요'
 /** 최근 라이브 줄의 플랫폼 그림 크기 (토스 계좌 줄의 은행 그림처럼 두 줄 높이) */
 const RECENT_ICON = 40
 /** 한 줄 글 끝이 흐려지는 폭 */
@@ -508,6 +512,8 @@ export interface AddressLinker {
 
 export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NEXT, disabled, enabled = true, onEdit, onUnknown, confirmNotice }: AddressLinkerOptions): AddressLinker {
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
+  /** 최근 연결한 채널 (최근 것이 먼저, D-UX4-187) — 옛 서버면 null(라이브 줄만) */
+  const [channels, setChannels] = useState<readonly RecentChannel[] | null>(null)
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -541,9 +547,11 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
   const search = useCallback(async () => {
     if (!enabled) return
     setRecent(null)
+    setChannels(null)
     try {
-      const { broadcasts } = await get<{ broadcasts: LiveBroadcastItem[] }>('/api/youtube/live-broadcasts')
+      const { broadcasts, channels: found } = await get<{ broadcasts: LiveBroadcastItem[]; channels?: RecentChannel[] }>('/api/youtube/live-broadcasts')
       setRecent(broadcasts)
+      setChannels(Array.isArray(found) ? found : null)
     } catch {
       setRecent([])
     }
@@ -676,7 +684,16 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
     }
   }
 
-  const recentTitle = webChat === null ? MY_CHANNEL_TITLE : RECENT_LIVE_TITLE
+  const recentTitle = webChat === null ? MY_CHANNEL_TITLE : channels !== null ? RECENT_CHANNELS_TITLE : RECENT_LIVE_TITLE
+  // 줄 차례 (D-UX4-187, 사용자 "최근 5군데 채널 다 보여주도록 해. 맨위가 젤 최근으로"): 서버가 준 최근 채널 차례대로 — 라이브·예정이 있으면 그 라이브 줄,
+  // 없으면 [연결] 없이 "지금 라이브가 없어요". 옛 서버(채널 목록 없음)면 라이브 줄만
+  const recentRows: readonly ({ readonly kind: 'live'; readonly item: LiveBroadcastItem } | { readonly kind: 'quiet'; readonly channel: RecentChannel })[] =
+    channels === null
+      ? (recent ?? []).map((item) => ({ kind: 'live' as const, item }))
+      : channels.map((channel) => {
+          const item = channel.videoId === null ? undefined : (recent ?? []).find((row) => row.videoId === channel.videoId)
+          return item === undefined ? { kind: 'quiet' as const, channel } : { kind: 'live' as const, item }
+        })
   // [붙여넣기]: 클립보드에 글이 있고 칸이 비었을 때만 (D-UX4-113 — 칸 바로 아래 왼쪽)
   const pasteButton = canPaste && address === '' ? <PasteButton onPaste={paste} /> : null
   const off = busy || disabled === true
@@ -705,13 +722,28 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
       {/* 최근 연결한 채널에서 지금 하는 라이브 (D-UX4-112 → D-UX4-113 → D-UX4-117): 서버에서 받아 한발 늦게 오므로 옅게 나타나며 올라온다(Appear).
           줄마다 왼쪽 채널 사진(라이브 중이면 홈처럼 빨간 테두리 + "라이브") · 굵은 채널 이름 한 줄(넘치면 끝이 흐려짐) · 오른쪽 회색 [연결] — 누르면 연결 확인 화면.
           (사용자 지시 "채널 아이콘(홈화면에 라이브 빨간표시 그거도 넣고) + 채널명만") 다른 라이브에 연결돼 있거나 예정이면 그 말만 회색으로 한 줄 더 */}
-      {(recent ?? []).length > 0 ? (
+      {recentRows.length > 0 ? (
         <Appear testID="recent-lives">
           <View role="group" aria-label={recentTitle} style={{ gap: SPACE.lg, paddingTop: SPACE.xxxl }}>
             <Txt step="body" weight="bold" color="textSub">
               {recentTitle}
             </Txt>
-            {(recent ?? []).map((item) => {
+            {recentRows.map((row) => {
+              if (row.kind === 'quiet') {
+                const quietName = channelName(row.channel.channelTitle)
+                return (
+                  <View key={`channel-${row.channel.channelId}`} testID="recent-live" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
+                    <ChannelPhoto channelId={row.channel.channelId} size={RECENT_ICON} live={false} testID="recent-live-avatar" />
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <FadeLine text={quietName} testID="recent-live-channel" step="bodyLarge" />
+                      <Txt step="body" color="textSub" numberOfLines={1} testID="recent-live-sub">
+                        {NO_LIVE_NOW}
+                      </Txt>
+                    </View>
+                  </View>
+                )
+              }
+              const item = row.item
               const other = item.linkedBroadcast !== null && item.linkedBroadcast !== broadcastId
               const title = item.title.trim() === '' ? NO_BROADCAST_TITLE : item.title
               // 내 채널 목록(구글 연결로 읽는 서버)에는 채널 이름이 없다 — 그때는 라이브 제목 ("(이름 없음)"을 보이지 않게)
@@ -798,7 +830,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
     edit(text)
     confirm(text)
   }
-  const knownChannel = (recent ?? []).find((item) => typeof item.channelId === 'string' && item.channelId !== '')?.channelId ?? null
+  // 가장 최근 채널 (D-UX4-187: 라이브가 없어도 최근 채널 차례의 첫 곳)
+  const knownChannel = channels?.[0]?.channelId ?? (recent ?? []).find((item) => typeof item.channelId === 'string' && item.channelId !== '')?.channelId ?? null
   // recheck: 클립보드에 글이 있는지 다시 본다 ([붙여넣기] 칩)
   return { fields, action, popup: <PopNote note={note} />, busy, recheck: peek, confirming, confirmBody, confirmAction, back, submitFound, knownChannel }
 }
