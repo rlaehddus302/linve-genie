@@ -9,6 +9,8 @@ import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { LATER_LABEL } from '../src/screens/StatementInfo.tsx'
 import { FOOTER_SIDE, StatementFooter, TOTAL_WORD } from '../src/screens/console/StatementControls.tsx'
 import { StatementList } from '../src/screens/console/StatementList.tsx'
+import { slideUnder, UNDER_DIM, UNDER_SHIFT } from '../src/screens/console/parts.tsx'
+import { Animated } from 'react-native'
 import { GUTTER, PALETTE } from '../src/ui/kit/tokens.ts'
 import { makeWorld } from './screen-support.tsx'
 import { BROADCAST, BROADCAST_VIEW, buyer, claim, fullView, product } from './support.ts'
@@ -98,24 +100,60 @@ it('구매자 정산서는 바깥 머리까지 덮는다 — 목록 칸 안이 �
   expect(getComputedStyle(page).top).toBe('0px')
 })
 
+// D-UX4-195 (사용자 2026-11-16 "화면 아직도 이상하다. 사진1이 현재. 사진2처럼 만들어야 하는데." — 사진2는 정산서에서 홈으로 밀어 돌아가는 아이폰 화면 전환):
+// 정산서만 혼자 움직이지 않고, 아래 머리·목록이 왼쪽으로 조금 밀리고 어둡게 덮이며, 정산서 왼쪽에 그림자
+it('구매자 정산서가 열리면 아래 화면은 왼쪽으로 조금 밀리고 어둡게 덮인다 — 닫히면 제자리 (D-UX4-195)', async () => {
+  const world = makeWorld()
+  world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, date: '2026-11-12', ended: true, endedAt: '2026-11-12T12:00:00.000Z' }] } }))
+  world.server.on('GET', /^\/api\/days\/2026-11-12$/, () => ({ body: fullView({ date: '2026-11-12', broadcasts: [{ ...BROADCAST_VIEW, date: '2026-11-12', ended: true, endedAt: '2026-11-12T12:00:00.000Z' }], products: [product(201, { name: '색금', price: 30000 })], claims: [claim('0', 201, '가을여행', { amount: 30000 })], buyers: [buyer('가을여행', '가을여행')] }) }))
+  world.server.on('GET', /order-shop$/, () => ({ body: { name: '용용다육' } }))
+  world.server.on('GET', /^\/api\/statement-info$/, () => ({ body: { info: { ...EMPTY, bank: '농협', accountNumber: '302-0000-0000-00', accountHolder: '김판매', phone: '010-0000-0000', decided: true } } }))
+  render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
+  fireEvent.click(await screen.findByRole('button', { name: /^가을여행 정산서/ }))
+  await screen.findByRole('dialog', { name: '가을여행 님 정산서' })
+  const under = screen.getByTestId('buyer-page-under')
+  // 머리("정산서")와 목록이 함께 밀린다
+  expect(under.contains(screen.getByRole('heading', { name: '정산서' }))).toBe(true)
+  expect(under.contains(screen.getByTestId('statement-scroll'))).toBe(true)
+  // 아래를 덮는 검은 막과 정산서 왼쪽 그림자
+  expect(screen.getByTestId('buyer-page-dim')).toBeTruthy()
+  expect(getComputedStyle(screen.getByTestId('buyer-page')).boxShadow).not.toBe('')
+  fireEvent.click(within(screen.getByRole('dialog', { name: '가을여행 님 정산서' })).getByRole('button', { name: '뒤로' }))
+  await waitFor(() => expect(screen.queryByTestId('buyer-page-dim')).toBeNull())
+  // 움직임 값은 시험 화면(웹)에 그려지지 않는다 — 밀리는 몫은 계산으로: 다 열리면 너비의 0.3만큼 왼쪽, 닫히면 제자리 · 막은 0 → 0.12
+  const at = (value: number) => (slideUnder(new Animated.Value(value), 400).transform[0]!.translateX as unknown as { __getValue: () => number }).__getValue()
+  expect(at(1)).toBeCloseTo(-400 * UNDER_SHIFT)
+  expect(at(0)).toBeCloseTo(0)
+  expect(UNDER_SHIFT).toBe(0.3)
+  expect(UNDER_DIM).toBe(0.12)
+})
+
 // D-UX4-186 (사용자 2026-11-16 "정산서 상품별에서 닉네임도 개수 옆에 붙여서 한줄로 만들어 …")
 // 글자 크기 옛 기대(186): 번호·품종·개수·닉네임·가격 모두 16. 새 기대(D-UX4-188, 사용자 "텍스트 크기 맞추니까 가독성 별로다. 가독성 좋게 다시 맞춰"):
 // 품종·가격 16 굵게, 번호·개수·닉네임 14 — 한 줄 칸은 그대로
-it('상품별 줄: 첫 줄 번호 · 품종 · 개수 · 가격, 닉네임 캡슐은 아랫줄 — 품종·가격은 크게·번호·개수·닉네임은 한 단계 작게 (D-UX4-188·191)', () => {
+it('상품별 줄: 번호 · (품종 · 개수, 그 아래 닉네임 캡슐) · 가격 — 번호·가격은 한 줄 가운데, 품종·가격은 크게·번호·개수·닉네임은 한 단계 작게 (D-UX4-188·191·196)', () => {
   const world = makeWorld()
   const buyers = new Map([['k1', ['가람', '나무']]])
   render(world.wrap(<StatementList tab="products" rows={[{ key: 'k1', no: 7, label: '색금', money: 40000, qty: 3 }]} sent={[]} buyers={buyers} rowLabel={row => row.label} />))
   const tags = screen.getByTestId('product-buyers')
   // 품종 글 (첫 자식이 글자 "색금"인 글 칸)
   const name = screen.getByText((_, node) => node?.textContent === '색금 · 3개' && node.firstChild?.nodeType === Node.TEXT_NODE)
-  // 닉네임 자리 옛 기대(D-UX4-186): 품종·개수와 같은 가로 칸. 새 기대(D-UX4-191, 사용자 "닉네임 길면 아래로 밀리는 경우가 있어서, 그냥 닉네임은 아래로 내리자"):
-  // 첫 줄(번호 · 품종 · 개수 · 가격) 아래 줄 — 세로 칸에서 첫 줄 다음
-  const column = tags.parentElement!
-  expect(getComputedStyle(column).flexDirection).toBe('column')
-  const firstLine = column.firstElementChild!
-  expect(firstLine.contains(name)).toBe(true)
-  expect(firstLine.contains(screen.getByText('40,000원'))).toBe(true)
-  expect(firstLine.contains(tags)).toBe(false)
+  // 닉네임 자리 옛 기대(D-UX4-186): 품종·개수와 같은 가로 칸. 새 기대(D-UX4-191, 사용자 "닉네임 길면 아래로 밀리는 경우가 있어서, 그냥 닉네임은 아래로 내리자"): 아랫줄.
+  // 옛 기대(D-UX4-191): 첫 줄(번호 · 품종 · 개수 · 가격) 아래 줄이 번호 밑부터. 새 기대(D-UX4-196, 사용자 "번호, 금액은 2줄로 만들지 마. 닉네임은 상품명 아래에 배치해."):
+  // 가로 줄 하나에 번호 · 가운데 세로 칸 · 가격 — 캡슐은 가운데 칸에서 품종 바로 아래, 번호·가격은 줄 가운데
+  const main = screen.getByTestId('product-main')
+  expect(getComputedStyle(main).flexDirection).toBe('column')
+  expect(main.firstElementChild).toBe(name)
+  expect(tags.parentElement).toBe(main)
+  const line = main.parentElement!
+  expect(getComputedStyle(line).flexDirection).toBe('row')
+  expect(getComputedStyle(line).alignItems).toBe('center')
+  const no = screen.getByTestId('product-no')
+  expect(no.parentElement).toBe(line)
+  const money = screen.getByText('40,000원')
+  expect(line.contains(money)).toBe(true)
+  expect(main.contains(money)).toBe(false)
+  expect(main.contains(no)).toBe(false)
   const size = (node: Element) => getComputedStyle(node).fontSize
   expect([size(name), size(screen.getByText('40,000원'))]).toEqual(['16px', '16px'])
   const qty = screen.getByText('· 3개')

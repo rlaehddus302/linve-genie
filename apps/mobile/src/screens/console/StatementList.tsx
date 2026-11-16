@@ -63,30 +63,30 @@ function Row({ row, tab, sent, buyers, label, onPress }: { readonly row: Stateme
   // 글자 크기 (D-UX4-188, 사용자 "텍스트 크기 맞추니까 가독성 별로다. 가독성 좋게 다시 맞춰" — 옛 186: 모두 16): 눈이 먼저 갈 품종·가격은 16 굵게,
   // 거드는 번호·개수·닉네임은 14로 한 단계 작게 — 라이브 화면 상품 줄처럼 품종과 가격이 먼저 읽힌다. 번호·캡슐은 같은 높이(24)로 품종 줄 가운데에 맞춘다.
   const body = tab === 'products' ? (
-    // 닉네임은 아랫줄 (D-UX4-191, 사용자 "닉네임 길면 아래로 밀리는 경우가 있어서, 그냥 닉네임은 아래로 내리자" — 옛 186: 품종·개수 옆에 이어 붙임):
-    // 첫 줄 번호 · 품종 · n개 · (오른쪽) 가격, 그 아래 산 구매자 금색 캡슐 — 늘 같은 자리라 들쭉날쭉하지 않다
-    <View style={{ flex: 1, gap: SPACE.sm }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-        {row.no !== null ? (
-          <View aria-hidden style={{ minWidth: 36, height: CHIP_HEIGHT, paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
-            <Txt step={SUB} weight="medium" color="textSub">{`${row.no}번`}</Txt>
-          </View>
-        ) : null}
-        <View style={{ flex: 1 }}>
-          <Txt step={STEP} weight="bold">{row.label}<Txt step={SUB} color="textSub">{`${BUYER_JOIN}${row.qty}개`}</Txt></Txt>
-        </View>
-        <Money amount={row.money} step={STEP} />
-      </View>
-      {/* 산 구매자 — 라이브 화면 찜 꼬리표와 같은 금색 캡슐 */}
-      {buyers.length > 0 ? (
-        <View role="list" aria-label="산 구매자" testID="product-buyers" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: TAG_GAP }}>
-          {buyers.map(name => (
-            <View key={name} role="listitem" style={{ height: CHIP_HEIGHT, justifyContent: 'center', paddingHorizontal: TAG_PAD_X + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.goldBg, maxWidth: '100%' }}>
-              <Txt step={SUB} weight="bold" ink={p.goldText} numberOfLines={1}>{name}</Txt>
-            </View>
-          ))}
+    // 닉네임은 아랫줄 (D-UX4-191, 사용자 "닉네임 길면 아래로 밀리는 경우가 있어서, 그냥 닉네임은 아래로 내리자" — 옛 186: 품종·개수 옆에 이어 붙임).
+    // 번호·가격은 한 줄 칸 (D-UX4-196, 사용자 "번호, 금액은 2줄로 만들지 마. 닉네임은 상품명 아래에 배치해." — 옛 191: 번호·품종·가격 첫 줄 아래로 캡슐이
+    // 번호 밑까지 넓게 깔려 줄이 둘로 나뉘어 보였다): 왼쪽 번호 · 가운데 세로 칸(품종 · n개, 그 바로 아래 산 구매자 금색 캡슐) · 오른쪽 가격.
+    // 번호와 가격은 줄 높이 가운데에 하나씩만
+    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+      {row.no !== null ? (
+        <View aria-hidden testID="product-no" style={{ minWidth: 36, height: CHIP_HEIGHT, paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+          <Txt step={SUB} weight="medium" color="textSub">{`${row.no}번`}</Txt>
         </View>
       ) : null}
+      <View testID="product-main" style={{ flex: 1, gap: SPACE.sm }}>
+        <Txt step={STEP} weight="bold">{row.label}<Txt step={SUB} color="textSub">{`${BUYER_JOIN}${row.qty}개`}</Txt></Txt>
+        {/* 산 구매자 — 라이브 화면 찜 꼬리표와 같은 금색 캡슐 */}
+        {buyers.length > 0 ? (
+          <View role="list" aria-label="산 구매자" testID="product-buyers" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: TAG_GAP }}>
+            {buyers.map(name => (
+              <View key={name} role="listitem" style={{ height: CHIP_HEIGHT, justifyContent: 'center', paddingHorizontal: TAG_PAD_X + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.goldBg, maxWidth: '100%' }}>
+                <Txt step={SUB} weight="bold" ink={p.goldText} numberOfLines={1}>{name}</Txt>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </View>
+      <Money amount={row.money} step={STEP} />
     </View>
   ) : <>
     {/* 닉네임은 작은 단추 모양 둥근 네모 · 보냄 꼬리표 · 오른쪽에 개수와 금액 (D-UX4-182).

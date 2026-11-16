@@ -14,7 +14,29 @@ export const SLIDE_OUT_MS = 220
  * 이 화면에서 연 아래 판·팝업이 그 위에 그대로 뜬다(아이폰 판 겹침 문제 없음). 안드로이드 뒤로 단추는 이 화면을 닫는다.
  * title이 있으면 머리 가운데에 (토스 "토스뱅크 송금"처럼), 없으면 뒤로만.
  */
-export function SlidePage({ visible, onClose, title, name, children, gray = false, footer, scroll = true, testID }: { readonly visible: boolean; readonly onClose: () => void; readonly title?: string; readonly name: string; readonly children?: ReactNode; readonly gray?: boolean; readonly footer?: ReactNode; readonly scroll?: boolean; readonly testID?: string }) {
+// 앱 화면 전환처럼 (D-UX4-195, 사용자 2026-11-16 "사진2처럼 만들어야 하는데" — 정산서에서 홈으로 밀어 돌아갈 때의 아이폰 화면 전환):
+// 겹친 화면만 혼자 움직이면 아래 화면이 그대로 보여 깨진 것처럼 보였다. 아래 화면을 살짝 어둡게 덮고, 겹친 화면 왼쪽에 그림자와 둥근 위 모서리,
+// 부모가 slideUnder로 감싸면 아래 화면도 왼쪽으로 조금 밀렸다가 따라 돌아온다.
+/** 다 열렸을 때 아래 화면이 왼쪽으로 밀리는 몫 (화면 너비의) */
+export const UNDER_SHIFT = 0.3
+/** 다 열렸을 때 아래 화면을 덮는 검은 막의 진하기 */
+export const UNDER_DIM = 0.12
+/** 겹친 화면 왼쪽 그림자 */
+export const PAGE_EDGE_SHADOW = '-4px 0px 16px rgba(0, 0, 0, 0.14)'
+/** 겹친 화면 왼쪽 위 모서리 — 상태 막대까지 덮는 아이폰(노치·섬)에서만, 휴대폰 화면 모서리보다 작게 해 다 열렸을 때는 보이지 않는다 */
+export const PAGE_CORNER = 38
+
+/** 겹친 화면의 움직임 값 (1 = 다 열림). 부모가 아래 화면도 같이 움직이려면 만들어 SlidePage와 slideUnder에 같이 준다 */
+export function useSlideProgress(visible: boolean): Animated.Value {
+  return useRef(new Animated.Value(visible ? 1 : 0)).current
+}
+
+/** 겹친 화면 아래 화면의 모양: 겹친 화면이 열릴수록 왼쪽으로 조금 밀린다 */
+export function slideUnder(progress: Animated.Value, width: number) {
+  return { transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [0, -width * UNDER_SHIFT] }) }] }
+}
+
+export function SlidePage({ visible, onClose, title, name, children, gray = false, footer, scroll = true, testID, progress: shared }: { readonly visible: boolean; readonly onClose: () => void; readonly title?: string; readonly name: string; readonly children?: ReactNode; readonly gray?: boolean; readonly footer?: ReactNode; readonly scroll?: boolean; readonly testID?: string; readonly progress?: Animated.Value }) {
   const { p } = useKit()
   // 방송 화면 경로는 이미 상태 막대 아래에서 시작한다 — 또 띄우면 상태 막대만큼 내려온다 (D-UX4-41)
   const top = usePageTop()
@@ -23,7 +45,8 @@ export function SlidePage({ visible, onClose, title, name, children, gray = fals
   const { width } = useWindowDimensions()
   const instant = Platform.OS === 'web'
   const [mounted, setMounted] = useState(visible)
-  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current
+  const own = useSlideProgress(visible)
+  const progress = shared ?? own
   useEffect(() => {
     if (instant) {
       setMounted(visible)
@@ -66,15 +89,21 @@ export function SlidePage({ visible, onClose, title, name, children, gray = fals
   ) : (
     <View style={{ flex: 1 }}>{children}</View>
   )
+  const dim = progress.interpolate({ inputRange: [0, 1], outputRange: [0, UNDER_DIM] })
+  // 상태 막대까지 덮는 아이폰(노치·섬)에서만 위 모서리를 둥글게 — 다 열리면 휴대폰 화면 모서리 밖이라 보이지 않는다
+  const corner = Platform.OS === 'ios' && top >= 44 ? PAGE_CORNER : 0
   return (
-    <Animated.View role="dialog" aria-label={name} testID={testID} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, elevation: 20, backgroundColor: bg, paddingTop: top, transform: [{ translateX: shift }] }} {...swipe}>
-      <KeyboardAvoidingView behavior={KEYBOARD_AVOID} keyboardVerticalOffset={parentTop} style={{ flex: 1 }}>
-        {/* 모든 쌓인 화면과 같은 머리 (D-UX4-40) */}
-        <NavBar onBack={onClose} {...(title === undefined ? {} : { title })} />
-        {body}
-        {footer}
-      </KeyboardAvoidingView>
-    </Animated.View>
+    <>
+      <Animated.View pointerEvents="none" testID={testID === undefined ? undefined : `${testID}-dim`} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, elevation: 20, backgroundColor: '#000000', opacity: dim }} />
+      <Animated.View role="dialog" aria-label={name} testID={testID} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 20, elevation: 20, backgroundColor: bg, borderTopLeftRadius: corner, borderCurve: 'continuous', boxShadow: PAGE_EDGE_SHADOW, paddingTop: top, transform: [{ translateX: shift }] }} {...swipe}>
+        <KeyboardAvoidingView behavior={KEYBOARD_AVOID} keyboardVerticalOffset={parentTop} style={{ flex: 1 }}>
+          {/* 모든 쌓인 화면과 같은 머리 (D-UX4-40) */}
+          <NavBar onBack={onClose} {...(title === undefined ? {} : { title })} />
+          {body}
+          {footer}
+        </KeyboardAvoidingView>
+      </Animated.View>
+    </>
   )
 }
 

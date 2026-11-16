@@ -36,7 +36,7 @@ import { BuyerOrderPaper } from './BuyerOrderPaper.tsx'
 import { BUYER_JOIN, productBuyers, StatementList } from './StatementList.tsx'
 import { InfoButton, StatementFooter } from './StatementControls.tsx'
 import { StatementSetupPage } from './StatementSetup.tsx'
-import { SlidePage } from './parts.tsx'
+import { SlidePage, slideUnder, useSlideProgress } from './parts.tsx'
 import { BLOCK_TITLE, NAME_JOIN, sendGroups } from './statement-send.ts'
 import { useTabBarHide } from './tab-hide.ts'
 
@@ -217,13 +217,18 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
       onSent={() => setSent(markBuyerSent(broadcastId, order.id))}
       queue={inQueue ? { position: at + 1, total: queueKeys.length, last: lastInQueue, next: () => nextBuyer(order.id, sentBuyers(broadcastId)) } : undefined} />
   }
+  const buyerSlide = useSlideProgress(buyer !== null)
   const buyerPage = (
-    <SlidePage visible={buyer !== null} onClose={() => select(null)} name={pageBuyer === null ? '구매자 정산서' : `${statementName(names.name(pageBuyer))} 님 정산서`} gray scroll={false} testID="buyer-page">
+    <SlidePage visible={buyer !== null} progress={buyerSlide} onClose={() => select(null)} name={pageBuyer === null ? '구매자 정산서' : `${statementName(names.name(pageBuyer))} 님 정산서`} gray scroll={false} testID="buyer-page">
       {buyerContent()}
     </SlidePage>
   )
   /** 머리 · 내용 · 그 위를 머리까지 덮는 구매자 정산서 · 정산 정보 화면 — 정산서를 목록 칸 안에 두면 바깥 머리(‹ 정산서)가 남아 ‹가 두 개 보였다 (D-UX4-194) */
-  const frame = (content: ReactNode) => <View style={{ flex: 1, backgroundColor: p.background }}>{header}{content}{buyerPage}{askPage}</View>
+  // 정산서가 밀려 들어오면 머리·목록이 왼쪽으로 조금 밀리고 어두워진다 — 앱 화면 전환처럼 (D-UX4-195)
+  const frame = (content: ReactNode) => <View style={{ flex: 1, backgroundColor: p.background }}>
+    <Animated.View testID="buyer-page-under" style={[{ flex: 1 }, slideUnder(buyerSlide, windowWidth)]}>{header}{content}</Animated.View>
+    {buyerPage}{askPage}
+  </View>
   const pick = (next: boolean) => {
     setProducts(next)
     // 탭을 바꾸면 탭 바는 늘 보인다 (D-UX4-155와 같다)
