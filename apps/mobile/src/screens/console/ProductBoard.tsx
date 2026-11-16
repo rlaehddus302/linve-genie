@@ -354,6 +354,8 @@ export interface ProductListProps {
   /** 목록 순서 (D-UX4-150). 주지 않으면 목록이 스스로 들고 기본은 최근 올린 순 */
   readonly sort?: ProductSort
   readonly onSort?: (sort: ProductSort) => void
+  /** 번호 앞부분 대신 이 조건으로 거른다 (하나로 찾기 — 번호·품종·닉네임, D-UX4-205). 같은 번호는 그래도 맨 위 */
+  readonly match?: (product: Product) => boolean
 }
 
 /**
@@ -361,7 +363,7 @@ export interface ProductListProps {
  * 찜 된 것만(D-UX4-141)·번호 검색과 함께 걸린다 — 번호 검색은 정확히 같은 번호를 맨 위에, 나머지는 고른 순서대로.
  * 처음 받은 상품은 강조하지 않고, 그 뒤에 올라온·고른 상품만 잠깐 초록
  */
-export function ProductList({ onOpen, query, onQuery, claimedOnly = false, onClaimedOnly, numberSearch, onRow, toolbar = true, sort: sortProp, onSort }: ProductListProps) {
+export function ProductList({ onOpen, query, onQuery, claimedOnly = false, onClaimedOnly, numberSearch, onRow, toolbar = true, sort: sortProp, onSort, match }: ProductListProps) {
   const api = useConsoleApi()
   const [ownSort, setOwnSort] = useState<ProductSort>(DEFAULT_PRODUCT_SORT)
   const sort = sortProp ?? ownSort
@@ -402,7 +404,7 @@ export function ProductList({ onOpen, query, onQuery, claimedOnly = false, onCla
   useAnimatedChange(shown.map((product) => `${product.key}:${String(productSlots(product).winners.length + productSlots(product).waitlist.length)}:${String(outsideOf.get(product.key)?.length ?? 0)}:${product.conflict ? 1 : 0}`).join('|'))
   if (products.length === 0 && query === '') return <EmptyFill title={NO_PRODUCTS_YET} body={NO_PRODUCTS_YET_BODY} />
   const prefix = query.replace(/^0+(?=\d)/, '')
-  const matches = prefix === '' ? shown : shown
+  const matches = match !== undefined ? shown.filter(match).sort((a, b) => Number(b.no === Number(prefix)) - Number(a.no === Number(prefix))) : prefix === '' ? shown : shown
     .filter((product) => String(product.no).startsWith(prefix))
     .sort((a, b) => Number(b.no === Number(prefix)) - Number(a.no === Number(prefix)))
   return (

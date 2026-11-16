@@ -161,22 +161,24 @@ export interface ClaimFeedProps {
   /** 안에 그리는 도구 줄이 바꿀 때 (query·sort를 줄 때 같이 준다 — 안 주면 안의 상태를 바꾼다) */
   readonly onQuery?: (query: string) => void
   readonly onSort?: (sort: BuyerSort) => void
+  /** 찾는 글 대신 이 조건으로 거른다 (하나로 찾기 — 닉네임·번호·품종, D-UX4-205) */
+  readonly match?: (row: FeedBuyer) => boolean
 }
 
 /** 찜 기록 */
-export function ClaimFeed({ only, onOpenProduct, onEditProduct, toolbar, query: queryProp, sort: sortProp, onQuery, onSort }: ClaimFeedProps) {
+export function ClaimFeed({ only, onOpenProduct, onEditProduct, toolbar, query: queryProp, sort: sortProp, onQuery, onSort, match }: ClaimFeedProps) {
   const api = useConsoleApi()
   const own = useClaimFeedState()
   const query = queryProp ?? own.query
   const sort = sortProp ?? (only === undefined ? own.sort : FEED_VIEW_DEFAULT.buyerSort)
   const showToolbar = toolbar ?? only === undefined
   const buyers = useMemo(() => feedRows(api.data, api.names, api.b, only, sort), [api.data, api.names, api.b, only, sort])
-  const matched = useMemo(() => filterFeed(buyers, query), [buyers, query])
+  const matched = useMemo(() => (match === undefined ? filterFeed(buyers, query) : buyers.filter(match)), [buyers, query, match])
   const [picked, setPicked] = useState<PickedClaim | null>(null)
   const [error, setError] = useState<string | null>(null)
   const closed = api.ended || api.sealed
   if (buyers.length === 0) return only === 'PENDING' ? <EmptyFill title="보류 찜이 없어요" body={'번호에 맞는 상품이 없는 찜이\n여기에 모여요'} /> : <EmptyFill title={FEED_EMPTY} body={FEED_EMPTY_BODY} />
-  const searching = searchText(query) !== ''
+  const searching = match !== undefined || searchText(query) !== ''
   // 최근순만 최근 FEED_LIMIT명 (라이브 채팅처럼 가장 최근 손님이 맨 아래, D-UX3-75) — 이름순·찾는 중에는 모두 그린다
   const limited = !searching && sort === 'recent' && matched.length > FEED_LIMIT
   const shown = limited ? matched.slice(-FEED_LIMIT) : matched
