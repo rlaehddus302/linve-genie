@@ -127,8 +127,8 @@ describe('상품 추가 (D-UX4-111)', () => {
       await flush()
     })
     const row = within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 12번' })
-    // D-UX4-197로 바뀐 기대 (옛 D-UX4-148: "12 · 1,200원"): 왼쪽 "12번" 표 · 오른쪽 가격만 — 품종 칸은 비고 "-"도 나눔도 없다
-    expect(row.textContent).toBe('12번1,200원')
+    // D-UX4-201로 바뀐 기대 (사용자 "맨 왼쪽에 '번' 없이 번호만"; 옛 D-UX4-197: "12번" 표, D-UX4-148: "12 · 1,200원"): 왼쪽 번호 "12" · 오른쪽 가격만 — 품종 칸은 비고 "-"도 나눔도 없다
+    expect(row.textContent).toBe('121,200원')
     expect(within(row).queryByTestId('product-row-name')).toBeNull()
   })
 })

@@ -57,6 +57,8 @@ describe('방송 화면 찜 기록 찾기 (D-UX4-152)', () => {
       await flush()
     })
     fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
+    // D-UX4-201: 찾기 칸은 머리 돋보기를 눌러 연다(옛: 늘 보임)
+    fireEvent.click(screen.getByTestId('console-search'))
     return within(await screen.findByRole('group', { name: '찜 기록 찾기·정렬' })).getByLabelText('찜 기록 찾기')
   }
 

@@ -13,7 +13,7 @@ import { END_LINK_LABEL } from '../src/screens/console/EndBroadcast.tsx'
 import { ASK_ADD, ASK_NAME, ASK_NO, ASK_PRICE } from '../src/screens/console/ProductAdd.tsx'
 import { DOCK_STATE } from '../src/screens/console/StreamAudio.tsx'
 import { LISTEN_START, LISTEN_STATE, VOICE_CONSENT_LINES } from '../src/lib/words.ts'
-import { makeWorld } from './screen-support.tsx'
+import { makeWorld, openSearchField } from './screen-support.tsx'
 import { BROADCAST, BROADCAST_VIEW, SETTINGS, buyer, changes, claim, flush, fullView, product } from './support.ts'
 
 function setVisibility(state: 'visible' | 'hidden') {
@@ -54,7 +54,8 @@ describe('ConsoleScreen', () => {
 
   it('번호 검색은 정확한 번호를 먼저 보여 주고, 지우면 전체 목록으로 돌아간다', async () => {
     await open(makeWorld({ products: [product(15, { name: '핑크프릴' }), product(151), product(25), product(152, { status: 'CLOSED' })] }))
-    const search = screen.getByLabelText('상품 번호 검색')
+    // D-UX4-201: 찾기 칸은 머리 돋보기를 눌러 연다(옛: 늘 보임)
+    const search = openSearchField('상품 번호 검색')
     const rows = () => within(screen.getByRole('list', { name: '상품 목록' })).getAllByRole('button')
     const scroll = screen.getByTestId('console-scroll')
     const pad = () => within(scroll).queryByRole('group', { name: '숫자판' })
@@ -124,8 +125,8 @@ describe('ConsoleScreen', () => {
     const world = makeWorld({ products: [product(15, { name: '핑크프릴', price: 12_000 })] })
     await open(world)
     const list = screen.getByRole('list', { name: '상품 목록' })
-    // D-UX4-197로 바뀐 기대 (정산서 상품별 줄처럼 왼쪽 회색 "15번" 표 — 옛 D-UX4-148: "번" 없이 "15 · 핑크프릴 · 12,000원")
-    expect(within(list).getByText('15번')).toBeTruthy()
+    // D-UX4-201로 바뀐 기대 (사용자 "맨 왼쪽에 '번' 없이 번호만" — 토스 거래 내역 줄처럼. 옛 D-UX4-197: 회색 "15번" 표)
+    expect(within(list).getByTestId('product-row-no').textContent).toBe('15')
     expect(within(list).getByText('핑크프릴')).toBeTruthy()
     expect(within(list).getByText('12,000원')).toBeTruthy()
     // 찜·대기가 없으면 아래 줄을 그리지 않는다 (D-UX3-78 — 옛 기대: '아직 예약 없음')
@@ -744,7 +745,9 @@ describe('ConsoleScreen', () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
     openMenu()
-    expect(screen.getByRole('button', { name: '라이브 관리' }).textContent).toBe('관리')
+    // D-UX4-201로 바뀐 기대 (사용자 "관리 버튼도 ... 버튼으로"; 옛 D-UX4-42: "관리" 글자 단추): 글자 없는 ⋯ 아이콘 단추
+    expect(screen.getByRole('button', { name: '라이브 관리' }).textContent).toBe('')
+    expect(screen.getByTestId('console-more')).toBeTruthy()
     const page = await screen.findByRole('dialog', { name: '라이브 관리' })
     expect(page.textContent).not.toContain('라이브 메뉴')
     expect(page.textContent).not.toContain('저녁 라이브')

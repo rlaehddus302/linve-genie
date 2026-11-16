@@ -210,7 +210,10 @@ describe('들린 말 창 (D-UX4-53)', () => {
     const heading = within(all).getByRole('heading', { level: 1 })
     const header = heading.parentElement?.parentElement as HTMLElement
     expect(within(header).queryByRole('status')).toBeNull()
-    expect(within(header).getByRole('button', { name: '라이브 관리' }).textContent).toBe('관리')
+    // D-UX4-201로 바뀐 기대 (사용자 "관리 버튼도 ... 버튼으로"; 옛 D-UX4-42: "관리" 글자): 글자 없는 ⋯ 아이콘 단추, 읽기 이름은 그대로 "라이브 관리"
+    const more = within(header).getByRole('button', { name: '라이브 관리' })
+    expect(more.textContent).toBe('')
+    expect(more.getAttribute('data-testid')).toBe('console-more')
   })
 })
 

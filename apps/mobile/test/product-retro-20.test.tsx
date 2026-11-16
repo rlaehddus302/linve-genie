@@ -11,7 +11,7 @@ import { SAME_NUMBER_CLOSE, SAME_NUMBER_SHOW, sameNumberWords } from '../src/scr
 import { REPRINT_HINT } from '../src/screens/console/ProductBoard.tsx'
 import { EDIT_DONE, PRICE_SCOPE_ALL, PRICE_SCOPE_NEW, RENUMBER_GO, RENUMBER_KEEP, REUSE_ASK, REUSE_GO, claimedBuyers, priceScopeAsk, renumberAsk, renumberLoses, reuseNote } from '../src/screens/console/ProductEdit.tsx'
 import { fromFull } from '../src/lib/scope-data.ts'
-import { makeWorld } from './screen-support.tsx'
+import { makeWorld, openSearchField } from './screen-support.tsx'
 import { buyer, changes, claim, flush, fullView, product } from './support.ts'
 
 type World = ReturnType<typeof makeWorld>
@@ -315,7 +315,8 @@ describe('이미 있는 번호 안내 (D-RETRO-22, 개선 계획표 F5)', () => 
     followWrites(world)
     await open(world)
     const rows = () => within(screen.getByRole('list', { name: '상품 목록' })).getAllByRole('button').map((row) => row.getAttribute('aria-label'))
-    fireEvent.focus(screen.getByLabelText('상품 번호 검색'))
+    // D-UX4-201: 찾기 칸은 머리 돋보기를 눌러 연다(옛: 늘 보임)
+    fireEvent.focus(openSearchField('상품 번호 검색'))
     typePad('12')
     // D-UX4-143으로 바뀐 기대 (옛: [검색]을 눌러 숫자판을 닫음): [검색]은 없어졌다 — 칸 밖(목록)을 눌러 숫자판을 닫는다
     fireEvent.pointerUp(screen.getByRole('list', { name: '상품 목록' }))
@@ -326,7 +327,8 @@ describe('이미 있는 번호 안내 (D-RETRO-22, 개선 계획표 F5)', () => 
     fireEvent.click(screen.getByRole('button', { name: EDIT_DONE }))
     fireEvent.click(screen.getByRole('button', { name: SAME_NUMBER_SHOW }))
     await waitFor(() => expect(rows()).toContain('상품 자세히 — 333번'))
-    expect(screen.getByLabelText<HTMLInputElement>('상품 번호 검색').value).toBe('')
+    // D-UX4-201: 찾는 글을 풀면 칸도 접힌다(옛: 빈 칸이 남음)
+    expect(screen.queryByLabelText<HTMLInputElement>('상품 번호 검색')?.value ?? '').toBe('')
     expect(within(await screen.findByRole('group', { name: '상품 자세히' })).getByRole('button', { name: '번호 고치기' }).textContent).toBe('333번')
   })
 

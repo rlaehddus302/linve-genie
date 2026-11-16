@@ -14,7 +14,7 @@
 // 목록 위 도구 줄(ProductToolbar — 번호 검색칸 / [찜 된 것만] 걸러 보기 칩 · [목록 순서])은 따로 꺼내 쓸 수 있다(D-UX4-150): ProductList toolbar={false}면 목록만 그린다.
 // D-RETRO-54 (복기 F7): 메뉴 줄 [찜 넣기] — 누르면 메뉴 자리에 손님 이름·전화번호 끝 네 자리 칸이 나오고 [닫기 | 찜 넣기]로 그 상품에 문자찜을 넣는다(ClaimAdd). 옵션 상품·끝난 라이브는 없다.
 import { displayNickname, productTitle } from '@livejjim/core/format'
-import { memo, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
 import { Animated, Keyboard, LayoutAnimation, Platform, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
@@ -22,13 +22,13 @@ import { ProductLabelAction, QueueLabelButton } from '../ProductLabelAction.tsx'
 import { SearchField } from '../customer-parts.tsx'
 import { isApiError } from '../../api/client.ts'
 import { boardProducts, claimsOfProduct, productSlots, type BuyerNames } from '../../lib/derive.ts'
-import { TAG_GAP, TAG_PAD_X, buyerTagText, fitTags, type ProductTag } from '../../lib/product-tags.ts'
+import { buyerTagText, type ProductTag } from '../../lib/product-tags.ts'
 import { isTentative, tentativeAttention, waitingAt } from '../../lib/tentative.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { DEFAULT_PRODUCT_SORT, PRODUCT_SORTS, SORT_TITLE, sortProducts, sortWord, type ProductSort } from '../../lib/product-sort.ts'
 import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, formatWon } from '../../lib/words.ts'
 import { BottomSheet, EmptyFill, ErrorLine, PopupDialog, SheetChoices, Txt, useKit, Tap } from '../../ui/kit/index.ts'
-import { MAX_FONT_SCALE, RADIUS, SPACE, TOUCH, TYPE, pressedFill } from '../../ui/kit/tokens.ts'
+import { GUTTER, RADIUS, SPACE, TOUCH, pressedFill } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
 import { ACTIVE_CLAIM, deleteClaim, deleteProduct } from './claim-actions.ts'
 import { CLAIM_ADD, ClaimAddForm, type ClaimAdded } from './ClaimAdd.tsx'
@@ -36,7 +36,7 @@ import { feedBuyerName } from './feed-rows.ts'
 import { useConsoleApi } from './context.ts'
 import { IconMenuRow, NamePill, TRASH_TINT, type PillTone } from './parts.tsx'
 import { TentativePanel } from './TentativeCard.tsx'
-import { OUTSIDE_DIM, OutsideWait, outsideBuyers, soldOutClaims } from './OutsideWait.tsx'
+import { OutsideWait, outsideBuyers, soldOutClaims } from './OutsideWait.tsx'
 
 /**
  * 방금 올라온 상품을 연한 초록으로 두는 시간, 흰색으로 돌아오는 시간 (D-UX4-29).
@@ -136,13 +136,10 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
   readonly buyers: ScopeData['buyers']
   readonly names: BuyerNames
 }) {
-  const { p, fontScale } = useKit()
-  const [width, setWidth] = useState(0)
+  const { p } = useKit()
   // 확인 중 상품은 주황 줄 "확인 중 · 기다리는 찜 n건 · 눌러서 확정하기" (D-RETRO-90)
   const attention = tentativeAttention(product, waiting) ?? rowAttention(product, conflicts)
-  const { tags, keep } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id), undefined, outside)
-  // 캡슐 글자는 정산서와 같은 14(meta) — 한 줄에 들어가는 만큼 놓고 나머지는 [+N] (D-UX3-78 그대로)
-  const fit = fitTags(tags, width, TYPE.meta * Math.min(fontScale, MAX_FONT_SCALE), keep)
+  const { tags } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id), undefined, outside)
   const glow = useRef(new Animated.Value(0)).current
   useEffect(() => {
     const left = freshAt === 0 ? 0 : FRESH_HOLD_MS - (Date.now() - freshAt)
@@ -160,68 +157,59 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
     return () => run.stop()
   }, [freshAt, glow])
   const bg = attention !== null ? p.warnBg : glow.interpolate({ inputRange: [0, 1], outputRange: [p.surface, p.freshBg] })
-  // 손님 캡슐 — 정산서 상품별 캡슐과 같은 높이·모양 (D-UX4-197)
-  const tagStyle = (fill: string) => ({ height: CHIP_HEIGHT, justifyContent: 'center' as const, maxWidth: '100%' as const, paddingHorizontal: TAG_PAD_X + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous' as const, backgroundColor: fill })
   const name = rowName(product)
+  const who = rowBuyerParts(tags)
   return (
     // 꾹 누르면 줄이 통째로 들어간다 (D-UX4-105, 사용자 지시 2026-11-10 "흰색 영역이 통째로 버튼 영역이어야") — 누르는 틀(Tap)이 바깥, 줄 바탕은 그 안.
-    // 줄은 한 흰 카드 안에 놓여(ProductList) 모서리는 카드가 자른다 (D-UX4-197)
+    // 줄은 흰 화면에 바로 놓인다 — 카드·줄 사이 선 없음 (D-UX4-201). 누름·초록·주황 바탕이 화면 끝까지 닿게 목록 여백만큼 바깥으로 편다
     <Tap
       role="button"
       aria-label={`상품 자세히 — ${String(product.no)}번`}
       testID="product-row"
       onPress={() => { Keyboard.dismiss(); onOpen(product.key) }}
       pressScale={1}
+      style={{ marginHorizontal: -GUTTER }}
     >
       {({ pressed }) => (
-      <Animated.View testID="product-row-fill" style={{ minHeight: TOUCH.min + SPACE.md, justifyContent: 'center', paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl, backgroundColor: bg }}>
+      <Animated.View testID="product-row-fill" style={{ minHeight: TOUCH.min + SPACE.md, justifyContent: 'center', paddingVertical: SPACE.md, paddingHorizontal: GUTTER + ROW_SIDE, backgroundColor: bg }}>
         {pressed ? <View aria-hidden pointerEvents="none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, backgroundColor: pressedFill(p, attention !== null ? p.warnBg : p.surface) }} /> : null}
-        {/* 왼쪽 번호 표 · 가운데 세로 칸 · 오른쪽 가격 (D-UX4-197, 정산서 상품별 줄 D-UX4-196과 같은 꼴). 번호·가격은 줄 높이 가운데에 하나씩만 */}
-        <View testID="product-row-line" aria-label={rowLine(product)} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-          <View aria-hidden testID="product-row-no" style={{ flexShrink: 0, minWidth: 36, height: CHIP_HEIGHT, paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
-            <Txt step="meta" weight="medium" color="textSub" numberOfLines={1}>{`${String(product.no)}번`}</Txt>
+        {/* 토스 거래 내역 줄처럼 (D-UX4-201): 왼쪽 번호(아이콘 자리, 줄 가운데) · 가운데 품종(위)과 찜(아래 회색 한 줄) · 품종 줄 오른쪽 가격 */}
+        <View testID="product-row-line" aria-label={rowLine(product)} style={{ flexDirection: 'row', alignItems: 'center', gap: ROW_GAP }}>
+          <View aria-hidden testID="product-row-no" style={{ flexShrink: 0, minWidth: NO_WIDTH }}>
+            <Txt step="nav" weight="bold" numberOfLines={1}>{String(product.no)}</Txt>
           </View>
-          <View testID="product-row-main" style={{ flex: 1, minWidth: 0, gap: SPACE.sm }}>
-            {name === '' ? null : (
-              <View testID="product-row-name">
-                <Txt step="bodyLarge" weight="bold">{name}</Txt>
+          <View testID="product-row-main" style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
+              {/* 품종이 비면 칸만 비운다 — "-"를 쓰지 않는다 (D-UX4-111) */}
+              <View {...(name === '' ? {} : { testID: 'product-row-name' })} style={{ flex: 1, minWidth: 0 }}>
+                {name === '' ? null : <Txt step="nav" weight="medium">{name}</Txt>}
               </View>
-            )}
+              <View testID="product-row-price" style={{ flexShrink: 0 }}>
+                <Txt step="nav" weight="bold" right numberOfLines={1}>{formatWon(product.price)}</Txt>
+              </View>
+            </View>
             {attention !== null ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
-                <Txt step="caption" weight="bold" ink={p.warnText}>
+                <Txt step="body" weight="bold" ink={p.warnText}>
                   {attention.who}
                 </Txt>
-                <Txt step="caption" ink={p.warnText}>
+                <Txt step="body" ink={p.warnText}>
                   {attention.what}
                 </Txt>
               </View>
-            ) : tags.length === 0 ? null : (
-              // 한 줄에 맞춰 놓되(fitTags), 어림이 틀려 넘치면 잘리지 않고 다음 줄로 (D-UX4-197)
-              <View role="list" aria-label={`${String(product.no)}번 찜한 손님`} onLayout={(event) => setWidth(Math.floor(event.nativeEvent.layout.width))} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: TAG_GAP }}>
-                {fit.shown.map((tag, index) => {
-                  const fill = tag.kind === 'win' ? p.goldBg : p.soft
-                  const ink = tag.kind === 'win' ? p.goldText : p.textSub
-                  return (
-                    <View key={`${tag.kind}-${String(index)}`} role="listitem" {...(tag.kind === 'out' ? { 'aria-label': `${tag.text} 대기 밖` } : {})} style={[tagStyle(fill), tag.kind === 'out' ? { opacity: OUTSIDE_DIM } : null]}>
-                      <Txt step="meta" weight={tag.kind === 'wait' || tag.kind === 'out' ? 'medium' : 'bold'} ink={ink} numberOfLines={1}>
-                        {tag.text}
-                      </Txt>
-                    </View>
-                  )
-                })}
-                {fit.more > 0 ? (
-                  <View role="listitem" aria-label={`${String(fit.more)}명 더`} style={tagStyle(p.soft)}>
-                    <Txt step="meta" weight="bold" ink={p.textSub}>{`+${String(fit.more)}`}</Txt>
-                  </View>
-                ) : null}
-              </View>
+            ) : who.length === 0 ? null : (
+              // 찜한 손님 — 회색 글 한 줄(토스 줄의 "내 KB국민은행 계좌" 자리). 1등 · 대기 · 대기 밖(더 옅게) 차례, 길면 두 줄까지
+              <Txt step="body" ink={p.placeholder} numberOfLines={2} role="list" aria-label={`${String(product.no)}번 찜한 손님`} testID="product-row-buyers">
+                {who.map((part) => (
+                  <Fragment key={part.key}>
+                    {part.lead}
+                    <Txt step="body" ink={part.kind === 'out' ? p.iconPressed : p.placeholder} role="listitem" {...(part.kind === 'out' ? { 'aria-label': `${part.name} 대기 밖` } : {})}>{part.name}</Txt>
+                  </Fragment>
+                ))}
+              </Txt>
             )}
             {/* 채팅 의심 표시 (D-V3-129): 자동으로 고치지 않고 판매자가 확인한다 */}
-            {doubt === undefined ? null : <Txt step="caption" weight="bold" ink={p.warnText} role="note" aria-label={`번호 확인 — ${String(product.no)}번`}>{doubt}</Txt>}
-          </View>
-          <View testID="product-row-price" style={{ flexShrink: 0 }}>
-            <Txt step="bodyLarge" weight="bold" right numberOfLines={1}>{formatWon(product.price)}</Txt>
+            {doubt === undefined ? null : <Txt step="body" weight="bold" ink={p.warnText} role="note" aria-label={`번호 확인 — ${String(product.no)}번`}>{doubt}</Txt>}
           </View>
         </View>
       </Animated.View>
@@ -230,14 +218,40 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
   )
 })
 
-/** 번호 표·손님 캡슐 높이 — 정산서 상품별 줄과 같다 (D-UX4-197) */
-const CHIP_HEIGHT = 24
+/** 번호 칸 폭 — 세 자리 번호까지 품종 시작 줄이 맞는다 (토스 줄의 아이콘 자리) */
+const NO_WIDTH = 40
+/** 번호와 품종 사이 */
+const ROW_GAP = SPACE.lg
+/** 줄 안쪽 양옆 여백 — 목록 여백(12)에 더해 토스 줄처럼 화면 끝에서 17쯤 */
+const ROW_SIDE = 5
 
-/** 줄 사이 1px 선 — 양옆을 줄 여백만큼 띄운다 (정산서 목록과 같다, D-UX4-197) */
-function RowDivider() {
-  const { p } = useKit()
-  return <View aria-hidden style={{ height: 1, backgroundColor: p.border, marginHorizontal: SPACE.xl }} />
+/** 찜 손님 한 줄의 조각: 앞 글(이음표·"대기 "·"대기 밖 ") + 이름 */
+export interface BuyerPart {
+  readonly key: string
+  readonly lead: string
+  readonly name: string
+  readonly kind: ProductTag['kind']
 }
+
+/**
+ * 찜 손님 한 줄 (D-UX4-201 — 옛 꼬리표 D-UX3-78·D-UX4-197): "가람 · 나무 · 대기 다솜, 라온 · 대기 밖 보람" — 서버 순서 그대로, 줄이지 않는다.
+ * 1등(과 손님 꼬리표)은 " · "로, 대기는 "대기 " 뒤에 ", "로, 대기 밖은 "대기 밖 " 뒤에 ", "로 잇는다
+ */
+export function rowBuyerParts(tags: readonly ProductTag[]): BuyerPart[] {
+  const parts: BuyerPart[] = []
+  let last: ProductTag['kind'] | null = null
+  tags.forEach((tag, index) => {
+    const group = tag.kind === 'badge' ? 'win' : tag.kind
+    const head = group === 'wait' ? '대기 ' : group === 'out' ? '대기 밖 ' : ''
+    const lead = last === null ? head : last === group ? (group === 'win' ? ROW_JOIN : ', ') : `${ROW_JOIN}${head}`
+    parts.push({ key: `${tag.kind}-${String(index)}`, lead, name: tag.text, kind: tag.kind })
+    last = group
+  })
+  return parts
+}
+
+/** 찜 손님 한 줄 글 (읽기·시험) */
+export const rowBuyersText = (tags: readonly ProductTag[]): string => rowBuyerParts(tags).map((part) => part.lead + part.name).join('')
 
 /** 상품 줄이 놓인 화면 요소 (자리를 재는 데 쓴다) */
 export type RowNode = ComponentRef<typeof View>
@@ -264,7 +278,17 @@ export interface NumberSearch {
   readonly submit: () => void
 }
 
-export interface ProductToolbarProps {
+/** 찾기 칸 보이기 (D-UX4-201) — 라이브 화면은 머리 오른쪽 돋보기를 눌렀을 때(또는 찾는 글이 있을 때)만 칸을 보인다. 기본은 늘 보인다 */
+export interface SearchSlot {
+  readonly searchShown?: boolean
+  /** 칸 바탕 — 흰 화면 위에서는 회색 */
+  readonly searchFill?: string
+  /** 칸이 나타나자마자 쓸 수 있게 */
+  readonly searchFocus?: boolean
+  readonly onSearchBlur?: () => void
+}
+
+export interface ProductToolbarProps extends SearchSlot {
   /** 번호 검색칸 글 (숫자만) */
   readonly query: string
   readonly onQuery: (value: string) => void
@@ -281,13 +305,15 @@ export interface ProductToolbarProps {
  * 상품 목록 위 도구 줄 (D-UX4-150): 첫 줄 번호 검색칸, 둘째 줄 왼쪽 [찜 된 것만] 걸러 보기 칩 · 오른쪽 [목록 순서] 단추.
  * 상태는 들지 않는다 — 부르는 쪽(ProductList 또는 방송 화면의 붙는 머리)이 query·claimedOnly·sort를 들고 넘긴다. 순서 고르는 판(아래 창)만 여기서 연다.
  */
-export function ProductToolbar({ query, onQuery, claimedOnly = false, onClaimedOnly, sort, onSort, numberSearch }: ProductToolbarProps) {
+export function ProductToolbar({ query, onQuery, claimedOnly = false, onClaimedOnly, sort, onSort, numberSearch, searchShown = true, searchFill, searchFocus, onSearchBlur }: ProductToolbarProps) {
   const [picking, setPicking] = useState(false)
   return (
     <View testID="product-toolbar" style={{ gap: SPACE.sm }}>
-      <View onTouchEnd={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}>
-        <SearchField label="상품 번호 검색" value={query} numberSearch={numberSearch} onChangeText={text => onQuery(text.normalize('NFKC').replace(/\D/g, ''))} />
-      </View>
+      {searchShown ? (
+        <View onTouchEnd={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}>
+          <SearchField label="상품 번호 검색" value={query} numberSearch={numberSearch} onChangeText={text => onQuery(text.normalize('NFKC').replace(/\D/g, ''))} {...(searchFill === undefined ? {} : { fill: searchFill })} {...(searchFocus === true ? { autoFocus: true } : {})} {...(onSearchBlur === undefined ? {} : { onBlur: onSearchBlur })} />
+        </View>
+      ) : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.sm }}>
         {onClaimedOnly === undefined ? <View /> : <FilterChip on={claimedOnly} label={CLAIMED_ONLY} onPress={() => { animateNextLayout(); onClaimedOnly(!claimedOnly) }} />}
         <SortButton sort={sort} onPress={() => { Keyboard.dismiss(); setPicking(true) }} />
@@ -325,7 +351,6 @@ export interface ProductListProps {
  */
 export function ProductList({ onOpen, query, onQuery, claimedOnly = false, onClaimedOnly, numberSearch, onRow, toolbar = true, sort: sortProp, onSort }: ProductListProps) {
   const api = useConsoleApi()
-  const { p } = useKit()
   const [ownSort, setOwnSort] = useState<ProductSort>(DEFAULT_PRODUCT_SORT)
   const sort = sortProp ?? ownSort
   const pickSort = (next: ProductSort) => {
@@ -372,11 +397,10 @@ export function ProductList({ onOpen, query, onQuery, claimedOnly = false, onCla
     <View style={{ flexGrow: 1, gap: SPACE.sm }}>
       {toolbar ? <ProductToolbar query={query} onQuery={onQuery} claimedOnly={claimedOnly} {...(onClaimedOnly === undefined ? {} : { onClaimedOnly })} sort={sort} onSort={pickSort} numberSearch={numberSearch} /> : null}
       {matches.length === 0 ? <EmptyFill title={prefix === '' && claimedOnly ? NO_CLAIMED_YET : '해당 번호의 상품이 없어요'} /> : (
-        // 한 흰 둥근 카드 안에 줄을 1px 선으로 나눠 놓는다 — 정산서 상품별 목록과 같은 꼴 (D-UX4-197, 옛: 상품마다 흰 카드)
-        <View role="list" aria-label="상품 목록" style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', overflow: 'hidden', paddingVertical: SPACE.xs }}>
-          {matches.map((product, index) => (
+        // 흰 화면에 줄을 바로 놓는다 — 카드·줄 사이 선 없이 토스 거래 내역처럼 (D-UX4-201, 옛 D-UX4-197: 한 흰 둥근 카드 안 1px 선)
+        <View role="list" aria-label="상품 목록">
+          {matches.map((product) => (
             <View key={product.key} collapsable={false} ref={onRow === undefined ? undefined : (node) => onRow(product.key, node)}>
-              {index > 0 ? <RowDivider /> : null}
               <ProductRow product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={onOpen} buyers={api.data.buyers} names={api.names} conflicts={conflictCounts.get(product.key) ?? 0} outside={outsideOf.get(product.key) ?? NO_OUTSIDE} waiting={isTentative(product) ? waitingAt(api.data, api.b, product.no) : 0} doubt={api.doubts?.get(product.no)} />
             </View>
           ))}

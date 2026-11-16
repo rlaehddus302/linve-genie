@@ -42,7 +42,8 @@ describe('상품 줄 (D-UX4-105)', () => {
     await open(makeWorld({ products: [product(8, { name: '창금', price: 2000 }), product(999, { name: '삼광수박금', price: 10_000_000 })] }))
     for (const [no, name, price] of [[8, '창금', '2,000원'], [999, '삼광수박금', '10,000,000원']] as const) {
       const row = within(screen.getByRole('button', { name: `상품 자세히 — ${no}번` }))
-      expect(row.getByTestId('product-row-no').textContent).toBe(`${no}번`)
+      // D-UX4-201: "번" 없이 번호만 (옛 D-UX4-197: "N번" 표)
+      expect(row.getByTestId('product-row-no').textContent).toBe(String(no))
       expect(row.getByTestId('product-row-name').textContent).toBe(name)
       expect(row.getByTestId('product-row-price').textContent).toBe(price)
       expect(row.getByTestId('product-row-line').getAttribute('aria-label')).toBe(`${no} · ${name} · ${price}`)
@@ -56,13 +57,17 @@ describe('상품 줄 (D-UX4-105)', () => {
     }
   })
 
-  it('상품 줄은 한 흰 둥근 카드 안에 1px 선으로 나뉜다 (D-UX4-197 — 옛: 상품마다 따로 카드)', async () => {
+  // D-UX4-201로 바뀐 기대 (사용자 "구분선도 없애고 다 사진1처럼" — 토스 거래 내역): 옛 D-UX4-197은 한 흰 둥근 카드(모서리 20) 안을 1px 선으로 나눴다.
+  // 이제 흰 화면에 줄만 — 카드 모서리도 줄 사이 선도 없다
+  it('상품 줄은 카드·구분선 없이 흰 화면에 바로 놓인다 (D-UX4-201)', async () => {
     await open(makeWorld({ products: [product(8, { name: '창금', price: 2000 }), product(9, { name: '라울', price: 3000 })] }))
     const list = screen.getByRole('list', { name: '상품 목록' })
-    expect(getComputedStyle(list).borderTopLeftRadius).toBe('20px')
-    expect(getComputedStyle(list).overflowX).toBe('hidden')
+    expect(['', '0', '0px']).toContain(getComputedStyle(list).borderTopLeftRadius)
     expect(within(list).getAllByRole('button')).toHaveLength(2)
+    // 줄을 감싼 칸마다 줄 하나만 — 사이에 선(1px 칸)이 없다
+    for (const slot of Array.from(list.children)) expect(slot.children).toHaveLength(1)
     for (const row of within(list).getAllByRole('button')) expect(['', '0', '0px']).toContain(getComputedStyle(row).borderTopLeftRadius)
+    expect(getComputedStyle(screen.getByTestId('console-screen')).backgroundColor).toBe('rgb(255, 255, 255)')
   })
 })
 

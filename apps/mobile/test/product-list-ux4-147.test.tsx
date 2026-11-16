@@ -15,7 +15,7 @@ import { ConsoleContext, type ConsoleApi } from '../src/screens/console/context.
 import { CLAIMED_ONLY, FRESH_FADE_MS, FRESH_HOLD_MS, ProductList, ProductToolbar, rowLine } from '../src/screens/console/ProductBoard.tsx'
 import { ClearButton } from '../src/ui/kit/index.ts'
 import { PALETTE } from '../src/ui/kit/tokens.ts'
-import { makeWorld } from './screen-support.tsx'
+import { makeWorld, openSearchField } from './screen-support.tsx'
 import { buyer, changes, claim, flush, fullView, product } from './support.ts'
 
 const rgb = (hex: string) => {
@@ -172,7 +172,8 @@ describe('목록 순서 단추·고르는 판 (D-UX4-150)', () => {
     fireEvent.click(screen.getByRole('switch', { name: CLAIMED_ONLY }))
     expect(rowNos()).toEqual([218, 15])
     fireEvent.click(screen.getByRole('switch', { name: CLAIMED_ONLY }))
-    fireEvent.focus(screen.getByLabelText('상품 번호 검색'))
+    // D-UX4-201: 찾기 칸은 머리 돋보기를 눌러 연다(옛: 늘 보임)
+    fireEvent.focus(openSearchField('상품 번호 검색'))
     typePad('15')
     expect(rowNos()).toEqual([15, 150])
     fireEvent.click(screen.getByRole('button', { name: '상품 번호 검색 지우기' }))
@@ -190,8 +191,8 @@ describe('[찜 된 것만]은 탭 알약과 다른 걸러 보기 칩 (D-UX4-148)
     const tab = screen.getByRole('tablist', { name: '보기' })
     const tabPill = within(tab).getAllByRole('button')[0]!
     const chip = () => screen.getByRole('switch', { name: CLAIMED_ONLY })
-    // 탭 알약은 알약 모양(999), 칩은 10
-    expect(getComputedStyle(tabPill).borderTopLeftRadius).toBe('999px')
+    // D-UX4-201로 바뀐 기대 (사용자 "탭도 사진1 스타일로"; 옛: 탭 알약 모양 999): 탭은 테두리·바탕 없는 밑줄 글자, 칩은 10
+    expect(['', '0', '0px']).toContain(getComputedStyle(tabPill).borderTopLeftRadius)
     expect(getComputedStyle(chip()).borderTopLeftRadius).toBe('10px')
     expect(within(chip()).getByTestId('chip-funnel')).toBeTruthy()
     expect(within(chip()).queryByTestId('chip-check')).toBeNull()
@@ -202,8 +203,10 @@ describe('[찜 된 것만]은 탭 알약과 다른 걸러 보기 칩 (D-UX4-148)
     expect(within(chip()).queryByTestId('chip-funnel')).toBeNull()
     expect(getComputedStyle(chip()).backgroundColor).toBe(rgb(p.secondary))
     expect(getComputedStyle(chip()).borderTopColor).toBe(rgb(p.primary))
-    // 켜진 탭 알약은 주색 꽉 찬 바탕이라 다르다
-    expect(getComputedStyle(tab.querySelector('[aria-selected="true"]')!).backgroundColor).toBe(rgb(p.primary))
+    // 켜진 탭은 바탕 없이 검정 밑줄이라 다르다 (D-UX4-201 — 옛: 주색 꽉 찬 알약)
+    const onTab = tab.querySelector('[aria-selected="true"]')!
+    expect(getComputedStyle(onTab).backgroundColor).toBe('rgba(0, 0, 0, 0)')
+    expect(within(onTab as HTMLElement).getByTestId('line-tab-bar')).toBeTruthy()
   })
 })
 

@@ -8,7 +8,7 @@ import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { CLAIMED_ONLY, NO_CLAIMED_YET } from '../src/screens/console/ProductBoard.tsx'
 import { OUTSIDE_NOTE, outsideBuyers, outsideTitle } from '../src/screens/console/OutsideWait.tsx'
 import { fromFull } from '../src/lib/scope-data.ts'
-import { makeWorld } from './screen-support.tsx'
+import { makeWorld, openSearchField } from './screen-support.tsx'
 import { buyer, changes, claim, flush, fullView, product } from './support.ts'
 
 const NAMES = ['초록손', '달빛화분', '모래정원', '아침이슬', '솔잎바람', '작은숲', '돌틈새싹', '물방울집', '구름화분']
@@ -75,7 +75,8 @@ describe('매출 캡슐 (D-UX4-140)', () => {
 
   it('숫자판을 연 동안·다른 탭에서는 (+)처럼 캡슐도 숨는다', async () => {
     await open(worldWith(VIEW))
-    fireEvent.focus(screen.getByLabelText('상품 번호 검색'))
+    // D-UX4-201: 찾기 칸은 머리 돋보기를 눌러 연다(옛: 늘 보임)
+    fireEvent.focus(openSearchField('상품 번호 검색'))
     expect(screen.queryByTestId('sales-pill')).toBeNull()
     fireEvent.pointerUp(screen.getByRole('list', { name: '상품 목록' }))
     expect(screen.getByTestId('sales-pill')).toBeTruthy()
@@ -93,7 +94,8 @@ describe('찜 된 것만 (D-UX4-141)', () => {
     fireEvent.click(toggle)
     expect(screen.getByRole('switch', { name: CLAIMED_ONLY }).getAttribute('aria-checked')).toBe('true')
     expect(rowLabels()).toEqual(['상품 자세히 — 218번', '상품 자세히 — 15번'])
-    fireEvent.focus(screen.getByLabelText('상품 번호 검색'))
+    // D-UX4-201: 찾기 칸은 머리 돋보기를 눌러 연다(옛: 늘 보임)
+    fireEvent.focus(openSearchField('상품 번호 검색'))
     typePad('1')
     expect(rowLabels()).toEqual(['상품 자세히 — 15번'])
     fireEvent.click(screen.getByRole('button', { name: '상품 번호 검색 지우기' }))
@@ -122,8 +124,9 @@ describe('대기 밖 찜 (D-UX4-142, 218번 찜 9개인데 6개만 보임)', () 
     expect(tags.map((tag) => tag.textContent)).toEqual(NAMES)
     const outside = tags.filter((tag) => tag.getAttribute('aria-label')?.endsWith('대기 밖'))
     expect(outside.map((tag) => tag.textContent)).toEqual(['돌틈새싹', '물방울집', '구름화분'])
-    for (const tag of outside) expect(Number(getComputedStyle(tag).opacity)).toBeLessThan(1)
-    expect(Number(getComputedStyle(tags[1]!).opacity || '1')).toBe(1)
+    // D-UX4-201로 바뀐 기대 (사용자 "포인트 컬러는 없이" — 꼬리표 대신 회색 글 한 줄; 옛: 흐린(투명도) 꼬리표): 대기 밖 이름은 다른 이름보다 옅은 회색 글
+    for (const tag of outside) expect(getComputedStyle(tag).color).toBe('rgb(176, 184, 193)')
+    expect(getComputedStyle(tags[1]!).color).toBe('rgb(139, 149, 161)')
   })
 
   it('상품 자세히: 1등·대기 알약은 그대로 6개, "대기 밖 3명 ›"을 누르면 흐린 이름 3개가 펼쳐진다 — 판정 요청은 보내지 않는다', async () => {

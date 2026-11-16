@@ -1,4 +1,5 @@
 // 화면 시험 도우미: 가짜 서버·가짜 실시간 연결·가짜 네이티브 모듈로 만든 앱 서비스 묶음과 Provider.
+import { fireEvent, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import type { WriteResult } from '@livejjim/web/src/api/types.ts'
 import { LiveStream } from '../src/lib/live.ts'
@@ -92,4 +93,15 @@ export function makeWorld(options: { readonly products?: ReturnType<typeof fullV
     return { body: result }
   })
   return world
+}
+
+/**
+ * 라이브 화면 찾기 칸 (D-UX4-201, 사용자 "검색창을 오른쪽 위에 검색 아이콘으로"): 칸은 머리 오른쪽 돋보기를 눌러야 나온다 —
+ * 이미 보이면(찾는 글이 남았거나 도구 줄을 따로 그린 화면) 그 칸을 돌려준다. 상품 탭에서 누르면 숫자판도 열린다
+ */
+export function openSearchField(label: string): HTMLElement {
+  const shown = screen.queryByLabelText(label)
+  if (shown !== null) return shown
+  fireEvent.click(screen.getByTestId('console-search'))
+  return screen.getByLabelText(label)
 }

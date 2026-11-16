@@ -10,7 +10,7 @@ import { tapHaptic } from '../../native/haptics.ts'
 import { TabIcon, type TabIconName } from './tab-icons.tsx'
 import { Tap } from './press.tsx'
 
-export type IconName = 'back' | 'chevron' | 'play' | 'home' | 'box' | 'card' | 'more' | 'menu' | 'label' | 'mic' | 'check' | 'plus' | 'down' | 'up' | 'gear' | 'edit' | 'help'
+export type IconName = 'back' | 'chevron' | 'play' | 'home' | 'box' | 'card' | 'more' | 'menu' | 'label' | 'mic' | 'check' | 'plus' | 'down' | 'up' | 'gear' | 'edit' | 'help' | 'search'
 
 /** 톱니 (D-UX4-20, 사용자 지시 2026-11-09 "... 버튼 디자인을 톱니 디자인으로" — 토스 계좌 화면 오른쪽 위 회색 톱니): 이 8개, 가운데 구멍 */
 export const GEAR_PATH = (() => {
@@ -106,6 +106,13 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
               <View key={n} style={{ width: s * 0.72, height: stroke, borderRadius: stroke, borderCurve: 'continuous', backgroundColor: c }} />
             ))}
           </View>
+        )
+      case 'search':
+        // 돋보기 (D-UX4-201 — 라이브 화면 머리 오른쪽, 토스 거래 내역 머리처럼): 선 굵기는 마이크와 같은 SVG 선
+        return (
+          <Svg width={s} height={s} viewBox="0 0 24 24">
+            <Path d="M10.6 3.6 A7 7 0 1 1 10.59 3.6 Z M15.7 15.7 L20.4 20.4" stroke={c} strokeWidth={lineWidth} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </Svg>
         )
       case 'more':
         return (

@@ -8,7 +8,7 @@
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Animated, BackHandler, Keyboard, Platform, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
+import { Animated, BackHandler, Keyboard, Platform, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import { get, withQuery } from '../api/client.ts'
 import { BuyerNames, alertCounts, boardProducts } from '../lib/derive.ts'
@@ -16,9 +16,9 @@ import type { ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderTextButton, Tap, Txt, useBottomInset, useKit, usePageTop } from '../ui/kit/index.ts'
+import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderIconButton, HeaderTextButton, Tap, Txt, useBottomInset, useKit, usePageTop, useWhiteTop } from '../ui/kit/index.ts'
 import { useHoldRouteSwipe } from '../ui/kit/route-swipe.tsx'
-import { GUTTER, SHADOW, SPACE } from '../ui/kit/tokens.ts'
+import { GUTTER, SHADOW, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { LOW_PAPER, useLabelPaper } from '../lib/label-paper.ts'
 import { BigButton as SmallButton, Notice, Row } from '../ui/parts.tsx'
 import { useCameLate } from '../ui/late.tsx'
@@ -39,7 +39,6 @@ import { DecisionsView } from './console/Decisions.tsx'
 import { UnlistedClaims, unlistedNumbers } from './console/UnlistedClaims.tsx'
 import { TentativeCards } from './console/TentativeCard.tsx'
 
-import { Pill } from '../ui/day-pills.tsx'
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { VoicePanel } from './console/VoicePanel.tsx'
 import { useFollowScroll } from '../lib/use-follow-scroll.ts'
@@ -176,12 +175,17 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const [searchPad, setSearchPad] = useState(false)
   const draggingSearch = useRef(false)
   const padOpacity = useRef(new Animated.Value(1)).current
+  // 찾기 칸은 머리 오른쪽 돋보기를 눌렀을 때만 (D-UX4-201, 사용자 "검색창을 오른쪽 위에 검색 아이콘으로") — 찾는 글이 남아 있으면 계속 보인다
+  const [searching, setSearching] = useState(false)
   const openSearchPad = () => {
     padOpacity.setValue(1)
     setSearchPad(true)
+    // 숫자판이 열린 동안은 찾기 칸도 열려 있다 — 글을 다 지워도 칸이 사라지지 않게 (D-UX4-201)
+    setSearching(true)
   }
   const closeSearchPad = useCallback(() => {
     setSearchPad(false)
+    setSearching(false)
     Keyboard.dismiss()
   }, [])
   useEffect(() => {
@@ -368,6 +372,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   if (broadcast !== null && data !== null && !ended) sawLive.current = true
   const endedNow = justEnded || endedHere || (ended && sawLive.current)
   const sealed = data?.sealed ?? false
+  // 라이브 화면은 흰 바탕 (D-UX4-201, 사용자 "배경도 흰색으로" — 토스 거래 내역처럼) — 상태 막대 자리도 흰색. 정산서(회색 카드 화면)일 때는 알리지 않는다
+  useWhiteTop(!(salesPage === 'sales' || ((ended || sealed) && salesPage === 'auto')))
   // 방송 연결 전체 화면 (D-UX3-06·07): 아직 잇지 않은 방송이면 주소 칸은 본문에, [확인]는 맨 아래(주소를 넣어야 보인다) — 아니면 유튜브 칸 그대로.
   // 훅이라 이른 return보다 앞에 둔다
   const linkable = canLinkByAddress(yt, ended || sealed)
@@ -527,18 +533,31 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   /** (+) 단추·매출 캡슐의 아래 자리 */
   const fabBottom = (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md
   const padHeight = DIGIT_PAD_HEIGHT + padInset + 1
+  /** 탭을 바꾸면 찾기 칸을 접는다(찾는 글은 탭마다 남는다) */
+  const pickTab = (next: typeof tab) => {
+    if (searchPad) closeSearchPad()
+    else setSearching(false)
+    setTab(next)
+  }
   const tabPills = (
     <>
-      <Pill on={shownTab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => setTab('products')} />
-      <Pill on={shownTab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => setTab('feed')} />
-      {showTalkTab ? <Pill on={shownTab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => setTab('talk')} /> : null}
-      {showHeardTab ? <Pill on={shownTab === 'heard'} label={HEARD_TAB} ariaLabel={HEARD_TAB} onPress={() => setTab('heard')} /> : null}
+      <LineTab on={shownTab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => pickTab('products')} />
+      <LineTab on={shownTab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => pickTab('feed')} />
+      {showTalkTab ? <LineTab on={shownTab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => pickTab('talk')} /> : null}
+      {showHeardTab ? <LineTab on={shownTab === 'heard'} label={HEARD_TAB} ariaLabel={HEARD_TAB} onPress={() => pickTab('heard')} /> : null}
     </>
   )
+  // 돋보기: 상품 탭은 번호 숫자판, 찜 기록 탭은 닉네임 키보드 (D-UX4-201)
+  const canSearch = (shownTab === 'products' && (searchDigits !== '' || productCountNow > 0)) || (shownTab === 'feed' && feedRows(data, names, broadcastId).length > 0)
+  const startSearch = () => {
+    tabHide.show()
+    setSearching(true)
+    if (shownTab === 'products') openSearchPad()
+  }
 
   return (
     <ConsoleContext.Provider value={api}>
-      <View style={{ flex: 1, backgroundColor: p.background }} testID="console-screen"
+      <View style={{ flex: 1, backgroundColor: p.surface }} testID="console-screen"
         onTouchEnd={searchPad ? closeSearchOnTap : undefined}
         onPointerUp={searchPad ? closeSearchOnTap : undefined}>
         {/* 상태 막대 자리 (D-UX4-51): 겹쳐 뜨는 화면은 이 자리까지 덮는다 */}
@@ -547,8 +566,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           title={heading}
           onBack={consoleBack}
           backLabel={fromSales ? '정산서로' : '홈으로'}
-          // 토스 카드 화면 오른쪽 위 "관리" 글자 단추 (D-UX4-42 — 옛 톱니 D-UX4-20). 듣기 상태는 아래 들린 말 창 왼쪽으로 옮겼다 (D-UX4-53)
-          right={<HeaderTextButton label="관리" ariaLabel={MANAGE_LABEL} onPress={() => (openManage === undefined ? setPage('settings') : openManage())} />}
+          // 오른쪽 위 돋보기 · ⋯ (D-UX4-201, 사용자 "검색창을 오른쪽 위에 검색 아이콘으로 하고, 관리 버튼도 ... 버튼으로" — 토스 거래 내역 머리처럼. 옛: "관리" 글자 단추 D-UX4-42)
+          right={<>
+            {canSearch ? <HeaderIconButton icon="search" label={shownTab === 'products' ? '상품 번호 검색 열기' : '찜 기록 찾기 열기'} testID="console-search" onPress={startSearch} /> : null}
+            <HeaderIconButton icon="more" label={MANAGE_LABEL} testID="console-more" onPress={() => (openManage === undefined ? setPage('settings') : openManage())} />
+          </>}
         />
         {help !== null ? (
           <View style={{ paddingHorizontal: SPACE.xl, paddingBottom: SPACE.sm }}>
@@ -618,18 +640,21 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           {/* 붙는 머리 칸(자리·여백)과 그 안에서 위로 밀려 숨는 탭 바(바탕·안 여백) — 칸 스타일은 휴대폰 붙는 머리가 가져가 숨김 이동을 따로 둔다 (D-UX4-155) */}
           {/* 칸은 누름을 받지 않는다(box-none, 붙는 머리 겉 칸도 같은 스타일) — 탭 바가 숨은 자리 밑의 목록 줄이 눌린다 */}
           <View testID="console-tabs-slot" collapsable={false} pointerEvents="box-none" onLayout={(event) => { tabHide.onLayout(event); tabsHeight.current = event.nativeEvent.layout.height }} style={{ marginHorizontal: -GUTTER, marginTop: -SPACE.sm, marginBottom: -SPACE.xs, pointerEvents: 'box-none' }}>
-            <Animated.View testID="console-tabs" style={{ paddingHorizontal: GUTTER, paddingTop: TABS_TOP, paddingBottom: SPACE.xs, backgroundColor: p.background, transform: [{ translateY: tabHide.offset }] }}>
-              <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
-                {tabPills}
-              </View>
+            <Animated.View testID="console-tabs" style={{ paddingHorizontal: GUTTER, paddingTop: TABS_TOP, paddingBottom: SPACE.xs, backgroundColor: p.surface, transform: [{ translateY: tabHide.offset }] }}>
+              {/* 밑줄 글자 탭 (D-UX4-201, 사용자 "탭도 사진1 스타일로" — 토스 거래 내역 [전체 카드 입·출금…]): 화면 끝까지 옅은 선, 고른 탭은 굵은 검정 글·검정 밑줄. 넘치면 옆으로 민다 */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -GUTTER, borderBottomWidth: 1, borderBottomColor: p.border }} contentContainerStyle={{ paddingHorizontal: GUTTER - LINE_TAB_PAD + SPACE.xs }}>
+                <View role="tablist" aria-label="보기" style={{ flexDirection: 'row' }}>
+                  {tabPills}
+                </View>
+              </ScrollView>
               {/* 지금 탭의 도구 줄 — 탭 바와 한 칸이라 손으로 내리면 같이 숨고 올리면 같이 나온다 (D-UX4-159, 사용자 "둘 다 같은 영역에 넣어서 스크롤 올리면 같이 보이게 해") */}
               {shownTab === 'products' && (searchDigits !== '' || shownProducts(data, broadcastId).length > 0) ? (
-                <View testID="console-toolbar" style={{ paddingTop: SPACE.sm }}>
-                  <ProductToolbar query={searchDigits} onQuery={setSearchDigits} claimedOnly={claimedOnly} onClaimedOnly={setClaimedOnly} sort={productSort} onSort={setProductSort} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} />
+                <View testID="console-toolbar" style={{ paddingTop: SPACE.md }}>
+                  <ProductToolbar query={searchDigits} onQuery={setSearchDigits} claimedOnly={claimedOnly} onClaimedOnly={setClaimedOnly} sort={productSort} onSort={setProductSort} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} searchShown={searching || searchDigits !== ''} searchFill={p.surfaceAlt} searchFocus={searching} />
                 </View>
               ) : shownTab === 'feed' && feedRows(data, names, broadcastId).length > 0 ? (
-                <View testID="console-toolbar" style={{ paddingTop: SPACE.sm }}>
-                  <ClaimFeedToolbar {...feedState} />
+                <View testID="console-toolbar" style={{ paddingTop: SPACE.md }}>
+                  <ClaimFeedToolbar {...feedState} searchShown={searching || feedState.query !== ''} searchFill={p.surfaceAlt} searchFocus={searching} onSearchBlur={() => setSearching(false)} />
                 </View>
               ) : null}
             </Animated.View>
@@ -740,5 +765,24 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         </FullSheet>
       </View>
     </ConsoleContext.Provider>
+  )
+}
+
+/** 밑줄 글자 탭 안쪽 양옆 여백 */
+const LINE_TAB_PAD = SPACE.sm + 2
+
+/**
+ * 라이브 화면 탭 하나 (D-UX4-201 — 옛 알약 Pill): 토스 거래 내역 탭처럼 글자만, 고르면 굵은 검정 글과 글 폭만큼 검정 밑줄(탭 줄 아래 옅은 선 위에 겹친다),
+ * 안 고르면 회색 글. 포인트 색은 쓰지 않는다
+ */
+function LineTab({ on, label, ariaLabel, onPress }: { readonly on: boolean; readonly label: string; readonly ariaLabel: string; readonly onPress: () => void }) {
+  const { p } = useKit()
+  return (
+    <Tap role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} pressScale={1} style={({ pressed }) => ({ minHeight: TOUCH.min, paddingHorizontal: LINE_TAB_PAD, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+      <Txt step="nav" weight={on ? 'bold' : 'medium'} ink={on ? p.text : p.borderStrong} numberOfLines={1}>
+        {label}
+      </Txt>
+      {on ? <View aria-hidden testID="line-tab-bar" style={{ position: 'absolute', left: LINE_TAB_PAD - 2, right: LINE_TAB_PAD - 2, bottom: -1, height: 2.5, borderRadius: 2, borderCurve: 'continuous', backgroundColor: p.text }} /> : null}
+    </Tap>
   )
 }

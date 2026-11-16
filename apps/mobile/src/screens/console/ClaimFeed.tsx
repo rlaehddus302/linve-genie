@@ -29,6 +29,7 @@ import { SORT_TITLE } from '../../lib/product-sort.ts'
 import { BottomSheet, EmptyFill, SheetChoices, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { Hint, Notice } from '../../ui/parts.tsx'
+import type { SearchSlot } from './ProductBoard.tsx'
 import { SearchField } from '../customer-parts.tsx'
 import { ClaimMenu, type PickedClaim } from './ClaimMenu.tsx'
 import { useConsoleApi } from './context.ts'
@@ -121,11 +122,11 @@ export interface ClaimFeedToolbarProps {
  * 둘째 줄 오른쪽 정렬 단추 — 상품 목록 도구 줄(ProductToolbar)의 [찜 된 것만] 칩 · [목록 순서] 단추 줄과 같은 자리·꼴.
  * 누르면 아래 창에서 최근순 · 이름순을 고른다. 상태는 들지 않는다 — 고르는 판(아래 창)만 여기서 연다.
  */
-export function ClaimFeedToolbar({ query, onQuery, sort, onSort }: ClaimFeedToolbarProps) {
+export function ClaimFeedToolbar({ query, onQuery, sort, onSort, searchShown = true, searchFill, searchFocus, onSearchBlur }: ClaimFeedToolbarProps & SearchSlot) {
   const [picking, setPicking] = useState(false)
   return (
     <View role="group" aria-label="찜 기록 찾기·정렬" testID="feed-toolbar" style={{ gap: SPACE.sm }}>
-      <SearchField label={FEED_SEARCH_LABEL} placeholder={FEED_SEARCH_HINT} value={query} onChangeText={onQuery} />
+      {searchShown ? <SearchField label={FEED_SEARCH_LABEL} placeholder={FEED_SEARCH_HINT} value={query} onChangeText={onQuery} {...(searchFill === undefined ? {} : { fill: searchFill })} {...(searchFocus === true ? { autoFocus: true } : {})} {...(onSearchBlur === undefined ? {} : { onBlur: onSearchBlur })} /> : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.sm }}>
         <View />
         <FeedSortButton sort={sort} onPress={() => { Keyboard.dismiss(); setPicking(true) }} />
