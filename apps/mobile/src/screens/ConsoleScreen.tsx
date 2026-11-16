@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Animated, BackHandler, Keyboard, Platform, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
-import { get, withQuery } from '../api/client.ts'
+import { get, put, withQuery } from '../api/client.ts'
 import { BuyerNames, alertCounts, boardProducts } from '../lib/derive.ts'
 import type { ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
@@ -492,7 +492,15 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
     return frame(<LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />)
   }
 
-  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), latest: () => store.getSnapshot().data ?? data, select: setSelected, selected, labelWords, labelsOff: seller && !sealed && !rehearsal && labelsQueue.queue?.labelsEnabled === false, ...(seller && !sealed && !rehearsal && labelsQueue.queue?.labelsEnabled ? { productLabels: labels } : {}), doubts }
+  // 라벨은 프린터와 상관없이 켜져 있으면 보이고, 이어진 프린터가 없으면 대기열에 쌓인다 — 꺼져 있으면 상품 자세히에서 바로 켠다 (D-LBL-NOPRN-01)
+  const labelsHere = seller && !sealed && !rehearsal
+  const labelsOn = labelsHere && labelsQueue.queue?.labelsEnabled === true
+  const printerMissing = labelsOn && (labelsQueue.queue?.device == null || !labelsQueue.queue.device.printerConnected)
+  const turnLabelsOn = async () => {
+    await put('/api/settings/labels', { enabled: true })
+    await services.labels.reload()
+  }
+  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), latest: () => store.getSnapshot().data ?? data, select: setSelected, selected, labelWords, labelsOff: labelsHere && labelsQueue.queue?.labelsEnabled === false, ...(labelsOn ? { productLabels: labels } : {}), ...(labelsHere ? { printerMissing, turnLabelsOn } : {}), doubts }
   const detailProduct = detail === null ? undefined : data.products.get(detail)
   const title = broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const closed = ended || sealed

@@ -48,7 +48,10 @@ describe('D-UX4-01 단추는 좌우로 — 부정 왼쪽, 긍정 오른쪽', () 
 
   it('라벨 단계 단추들도 부정을 먼저 놓는다 (소스)', () => {
     const source = readFileSync(join(__dirname, '../src/screens/LabelSetupScreen.tsx'), 'utf8')
-    expect(source.indexOf('label="괜찮아요"')).toBeLessThan(source.indexOf('label="뽑을게요"'))
+    // D-LBL-NOPRN-01: 왼쪽 단추가 [괜찮아요] → [프린터 없이](LABEL_WITHOUT_PRINTER)로 바뀌었다 (옛 기대: label="괜찮아요"가 먼저). 없으면 -1이라 반드시 있는지도 본다
+    const withoutPrinter = source.indexOf('label={LABEL_WITHOUT_PRINTER}')
+    expect(withoutPrinter).toBeGreaterThanOrEqual(0)
+    expect(withoutPrinter).toBeLessThan(source.indexOf('label="뽑을게요"'))
     expect(source.indexOf('label="아니요"')).toBeLessThan(source.indexOf('label="예"'))
     const keepDevice = source.indexOf("label={taken ? '그대로 두기' : '나중에 하기'}")
     expect(keepDevice).toBeGreaterThanOrEqual(0)

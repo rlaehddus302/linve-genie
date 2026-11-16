@@ -29,6 +29,7 @@ import { isTentative, tentativeAttention, waitingAt } from '../../lib/tentative.
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { DEFAULT_PRODUCT_SORT, PRODUCT_SORTS, SORT_TITLE, sortProducts, sortWord, type ProductSort } from '../../lib/product-sort.ts'
 import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, priceWords } from '../../lib/words.ts'
+import { LABELS_NO_PRINTER, LABELS_OFF_LINE, LABELS_TURN_ON, LABELS_TURN_ON_FAILED } from '../../lib/print-words.ts'
 import { BottomSheet, EmptyFill, ErrorLine, PopupDialog, SheetChoices, Txt, useKit, Tap } from '../../ui/kit/index.ts'
 import { GUTTER, MAX_FONT_SCALE, RADIUS, SPACE, TOUCH, TYPE, pressedFill } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
@@ -626,7 +627,12 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
         <ClaimAddForm product={product} onClose={() => setAdding(false)} onAdded={(line) => { animateNextLayout(); setAdded(line); setAdding(false) }} />
       ) : (
       <View role="group" aria-label="상품 메뉴" style={{ gap: SPACE.xs }}>
-        {api.labelsOff ? <Txt color="textSub">라벨을 인쇄하려면 관리에서 ‘라벨 뽑기’를 켜 주세요.</Txt> : null}
+        {/* 라벨 뽑기가 꺼져 있으면 여기서 바로 켠다 — 프린터가 없어도 켜 두면 라벨이 대기열에 쌓인다 (D-LBL-NOPRN-01, 옛: "관리에서 ‘라벨 뽑기’를 켜 주세요" 글만) */}
+        {api.labelsOff ? <Txt color="textSub">{LABELS_OFF_LINE}</Txt> : null}
+        {api.labelsOff && api.turnLabelsOn !== undefined ? (
+          <IconMenuRow emoji="🏷️" tint="#EAF1F7" title={LABELS_TURN_ON} testID="labels-turn-on" onPress={() => { const on = api.turnLabelsOn; if (on !== undefined) void run(on, LABELS_TURN_ON_FAILED) }} />
+        ) : null}
+        {api.productLabels !== undefined && api.printerMissing === true ? <Txt step="caption" color="textSub" role="note" testID="labels-no-printer">{LABELS_NO_PRINTER}</Txt> : null}
         {/* 가격이 빈 상품은 라벨을 뽑지 않는다 — 가격 자리를 비우거나 0원으로 찍지 않게 (D-RECOG-22) */}
         {api.productLabels !== undefined && productSlots(product).winnerClaims.length === 0 && product.price !== null ? (
           <QueueLabelButton key={`${product.id}:${copy}`} action="direct" title="상품 라벨 인쇄" disabled={false}

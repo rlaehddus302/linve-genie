@@ -34,20 +34,24 @@ function labelWorld(labelsEnabled = true) {
 }
 
 describe('D-UX3-19 라이브 시작 라벨 단계', () => {
-  // 옛 기대: 단추 [네, 뽑을게요](위)·[안 뽑아요](아래). 새 기대 D-UX4-01·03: 좌우로 [괜찮아요](왼쪽)·[뽑을게요](오른쪽), 설명 세 줄과 라벨 그림
-  it('[괜찮아요]: 라벨 기능을 끄고 바로 라이브로 (D-UX4-03)', async () => {
+  // 옛 기대: 단추 [네, 뽑을게요](위)·[안 뽑아요](아래). D-UX4-01·03: 좌우로 [괜찮아요](왼쪽)·[뽑을게요](오른쪽), 설명 세 줄과 라벨 그림.
+  // D-LBL-NOPRN-01 (사용자 지시 2026-11-16 "프린터 연결 안 되어 있더라도 기능 보이게 … 프린터 없으면 일단 큐에 넣어라"): 왼쪽은 [프린터 없이] — 라벨 기능을 끄지 않고
+  //   (옛 기대: [괜찮아요] → PUT enabled false) 켠 채 라이브로 간다. 설명에 "프린터가 없어도 … 대기열에 쌓였다가" 한 줄이 더해졌다
+  it('[프린터 없이]: 라벨 기능을 켠 채(꺼져 있으면 켜고) 바로 라이브로 — 라벨은 대기열에 쌓인다 (D-LBL-NOPRN-01)', async () => {
     const world = labelWorld()
     const onDone = vi.fn()
     render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={onDone} />))
     const page = screen.getByRole('dialog', { name: '라벨' })
     expect(within(page).getByRole('heading', { name: '라벨을 뽑을까요?' })).toBeTruthy()
     expect(page.textContent).toContain('찜이 확정되면 라벨 프린터로 바로 출력해요.\n상품 번호, 가격, 구매자 이름 등을 기록할 수 있어서\n나중에 포장할 때 헷갈리지 않아요.')
+    expect(page.textContent).toContain('프린터가 없어도 라벨은 대기열에 쌓였다가 연결하면 뽑혀요.')
     expect(within(page).getByRole('img', { name: '라벨 프린터에서 라벨이 뽑혀 나오는 그림' }).textContent).toContain('-라이브다육-')
-    expect(within(page).getAllByRole('button').map((button) => button.getAttribute('aria-label')).slice(-2)).toEqual(['괜찮아요', '뽑을게요'])
+    expect(within(page).getAllByRole('button').map((button) => button.getAttribute('aria-label')).slice(-2)).toEqual(['프린터 없이', '뽑을게요'])
     await flush()
-    fireEvent.click(within(page).getByRole('button', { name: '괜찮아요' }))
+    fireEvent.click(within(page).getByRole('button', { name: '프린터 없이' }))
     await waitFor(() => expect(onDone).toHaveBeenCalled())
-    expect(world.server.callsTo('PUT', /^\/api\/settings\/labels$/)[0]?.body).toEqual({ enabled: false })
+    // 이미 켜져 있으면 켬/끔을 건드리지 않는다 — 끄는 요청은 없다
+    expect(world.server.callsTo('PUT', /^\/api\/settings\/labels$/).map((call) => call.body)).not.toContainEqual({ enabled: false })
     world.services.labels.stop()
   })
 

@@ -64,3 +64,11 @@ export const FIX_DONE_SAME = '상품은 이미 그 값이라 그대로 두고, �
  */
 export const FIX_AMOUNT_KEPT = '이 찜의 정산 금액은 그대로예요. 이미 입금된 찜이거나 상품 가격이 벌써 그 값이라 바뀌지 않았어요. 라벨에는 새 가격이 찍혀요.'
 export const FIX_PRODUCT_FAILED = '상품을 고치지 못했어요. 다시 눌러 주세요.'
+
+// ── 프린터 없이도 라벨 (D-LBL-NOPRN-01, 사용자 지시 2026-11-16 "라벨 프린터 연결 안 되어 있더라도 기능 보이게 활성화 … 프린터 없으면 일단 큐에 넣어라") ──
+/** 상품 자세히: 라벨 뽑기가 꺼져 있을 때 한 줄과 켜는 줄 */
+export const LABELS_OFF_LINE = '라벨 뽑기가 꺼져 있어요.'
+export const LABELS_TURN_ON = '라벨 뽑기 켜기'
+export const LABELS_TURN_ON_FAILED = '라벨 뽑기를 켜지 못했어요. 다시 눌러 주세요.'
+/** 상품 자세히: 라벨은 켜져 있는데 이어진 프린터가 없을 때 */
+export const LABELS_NO_PRINTER = '프린터가 없어도 라벨은 대기열에 쌓여요. 프린터를 이으면 차례로 뽑을 수 있어요.'
