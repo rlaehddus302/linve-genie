@@ -148,7 +148,10 @@ export function snapshotIssues(snapshot: unknown): string[] {
       c.optional(product, 'conflict', (v) => {
         if (typeof v !== 'boolean') c.fail(`${p}.conflict`, `true 또는 false여야 한다 (값: ${showValue(v)})`)
       })
-      c.optional(product, 'price', (v) => c.int(`${p}.price`, v, 0))
+      // null = 가격이 빈 확인 중 상품 (D-RECOG-22)
+      c.optional(product, 'price', (v) => {
+        if (v !== null) c.int(`${p}.price`, v, 0)
+      })
       c.optional(product, 'priceHistory', (v) => {
         if (!c.array(`${p}.priceHistory`, v)) return
         v.forEach((entry, i) => {

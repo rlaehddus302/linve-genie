@@ -28,7 +28,8 @@ type Edit = {
   type: 'product.open' | 'product.update' | 'product.register' | 'product.close' | 'product.renumber' | 'product.confirm' | 'product.withdraw'
   no: number
   name: string
-  price: number
+  /** null = 가격이 빈 확인 중 상품 (R-2 "가격 없는 확인 중", D-RECOG-22) — 받는 계정에도 가격 없이 확인 중으로만 넣고, 0원으로 넣지 않는다 */
+  price: number | null
   linkId?: string
   from?: number
   setName: boolean
@@ -46,7 +47,7 @@ type Edit = {
   queuedAt?: number
   /** 처음 맞추기가 만든 행 (D-RETRO-10): 계산할 때 본 값(was)일 때만 바꾼다. was null = 그 계정에 없던 번호 */
   merge?: boolean
-  was?: { name: string; price: number } | null
+  was?: { name: string; price: number | null } | null
   /** 처음 맞추기가 옮긴 값의 원래 주인 (없으면 사람이 고친 값) */
   prov?: { name?: Stamp; price?: Stamp; state?: Stamp }
   attempts?: number
@@ -59,7 +60,7 @@ export type Member = { id: string; seller_id: string; broadcast_id: string; date
 /** 값을 정한 쪽·원천 시각(ms)·같은 시각일 때의 차례(이벤트 행 번호) */
 export type Prov = { by: By; at: number; ord: number }
 /** 한 계정의 한 번호: 지금 값과 칸마다 그 값을 정한 쪽 (stateP = 등록·다시 열기·판매 종료·확정 가운데 마지막). tentative = 지금 확인 중인지 (D-RETRO-83) */
-export type Held = { name: string; price: number; closed: boolean; nameP: Prov; priceP: Prov; stateP: Prov; tentative?: boolean }
+export type Held = { name: string; price: number | null; closed: boolean; nameP: Prov; priceP: Prov; stateP: Prov; tentative?: boolean }
 export type Party = Member & { held: Map<number, Held> }
 
 const KINDS = ['product.register', 'product.open', 'product.update', 'product.renumber', 'product.close', 'product.confirm', 'product.withdraw'] as const
@@ -269,7 +270,8 @@ async function holdings(tx: Db, member: Member): Promise<Map<number, Held>> {
     if (e.no === null) continue
     const last = held.get(e.no)
     if (e.kind === 'product.register') {
-      held.set(e.no, { name: e.name ?? '', price: Number(e.price), closed: false, nameP: prov('name'), priceP: prov('price'), stateP: prov('state'), ...(e.tent === true ? { tentative: true } : {}) })
+      // 가격 없는 확인 중 등록은 가격이 빈 번호다 — Number(null) = 0원으로 읽지 않는다 (D-RECOG-22)
+      held.set(e.no, { name: e.name ?? '', price: e.price === null ? null : Number(e.price), closed: false, nameP: prov('name'), priceP: prov('price'), stateP: prov('state'), ...(e.tent === true ? { tentative: true } : {}) })
     } else if (e.kind === 'product.withdraw') {
       // 거둔 확인 중 상품은 없는 번호다 (R-2 "확인 중")
       held.delete(e.no)
@@ -341,20 +343,31 @@ export function planFirstSync(members: readonly Party[], base: Party | null, now
     }
     if (open.length === 0) continue
     const name = pick(open.map((x) => ({ m: x.m, value: x.h.name, p: x.h.nameP })), base, 'name')
-    const price = pick(open.map((x) => ({ m: x.m, value: x.h.price, p: x.h.priceP })), base, 'price')
+    // 가격이 빈 확인 중 번호(D-RECOG-22)는 금액 후보가 아니다 — 가격을 가진 계정의 값만 견준다
+    const priced = open.flatMap((x) => (x.h.price === null ? [] : [{ m: x.m, value: x.h.price, p: x.h.priceP }]))
+    const price = priced.length === 0 ? null : pick(priced, base, 'price')
+    /** 가진 계정이 모두 아직 가격을 모른다 — 금액 차이가 아니라 가격 없는 확인 중으로 옮긴다 */
+    const unpriced = priced.length === 0
     if (name === null) continue
     const reopen = !fact.h.closed && fact.p.by === 'human'
-    const prices = [...new Set(open.map((x) => x.h.price))].sort((a, b) => a - b)
+    const prices = [...new Set(priced.map((x) => x.value))].sort((a, b) => a - b)
     for (const m of members) {
       const h = m.held.get(no)
       if (h !== undefined && h.closed && !reopen) continue
       if (h === undefined && fact.h.closed) continue
-      if (price === null) out.push({ to: m, body: { type: 'conflict', no, mine: h === undefined || h.closed ? null : h.price, prices, merge: true, queuedAt: now } })
+      if (price === null && !unpriced) out.push({ to: m, body: { type: 'conflict', no, mine: h === undefined || h.closed ? null : h.price, prices, merge: true, queuedAt: now } })
       if (h === undefined) {
         // 금액을 정하지 못한 번호는 없는 계정에 새로 넣지 않는다 (틀린 금액으로 기다리던 찜이 확정되지 않게)
         // 가진 계정이 모두 확인 중이면 새 계정에도 확인 중으로 넣는다 (D-RETRO-83). 기다리는 찜이 있는지는 넣을 때 그 계정의 상태로 본다
         const allTentative = open.every((x) => x.h.tentative === true)
         if (price !== null) out.push({ to: m, body: { type: 'product.register', no, name: name.value, price: price.value, setName: true, setPrice: true, merge: true, was: null, queuedAt: now, prov: { name: stamp(name.p), price: stamp(price.p), state: stamp(fact.p) }, ...(allTentative ? { tentative: { reasons: [OTHER_ACCOUNT] } } : {}) } })
+        // 모두 가격 없는 확인 중이면 새 계정에도 가격 없이 확인 중으로 (열린 번호의 가격 빈 상품은 늘 확인 중이다 — INV-14)
+        // 빈 가격을 정한 쪽(가격 없는 등록은 일꾼 입구에서만 온다)도 옮긴다 — 그래야 그 계정에서도 일꾼의 금액 고치기가 빈 가격을 채운다(NOT_SCREEN이 아니게, D-RECOG-26)
+        else if (unpriced && allTentative) {
+          const blank = open.reduce((last, x) => (x.h.priceP.at > last.at ? x.h.priceP : last), open[0]?.h.priceP ?? fact.p)
+          const blankP: Prov = { ...blank, by: open.every((x) => x.h.priceP.by === 'worker') ? 'worker' : 'human' }
+          out.push({ to: m, body: { type: 'product.register', no, name: name.value, price: null, setName: true, setPrice: false, merge: true, was: null, queuedAt: now, prov: { name: stamp(name.p), price: stamp(blankP), state: stamp(fact.p) }, tentative: { reasons: [OTHER_ACCOUNT] } } })
+        }
         continue
       }
       const setName = h.name !== name.value
@@ -688,7 +701,7 @@ export class CatalogDelivery {
           else {
             // 이 계정이 그 뒤에 스스로 고친 칸은 그대로 두고 확정한다 (차례 지키기, D-RETRO-11)
             const name = edit.setName && !seen.name && awaiting.name !== edit.name
-            const price = edit.setPrice && !seen.price && awaiting.price !== edit.price
+            const price = edit.setPrice && edit.price !== null && !seen.price && awaiting.price !== edit.price
             add({ type: 'product.confirm', no: awaiting.no, ...(moving ? { to: edit.no } : {}), ...(name ? { name: edit.name } : {}), ...(price ? { price: edit.price } : {}) })
           }
         } else if (awaiting !== null && awaiting.no !== edit.no && awaiting.status !== 'CLOSED') {
@@ -710,14 +723,17 @@ export class CatalogDelivery {
           else {
             // 이 계정에 그 번호로 기다리는 찜이 있으면 확인 중으로 넣는다 — 다른 계정의 값으로 그 찜이 바로 확정되지 않게 (D-RETRO-83, 313번)
             const tentative = syncTentative(edit.tentative, pendingCount(state, b, edit.no) > 0)
-            add({ type: 'product.register', no: edit.no, name: edit.name, price: edit.price, ...(tentative === undefined ? {} : { tentative }) })
+            // 가격이 빈 상품은 확인 중으로만 넣는다 — 가격 없이 판매 중이 되는 등록을 만들지 않는다 (D-RECOG-22)
+            if (edit.price === null && tentative === undefined) seen.note = 'kept'
+            else add({ type: 'product.register', no: edit.no, name: edit.name, ...(edit.price === null ? {} : { price: edit.price }), ...(tentative === undefined ? {} : { tentative }) })
           }
         } else if (edit.merge && edit.was === null) {
           // 처음 맞추기가 "없는 번호에 등록"으로 계산했는데 그사이 누가 넣었으면 그 값을 그대로 둔다
           if (target.name !== edit.name || target.price !== edit.price) seen.note = 'kept'
         } else {
           let name = edit.setName && target.name !== edit.name
-          let price = edit.setPrice && target.price !== edit.price
+          // 가격 빈 값(D-RECOG-22)으로 받는 계정의 가격을 지우지 않는다
+          let price = edit.setPrice && edit.price !== null && target.price !== edit.price
           // 처음 맞추기는 계산할 때 본 값일 때만 바꾼다 — 그사이 바뀐 칸은 건드리지 않는다
           if (edit.merge && edit.was) {
             if (name && target.name !== edit.was.name) [name, seen.note] = [false, 'kept']

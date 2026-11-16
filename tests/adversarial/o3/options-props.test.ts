@@ -81,7 +81,7 @@ function checkState(seed: number): void {
   for (const row of ledger.rows) expect(ledgerRowValues(row)).toHaveLength(14)
   // 확정 찜마다 한 행 — (번호, 옵션, 수량, 가격)의 묶음이 같다
   const sig = (no: number, variant: string, qty: number, price: number): string => JSON.stringify([no, variant, qty, price])
-  expect(confirmedRows.map((row) => sig(row.no, row.variant ?? '', row.qty as number, row.price)).sort()).toEqual(
+  expect(confirmedRows.map((row) => sig(row.no, row.variant ?? '', row.qty as number, row.price as number)).sort()).toEqual(
     claims.map((c: ClaimInfo) => sig(c.no, c.variant ?? '', c.qty, c.amount as number)).sort(),
   )
 }

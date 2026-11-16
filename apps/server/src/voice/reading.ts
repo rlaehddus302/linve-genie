@@ -68,6 +68,8 @@ export function readingFactory(deps: { screenProducts: boolean; db: Db; service:
         existingProduct: (no) => {
           const product = getProduct(no)
           if (product === undefined) return null
+          // 가격이 빈 확인 중 상품(D-RECOG-22)은 음성 같은 번호 규칙이 견줄 가격이 없다 — 음성 길에서는 없는 번호로 본다(등록은 이미 있는 번호라 아무 일 없음)
+          if (product.price === null) return null
           const slots = productSlots(product)
           return { key: product.key, name: product.name, price: product.price, claimCount: slots.winners.length + slots.waitlist.length, closed: product.status === 'CLOSED', status: product.status }
         },

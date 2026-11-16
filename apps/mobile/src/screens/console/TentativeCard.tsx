@@ -7,6 +7,8 @@
 // - 서버가 "바뀐 것 없음"이면(그사이 일꾼·다른 기기가 확정) 조용히 닫고 따라잡은 상태를 보인다.
 // 방송 화면에는 한 번에 한 장만, 먼저 올라온 것부터 — 화면 아래(엄지 자리)의 같은 곳에 뜬다. 상품 자세히도 같은 조각(TentativePanel)을 쓴다.
 // - 일꾼이 품종을 여러 가지로 들었으면(품종 후보) 품종 단추 한 줄을 띄운다 — 누른 품종으로 확정된다(D-VARIETY-01, 개선 계획 E1). 지금 품종이 먼저 골라져 있다.
+// - 가격 없이 올라온 상품(일꾼이 "N번"만 들음, D-RECOG-22): 값 줄의 가격 자리에 "가격 듣는 중". 금액 후보가 있으면 후보 단추로만 고르고(지금 값 단추 없음),
+//   후보도 없으면 "가격이 얼마예요?" — 왼쪽 [거두기] · 오른쪽 [가격 적기](수정창의 가격 칸). 가격 없이는 확정 단추가 없다(서버도 받지 않는다).
 // 앱은 판정하지 않는다. 닉네임·채팅 글은 그리지 않는다. 품종은 글자로만 그린다.
 import { productTitle } from '@livejjim/core/format'
 import { useRef, useState } from 'react'
@@ -14,8 +16,8 @@ import { Platform, View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { productKey } from '../../lib/derive.ts'
-import { TENTATIVE_TAG, confirmEvent, isTentative, otherNames, otherNumbers, otherPrices, reasonLine, tentativeProducts, waitingAt, waitingWords, withdrawEvent } from '../../lib/tentative.ts'
-import { formatWon } from '../../lib/words.ts'
+import { TENTATIVE_TAG, confirmEvent, isTentative, needsPrice, otherNames, otherNumbers, otherPrices, reasonLine, tentativeProducts, waitingAt, waitingWords, withdrawEvent } from '../../lib/tentative.ts'
+import { formatWon, priceWords } from '../../lib/words.ts'
 import { Appear, BigButton, ButtonRow, ErrorLine, PopupDialog, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { GUTTER, RADIUS, SHADOW, SPACE } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
@@ -24,6 +26,12 @@ import { VarietyChips } from './VarietyChips.tsx'
 export const TENTATIVE_REGION = '확인 중인 상품'
 export const ASK_WHICH_NUMBER = '몇 번이 맞나요?'
 export const ASK_WHICH_PRICE = '얼마가 맞나요?'
+/** 가격 없이 올라온 상품에 금액 후보도 없을 때 (D-RECOG-22) */
+export const ASK_PRICE = '가격이 얼마예요?'
+/** 그 물음의 오른쪽 단추 — 수정창의 가격 칸을 연다 */
+export const WRITE_PRICE = '가격 적기'
+/** 상품 자세히(수정창이 이미 위에 있음)에서의 안내 */
+export const WRITE_PRICE_ABOVE = '위 가격 칸을 눌러 가격을 적고 확정해 주세요.'
 export const CONFIRM_AS_IS = '이대로 확정'
 export const WITHDRAW = '거두기'
 export const WITHDRAW_ASK = '이 상품을 거둘까요?'
@@ -86,12 +94,14 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
 
   const numbers = otherNumbers(product)
   const prices = otherPrices(product)
-  const step = numbers.length > 0 && picked === null ? 'no' : prices.length > 0 ? 'price' : 'plain'
+  // 가격이 비었으면(D-RECOG-22) 금액 후보 단추로만 확정한다. 후보도 없으면 번호보다 먼저 가격을 묻는다 — 번호만 골라 확정하는 길은 없다
+  const priceless = needsPrice(product)
+  const step = priceless && prices.length === 0 ? 'needPrice' : numbers.length > 0 && picked === null ? 'no' : prices.length > 0 ? 'price' : 'plain'
   const no = picked ?? product.no
   const waiting = waitingAt(api.data, api.b, no)
   const names = otherNames(product)
   const name = pickedName ?? product.name.trim()
-  const line = [`${String(no)}번`, productTitle(name, product.pieces), formatWon(product.price)].filter((part) => part !== '').join(' ')
+  const line = [`${String(no)}번`, productTitle(name, product.pieces), priceWords(product.price)].filter((part) => part !== '').join(' ')
   const why = [reasonLine(tentative), ...(waiting > 0 ? [waitingWords(waiting)] : [])].join(' · ')
   const tooSoon = () => guardMs > 0 && Date.now() - shownAt.current < guardMs
 
@@ -157,7 +167,7 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
         ) : null}
         <View style={{ flex: 1 }} />
         {/* 작은 단추도 한 줄 — 부정(거두기·번호 다시)이 왼쪽, 고치기가 오른쪽 */}
-        {step === 'plain' ? null : picked === null ? (
+        {step === 'plain' || step === 'needPrice' ? null : picked === null ? (
           <SmallAction label={WITHDRAW} ariaLabel={`${WITHDRAW} — ${String(product.no)}번`} disabled={busy} onPress={() => { if (!tooSoon()) setAsking(true) }} />
         ) : (
           <SmallAction label={PICK_NUMBER_AGAIN} ariaLabel={PICK_NUMBER_AGAIN} disabled={busy} onPress={() => { setError(null); setPicked(null) }} />
@@ -178,9 +188,14 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
       )}
       {step === 'plain' ? null : (
         <Txt step="bodyLarge" weight="bold">
-          {step === 'no' ? ASK_WHICH_NUMBER : ASK_WHICH_PRICE}
+          {step === 'no' ? ASK_WHICH_NUMBER : step === 'needPrice' ? ASK_PRICE : ASK_WHICH_PRICE}
         </Txt>
       )}
+      {step === 'needPrice' && onEdit === undefined ? (
+        <Txt step="caption" color="textSub">
+          {WRITE_PRICE_ABOVE}
+        </Txt>
+      ) : null}
       {error !== null ? <ErrorLine>{error}</ErrorLine> : null}
       {/* 단추는 좌우 한 줄 (절대 규칙 8). 후보끼리는 긍정·부정이 아니므로 지금 값(일꾼이 따른 쪽)을 오른쪽에 둔다 */}
       <ButtonRow>
@@ -192,7 +207,13 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
         ) : step === 'price' ? (
           <>
             {prices.map((value) => choice(formatWon(value), `${formatWon(value)}으로 확정`, false, () => pickPrice(value)))}
-            {choice(formatWon(product.price), `${formatWon(product.price)}으로 확정`, true, () => pickPrice(product.price))}
+            {product.price === null ? null : choice(formatWon(product.price), `${formatWon(product.price)}으로 확정`, true, () => pickPrice(product.price as number))}
+          </>
+        ) : step === 'needPrice' ? (
+          <>
+            {/* 부정(거두기) 왼쪽 · 긍정(가격 적기) 오른쪽, 한 줄 (절대 규칙 8). 수정창이 위에 있는 상품 자세히에서는 거두기만 */}
+            <BigButton kind="outline" label={WITHDRAW} ariaLabel={`${WITHDRAW} — ${String(product.no)}번`} disabled={busy} onPress={() => { if (!tooSoon()) setAsking(true) }} />
+            {onEdit === undefined ? null : <BigButton label={WRITE_PRICE} ariaLabel={`${WRITE_PRICE} — ${String(product.no)}번`} disabled={busy} onPress={() => { if (!tooSoon()) onEdit() }} />}
           </>
         ) : (
           <>

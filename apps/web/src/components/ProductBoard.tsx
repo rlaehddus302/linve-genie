@@ -6,7 +6,7 @@ import { productTitle } from '@livejjim/core/format'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import type { Product } from '../api/types.ts'
-import { boardProducts, cancelRequestCount, formatWon, productSlots } from '../lib/derive.ts'
+import { boardProducts, cancelRequestCount, priceWords, productSlots } from '../lib/derive.ts'
 import { ErrorNote } from './ErrorNote.tsx'
 import { stockLeftWords } from '../lib/stock.ts'
 import { ALERT_WORD, PRODUCT_STATUS_WORD } from '../lib/words.ts'
@@ -129,7 +129,7 @@ const nameOf = (product: Product): string => productTitle(product.name.trim() ==
 export function ProductSummary({ product }: { readonly product: Product }) {
   return (
     <p className="summary">
-      <strong>{product.no}번</strong> <span>{nameOf(product)}</span> <span>{formatWon(product.price)}</span>{' '}
+      <strong>{product.no}번</strong> <span>{nameOf(product)}</span> <span>{priceWords(product.price)}</span>{' '}
       <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span> <span>
         1등 <Winners product={product} />
       </span>{' '}
@@ -288,7 +288,7 @@ function CurrentBody({ product, onOpen }: { readonly product: Product; readonly 
         <p>
           1등: <Winners product={product} />
         </p>
-        <p>{formatWon(product.price)}</p>
+        <p>{priceWords(product.price)}</p>
         <p>
           <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span>
         </p>
@@ -334,7 +334,7 @@ const BoardItem = memo(function BoardItem({ product, onOpen }: { readonly produc
       <button type="button" className="board-item" onClick={() => onOpen(product.key)}>
         <span className="board-no">{product.no}번</span>
         <span className="board-name">{nameOf(product)}</span>
-        <span>{formatWon(product.price)}</span>
+        <span>{priceWords(product.price)}</span>
         <span className={`tag status-${product.status}`}>{PRODUCT_STATUS_WORD[product.status]}</span>
         <span>
           1등 <Winners product={product} />

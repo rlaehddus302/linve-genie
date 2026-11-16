@@ -81,6 +81,7 @@ import type {
   HostReopenEvent,
   HostResolveConflictEvent,
   HostResolveReviewEvent,
+  PriceChange,
   ProductCommandEvent,
   ProductConfirmEvent,
   ProductFocusEvent,
@@ -392,6 +393,14 @@ function tentativeOf(d: Draft, input: TentativeInput): TentativeRecord {
   }
 }
 
+/**
+ * 가격을 바꾼 뒤의 가격 이력 (R-10). 빈 가격을 처음 채운 것은 바꾼 것이 아니라 이력에 넣지 않는다 —
+ * 이력의 from은 늘 금액이다 (R-2 "가격 없는 확인 중", D-RECOG-22)
+ */
+function pricedHistory(product: ProductRecord, price: number, change: { readonly seq: number; readonly at: number }): readonly PriceChange[] {
+  return product.price === null ? product.priceHistory : [...product.priceHistory, { from: product.price, to: price, ...change }]
+}
+
 /** 확인 중 표시를 뗀 상품 기록 (확인 중이 아니면 같은 칸·같은 순서의 사본) */
 function settled(product: ProductRecord): Omit<ProductRecord, 'tentative'> {
   const { tentative: _tentative, ...rest } = product
@@ -426,7 +435,8 @@ function register(d: Draft, e: ProductRegisterEvent): void {
   slot.product = {
     id,
     name: e.name,
-    price: e.price,
+    // 가격 없는 확인 중 등록은 가격이 빈(null) 상품이다 — 0원이 아니다 (R-2 "가격 없는 확인 중", D-RECOG-22)
+    price: e.price ?? null,
     stock,
     phase,
     priceHistory: [],
@@ -493,6 +503,8 @@ function productCommand(d: Draft, e: ProductCommandEvent): void {
   const { phase } = product
   if (e.type === 'product.open') {
     if (phase === 'SELLING') return
+    // 가격이 빈 상품은 판매 중이 되지 않는다 — 가격을 먼저 채운다(product.update·product.confirm의 price) (R-2 "가격 없는 확인 중", D-RECOG-22)
+    if (product.price === null) return
     const slot = d.slot(e.b, e.no)
     // 확인 중 상품을 공개하면 지금 값으로 확정한 것이다 — 표시를 떼고, 보류 찜 유효 시간은 임시 등록 시각에서 잰다 (R-2 "확인 중", R-5)
     slot.product = { ...settled(product), phase: 'SELLING' }
@@ -594,7 +606,7 @@ function update(d: Draft, e: ProductUpdateEvent): void {
   target.product = {
     ...withPieces(product, pieces),
     ...(name === undefined ? {} : { name, nameHistory: [...product.nameHistory, { from: product.name, to: name, ...change }] }),
-    ...(price === undefined ? {} : { price, priceHistory: [...product.priceHistory, { from: product.price, to: price, ...change }] }),
+    ...(price === undefined ? {} : { price, priceHistory: pricedHistory(product, price, change) }),
     ...(stock === undefined && defaultStock === undefined ? {} : { stock: (stock ?? defaultStock) as number }),
     ...(aliases === undefined ? {} : { aliases }),
     ...(options === undefined ? {} : { options: nextOptions }),
@@ -709,6 +721,8 @@ function openedAtOf(product: ProductRecord, at: number): number {
 function confirmTentative(d: Draft, e: ProductConfirmEvent): void {
   const product = d.readSlot(slotKey(e.b, e.no))?.product
   if (product === null || product === undefined || product.tentative === undefined) return
+  // 가격이 빈 확인 중 상품은 최종 가격을 적은 확정만 받는다 — 가격 없이 판매 중이 되지 않는다 (R-2 "가격 없는 확인 중", D-RECOG-22)
+  if (product.price === null && e.price === undefined) return
   const toNo = e.to ?? e.no
   if (toNo !== e.no && d.readSlot(slotKey(e.b, toNo))?.product) return
   const change = { seq: d.seq, at: d.at }
@@ -719,7 +733,7 @@ function confirmTentative(d: Draft, e: ProductConfirmEvent): void {
   slot.product = {
     ...withPieces(settled(product), changedPieces(product, e.pieces)),
     ...(name === undefined ? {} : { name, nameHistory: [...product.nameHistory, { from: product.name, to: name, ...change }] }),
-    ...(price === undefined ? {} : { price, priceHistory: [...product.priceHistory, { from: product.price, to: price, ...change }] }),
+    ...(price === undefined ? {} : { price, priceHistory: pricedHistory(product, price, change) }),
     phase: 'SELLING',
   }
   setFocus(d, e.b, product.id)

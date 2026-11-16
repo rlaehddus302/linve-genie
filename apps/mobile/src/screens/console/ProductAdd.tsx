@@ -43,6 +43,8 @@ export const CONFIRM_HELD = '확정하기'
 /** "확인 중인 313번은 지금 빅뱅 10,000원이에요." — 품종이 비어 있으면 가격만 */
 export function heldWords(product: Pick<Product, 'no' | 'name' | 'price'>): string {
   const name = product.name.trim()
+  // 가격이 빈 확인 중 상품은 "가격을 듣는 중"으로 (D-RECOG-22)
+  if (product.price === null) return `확인 중인 ${String(product.no)}번은 지금 ${name === '' ? '' : `${name}, `}가격을 듣는 중이에요.`
   return `확인 중인 ${String(product.no)}번은 지금 ${name === '' ? '' : `${name} `}${formatWon(product.price)}이에요.`
 }
 
@@ -75,6 +77,7 @@ export type SameNumber = Pick<Product, 'key' | 'no' | 'name' | 'price'>
 /** "지금 333번은 수박색금 50,000원이에요." — 품종이 비어 있으면 가격만 */
 export function sameNumberWords(product: Pick<Product, 'no' | 'name' | 'price'>): string {
   const name = product.name.trim()
+  if (product.price === null) return `지금 ${String(product.no)}번은 ${name === '' ? '' : `${name}, `}가격을 듣는 중이에요.`
   return `지금 ${String(product.no)}번은 ${name === '' ? '' : `${name} `}${formatWon(product.price)}이에요.`
 }
 

@@ -16,10 +16,10 @@ import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { claimsOfProduct, productKey, productSlots } from '../../lib/derive.ts'
-import { isTentative, otherNames } from '../../lib/tentative.ts'
+import { isTentative, needsPrice, otherNames } from '../../lib/tentative.ts'
 import { localRecent, useVarietyLists, varietyChoices } from '../../lib/varieties.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
-import { formatWon } from '../../lib/words.ts'
+import { formatWon, priceWords } from '../../lib/words.ts'
 import { BigButton, BottomSheet, ErrorLine, Icon, PopupDialog, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
@@ -37,6 +37,8 @@ export const EDIT_LABEL: Readonly<Record<EditField, string>> = { no: '번호', n
 export const EDIT_DONE = '확인'
 /** 확인 중(임시 등록) 상품의 수정창 단추 — 고친 값을 저장하고 확정까지 한다 (D-RETRO-91) */
 export const EDIT_CONFIRM = '이 값으로 확정'
+/** 가격이 빈 확인 중 상품을 가격 없이 확정하려 할 때 (D-RECOG-22) — 가격 칸을 연다 */
+export const PRICE_NEEDED = '가격을 적어 주세요. 가격을 적어야 확정할 수 있어요.'
 /** 방송에 번호 끝이 없을 때 번호 칸이 받는 가장 큰 수 (상품 추가와 같다) */
 const NO_FALLBACK_MAX = 9999
 const PRICE_DIGITS = 9
@@ -108,7 +110,7 @@ function renumberQuestion(from: number, to: number, lost: number, reuse: boolean
 
 function priceQuestion(product: Pick<Product, 'no' | 'name' | 'price'>, no: number, price: number, buyers: number, apart: boolean): Question {
   const what = [`${String(no)}번`, rowName(product)].filter((part) => part !== '').join(' ')
-  return { message: priceScopeAsk(buyers), description: `${what} · ${formatWon(product.price)} → ${formatWon(price)}`, cancelLabel: PRICE_SCOPE_NEW, confirmLabel: PRICE_SCOPE_ALL, apart }
+  return { message: priceScopeAsk(buyers), description: `${what} · ${priceWords(product.price)} → ${formatWon(price)}`, cancelLabel: PRICE_SCOPE_NEW, confirmLabel: PRICE_SCOPE_ALL, apart }
 }
 
 /** 번호·품종·가격 칸 하나 (점선 둥근 칸, 왼쪽 위 연필): 누르면 그 칸을 고친다. 원래 값을 보여 주고 지금 고치는 칸의 테두리를 강조한다 */
@@ -280,9 +282,18 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
       setAgain(count => count + 1)
       return
     }
+    const plan = editPlan(product, values, pieces)
+    // 가격이 빈 확인 중 상품은 가격 없이 확정하지 않는다 — 가격 칸을 열고 묻는다 (D-RECOG-22). 서버도 받지 않는다
+    if (isTentative(product) && needsPrice(product) && plan.price === null) {
+      setField('price')
+      setHalf(true)
+      if (original === null) setOriginal({ key: product.key, no: product.no, name: product.name, price: product.price, ...(product.pieces === undefined ? {} : { pieces: product.pieces }) })
+      setError(PRICE_NEEDED)
+      setAgain((count) => count + 1)
+      return
+    }
     saving.current = true
     Keyboard.dismiss()
-    const plan = editPlan(product, values, pieces)
     // 확인 중 상품은 확정된 찜이 없어 아래 두 물음(번호를 바꾸면 사라지는 찜·가격 적용 범위)이 뜨지 않는다 — 지운 번호 다시 쓰기 물음만 그대로 탄다
     const tentative = isTentative(product)
     try {
@@ -386,7 +397,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
       <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
         {box('no', `${String(before.no)}번`, 0.8)}
         {box('name', rowName(before), 1.4)}
-        {box('price', formatWon(before.price), 1.3)}
+        {box('price', priceWords(before.price), 1.3)}
       </View>
       {/* 상품을 누르면 바로 품종 후보 단추 한 줄 — 누르면 품종 칸이 열리며 그 이름이 들어간다 (D-VARIETY-01).
           확인 중 상품에 일꾼이 들은 품종 후보가 있으면 아래 확인 물음(TentativePanel)이 같은 단추를 띄우므로 여기서는 두 번 그리지 않는다 */}
@@ -424,7 +435,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
           ) : (
             <BigNumber
               label={EDIT_LABEL[field]}
-              question={field === 'no' ? `${String(before.no)}번` : formatWon(before.price)}
+              question={field === 'no' ? `${String(before.no)}번` : priceWords(before.price)}
               digits={draft[field] ?? ''}
               format={field === 'no' ? (value) => value : (value) => Number(value).toLocaleString('ko-KR')}
               suffix={field === 'no' ? '번' : '원'}

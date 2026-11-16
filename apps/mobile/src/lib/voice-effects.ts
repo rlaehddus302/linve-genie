@@ -73,7 +73,7 @@ export function createVoiceEffects(scopeOf: (b: string) => Promise<Scope>) {
         if (choice === null) return { kind: 'failed', message: '가격을 바꾸지 않았어요. 적용할 찜을 골라 주세요.' }
         applyTo = choice
       }
-      const before = { ...(changes.name === undefined ? {} : { name: product.name }), ...(changes.price === undefined ? {} : { price: product.price }) }
+      const before = { ...(changes.name === undefined ? {} : { name: product.name }), ...(changes.price === undefined || product.price === null ? {} : { price: product.price }) }
       try {
         await write({ type: 'product.update', b, no: product.no, ...changes, ...(changes.price === undefined || !claimed || applyTo === undefined ? {} : { applyTo }), ...(options.voiceLog ? { voiceLog: options.voiceLog } : {}) }, options.requestId)
         return { kind: 'fixed', before }

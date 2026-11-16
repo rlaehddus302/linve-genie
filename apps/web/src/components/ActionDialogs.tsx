@@ -4,7 +4,7 @@ import { displayNickname } from '@livejjim/core/format'
 import { useMemo, useRef, useState } from 'react'
 import { isApiError, type ApiError } from '../api/client.ts'
 import type { Buyer, ChatMessage, Product } from '../api/types.ts'
-import { formatWon, productKey, productSlots } from '../lib/derive.ts'
+import { formatWon, priceWords, productKey, productSlots } from '../lib/derive.ts'
 import { saleOptionWords } from '../lib/sale-line.ts'
 import { pickFor, qtyProblemWords, readQty, variantTextOf } from '../lib/options.ts'
 import { changedFields, editQuestion, type TypedFields } from '../lib/quick.ts'
@@ -401,7 +401,8 @@ export interface EditDialogProps {
   readonly productKey: string
   /** 빠른 입력으로 친 값 (form이면 칸에 채울 처음 값) */
   readonly name: string
-  readonly price: number
+  /** null = 가격이 빈 확인 중 상품 — 가격 칸을 비워 두고 판매자가 적는다 (D-RECOG-22) */
+  readonly price: number | null
   /** 빠른 입력 줄 옆 개수 칸이 1이 아니었으면 그 개수 (AC-ORD11-08) */
   readonly stock?: number
   /** 빠른 입력 줄 (null이면 상품 자세히의 "고치기" — 칸을 보인다) */
@@ -421,9 +422,9 @@ type EditChanges = { name?: string; price?: number; priceText?: string; stock?: 
 export function EditDialog({ productKey: key, name, price, stock, line, typed: typedFields, onClose, onDone, onUnchanged }: EditDialogProps) {
   const api = useConsoleApi()
   const product = api.data.products.get(key)
-  const [stage, setStage] = useState<'ask' | 'form' | 'applyTo'>(line === null ? 'form' : 'ask')
+  const [stage, setStage] = useState<'ask' | 'form' | 'applyTo'>(line === null || price === null ? 'form' : 'ask')
   const [nameText, setNameText] = useState(name)
-  const [priceText, setPriceText] = useState(String(price))
+  const [priceText, setPriceText] = useState(price === null ? '' : String(price))
   // 개수 칸 (옵션 없는 상품만, AC-ORD11-04~06): 처음 값은 지금 재고
   const [countText, setCountText] = useState(() => String(stock ?? api.data.products.get(key)?.stock ?? 1))
   const [countProblem, setCountProblem] = useState<string | null>(null)
@@ -634,7 +635,9 @@ export function EditDialog({ productKey: key, name, price, stock, line, typed: t
     )
   }
 
-  const typed = changedFields(product, name, price, stock)
+  // 묻기 단계는 빠른 입력 줄이 읽은 가격이 있을 때만이다(가격이 비었으면 위에서 칸으로 연다)
+  const askedPrice = price as number
+  const typed = changedFields(product, name, askedPrice, stock)
   return (
     <Modal
       key="ask"
@@ -663,8 +666,8 @@ export function EditDialog({ productKey: key, name, price, stock, line, typed: t
           </tr>
           <tr>
             <th scope="row">가격</th>
-            <td>{formatWon(product.price)}</td>
-            <td>{formatWon(price)}</td>
+            <td>{priceWords(product.price)}</td>
+            <td>{formatWon(askedPrice)}</td>
           </tr>
           {typed.stock !== undefined ? (
             <tr>
@@ -695,7 +698,7 @@ export function EditDialog({ productKey: key, name, price, stock, line, typed: t
 function ApplyToBody({ product, price }: { readonly product: Product; readonly price: number | undefined }) {
   return (
     <p>
-      {product.no}번 가격을 {formatWon(product.price)}에서 {price === undefined ? '' : formatWon(price)}으로 바꿔요. 이미 1등인 찜 {productSlots(product).winnerClaims.length}개의 가격도
+      {product.no}번 가격을 {priceWords(product.price)}에서 {price === undefined ? '' : formatWon(price)}으로 바꿔요. 이미 1등인 찜 {productSlots(product).winnerClaims.length}개의 가격도
       바꿀지 골라 주세요.
     </p>
   )

@@ -205,6 +205,8 @@ export function liveClaimCount(state: EngineState, productKey: string): number {
 
 const int = (value: unknown): number | null => (typeof value === 'number' && Number.isSafeInteger(value) ? value : null)
 const str = (value: unknown): string | null => (typeof value === 'string' ? value : null)
+/** 기록에 적는 상품 가격 — 가격이 빈 확인 중 상품(D-RECOG-22)이면 칸을 적지 않는다(0원이 아니다) */
+const priceOf = (product: { readonly price: number | null }): { price?: number } => (product.price === null ? {} : { price: product.price })
 
 /**
  * 이 쓰기가 남길 줄 (상품 명령 전의 상태로). 형식이 틀린 값은 코어가 거절할 것이라 그대로 적되 숫자 아닌 번호는 0으로 둔다.
@@ -232,7 +234,7 @@ export function planVoiceLog(state: EngineState, fields: Readonly<Record<string,
   }
   if (type === 'product.close') {
     // 음성 등록 되돌리기 = 판매 종료 (D-083)
-    return [{ kind: 'UNDO', productId, no, toNo: null, before: product === null ? null : { name: product.name, price: product.price }, after: null, claims, big: false, withClaims: claims > 0 }]
+    return [{ kind: 'UNDO', productId, no, toNo: null, before: product === null ? null : { name: product.name, ...priceOf(product) }, after: null, claims, big: false, withClaims: claims > 0 }]
   }
   // product.update
   const price = int(fields['price'])
@@ -245,7 +247,8 @@ export function planVoiceLog(state: EngineState, fields: Readonly<Record<string,
       after.name = name
     }
     if (price !== null) {
-      if (product !== null) before.price = product.price
+      // 가격이 빈 확인 중 상품(D-RECOG-22)의 앞 값은 적지 않는다 — 0원이 아니다
+      if (product !== null && product.price !== null) before.price = product.price
       after.price = price
     }
     return [{ kind: 'UNDO', productId, no, toNo: null, before, after, claims, big: false, withClaims: claims > 0 }]
@@ -256,10 +259,11 @@ export function planVoiceLog(state: EngineState, fields: Readonly<Record<string,
     productId,
     no,
     toNo: null,
-    before: product === null ? null : { price: product.price },
+    before: product === null || product.price === null ? null : { price: product.price },
     after: { price: price as number },
     claims,
-    big: product === null ? bigRegister(price as number) : bigPriceChange(product.price, price as number),
+    // 빈 가격을 처음 채우는 것은 등록과 같이 본다 (D-RECOG-22)
+    big: product === null || product.price === null ? bigRegister(price as number) : bigPriceChange(product.price, price as number),
     withClaims: claims > 0,
   })
   const nameRow = (): VoiceLogPlan => ({ kind: 'NAME', productId, no, toNo: null, before: product === null ? null : { name: product.name }, after: { name: name as string }, claims, big: false, withClaims: claims > 0 })

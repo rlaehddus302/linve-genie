@@ -195,7 +195,8 @@ function build(ledger: Ledger, settingsOf: ReadonlyMap<string, SaleSettings>): E
     const product: ProductRecord = {
       id,
       name: need(str(row.name)),
-      price: need(int(row.price)),
+      // null = 가격이 빈 확인 중 상품을 그대로 봉인한 것 (D-RECOG-22) — 0원으로 바꾸지 않는다
+      price: row.price === null ? null : need(int(row.price)),
       stock: need(int(row.stock)),
       phase: (PHASES.has(status) ? status : 'SELLING') as ProductRecord['phase'],
       priceHistory,

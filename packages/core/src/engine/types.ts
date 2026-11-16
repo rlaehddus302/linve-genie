@@ -127,8 +127,11 @@ export interface ProductRegisterEvent extends EventBase {
   readonly no: number
   /** 품종 (빈 문자열 가능) */
   readonly name: string
-  /** 정수 원, 0 이상 */
-  readonly price: number
+  /**
+   * 정수 원, 0 이상. 확인 중 등록(tentative가 있을 때)만 적지 않을 수 있다 — 가격이 빈 상품은 판매 중이 되지 않는다
+   * (R-2 "가격 없는 확인 중", D-RECOG-22). 그 밖의 등록은 필수다
+   */
+  readonly price?: number
   /** 1 이상, 기본 1 — 옵션 상품이면 stocks에 적지 않은 변형마다의 재고 */
   readonly stock?: number
   /** 기본 OPEN */
@@ -553,7 +556,11 @@ export interface ProductRecord {
   /** 상품 ID (`p1`부터). 번호를 바꿔도 그대로다 (D-056) */
   readonly id: string
   readonly name: string
-  readonly price: number
+  /**
+   * 정수 원. null = 가격 없이 확인 중으로 올린 상품(아직 가격을 듣지 못함, R-2 "가격 없는 확인 중", D-RECOG-22).
+   * 가격이 빈 상품은 공개 전(READY)이나 판매 종료(CLOSED)뿐이고 찜이 확정되지 않는다(INV-14) — 0원이 아니다
+   */
+  readonly price: number | null
   /** 옵션 없는 상품의 재고(1 이상). 옵션 상품이면 변형 재고를 정할 때의 기본값(stocks에 적지 않은 변형) */
   readonly stock: number
   readonly phase: ProductPhase
@@ -857,7 +864,8 @@ export interface ProductInfo {
   readonly broadcast: string
   readonly no: number
   readonly name: string
-  readonly price: number
+  /** 정수 원. null = 아직 가격이 없는 확인 중 상품(화면은 "가격 듣는 중", 0원으로 보이거나 셈하지 않는다 — D-RECOG-22) */
+  readonly price: number | null
   readonly stock: number
   readonly status: ProductStatus
   /** 확정 찜의 지금의 구매자 ID, 확정된 순서 */
@@ -921,8 +929,8 @@ export interface VariantInfo {
   readonly confirmedUnits: number
   /** 남은 수량 = 재고 − 확정 수량 */
   readonly remaining: number
-  /** 단가 = 상품 가격 + 가격 차이 합 */
-  readonly price: number
+  /** 단가 = 상품 가격 + 가격 차이 합. 상품 가격이 비었으면 null (D-RECOG-22) */
+  readonly price: number | null
   readonly winners: readonly string[]
   readonly winnerClaims: readonly string[]
   readonly waitlist: readonly string[]

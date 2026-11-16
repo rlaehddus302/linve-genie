@@ -26,7 +26,7 @@ import { buyerTagText, type ProductTag } from '../../lib/product-tags.ts'
 import { isTentative, tentativeAttention, waitingAt } from '../../lib/tentative.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { DEFAULT_PRODUCT_SORT, PRODUCT_SORTS, SORT_TITLE, sortProducts, sortWord, type ProductSort } from '../../lib/product-sort.ts'
-import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, formatWon } from '../../lib/words.ts'
+import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, priceWords } from '../../lib/words.ts'
 import { BottomSheet, EmptyFill, ErrorLine, PopupDialog, SheetChoices, Txt, useKit, Tap } from '../../ui/kit/index.ts'
 import { GUTTER, RADIUS, SPACE, TOUCH, pressedFill } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
@@ -114,7 +114,7 @@ export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, '
 
 /** 상품 줄 한 줄 글 (D-UX4-148): 번호 · 품종 · 가격 — 품종이 비면 "37 · 50,000원". D-UX4-197부터 줄 칸(product-row-line)의 읽기 이름 */
 export function rowLine(product: Pick<Product, 'no' | 'name' | 'pieces' | 'price'>): string {
-  return [String(product.no), rowName(product), formatWon(product.price)].filter((part) => part !== '').join(ROW_JOIN)
+  return [String(product.no), rowName(product), priceWords(product.price)].filter((part) => part !== '').join(ROW_JOIN)
 }
 
 /**
@@ -185,7 +185,8 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
                 {name === '' ? null : <Txt step="nav" weight="medium">{name}</Txt>}
               </View>
               <View testID="product-row-price" style={{ flexShrink: 0 }}>
-                <Txt step="nav" weight="bold" right numberOfLines={1}>{formatWon(product.price)}</Txt>
+                {/* 가격이 빈 확인 중 상품은 "가격 듣는 중"을 흐리게 (D-RECOG-22) */}
+                <Txt step="nav" weight="bold" right numberOfLines={1} {...(product.price === null ? { ink: p.placeholder } : {})}>{priceWords(product.price)}</Txt>
               </View>
             </View>
             {attention !== null ? (
@@ -528,7 +529,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
   const open = async () => run(async () => {
     await api.command({ type: 'product.open', b: api.b, no: product.no })
   }, '판매를 시작하지 못했어요. 다시 눌러 주세요.')
-  const productLine = [`${String(product.no)}번`, rowName(product), formatWon(product.price)].filter((part) => part !== '').join(' ')
+  const productLine = [`${String(product.no)}번`, rowName(product), priceWords(product.price)].filter((part) => part !== '').join(' ')
   const winnerLabels = api.productLabels?.filter((label) => label.kind === 'product' && label.broadcast === api.b && label.winner && label.claim !== null && claims.some((claim) => claim.id === label.claim)) ?? []
   return (
     <View role="group" aria-label="상품 자세히" style={{ gap: SPACE.lg }}>
@@ -555,7 +556,8 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
       ) : (
       <View role="group" aria-label="상품 메뉴" style={{ gap: SPACE.xs }}>
         {api.labelsOff ? <Txt color="textSub">라벨을 인쇄하려면 관리에서 ‘라벨 뽑기’를 켜 주세요.</Txt> : null}
-        {api.productLabels !== undefined && productSlots(product).winnerClaims.length === 0 ? (
+        {/* 가격이 빈 상품은 라벨을 뽑지 않는다 — 가격 자리를 비우거나 0원으로 찍지 않게 (D-RECOG-22) */}
+        {api.productLabels !== undefined && productSlots(product).winnerClaims.length === 0 && product.price !== null ? (
           <QueueLabelButton key={`${product.id}:${copy}`} action="direct" title="상품 라벨 인쇄" disabled={false}
             body={{ b: api.b, no: product.no, name: product.name, price: product.price }} onQueued={() => setCopy((n) => n + 1)} />
         ) : null}

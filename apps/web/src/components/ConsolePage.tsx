@@ -492,6 +492,8 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
         const product = current.products.get(productKey(b, no))
         if (product === undefined) return null
         const slots = productSlots(product)
+        // 가격이 빈 확인 중 상품(D-RECOG-22)은 음성 같은 번호 규칙이 견줄 가격이 없다 — 음성 길에서는 없는 번호로 본다(등록은 이미 있는 번호라 아무 일 없음)
+        if (product.price === null) return null
         return { key: product.key, name: product.name, price: product.price, claimCount: slots.winners.length + slots.waitlist.length, closed: product.status === 'CLOSED', status: product.status }
       },
     }
@@ -1156,7 +1158,7 @@ function Console({ store, snapshot, queue, broadcastId, navigate, openProduct }:
       }
       const before: { name?: string; price?: number } = {}
       if (changes.name !== undefined) before.name = product.name
-      if (changes.price !== undefined) before.price = product.price
+      if (changes.price !== undefined && product.price !== null) before.price = product.price
       try {
         const applyTo = changes.price === undefined || !claimed ? undefined : (options.applyTo ?? (options.newOnly === true ? 'NEW_ONLY' : undefined))
         await write(options.requestId ?? newRequestId(), { type: 'product.update', b, no: product.no, ...changes, ...(applyTo === undefined ? {} : { applyTo }), ...(options.voiceLog === undefined ? {} : { voiceLog: options.voiceLog }) })

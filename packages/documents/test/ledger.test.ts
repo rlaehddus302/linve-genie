@@ -130,7 +130,7 @@ function checkLedgerAgainstCore(events: readonly EventInput[]): void {
   const subtotals = listBuyers(state)
     .filter((buyer) => buyer.current === buyer.id)
     .reduce((sum, buyer) => sum + buyer.subtotal, 0)
-  expect(confirmedRows.reduce((sum, row) => sum + row.price, 0)).toBe(subtotals)
+  expect(confirmedRows.reduce((sum, row) => sum + (row.price as number), 0)).toBe(subtotals)
   const unsold = listProducts(state).filter((product) => product.winners.length === 0)
   expect(rows.filter((row) => row.status !== '1등')).toHaveLength(unsold.length)
   expect(rows).toHaveLength(confirmed.length + unsold.length)

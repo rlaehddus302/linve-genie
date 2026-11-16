@@ -1,0 +1,142 @@
+# 인식·등록 다시 설계 1단계 — 가격 없는 확인 중 등록 (SPEC PRD-07, DOMAIN_RULES R-2 "가격 없는 확인 중"·R-5·R-10·R-13, INV-14, D-RECOG-22).
+# 화면 일꾼이 "N번"만 듣고(가격을 아직 못 들었어도) 확인 중으로 먼저 올리고, 가격·품종은 들리는 대로 뒤에 채운다.
+# 가격이 빈 상품은 판매 중이 되지 않는다 — 가격 없는 공개·확정은 아무 일도 없고, 찜은 보류로 기다리며 0원으로 판정·셈하지 않는다.
+# 빈 가격을 처음 채운 것은 가격 변경이 아니라 가격 이력에 남지 않는다. 가격을 적은 등록·확인 중 칸이 없는 등록은 지금 그대로다(G-ENG-RETRO-01~07).
+# 운영 판매자 기본값처럼 등록 전 찜을 만료하지 않는 방송은 첫 이벤트 broadcast.pendingExpire(expire: false)로 만든다(D-PEND-01).
+# 모든 기대값은 손으로 계산했다. 감사 문구 = "{번호}번 {품종} {가격} {구매자}님 구매 감사합니다"(R-13).
+---
+id: G-ENG-RETRO-08
+title: 356번 — 번호만 듣고 가격 없이 올린 상품은 공개 전·확인 중이고 가격이 비었다. 가격 없이는 공개·확정해도 아무 일도 없고, 들린 가격을 채운 뒤 확정하면 기다리던 찜이 그 값으로 판정된다
+refs: [PRD-07, ORD-03, R-2, R-5, R-10, R-13, INV-14, D-RETRO-80, D-RECOG-22]
+settings: { print.autoOnConfirm: false }
+broadcasts: [{ id: b1, date: 2026-11-16, title: 다육 라이브 }]
+events:
+  - { at: "20:00:00", type: broadcast.pendingExpire, b: b1, expire: false }   # 운영처럼 등록 전 찜을 만료하지 않는다 (D-PEND-01)
+  - { at: "20:00:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "356" }             # 상품보다 먼저 온 찜 — 보류
+  - { at: "20:00:01", type: product.register, b: b1, no: 356, name: "", tentative: { by: WORKER, reasons: [NUMBER_SINGLE_SOURCE] } }   # "356번"만 들림 — 가격 없이 확인 중
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 나, text: "356" }             # 확인 중에 온 찜도 보류
+  - { at: "20:00:03", type: product.open, b: b1, no: 356 }                                     # 가격 없이 공개 — 아무 일도 없다
+  - { at: "20:00:04", type: product.confirm, b: b1, no: 356, name: 색금 }                       # 가격 없는 확정 — 아무 일도 없다 (품종도 그대로)
+  - type: assert
+    expect:
+      products:
+        b1/356: { status: READY, tentative: true, winner: null, waitlist: [], price: null, priceHistory: [], confirmVersion: 0 }
+      pending: { b1/356: [UC_A, UC_B] }
+      effectCounts: { PRINT_PRODUCT_LABEL: 0, POST_THANKS: 0 }   # 가격이 빈 동안 라벨·감사가 하나도 나오지 않는다
+      claimCount: 2
+  - { at: "20:00:06", type: product.update, b: b1, no: 356, name: 색금, price: 20000 }        # 들린 품종·가격을 채움 — 확인 중 그대로, 빈 가격을 채운 것은 이력이 아니다
+  - type: assert
+    expect:
+      products:
+        b1/356: { status: READY, tentative: true, price: 20000, priceHistory: [] }
+      pending: { b1/356: [UC_A, UC_B] }
+      effectCounts: { POST_THANKS: 0 }
+  - { at: "20:00:08", type: product.confirm, b: b1, no: 356 }                                  # 지금 값으로 확정 → A 확정(1), B 대기
+expect:
+  products:
+    b1/356: { status: SOLD, tentative: false, winner: UC_A, waitlist: [UC_B], price: 20000, priceHistory: [], confirmVersion: 1 }
+  pending: { b1/356: [] }
+  claims:
+    - { product: b1/356, buyer: UC_A, status: CONFIRMED }
+    - { product: b1/356, buyer: UC_B, status: WAITLISTED }
+  buyers:
+    UC_A: { items: [b1/356], subtotal: 20000 }
+  settlements:
+    UC_A@2026-11-16: { subtotal: 20000, shipping: 4000, total: 24000, payment: UNPAID }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/356, buyer: UC_A, text: "356번 색금 20,000원 가님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { PRINT_PRODUCT_LABEL: 0, POST_THANKS: 1 }
+---
+id: G-ENG-RETRO-09
+title: 가격 없는 확인 중 상품은 최종 번호·품종·가격을 적은 확정 한 번으로 판매 중이 된다 — 빈 가격을 채운 확정은 가격 이력에 남지 않고, 확정 뒤의 가격 고침은 지금처럼 이력에 남는다(찜 가격은 그대로)
+refs: [PRD-07, PRD-02, R-2, R-5, R-10, INV-14, D-RETRO-80, D-RECOG-22]
+settings: { print.autoOnConfirm: false }
+broadcasts: [{ id: b1, date: 2026-11-16, title: 다육 라이브 }]
+events:
+  - { at: "20:10:00", type: broadcast.pendingExpire, b: b1, expire: false }   # 운영처럼 등록 전 찜을 만료하지 않는다 (D-PEND-01)
+  - { at: "20:10:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "107" }
+  - { at: "20:10:01", type: product.register, b: b1, no: 167, name: "", tentative: { by: WORKER, reasons: [NUMBER_MISMATCH], candidates: { no: [167, 107] } } }   # 번호표 167·말 107 — 가격은 아직
+  - { at: "20:10:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 나, text: "107" }
+  - { at: "20:10:05", type: product.confirm, b: b1, no: 167, to: 107, name: 리마인드, price: 15000 }   # 판매자가 107·리마인드·1만5천 원으로 확정 → A 확정, B 대기
+  - type: assert
+    expect:
+      products:
+        b1/167: { exists: false }
+        b1/107: { status: SOLD, tentative: false, winner: UC_A, waitlist: [UC_B], price: 15000, priceHistory: [], confirmVersion: 1 }
+  - { at: "20:10:07", type: product.update, b: b1, no: 107, price: 18000 }                    # 확정 뒤 가격 고침(새 찜부터) — 이력에 남고 A의 찜 가격은 그대로
+expect:
+  products:
+    b1/107: { status: SOLD, tentative: false, winner: UC_A, waitlist: [UC_B], price: 18000, priceHistory: [{ from: 15000, to: 18000 }], confirmVersion: 1 }
+  buyers:
+    UC_A: { items: [b1/107], subtotal: 15000 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/107, buyer: UC_A, text: "107번 리마인드 15,000원 가님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { POST_THANKS: 1 }
+---
+id: G-ENG-RETRO-10
+title: 가격 없는 확인 중 상품을 판매 종료하면 지금 규칙대로 보류 찜이 끝나고 가격은 빈 채로 남는다. 가격이 빈 판매 종료 상품은 다시 공개해도 아무 일도 없고, 가격을 채운 뒤에야 판매 중이 된다
+refs: [PRD-07, PRD-03, R-2, R-10, INV-14, D-039, D-RECOG-22]
+settings: { print.autoOnConfirm: false }
+broadcasts: [{ id: b1, date: 2026-11-16, title: 다육 라이브 }]
+events:
+  - { at: "20:20:00", type: broadcast.pendingExpire, b: b1, expire: false }   # 운영처럼 등록 전 찜을 만료하지 않는다 (D-PEND-01)
+  - { at: "20:20:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "52" }
+  - { at: "20:20:01", type: product.register, b: b1, no: 52, name: 창, tentative: { by: WORKER, reasons: [NUMBER_SINGLE_SOURCE] } }
+  - { at: "20:20:02", type: product.close, b: b1, no: 52 }                                     # 판매 종료 — 보류 찜은 REJECTED(NOT_ON_SALE), 확인 중 표시는 사라진다
+  - { at: "20:20:03", type: product.open, b: b1, no: 52 }                                      # 가격이 빈 판매 종료 상품 — 다시 공개해도 아무 일도 없다
+  - type: assert
+    expect:
+      products:
+        b1/52: { status: CLOSED, tentative: false, winner: null, price: null, priceHistory: [] }
+      claims:
+        - { product: b1/52, buyer: UC_A, status: REJECTED, reason: NOT_ON_SALE }
+      effectCounts: { POST_THANKS: 0 }
+  - { at: "20:20:05", type: product.update, b: b1, no: 52, price: 9000 }                      # 가격을 채움
+  - { at: "20:20:06", type: product.open, b: b1, no: 52 }                                      # 이제 다시 판매 중
+  - { at: "20:20:07", type: chat, b: b1, id: m2, ch: UC_B, nick: 나, text: "52" }              # 새 찜 → 확정
+expect:
+  products:
+    b1/52: { status: SOLD, tentative: false, winner: UC_B, price: 9000, priceHistory: [], confirmVersion: 1 }
+  claims:
+    - { product: b1/52, buyer: UC_A, status: REJECTED, reason: NOT_ON_SALE }
+    - { product: b1/52, buyer: UC_B, status: CONFIRMED }
+  buyers:
+    UC_B: { items: [b1/52], subtotal: 9000 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/52, buyer: UC_B, text: "52번 창 9,000원 나님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { POST_THANKS: 1 }
+---
+id: G-ENG-RETRO-11
+title: 가격 없는 확인 중 상품도 같은 번호 다시 등록·번호 변경·거두기는 확인 중 규칙 그대로다 — 가격은 빈 채로 따라가고, 거두면 기다리던 찜이 그대로 남아 다음 등록 때 판정된다
+refs: [PRD-07, PRD-01, R-2, R-5, R-10, D-RETRO-80, D-RECOG-22]
+settings: { print.autoOnConfirm: false }
+broadcasts: [{ id: b1, date: 2026-11-16, title: 다육 라이브 }]
+events:
+  - { at: "20:30:00", type: broadcast.pendingExpire, b: b1, expire: false }   # 운영처럼 등록 전 찜을 만료하지 않는다 (D-PEND-01)
+  - { at: "20:30:00", type: chat, b: b1, id: m1, ch: UC_A, nick: 가, text: "71" }
+  - { at: "20:30:01", type: product.register, b: b1, no: 70, name: "", tentative: { by: WORKER, reasons: [NUMBER_SINGLE_SOURCE] } }
+  - { at: "20:30:02", type: product.register, b: b1, no: 70, name: 금황, price: 5000 }          # 같은 번호 다시 등록(가격 있어도) — 아무 일도 없다 (확정은 confirm·open으로만)
+  - { at: "20:30:03", type: product.renumber, b: b1, from: 70, to: 71 }                         # 번호 변경 — 가격 빈 채로·확인 중 그대로, 71의 보류 찜은 아직 보류
+  - type: assert
+    expect:
+      products:
+        b1/70: { exists: false }
+        b1/71: { status: READY, tentative: true, price: null, priceHistory: [] }
+      pending: { b1/71: [UC_A] }
+      effectCounts: { POST_THANKS: 0 }
+  - { at: "20:30:05", type: product.withdraw, b: b1, no: 71 }                                    # 거두기 — 보류 찜은 그대로
+  - type: assert
+    expect:
+      products:
+        b1/71: { exists: false }
+      pending: { b1/71: [UC_A] }
+  - { at: "20:30:08", type: product.register, b: b1, no: 71, name: 금황, price: 5000 }          # 손 등록 — 바로 판매 중, A 확정
+expect:
+  products:
+    b1/71: { status: SOLD, tentative: false, winner: UC_A, price: 5000, priceHistory: [], confirmVersion: 1 }
+  pending: { b1/71: [] }
+  buyers:
+    UC_A: { items: [b1/71], subtotal: 5000 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/71, buyer: UC_A, text: "71번 금황 5,000원 가님 구매 감사합니다", confirmVersion: 1 }
+  effectCounts: { POST_THANKS: 1 }

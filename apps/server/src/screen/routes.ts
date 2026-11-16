@@ -7,6 +7,8 @@
 // 같은 번호가 이미 있으면 엔진이 바꾸지 않는다(R-2, changed false). 번호 바꾸기는 아래 /internal/screen/renumber(D-SCR-06)만.
 // 임시 등록 (D-RETRO-82, 복기 A2·B2): 등록에 `tentative: { reasons, candidates? }`를 실으면 확인 중(공개 전)으로 올린다 — 찜은 보류로 받고
 //   감사 채팅·라벨은 확정 뒤에만 나간다. 근거가 모이면 /internal/screen/confirm, 아니면 /internal/screen/withdraw. 싣지 않은 등록은 지금처럼 바로 판매 중(옛 일꾼).
+// 가격 없는 임시 등록 (D-RECOG-22, 인식·등록 다시 설계 1단계): `tentative`를 실은 등록만 `price`를 빼고 보낼 수 있다("N번"만 들렸을 때).
+//   가격이 빈 상품은 판매 중이 되지 않는다 — 가격은 /internal/screen/reprice(일꾼 값)나 확정의 `price`로 채운다. 가격 없는 확정은 NO_PRICE.
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getBroadcast, getProduct, type ProductInfo } from '@livejjim/core'
@@ -36,7 +38,8 @@ export interface ScreenIntakeDeps {
  * (2026-11-12 방송: 일꾼이 서버보다 8분 33초 먼저 새 판이 돼 금액 고치기·번호 바꾸기 4건이 400·405로 거절됐다).
  */
 export const SCREEN_ENDPOINTS = {
-  register: { method: 'POST', path: '/internal/screen/register', fields: ['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt', 'tentative', 'pieces'] },
+  // waived: 그 항목을 뺄 수 있는 조건 — price는 tentative를 실었을 때만 뺄 수 있다(D-RECOG-22). 일꾼은 이 칸이 있는 서버에만 가격 없는 임시 등록을 보낸다(D-RECOG-26)
+  register: { method: 'POST', path: '/internal/screen/register', fields: ['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt', 'tentative', 'pieces'], waived: { price: 'tentative' } },
   confirm: { method: 'POST', path: '/internal/screen/confirm', fields: ['videoId', 'no', 'requestId', 'registerRequestId', 'to', 'price', 'name', 'pieces'] },
   withdraw: { method: 'POST', path: '/internal/screen/withdraw', fields: ['videoId', 'no', 'requestId', 'registerRequestId'] },
   renumber: { method: 'POST', path: '/internal/screen/renumber', fields: ['videoId', 'from', 'to', 'requestId', 'drop', 'registerRequestId'] },
@@ -45,7 +48,7 @@ export const SCREEN_ENDPOINTS = {
   'end-stale': { method: 'POST', path: '/internal/screen/end-stale', fields: ['videoId'] },
   live: { method: 'GET', path: '/internal/screen/live', fields: [] },
   capabilities: { method: 'GET', path: '/internal/screen/capabilities', fields: [] },
-} as const satisfies Record<string, { method: 'GET' | 'POST'; path: string; fields: readonly string[] }>
+} as const satisfies Record<string, { method: 'GET' | 'POST'; path: string; fields: readonly string[]; waived?: Readonly<Record<string, string>> }>
 
 /** 그 입구가 받지 않는 항목이 하나라도 있나 */
 const hasUnknownField = (endpoint: keyof typeof SCREEN_ENDPOINTS, body: object): boolean => {
@@ -185,7 +188,8 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     const conf = b.conf
     if (typeof videoId !== 'string' || !VIDEO_RE.test(videoId)) return bad('videoId가 유튜브 영상 번호나 틱톡 아이디가 아니에요.')
     if (typeof no !== 'number' || !Number.isInteger(no) || no < 1 || no > 9999) return bad('no는 1~9999 정수예요.')
-    if (typeof price !== 'number' || !Number.isInteger(price) || price < 0 || price > 100_000_000) return bad('price는 0~100,000,000 정수(원)예요.')
+    // 가격은 임시 등록(tentative)만 뺄 수 있다 (D-RECOG-22) — 아래에서 tentative를 읽은 뒤 본다
+    if (price !== undefined && (typeof price !== 'number' || !Number.isInteger(price) || price < 0 || price > 100_000_000)) return bad('price는 0~100,000,000 정수(원)예요.')
     if (typeof name !== 'string' || [...name].length > NAME_MAX) return bad(`name은 ${String(NAME_MAX)}자까지예요.`)
     if (typeof heard !== 'string' || [...heard].length > HEARD_MAX) return bad(`heard는 ${String(HEARD_MAX)}자까지예요.`)
     if (conf !== undefined && (typeof conf !== 'number' || !Number.isFinite(conf) || conf < 0 || conf > 1)) return bad('conf는 0~1이에요.')
@@ -199,12 +203,14 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     // 임시 등록 (D-RETRO-82): 확인 중으로 올린다. 싣지 않으면(옛 일꾼) 지금처럼 바로 판매 중
     const tentative = b['tentative'] === undefined ? undefined : tentativeOfRequest(b['tentative'])
     if (tentative === null) return bad('tentative는 { reasons, candidates? } 모양이에요.')
+    if (price === undefined && tentative === undefined) return bad('price는 0~100,000,000 정수(원)예요. 가격 없이는 임시 등록(tentative)만 보낼 수 있어요.')
+    const withPrice = price === undefined ? {} : { price }
     const open = await openBroadcastsOfVideo(deps.db, videoId)
     if (open.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
     const voiceLog: Record<string, unknown> = { heard, source: 'voice', device: 'livegenie-screen', ...(conf === undefined ? {} : { conf }) }
     const results: { broadcastId: string; changed: boolean; duplicate: boolean; tentative?: true; skip?: string }[] = []
     for (const { sellerId, broadcastId } of open) {
-      const outcome = await deps.service.writeEvent(sellerId, { kind: 'server' }, requestId, { type: 'product.register', b: broadcastId, no, name, price, ...withPieces, voiceLog }, undefined, undefined, tentative === undefined ? undefined : { tentative })
+      const outcome = await deps.service.writeEvent(sellerId, { kind: 'server' }, requestId, { type: 'product.register', b: broadcastId, no, name, ...withPrice, ...withPieces, voiceLog }, undefined, undefined, tentative === undefined ? undefined : { tentative })
       let result = outcome.kind === 'phone' ? outcome.outcome : outcome
       // 임시 등록은 판매 종료한 번호를 다시 열지 않는다 — 다시 열면 확인 없이 바로 판매 중이 된다. 일꾼은 근거가 모인 뒤 임시 칸 없는 등록(observedAt)으로 다시 보낸다
       if (tentative !== undefined && (result.kind === 'duplicate' || (result.kind === 'ok' && !result.result.changed))) {
@@ -228,7 +234,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
               return null
             },
             build: ({ state }) => fresh && getProduct(state, broadcastId, no)?.status === 'CLOSED' ? [
-              { fields: { type: 'product.update', b: broadcastId, no, name, price, ...withPieces }, actor: { kind: 'server' }, requestId: reopenId },
+              { fields: { type: 'product.update', b: broadcastId, no, name, ...withPrice, ...withPieces }, actor: { kind: 'server' }, requestId: reopenId },
               { fields: { type: 'product.open', b: broadcastId, no }, actor: { kind: 'server' } },
             ] : [],
           })
@@ -253,6 +259,7 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
   //   - 그 상품을 만든 등록이 일꾼이 방금 보낸 그 등록(registerRequestId)이다. 다른 계정의 손 등록이 동기화로 들어온 확인 중 상품은 일꾼이 확정하지 못한다(NOT_SCREEN)
   //   - 확정: 판매자가 그사이 고친 칸(품종·금액·번호)은 판매자 값 그대로 두고 나머지만 일꾼 값으로 확정한다(응답 kept). 옮길 번호에 상품이 있으면 TARGET_EXISTS
   //   - 거두기: 판매자가 그사이 손댄 상품은 거두지 않는다(SELLER_EDITED)
+  //   - 가격이 빈 확인 중 상품(D-RECOG-22)은 최종 가격을 실은 확정만 받는다 — 없으면 NO_PRICE(판매 중이 되지 않는다)
   // 확정하면 그 번호(최종 번호)로 기다리던 찜이 도착 순서대로 확정 시점의 값으로 판정되고 그때 감사 채팅·라벨이 나간다(R-5·R-13).
   const settle = (kind: 'confirm' | 'withdraw') => async (c: Context) => {
     if (deps.token === null) return json({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }, 404)
@@ -324,6 +331,8 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
             if (touched.price) kept.push('price')
             else fields['price'] = price
           }
+          // 가격이 빈 상품은 가격 없이 판매 중이 되지 않는다 — 엔진도 받지 않는다(아무 일 없음). 까닭을 알려 일꾼이 가격을 듣고 다시 보낸다 (D-RECOG-22)
+          if (skip === undefined && product?.price === null && fields['price'] === undefined) skip = 'NO_PRICE'
           return skip === undefined ? [{ fields, actor: { kind: 'server' as const }, requestId }] : []
         },
       })

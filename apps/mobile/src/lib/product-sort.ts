@@ -29,6 +29,11 @@ export const sortWord = (sort: ProductSort): string => WORDS[sort]
 type Sortable = Pick<Product, 'id' | 'no' | 'price'>
 
 const byNo = (a: Sortable, b: Sortable): number => a.no - b.no
+/** 가격순: 아직 가격이 없는 상품(가격 듣는 중, D-RECOG-22)은 어느 쪽 정렬이든 맨 뒤 — 0원으로 앞에 서지 않는다 */
+const byPrice = (a: Sortable, b: Sortable, dir: 1 | -1): number => {
+  if (a.price === null || b.price === null) return a.price === b.price ? 0 : a.price === null ? 1 : -1
+  return (a.price - b.price) * dir
+}
 const byRecent = (a: Sortable, b: Sortable): number => productOrder(b) - productOrder(a)
 
 const COMPARE: Readonly<Record<ProductSort, (a: Sortable, b: Sortable) => number>> = {
@@ -36,8 +41,8 @@ const COMPARE: Readonly<Record<ProductSort, (a: Sortable, b: Sortable) => number
   'no-desc': (a, b) => byNo(b, a) || byRecent(a, b),
   recent: (a, b) => byRecent(a, b) || byNo(a, b),
   oldest: (a, b) => byRecent(b, a) || byNo(a, b),
-  'price-asc': (a, b) => a.price - b.price || byNo(a, b) || byRecent(a, b),
-  'price-desc': (a, b) => b.price - a.price || byNo(a, b) || byRecent(a, b),
+  'price-asc': (a, b) => byPrice(a, b, 1) || byNo(a, b) || byRecent(a, b),
+  'price-desc': (a, b) => byPrice(a, b, -1) || byNo(a, b) || byRecent(a, b),
 }
 
 /** 정렬한 새 배열 (받은 배열은 그대로) */

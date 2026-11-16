@@ -30,7 +30,8 @@ export interface ReadProduct {
   readonly id: string
   readonly no: number
   readonly name: string
-  readonly price: number
+  /** null = 가격이 빈 확인 중 상품 (D-RECOG-22) */
+  readonly price: number | null
   readonly closed: boolean
 }
 

@@ -67,9 +67,14 @@ export function otherNumbers(product: Pick<Product, 'no' | 'tentative'>): number
   return others(product.tentative?.candidates.no ?? [], product.no, 1)
 }
 
-/** 지금 가격이 아닌 금액 후보 (정수 원, 서버가 준 순서대로) */
+/** 지금 가격이 아닌 금액 후보 (정수 원, 서버가 준 순서대로). 가격이 비었으면 후보 전부 */
 export function otherPrices(product: Pick<Product, 'price' | 'tentative'>): number[] {
-  return others(product.tentative?.candidates.price ?? [], product.price, 0)
+  return others(product.tentative?.candidates.price ?? [], product.price ?? -1, 0)
+}
+
+/** 아직 가격이 없는 상품인가 (화면 일꾼이 "N번"만 듣고 올림 — D-RECOG-22). 가격을 적어야 확정할 수 있다 */
+export function needsPrice(product: Pick<Product, 'price'>): boolean {
+  return product.price === null
 }
 
 /** 그 번호로 기다리는 찜 수 (서버가 준 보류 찜 자리 그대로 — 앱은 세기만 한다) */
@@ -99,12 +104,14 @@ export function tentativeAttention(product: Pick<Product, 'status' | 'tentative'
 export function confirmEvent(product: Pick<Product, 'broadcast' | 'no' | 'name' | 'price'>, pick: { readonly no?: number; readonly price?: number; readonly name?: string } = {}): Readonly<Record<string, unknown>> {
   // 카드에서 품종 후보 단추를 눌렀으면 그 이름으로 (D-VARIETY-01)
   const name = (pick.name ?? product.name).trim()
+  // 가격이 빈 상품은 고른 가격이 있을 때만 적는다 — 없으면 서버가 "가격을 먼저 적어 주세요"로 받지 않는다 (D-RECOG-22)
+  const price = pick.price ?? product.price
   return {
     type: 'product.confirm',
     b: product.broadcast,
     no: product.no,
     ...(pick.no !== undefined && pick.no !== product.no ? { to: pick.no } : {}),
-    price: pick.price ?? product.price,
+    ...(price === null ? {} : { price }),
     ...(name === '' ? {} : { name }),
   }
 }

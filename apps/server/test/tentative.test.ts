@@ -449,6 +449,120 @@ describe('D-RETRO-83 계정 동기화 — 기다리는 찜은 확인 뒤 확정'
   })
 })
 
+describe('D-RECOG-22~26 가격 없는 확인 중 — "N번"만 듣고 올림', () => {
+  interface PricelessRow { no: number; name: string; price: number | null; status: string; winners: string[]; tentative?: unknown }
+  const row = async (world: YoutubeWorld, shop: Shop, no: number) => (await product(world, shop, no)) as unknown as PricelessRow | undefined
+
+  it('일꾼은 임시 등록에서만 가격을 뺄 수 있다: 가격은 빈 채(0원 아님)로 확인 중, 찜은 보류·효과 없음. 임시 칸 없이 가격을 빼면 400', async () => {
+    const world = await newWorld()
+    const { shop, videoId } = await host(world, { 'thanks.liveChat': true })
+    const caps = await world.server.app.request('/internal/screen/capabilities', { headers: { Authorization: `Bearer ${TOKEN}` } })
+    expect(((await caps.json()) as { endpoints: { register: { waived?: unknown } } }).endpoints.register.waived).toEqual({ price: 'tentative' })
+    expect((await worker(world, 'register', { videoId, no: 356, requestId: 'screen-v-356-0' })).status).toBe(400)
+    expect((await worker(world, 'register', { videoId, no: 356, price: null, requestId: 'screen-v-356-0', tentative: { reasons: ['PRICE_SINGLE_SOURCE'] } })).status).toBe(400)
+    expect(await product(world, shop, 356)).toBeUndefined()
+
+    await chat(world, shop.seller, shop.b.id, 'UC_A', '가님', '356')
+    const made = await worker(world, 'register', { videoId, no: 356, requestId: 'screen-v-356-1', tentative: { reasons: ['PRICE_SINGLE_SOURCE'] } })
+    expect(made.status, JSON.stringify(made.body)).toBe(200)
+    expect(made.body).toMatchObject({ ok: true, changed: true, tentative: true })
+    const view = await day(world, shop)
+    expect(view.products.find((p) => p.no === 356)).toMatchObject({ status: 'READY', name: '', price: null, winners: [], tentative: { by: 'WORKER' } })
+    expect(view.pending).toEqual([expect.objectContaining({ no: 356, buyers: ['UC_A'] })])
+    expect(view.claims.filter((c) => c.no === 356).map((c) => [c.buyer, c.status, c.price])).toEqual([['UC_A', 'PENDING', null]])
+    expect(view.effects).toEqual([])
+    expect(await outboxCount(world)).toBe(0)
+  })
+
+  it('가격 없는 일꾼 확정은 NO_PRICE로 건너뛴다. 금액 고치기로 가격을 채우면 확인 중 그대로이고, 그 뒤 확정하면 그 가격으로 판정된다', async () => {
+    const world = await newWorld()
+    const { shop, videoId } = await host(world, { 'thanks.liveChat': true })
+    await chat(world, shop.seller, shop.b.id, 'UC_A', '가님', '356')
+    await worker(world, 'register', { videoId, no: 356, requestId: 'screen-v-356-1', tentative: { reasons: ['PRICE_SINGLE_SOURCE'] } })
+    const early = await worker(world, 'confirm', { videoId, no: 356, registerRequestId: 'screen-v-356-1', requestId: 'screen-v-ok-356-1', name: '색금' })
+    expect(early.status, JSON.stringify(early.body)).toBe(200)
+    expect(early.body).toMatchObject({ changed: false, broadcasts: [{ changed: false, skip: 'NO_PRICE' }] })
+    expect(await row(world, shop, 356)).toMatchObject({ status: 'READY', name: '', price: null })
+
+    const filled = await worker(world, 'reprice', { videoId, no: 356, price: 20000, requestId: 'screen-v-p-356-1' })
+    expect(filled.body).toMatchObject({ changed: true })
+    expect(await row(world, shop, 356)).toMatchObject({ status: 'READY', price: 20000, tentative: { by: 'WORKER' } })
+    expect((await day(world, shop)).effects).toEqual([])
+
+    const confirmed = await worker(world, 'confirm', { videoId, no: 356, registerRequestId: 'screen-v-356-1', requestId: 'screen-v-ok-356-2', name: '색금' })
+    expect(confirmed.body).toMatchObject({ changed: true })
+    const view = await day(world, shop)
+    expect(view.products.find((p) => p.no === 356)).toMatchObject({ status: 'SOLD', name: '색금', price: 20000, winners: ['UC_A'] })
+    expect(view.claims.filter((c) => c.no === 356).map((c) => [c.buyer, c.status, c.price])).toEqual([['UC_A', 'CONFIRMED', 20000]])
+    expect(view.effects.filter((e) => e.kind === 'POST_THANKS').map((e) => e.text)).toEqual(['356번 색금 20,000원 가님님 구매 감사합니다'])
+  })
+
+  it('판매자 앱: 가격이 빈 상품의 [공개]·가격 없는 확정은 기록하지 않고 "가격을 먼저 적어 주세요"로 돌려준다. 가격을 적어 확정하면 판정된다', async () => {
+    const world = await newWorld()
+    const { shop, videoId } = await host(world)
+    const api = client(world, shop.seller.cookie)
+    await chat(world, shop.seller, shop.b.id, 'UC_A', '가', '71')
+    await worker(world, 'register', { videoId, no: 71, requestId: 'screen-v-71-1', tentative: { reasons: ['PRICE_SINGLE_SOURCE'] } })
+    for (const [requestId, body] of [['open-71', { type: 'product.open' }], ['confirm-71', { type: 'product.confirm', name: '금황' }]] as const) {
+      const refused = await api.post('/api/events', { requestId, b: shop.b.id, no: 71, ...body })
+      expect(refused.status, refused.text).toBe(400)
+      expect(refused.body).toMatchObject({ error: { code: 'INVALID_INPUT', problems: [{ field: 'price', message: '가격을 먼저 적어 주세요. 가격을 적어야 판매를 시작할 수 있어요.' }] } })
+    }
+    expect(await row(world, shop, 71)).toMatchObject({ status: 'READY', name: '', price: null })
+    const confirmed = await api.post('/api/events', { requestId: 'confirm-71-price', type: 'product.confirm', b: shop.b.id, no: 71, price: 5000, name: '금황' })
+    expect(confirmed.status, confirmed.text).toBe(200)
+    expect(confirmed.body).toMatchObject({ changed: true })
+    expect(await row(world, shop, 71)).toMatchObject({ status: 'SOLD', name: '금황', price: 5000, winners: ['UC_A'] })
+    // 판매자의 손 등록은 지금처럼 가격이 있어야 한다
+    expect((await api.post('/api/events', { requestId: 'reg-72', type: 'product.register', b: shop.b.id, no: 72, name: '' })).status).toBe(400)
+  })
+
+  it('같은 영상의 다른 계정에도 가격 없이 확인 중으로 들어가고, 한 계정에서 가격을 적어 확정하면 다른 계정도 그 가격으로 확정된다 (0원으로 옮기지 않는다)', async () => {
+    const world = await newWorld()
+    const { shop: a, videoId } = await host(world)
+    const b = await join(world, '두 번째 가게', videoId)
+    await chat(world, b.seller, b.b.id, 'UC_B', '나', '90')
+    await worker(world, 'register', { videoId, no: 90, requestId: 'screen-v-90-1', tentative: { reasons: ['PRICE_SINGLE_SOURCE'] } })
+    await world.server.catalog.drain()
+    for (const shop of [a, b]) expect(await row(world, shop, 90)).toMatchObject({ status: 'READY', price: null, tentative: { by: 'WORKER' } })
+    // 품종만 고쳐도 다른 계정에 가격 0원이 옮겨 가지 않는다
+    await expectOk(writeEvent(world, a.seller, { type: 'product.update', b: a.b.id, no: 90, name: '라울' }))
+    await world.server.catalog.drain()
+    expect(await row(world, b, 90)).toMatchObject({ status: 'READY', name: '라울', price: null })
+    await expectOk(writeEvent(world, a.seller, { type: 'product.confirm', b: a.b.id, no: 90, price: 15000 }))
+    await world.server.catalog.drain()
+    expect(await row(world, a, 90)).toMatchObject({ status: 'OPEN', price: 15000 })
+    expect(await row(world, b, 90)).toMatchObject({ status: 'SOLD', name: '라울', price: 15000, winners: ['UC_B'] })
+    expect(await claimsOf(world, b, 90)).toEqual([['UC_B', 'CONFIRMED', 15000]])
+  })
+
+  it('처음 맞추기: 가진 계정이 모두 가격 없는 확인 중이면 새 계정에도 가격 없이 확인 중으로 넣는다 — 가격 0원·가격 다툼으로 보지 않는다', () => {
+    const prov = (at: number): Prov => ({ by: 'worker', at, ord: at })
+    const blank: Held = { name: '', price: null, closed: false, nameP: prov(10), priceP: prov(10), stateP: prov(10), tentative: true }
+    const a: Party = { id: 'a', seller_id: 'a', broadcast_id: 'b-a', date: '2026-11-16', scope_id: 's-a', held: new Map([[5, blank]]) }
+    const c: Party = { id: 'c', seller_id: 'c', broadcast_id: 'b-c', date: '2026-11-16', scope_id: 's-c', held: new Map() }
+    const plan = planFirstSync([a, c], null, 99).filter((item) => item.to === c).map((item) => item.body)
+    expect(plan).toEqual([expect.objectContaining({ type: 'product.register', no: 5, tentative: { reasons: ['OTHER_ACCOUNT'] } })])
+    // 대기열 항목의 빈 가격(null)은 "옮길 가격 없음" — 넣을 때 등록에서 가격 칸을 뺀다(아래 실제 맞추기)
+    expect(plan[0]).toMatchObject({ price: null, setPrice: false })
+  })
+
+  it('처음 맞추기 실제: 가격 없는 확인 중 상품이 새로 이은 계정에 가격 없이 확인 중으로 들어간다', async () => {
+    const world = await newWorld()
+    const { shop: a, videoId } = await host(world)
+    await worker(world, 'register', { videoId, no: 5, requestId: 'screen-v-5-1', tentative: { reasons: ['PRICE_SINGLE_SOURCE'] } })
+    const b = await join(world, '두 번째 가게', videoId)
+    await world.server.catalog.drain()
+    expect(await row(world, a, 5)).toMatchObject({ status: 'READY', price: null, tentative: { by: 'WORKER' } })
+    expect(await row(world, b, 5)).toMatchObject({ status: 'READY', price: null, tentative: { by: 'SYNC', reasons: ['OTHER_ACCOUNT'] } })
+    // 일꾼이 가격을 채우면 두 계정 모두 채워진다 — 옮겨 넣은 계정에서도 빈 가격은 일꾼 몫이다(NOT_SCREEN이 아니다, D-RECOG-26)
+    const repriced = await worker(world, 'reprice', { videoId, no: 5, price: 7000, requestId: 'screen-v-p-5-1' })
+    expect(repriced.body).toMatchObject({ changed: true, broadcasts: [{ changed: true }, { changed: true }] })
+    await world.server.catalog.drain()
+    for (const shop of [a, b]) expect(await row(world, shop, 5)).toMatchObject({ status: 'READY', price: 7000 })
+  })
+})
+
 describe('처음 맞추기 계획 — 확인 중 (planFirstSync, D-RETRO-83)', () => {
   const prov = (by: Prov['by'], at: number): Prov => ({ by, at, ord: at })
   const held = (name: string, price: number, by: Prov['by'], at: number, tentative = false): Held => ({ name, price, closed: false, nameP: prov(by, at), priceP: prov(by, at), stateP: prov(by, at), ...(tentative ? { tentative: true } : {}) })

@@ -347,9 +347,10 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   'broadcast.end': spec({ b: F.b }),
   'broadcast.thanks': spec({ b: F.b, liveChat: F.v(bool) }),
   'broadcast.pendingExpire': spec({ b: F.b, expire: F.v(bool) }),
+  // price는 확인 중 등록(tentative가 있을 때)만 적지 않을 수 있다 — validate가 본다 (README 이벤트 표, D-RECOG-22)
   'product.register': spec(
-    { b: F.b, no: F.no, name: F.v(freeText), price: F.v(intAtLeast(0)) },
-    { stock: F.v(intAtLeast(1)), status: F.v(oneOf(['OPEN', 'READY'])), aliases: F.aliases, options: F.optionItems, stocks: F.stocks, tentative: F.v(tentativeShape), pieces: F.v(piecesValue) },
+    { b: F.b, no: F.no, name: F.v(freeText) },
+    { price: F.v(intAtLeast(0)), stock: F.v(intAtLeast(1)), status: F.v(oneOf(['OPEN', 'READY'])), aliases: F.aliases, options: F.optionItems, stocks: F.stocks, tentative: F.v(tentativeShape), pieces: F.v(piecesValue) },
   ),
   'product.open': productByNo,
   'product.hold': productByNo,

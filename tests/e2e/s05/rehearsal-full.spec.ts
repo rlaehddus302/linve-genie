@@ -128,7 +128,7 @@ test('리허설 끝까지: 생성기 1,000건 + 상품 30개 + 화면 조치 →
   const replayProducts = listProducts(state).filter((p) => p.broadcast === b)
   expect(replayProducts).toHaveLength(30)
   const view = await day(page, date, true) as { products: { key: string; status: string; winners: string[]; waitlist: string[]; conflict: boolean; awaitingSuccession: boolean; price: number; name: string }[]; settlements: { buyer: string; total: number }[] }
-  const pick = (p: { key: string; status: string; winners: readonly string[]; waitlist: readonly string[]; conflict: boolean; awaitingSuccession: boolean; price: number; name: string }) =>
+  const pick = (p: { key: string; status: string; winners: readonly string[]; waitlist: readonly string[]; conflict: boolean; awaitingSuccession: boolean; price: number | null; name: string }) =>
     ({ key: p.key, status: p.status, winners: [...p.winners], waitlist: [...p.waitlist], conflict: p.conflict, awaitingSuccession: p.awaitingSuccession, price: p.price, name: p.name })
   expect(view.products.filter((p) => p.key.startsWith(`${b}`)).map(pick).sort((x, y) => x.key.localeCompare(y.key)))
     .toEqual(replayProducts.map(pick).sort((x, y) => x.key.localeCompare(y.key)))

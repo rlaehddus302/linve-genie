@@ -38,8 +38,11 @@ export interface LedgerRow {
   readonly no: number
   /** 품종 = 지금 이름 */
   readonly name: string
-  /** 가격 (수, 원): 확정 행은 찜 금액(찜 시점 단가 스냅샷 × 수량 — 옵션 없는 수량 1이면 가격 스냅샷), 확정 없는 행은 지금 가격 */
-  readonly price: number
+  /**
+   * 가격 (수, 원): 확정 행은 찜 금액(찜 시점 단가 스냅샷 × 수량 — 옵션 없는 수량 1이면 가격 스냅샷), 확정 없는 행은 지금 가격.
+   * 가격이 빈 확인 중 상품(아직 가격을 듣지 못함)의 확정 없는 행은 빈칸 "" — 0원으로 적지 않는다 (D-RECOG-22)
+   */
+  readonly price: number | ''
   /**
    * 옵션 칸 (O3, D-O3-07·08) — 대장에 든 방송 중 옵션 방송이 있을 때만 세 칸이 모두 있다(없으면 O3 전과 같은 행 객체).
    * 확정 행: 옵션 글(없으면 "")·찜 수량·단가 스냅샷. 확정 없는 행: 셋 다 ""
@@ -249,7 +252,7 @@ export function buildLedger(input: LedgerInput): LedgerResult {
           session: broadcast.title,
           no: product.no,
           name: productTitle(product.name, product.pieces),
-          price: product.price,
+          price: product.price ?? '',
           buyer: '',
           channel: '',
           claimedAt: '',

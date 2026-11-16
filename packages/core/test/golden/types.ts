@@ -103,7 +103,8 @@ export interface ProductView {
   /** 대기 구매자 ID, 1순위부터 */
   readonly waitlist: readonly string[]
   readonly conflict: boolean
-  readonly price: number
+  /** null = 가격이 빈 확인 중 상품 (R-2 "가격 없는 확인 중", D-RECOG-22) */
+  readonly price: number | null
   readonly priceHistory: readonly { readonly from: number; readonly to: number }[]
   /** 지금까지 확정 횟수 (코어 ProductInfo.confirmVersion, N5 D-N5-14). 이 값을 내지 않는 관찰도 받는다 — 검사 키로 쓰면 없을 때 불일치 */
   readonly confirmVersion?: number

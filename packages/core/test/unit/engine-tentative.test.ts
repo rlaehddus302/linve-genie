@@ -20,6 +20,7 @@ import {
 } from '@livejjim/core'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
+import { pget, pset } from '../../src/engine/pmap.ts'
 import { B1, T0, chat, play, register, sms, type EventInput } from './engine-helpers.ts'
 
 const WORKER: TentativeInput = { by: 'WORKER', reasons: [TENTATIVE_REASONS.NUMBER_SINGLE_SOURCE] }
@@ -453,5 +454,79 @@ describe('방송 선언과 확인 중', () => {
     expect(getProduct(state, 'b1', 1)?.tentative).toBeDefined()
     expect(getProduct(state, 'b2', 1)).toMatchObject({ status: 'SOLD', winners: ['A'] })
     expect(getProduct(state, 'b2', 1)).not.toHaveProperty('tentative')
+  })
+})
+
+describe('R-2 가격 없는 확인 중 (D-RECOG-22~25)', () => {
+  /** 화면 일꾼이 "N번"만 듣고 올린 등록 — 가격 칸이 없다 */
+  const bare = (no: number, fields: Partial<{ name: string; stock: number; tentative: TentativeInput }> = {}): EventInput =>
+    ({ type: 'product.register', b: 'b1', no, name: '', tentative: { by: 'WORKER', reasons: ['PRICE_SINGLE_SOURCE'] }, ...fields }) as EventInput
+
+  it('가격은 확인 중 등록만 비울 수 있다 — 확인 중 칸이 없으면 지금처럼 price가 빠졌다는 입력 오류다', () => {
+    const state = play([]).state
+    const fields = (event: Record<string, unknown>) => checkEvent(state, { seq: 1, at: T0, ...event }).map((p) => p.field)
+    expect(fields({ type: 'product.register', b: 'b1', no: 1, name: '', tentative: WORKER })).toEqual([])
+    expect(fields({ type: 'product.register', b: 'b1', no: 1, name: '' })).toEqual(['price'])
+    expect(fields({ type: 'product.register', b: 'b1', no: 1, name: '', status: 'READY' })).toEqual(['price'])
+    expect(fields({ type: 'product.register', b: 'b1', no: 1, name: '', price: null, tentative: WORKER })).toEqual(['price'])
+    expect(() => applyEvent(state, { seq: 1, at: T0, type: 'product.register', b: 'b1', no: 1, name: '' } as never)).toThrow()
+  })
+
+  it('가격 없는 상품은 가격이 비어(null) 있고 0원이 아니다. 공개·가격 없는 확정은 아무 일도 하지 않고 찜은 보류로 남는다', () => {
+    const { state, emitted } = play([chat('A', '356'), bare(356), open(356), confirm(356), chat('B', '356')], KEEP)
+    const product = getProduct(state, 'b1', 356)
+    expect(product).toMatchObject({ status: 'READY', price: null, winners: [], waitlist: [], priceHistory: [] })
+    expect(product?.tentative).toBeDefined()
+    expect(listPending(state)).toEqual([expect.objectContaining({ no: 356, buyers: ['A', 'B'] })])
+    expect(emitted.flat()).toEqual([])
+    expect(listClaims(state).some((c) => c.price === 0)).toBe(false)
+    expect(checkInvariants(state)).toEqual([])
+  })
+
+  it('빈 가격을 채우는 것은 가격 바꿈이 아니다 — 가격 이력에 남지 않고, 채운 뒤 바꾸면 그때부터 남는다', () => {
+    const { state } = play([chat('A', '356'), bare(356), update(356, { price: 20000 }), confirm(356, { price: 25000 })], KEEP)
+    expect(getProduct(state, 'b1', 356)).toMatchObject({ status: 'SOLD', price: 25000, winners: ['A'], priceHistory: [{ from: 20000, to: 25000 }] })
+    expect(claimsAt(state, 356)).toEqual({ A: ['CONFIRMED', 25000] })
+  })
+
+  it('확정하며 가격을 적으면 그 가격으로 바로 판정된다 (가격 이력 없음)', () => {
+    const { state, emitted } = play([chat('A', '356'), bare(356, { stock: 1 }), chat('B', '356'), confirm(356, { price: 20000, name: '색금' })], KEEP)
+    expect(getProduct(state, 'b1', 356)).toMatchObject({ status: 'SOLD', name: '색금', price: 20000, winners: ['A'], waitlist: ['B'], priceHistory: [] })
+    expect(emitted[3]?.map((e) => e.kind)).toEqual(['PRINT_PRODUCT_LABEL', 'POST_THANKS'])
+  })
+
+  it('가격 없이 판매 종료하면 가격은 빈 채로 남고, 다시 공개하려면 먼저 가격을 채워야 한다', () => {
+    const { state } = play([bare(5), close(5), open(5)], KEEP)
+    expect(getProduct(state, 'b1', 5)).toMatchObject({ status: 'CLOSED', price: null })
+    const filled = play([bare(5), close(5), open(5), update(5, { price: 9000 }), open(5), chat('A', '5')], KEEP).state
+    expect(getProduct(filled, 'b1', 5)).toMatchObject({ status: 'SOLD', price: 9000, winners: ['A'], priceHistory: [] })
+    expect(checkInvariants(filled)).toEqual([])
+  })
+
+  it('INV-14: 가격이 빈 상품이 판매 중이면 불변식 위반이다', () => {
+    const { state } = play([register(9)], KEEP)
+    const slot = pget(state.slots, 'b1/9')
+    if (slot?.product == null) throw new Error('9번 상품이 없다')
+    const broken: EngineState = { ...state, slots: pset(state.slots, 'b1/9', { ...slot, product: { ...slot.product, price: null } }) }
+    expect(checkInvariants(state)).toEqual([])
+    expect(checkInvariants(broken).map((v) => v.id)).toContain('INV-14')
+  })
+
+  it('가격 없는 등록이 섞인 무작위 이벤트 열에서도 불변식이 매번 성립하고, 가격이 빈 상품의 찜은 확정되지 않으며 효과도 나오지 않는다', () => {
+    const bareArb = fc.record({ kind: fc.constant('bare' as const), no: noArb })
+    fc.assert(
+      fc.property(fc.array(fc.oneof({ weight: 1, arbitrary: bareArb }, { weight: 4, arbitrary: stepArb }), { maxLength: 40 }), settingsArb, (steps, settings) => {
+        const { states, emitted } = play(steps.map((step, i) => (step.kind === 'bare' ? bare(step.no) : eventOf(step, i))), settings)
+        states.slice(1).forEach((state, i) => {
+          expect(checkInvariants(state), `${String(i)}번째 뒤`).toEqual([])
+          const products = listProducts(state)
+          const priceless = new Set(products.filter((p) => p.price === null).map((p) => p.key))
+          for (const product of products) if (product.price === null) expect(['READY', 'CLOSED']).toContain(product.status)
+          for (const effect of emitted[i] ?? []) expect(priceless.has(effect.product)).toBe(false)
+          for (const claim of listClaims(state)) if (priceless.has(claim.product)) expect(['CONFIRMED', 'WAITLISTED']).not.toContain(claim.status)
+        })
+      }),
+      { numRuns: 300 },
+    )
   })
 })

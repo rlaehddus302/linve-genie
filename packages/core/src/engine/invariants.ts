@@ -176,7 +176,13 @@ export function checkInvariants(state: EngineState): InvariantViolation[] {
   for (const slot of pvalues(state.slots)) {
     checkSlot(slot, bySlot.get(slot.key) ?? [], context)
     bySlot.delete(slot.key)
-    if (slot.product !== null && !isMoney(slot.product.price)) out.push({ id: 'INV-6', message: `상품 ${slot.key} 가격이 0 이상의 정수가 아니다 (값: ${String(slot.product.price)})` })
+    if (slot.product !== null && slot.product.price !== null && !isMoney(slot.product.price)) out.push({ id: 'INV-6', message: `상품 ${slot.key} 가격이 0 이상의 정수가 아니다 (값: ${String(slot.product.price)})` })
+    // INV-14: 가격이 빈 상품은 공개 전(확인 중)이나 판매 종료뿐이고 확정·대기·충돌 찜이 없다 — 0원으로 판정·셈하지 않는다 (R-2 "가격 없는 확인 중", D-RECOG-22)
+    if (slot.product !== null && slot.product.price === null) {
+      const busy = slot.winners.length > 0 || slot.waitlist.length > 0 || slot.conflict !== null || slot.units.some((unit) => unit.winners.length > 0 || unit.waitlist.length > 0 || unit.conflict !== null)
+      if (slot.product.phase !== 'READY' && slot.product.phase !== 'CLOSED') out.push({ id: 'INV-14', message: `상품 ${slot.key}: 가격이 비었는데 판매 중이다 (단계: ${slot.product.phase})` })
+      if (busy) out.push({ id: 'INV-14', message: `상품 ${slot.key}: 가격이 비었는데 확정·대기·충돌 찜이 있다` })
+    }
     // INV-13: 확인 중 상품은 공개 전이고 확정·대기·충돌 찜이 없다 — 확정 전에는 효과(라벨·감사)가 나오지 않는다 (R-2 "확인 중")
     if (slot.product?.tentative !== undefined) {
       const busy = slot.winners.length > 0 || slot.waitlist.length > 0 || slot.conflict !== null || slot.units.some((unit) => unit.winners.length > 0 || unit.waitlist.length > 0 || unit.conflict !== null)

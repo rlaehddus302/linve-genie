@@ -305,7 +305,8 @@ describe('D-RETRO-32 서버가 받는 일꾼 요청 목록·판 번호', () => {
       commit: null,
       endpoints: {
         // pieces: 품종에서 떼어 낸 개수 (D-PIECES-01 — 등록·확정이 새로 받는 항목)
-        register: { method: 'POST', path: '/internal/screen/register', fields: ['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt', 'tentative', 'pieces'] },
+        // waived: 가격 없는 임시 등록을 받는다는 표시 (D-RECOG-22·26 — price는 tentative를 실었을 때만 뺄 수 있다)
+        register: { method: 'POST', path: '/internal/screen/register', fields: ['videoId', 'no', 'price', 'name', 'heard', 'conf', 'requestId', 'observedAt', 'tentative', 'pieces'], waived: { price: 'tentative' } },
         confirm: { method: 'POST', path: '/internal/screen/confirm', fields: ['videoId', 'no', 'requestId', 'registerRequestId', 'to', 'price', 'name', 'pieces'] },
         withdraw: { method: 'POST', path: '/internal/screen/withdraw', fields: ['videoId', 'no', 'requestId', 'registerRequestId'] },
         renumber: { method: 'POST', path: '/internal/screen/renumber', fields: ['videoId', 'from', 'to', 'requestId', 'drop', 'registerRequestId'] },

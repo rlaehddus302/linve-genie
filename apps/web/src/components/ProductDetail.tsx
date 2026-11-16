@@ -9,7 +9,7 @@ import { get, isApiError, newRequestId, withQuery, type ApiError } from '../api/
 import type { Claim, HistoryItem, Product } from '../api/types.ts'
 import { usePendingNow } from '../lib/use-pending-now.ts'
 import { AUTO_RESEND_NOTE, RESENDING_WORD, STATUS_CHANGED_NOTE } from '../lib/resend-board.ts'
-import { claimOptionWords, claimOptionsField, claimWord, formatWon, productSlots } from '../lib/derive.ts'
+import { claimOptionWords, claimOptionsField, claimWord, formatWon, priceWords, productSlots } from '../lib/derive.ts'
 import { optionSummary } from '../lib/options.ts'
 import { stockLeftWords } from '../lib/stock.ts'
 import { kstTime } from '../lib/kst.ts'
@@ -147,7 +147,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
         </div>
         <div>
           <dt>가격</dt>
-          <dd>{formatWon(product.price)}</dd>
+          <dd>{priceWords(product.price)}</dd>
         </div>
         <div>
           <dt>재고</dt>
@@ -186,7 +186,7 @@ function DetailBody({ product, onClose, onEdit }: { readonly product: Product; r
           return (
             <section key={variant.key} className="stack-tight variant-section" aria-label={`${variant.text} 변형`}>
               <h3 className="sub-title">
-                {variant.text} · <span className={`tag status-${variant.status}`}>{PRODUCT_STATUS_WORD[variant.status]}</span> · {formatWon(variant.price)} · 남은 {variant.remaining}개 (재고{' '}
+                {variant.text} · <span className={`tag status-${variant.status}`}>{PRODUCT_STATUS_WORD[variant.status]}</span> · {priceWords(variant.price)} · 남은 {variant.remaining}개 (재고{' '}
                 {variant.stock})
               </h3>
               <ClaimSection title={`${variant.text} 1등`} claims={claimsOf(variant.winnerClaims)} product={product} full={full} empty="아직 없음" />

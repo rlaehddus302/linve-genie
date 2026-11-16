@@ -124,7 +124,7 @@ expect:
 | `variants` | (O1, R-19) 변형 키 `"<방송>/<번호>#<옵션 글>"`(따옴표로)마다 `status`·`winner`·`winners`·`waitlist`·`stock`·`confirmedUnits` |
 | `reviews` | (O1, R-20 7) 확인 필요 항목 **전체** `[{ item, reason, buyer, product?, options?, qty? }]` |
 | `products.<p>.exists: false` | 그 번호의 상품이 없어야 함 |
-| `products.<p>.price` / `priceHistory` | 현재 가격 / `[{from, to}]` 이력 |
+| `products.<p>.price` / `priceHistory` | 현재 가격 / `[{from, to}]` 이력. 가격 없는 확인 중 상품은 `price: null`(0원이 아니다 — 빈 가격을 채운 것은 이력에 남지 않는다, R-2 "가격 없는 확인 중", D-RECOG-22·24) |
 | `buyers.<b>.byBroadcast` | 방송별 상품 합계 `{ b1: 20000, ... }` |
 | `buyers.<b>.display` / `nameHistory` | 표시 이름 / 닉네임 이력 |
 | `buyers.<b>.phoneLast4` | 전화번호 뒤 4자리. 숫자 4자리 **문자열**(`"0000"`처럼 따옴표로 — 따옴표 없이 적어 정수가 되면 읽기 오류) 또는 `null` (S03b, D-061) |
@@ -177,7 +177,7 @@ expect:
 | `broadcast.end` | `b` | (S04, D-070) |
 | `broadcast.thanks` | `b`, `liveChat`(불리언) | 방송 중 감사 채팅 켜기·끄기 — 그 방송 설정의 `thanks.liveChat`만 바꾼다(그 뒤 확정부터, 같은 값이면 아무 일도 없다, D-YT-SRV-24) |
 | `broadcast.pendingExpire` | `b`, `expire`(불리언) | 방송 중 보류 찜 만료 켜기·끄기 — 그 방송 설정의 `claim.preOpenExpire`만 바꾼다(그 뒤 공개부터, 같은 값이면 아무 일도 없음, D-PEND-01) |
-| `product.register` | `b`, `no`(1 이상), `name`(빈 문자열 가능 — 글 칸), `price`(0 이상 정수) | `stock`(1 이상, 기본 1 — 옵션 상품이면 `stocks`에 적지 않은 변형마다의 재고), `status`(`OPEN` 기본 / `READY`), `pieces`(한 번호에 묶어 파는 개수 1~99, 기본 1 — 표시 칸이라 판정·재고·금액과 상관없다, D-PIECES-01). `tentative`(확인 중으로 올림 — `{ by: WORKER / SYNC, reasons: [까닭 낱말 1~6개 — 영문 대문자로 시작하는 대문자·숫자·`_` 1~32자, 겹치지 않게], candidates?: { no?, price?, name? } }`. 후보는 칸마다 4개까지·겹치지 않게, 번호 1 이상·가격 0 이상 정수·품종 1~60자 글 칸. 모양이 틀리면 읽기 오류 — R-2 "확인 중", D-RETRO-80. `status: OPEN`과 함께 쓰지 않는다). 옵션 방송만(O1, R-19, D-O1-03): `aliases`(상품 별칭 — 문자열 목록 0~10개, 글 칸), `options`(`[{ name, choices: [{ label, aliases?, price? }] }]` — 항목 0~3개·선택지 1~20개·별칭 0~10개·글자 1~10/1~20자·`/`·`#`·제어 글자 없음·`price` 정수 −1,000,000~1,000,000·변형 100개까지·한 상품 안 비교 글자 겹침 없음·변형 단가 0 이상. 이름·별칭은 모두 글 칸), `stocks`(옵션 글 → 0 이상 정수. 키는 그 상품의 변형 옵션 글이어야 하고 `options` 없이 쓰지 않는다). 어기거나 옵션 방송이 아닌 방송에 쓰면 읽기 오류 |
+| `product.register` | `b`, `no`(1 이상), `name`(빈 문자열 가능 — 글 칸), `price`(0 이상 정수 — `tentative`이 있을 때만 빼도 된다, R-2 "가격 없는 확인 중", D-RECOG-22) | `stock`(1 이상, 기본 1 — 옵션 상품이면 `stocks`에 적지 않은 변형마다의 재고), `status`(`OPEN` 기본 / `READY`), `pieces`(한 번호에 묶어 파는 개수 1~99, 기본 1 — 표시 칸이라 판정·재고·금액과 상관없다, D-PIECES-01). `tentative`(확인 중으로 올림 — `{ by: WORKER / SYNC, reasons: [까닭 낱말 1~6개 — 영문 대문자로 시작하는 대문자·숫자·`_` 1~32자, 겹치지 않게], candidates?: { no?, price?, name? } }`. 후보는 칸마다 4개까지·겹치지 않게, 번호 1 이상·가격 0 이상 정수·품종 1~60자 글 칸. 모양이 틀리면 읽기 오류 — R-2 "확인 중", D-RETRO-80. `status: OPEN`과 함께 쓰지 않는다). 옵션 방송만(O1, R-19, D-O1-03): `aliases`(상품 별칭 — 문자열 목록 0~10개, 글 칸), `options`(`[{ name, choices: [{ label, aliases?, price? }] }]` — 항목 0~3개·선택지 1~20개·별칭 0~10개·글자 1~10/1~20자·`/`·`#`·제어 글자 없음·`price` 정수 −1,000,000~1,000,000·변형 100개까지·한 상품 안 비교 글자 겹침 없음·변형 단가 0 이상. 이름·별칭은 모두 글 칸), `stocks`(옵션 글 → 0 이상 정수. 키는 그 상품의 변형 옵션 글이어야 하고 `options` 없이 쓰지 않는다). 어기거나 옵션 방송이 아닌 방송에 쓰면 읽기 오류 |
 | `product.open` / `product.hold` / `product.close` | `b`, `no` | |
 | `product.confirm` | `b`, `no` | `to`(최종 번호, 1 이상), `name`(최종 품종 — 글 칸), `price`(최종 가격, 0 이상 정수), `pieces`(최종 개수 1~99). 확인 중 상품의 확정 — 확인 중이 아닌 상품·없는 번호, `to`에 상품 기록이 있는 경우는 읽기 오류가 아니라 엔진에서 아무 일도 없다 (R-2 "확인 중", D-RETRO-80) |
 | `product.withdraw` | `b`, `no` | 확인 중 상품 거두기 — 확인 중이 아니면 엔진에서 아무 일도 없다 (R-2 "확인 중", D-RETRO-80) |

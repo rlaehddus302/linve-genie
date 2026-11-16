@@ -85,8 +85,19 @@ export function remainingOf(d: Draft, product: ProductRecord | null, text: strin
   return stockOf(product, text) - confirmedUnits(d, winners)
 }
 
-/** 변형 단가 = 상품 가격 + 가격 차이 합 (R-19 "가격"). 옵션 없는 찜은 상품 가격 */
+/**
+ * 변형 단가 = 상품 가격 + 가격 차이 합 (R-19 "가격"). 옵션 없는 찜은 상품 가격.
+ * 찜을 확정하는 곳(판매 중인 상품)에서만 부른다 — 가격이 빈 상품은 판매 중이 되지 않으므로(INV-14) 빈 가격이면 상태가 깨진 것이다
+ */
 export function unitPrice(product: ProductRecord, text: string | null): number {
+  const price = unitPriceOrNull(product, text)
+  if (price === null) throw new CorruptStateError(`상품 ${product.id}의 가격이 비었는데 찜 금액을 셈하려 했다 (INV-14)`)
+  return price
+}
+
+/** 조회용 변형 단가: 상품 가격이 비었으면 null (R-2 "가격 없는 확인 중", D-RECOG-22 — 0원으로 보이지 않게) */
+export function unitPriceOrNull(product: ProductRecord, text: string | null): number | null {
+  if (product.price === null) return null
   if (text === null) return product.price
   const indexes = indexesOfText(product.options, text)
   if (indexes === null) throw new CorruptStateError(`상품 ${product.id}에 변형 '${text}'가 없다`)

@@ -697,15 +697,17 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 //   거두기, 유효 시간, 옛 방식 등록 그대로) — +1·+0·+7·+7 = 파일 41 · 파서 935 · 엔진 171 · 통과 1106 (새 시나리오만 — 기존 골든은 바꾸지 않았다).
 // D-RETRO-113: parser/chat.yaml 패스 사례 8개(번호와 함께면 취소 · 패스트·"15 패스?"는 언급) + engine/27-retro-pass.yaml 새 파일 G-ENG-PASS-01~03
 //   (번호 없는 패스: 찜 하나면 취소 · 둘 이상이면 요청만 · 번호와 함께면 번호 취소) — +1·+8·+3·+11 = 파일 42 · 파서 943 · 엔진 174 · 통과 1117 (새 사례만 — 기존 골든은 바꾸지 않았다).
+// D-RECOG-22~25: engine/28-recog-priceless.yaml 새 파일 G-ENG-RETRO-08~11(가격 없는 확인 중 등록 — 공개·가격 없는 확정은 아무 일 없음, 채움은 가격 이력 아님,
+//   판매 종료 뒤 가격 채워 다시 공개, 번호 옮김·거두기) — +1·+0·+4·+4 = 파일 43 · 파서 943 · 엔진 178 · 통과 1121 (새 시나리오만 — 기존 골든은 바꾸지 않았다).
 describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 + O3 + O2 + O4 + FB1 + V3 + SMS3 합계)', () => {
-  it('파일 42 · 파서 943 · 엔진 174 · 통과 1117, 나머지 0', () => {
+  it('파일 43 · 파서 943 · 엔진 178 · 통과 1121, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 42,
+      files: 43,
       parserCases: 943,
-      scenarios: 174,
-      pass: 1117,
+      scenarios: 178,
+      pass: 1121,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

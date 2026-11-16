@@ -19,7 +19,7 @@ import { qtyProblemWords, readQty, variantTextOf } from '../lib/options.ts'
 import { reviewsPath } from '../lib/reviews.ts'
 import { activeClaimOf, distinguishWords, isActive, sameNameCounts, searchBuyers } from '../lib/buyers.ts'
 import type { ConsoleSnapshot, ConsoleStore } from '../lib/console-store.ts'
-import { PENDING_TIMED_OUT_TAIL, claimOptionWords, claimWord, formatWon, isOptionBroadcast, isPendingTimedOut, pendingWindowOf, productKey } from '../lib/derive.ts'
+import { PENDING_TIMED_OUT_TAIL, claimOptionWords, claimWord, isOptionBroadcast, priceWords, isPendingTimedOut, pendingWindowOf, productKey } from '../lib/derive.ts'
 import { usePendingNow } from '../lib/use-pending-now.ts'
 import { AUTO_RESEND_NOTE, RESENT_PREFIX } from '../lib/resend-board.ts'
 import { useUndoQueue } from '../lib/host-delay.ts'
@@ -294,11 +294,11 @@ function productLine(api: ConsoleApi, product: Product): string {
   if (product.hasOptions) {
     const name = product.name.trim() === '' ? '품종 미입력' : product.name
     const remaining = product.variants.reduce((sum, variant) => sum + Math.max(0, variant.remaining), 0)
-    return `${String(product.no)}번 ${name} ${formatWon(product.price)} · ${PRODUCT_STATUS_WORD[product.status]} · 변형 ${String(product.variants.length)}개 · 남은 ${String(remaining)}`
+    return `${String(product.no)}번 ${name} ${priceWords(product.price)} · ${PRODUCT_STATUS_WORD[product.status]} · 변형 ${String(product.variants.length)}개 · 남은 ${String(remaining)}`
   }
   const winners = product.winners.length === 0 ? '아직 없음' : product.winners.map((id) => api.names.name(id)).join(', ')
   const name = product.name.trim() === '' ? '품종 미입력' : product.name
-  return `${String(product.no)}번 ${name} ${formatWon(product.price)} · ${PRODUCT_STATUS_WORD[product.status]} · 1등 ${winners} · 대기 ${String(product.waitlist.length)}`
+  return `${String(product.no)}번 ${name} ${priceWords(product.price)} · ${PRODUCT_STATUS_WORD[product.status]} · 1등 ${winners} · 대기 ${String(product.waitlist.length)}`
 }
 
 /** 번호 칸 아래 상품 미리 보기 (AC-S06-11) */

@@ -1,8 +1,8 @@
 # 확인 중(임시 등록) 상품 — 다음 작업자를 위한 약속
 
 - 근거: [개선 계획표](2026-11-12-improvement-plan.md) A2·A5·A6·B2·C절·G6, [라이브 복기](2026-11-12-live-retro.md) 5·6·9절
-- 규칙: `docs/spec/DOMAIN_RULES.md` R-2 "확인 중"·R-5·R-10·R-13, `docs/spec/SPEC.md` PRD-07, 결정 `docs/DECISIONS.md` D-RETRO-80~85
-- 쓴 날: 2026-11-13
+- 규칙: `docs/spec/DOMAIN_RULES.md` R-2 "확인 중"·"가격 없는 확인 중"·R-5·R-10·R-13, `docs/spec/SPEC.md` PRD-07, 결정 `docs/DECISIONS.md` D-RETRO-80~85·D-RECOG-22~27
+- 쓴 날: 2026-11-13 · 가격 없는 임시 등록 더함 2026-11-16 (인식·등록 다시 설계 1단계, DOMAIN_RULES v0.1.54)
 - 상태: **엔진(`packages/core`)과 서버(`apps/server`)는 끝났다.** 화면 일꾼(`packages/screen-worker`)과 앱 화면(`apps/mobile`·`apps/web`)은 아직 고치지 않았다 — 이 문서가 그 두 작업이 쓸 모양이다.
 
 ## 0. 한 줄 요약
@@ -20,6 +20,7 @@
 | 거두기 | `product.withdraw { b, no }` | 상품 기록이 없어진다. 그 번호의 찜은 그대로 보류(그 번호를 다시 등록하면 그때 판정) |
 | 공개 | `product.open { b, no }` (지금 있는 이벤트) | 확인 중 상품이면 지금 값으로 확정한 것 |
 | 판매 종료 | `product.close { b, no }` (지금 있는 이벤트) | 지금 규칙 그대로 — 보류 찜은 "판매 중 아님"으로 끝난다. 거두기와 다르다 |
+| 가격 없는 임시 등록 | `product.register` + `tentative`, `price` 없음 (D-RECOG-22) | 위 임시 등록과 같고 가격이 빈(`null`, 0원 아님) 상품. **가격을 채우기 전에는 공개·확정이 아무 일도 없다**(가격 없는 `confirm`·`open`). 가격은 `product.update`나 `confirm`의 `price`로 채운다 — 빈 가격을 채운 것은 가격 이력에 남지 않는다 |
 
 - 확인 중인 동안 고치기(`product.update`)·번호 바꾸기(`product.renumber`)는 그대로 되고 확인 중 그대로다.
 - 확인 중이 아닌 상품·없는 번호의 확정·거두기는 아무 일도 없다(`changed: false`). 이미 확정한 값을 늦게 온 확정이 덮지 않는다.
@@ -44,7 +45,7 @@
 
 ## 2. 화면 일꾼이 쓸 입구
 
-모두 `Authorization: Bearer <일꾼 토큰>`. 서버가 이 입구·항목을 받는지는 켜질 때 `GET /internal/screen/capabilities`로 묻는다(D-RETRO-32) — `endpoints.register.fields`에 `tentative`가 있고 `endpoints.confirm`·`endpoints.withdraw`가 있을 때만 임시 등록을 쓴다. 없으면(옛 서버) 지금 방식 그대로 보낸다.
+모두 `Authorization: Bearer <일꾼 토큰>`. 서버가 이 입구·항목을 받는지는 켜질 때 `GET /internal/screen/capabilities`로 묻는다(D-RETRO-32) — `endpoints.register.fields`에 `tentative`가 있고 `endpoints.confirm`·`endpoints.withdraw`가 있을 때만 임시 등록을 쓴다. 없으면(옛 서버) 지금 방식 그대로 보낸다. **가격 없는 임시 등록**(2.1.1)은 `endpoints.register.waived`가 `{ "price": "tentative" }`일 때만 보낸다(D-RECOG-26) — 이 칸이 없는 옛 서버는 가격 없는 등록을 400으로 거절한다.
 
 ### 2.1 임시 등록 — `POST /internal/screen/register`
 
@@ -79,6 +80,31 @@
 - `tentative` 모양이 틀리면 400(까닭 낱말 모양·후보 수 포함).
 - `requestId`는 꼭 기억한다 — 확정·거두기에 `registerRequestId`로 보낸다.
 
+#### 2.1.1 가격 없는 임시 등록 (D-RECOG-22, 인식·등록 다시 설계 1단계)
+
+"N번"만 들리고 가격을 아직 못 들었으면 **`price`를 빼고** 임시 등록한다. `tentative`가 있을 때만 뺄 수 있다.
+
+```json
+{
+  "videoId": "abcdefghijk",
+  "no": 356,
+  "heard": "자 삼백오십육 번",
+  "requestId": "screen-abcdefghijk-356-1763000361000",
+  "observedAt": 1763000361000,
+  "tentative": { "reasons": ["PRICE_SINGLE_SOURCE"], "candidates": { "no": [356] } }
+}
+```
+
+- 응답은 2.1과 같다(`tentative: true`). 판매자 화면에는 "356번 가격 듣는 중"으로 보이고, 그 번호의 찜은 보류로 기다린다. 감사 채팅·라벨은 나가지 않는다.
+- `tentative` 없이 `price`를 빼면 400(`price는 0~100,000,000 정수(원)예요. 가격 없이는 임시 등록(tentative)만 보낼 수 있어요.`). `"price": null`도 400 — 비우려면 칸을 싣지 않는다. `name`은 지금처럼 빼도 된다.
+- **가격 채우기**(둘 중 하나):
+  1. **금액 고치기** `POST /internal/screen/reprice { videoId, no, price, requestId }`(100원 이상) — 가격만 채우고 **확인 중 그대로**다. 근거가 하나 더 모이면 그 뒤 확정(2.2)을 가격 없이 보내도 된다. 판매자가 그사이 가격을 적었으면 `skip: SELLER_PRICED`(판매자 값 그대로).
+  2. **확정에 `price`** — 가격을 채우며 바로 확정한다(2.2). 가격 근거가 모였을 때.
+  - 빈 가격을 채운 것은 가격 바꿈이 아니어서 가격 이력에 남지 않는다. 채운 뒤 다시 고치면 그때부터는 지금처럼 이력이 남는다.
+- **가격 없이 확정하면** 아무것도 쓰지 않고 `skip: "NO_PRICE"`가 온다(2.2 표). 가격을 채운 뒤 다시 보낸다(새 `requestId`).
+- 거두기(2.3)·번호 바꾸기(`/renumber`)는 가격이 없어도 지금 그대로 된다. 번호를 옮겨도 빈 가격·확인 중은 그대로다.
+- 같은 영상에 이어진 다른 계정에도 가격 없이 확인 중으로 들어간다. 계정을 새로 이을 때(처음 맞추기)도 가진 계정이 모두 가격 없는 확인 중이면 새 계정에 가격 없이 확인 중으로 넣고, 그 계정에서도 일꾼의 금액 고치기가 빈 가격을 채운다(D-RECOG-26).
+
 ### 2.2 확정 — `POST /internal/screen/confirm`
 
 ```json
@@ -104,6 +130,7 @@
 | `OTHER_REGISTER` | 그 상품을 만든 등록이 `registerRequestId`가 아니다(다시 켠 일꾼) | 건드리지 않는다 |
 | `NOT_SCREEN` | 일꾼이 올린 상품이 아니다(다른 계정의 손 등록이 동기화로 들어온 확인 중 상품) | 건드리지 않는다 — 그 계정 판매자가 확정한다 |
 | `TARGET_EXISTS` | 옮길 번호(`to`)에 상품이 이미 있다 | 옮기지 않고 그 번호 그대로 확정할지, 거둘지 정한다 |
+| `NO_PRICE` | 가격이 빈 상품(2.1.1)을 `price` 없이 확정하려 했다 | 가격을 듣고 `price`를 실어 다시 확정하거나, 먼저 `/reprice`로 채운다 |
 
 `kept` = 판매자가 그사이 고쳐서 일꾼 값으로 덮지 않은 칸(`no`·`name`·`price`). 그 칸은 판매자 값으로 확정됐다.
 
@@ -174,6 +201,7 @@
 - `candidates`의 세 칸은 늘 있다(없으면 빈 목록). 지금 값(`no`·`price`·`name`)이 후보에 들어 있지 않을 수도 있다 — 화면은 지금 값을 첫 후보로 보이면 된다.
 - 그 번호로 기다리는 찜 수는 같은 응답의 `pending[]`에서 `no`가 같은 항목의 `buyers.length`. 번호 후보마다 기다리는 찜 수를 보이면 판매자가 고르기 쉽다(C3 "손님 찜이 들어온 번호").
 - 닉네임·채팅 글은 `tentative`에 없다.
+- **가격 없는 확인 중 상품은 `"price": null`이다**(0이 아니다, D-RECOG-22). 화면은 "가격 듣는 중"으로 보이고, 금액·합계·정렬·라벨에 0원으로 넣지 않는다. 가격이 빈 상품은 늘 확인 중이거나 판매 종료다(INV-14).
 - 지금 앱은 이 칸을 모르고 상품을 "공개 전"으로 보인다. [공개](`product.open`)는 지금 값으로 확정하고, 고치기는 그대로 된다.
 
 ### 3.2 쓰기 — `POST /api/events`
@@ -193,6 +221,7 @@
 - 응답은 다른 이벤트 쓰기와 같다(`{ type, changed, seq, … }`). `changed: false`면 이미 확정됐거나(일꾼·다른 기기가 먼저) 옮길 번호에 상품이 있다 — 화면을 새로 읽어 보인다.
 - 값을 직접 쳐서 확정할 때: 숫자는 기기가 읽지 않는다(SRV1). 두 길 가운데 하나를 쓴다 — ① 지금의 고치기 칸 원문(`product.update`에 `noText`·`priceText`·`name`)으로 고친 뒤 `product.confirm { b, no }`. ② 서버 읽기 입구(`POST /api/broadcasts/:id/read` — 고치기 칸 읽기)로 읽은 숫자를 `product.confirm`의 `price`에. ①은 요청이 둘이지만 둘 다 다시 보내도 안전하다.
 - 화면은 `product.register`에 `tentative`를 보내지 못한다(400). 손 등록은 늘 바로 판매 중이다.
+- 가격이 빈 상품에 `price` 없는 `product.confirm`이나 `product.open`을 보내면 서버가 기록하지 않고 400(`INVALID_INPUT`, `problems: [{ field: "price", message: "가격을 먼저 적어 주세요. 가격을 적어야 판매를 시작할 수 있어요." }]`)을 돌려준다(D-RECOG-23). 앱은 가격을 받아 `product.confirm { price }`로 보내거나, 고치기 칸 원문으로 가격을 채운 뒤 확정한다(위 ①).
 - 확인 중 상품이 있는 번호에 판매자가 손 등록을 치면 지금처럼 "이미 있는 번호"(`changed: false`)다. 그때 화면은 "고칠까요?" 대신 **친 값으로 확정할지** 물어 `product.confirm { no, name, price }`를 보내면 된다(5절).
 - 조치 기록(상품 자세히의 이력)에 새 종류 `product.confirm`·`product.withdraw`가 나온다 — 낱말을 더해야 한다(제안: "확정", "임시 등록 거둠").
 
@@ -243,6 +272,8 @@
 - **옵션 방송**(의류 등)에서도 엔진 규칙은 같지만 화면 일꾼은 다육 번호 방송만 다룬다. 서버 일꾼 입구의 번호 바꾸기는 옵션 상품을 건너뛰지만 확정·거두기는 건너뛰지 않는다.
 - **감사 채팅 10초 지연(D-RETRO-01)과의 관계.** 확정한 뒤에도 감사 채팅은 10초 뒤에 나가고 그사이 고친 품종·적용한 가격이 글에 들어간다(D-RETRO-02). 라벨은 확정하는 순간 나온다.
 - **서버를 옛 판으로 되돌릴 때.** 확인 중 등록·확정·거두기가 한 번이라도 기록된 방송 날짜는, 이 규칙을 모르는 옛 서버가 그 기록을 다시 재생하지 못한다(모르는 이벤트 종류·모르는 칸). 서버를 먼저 올리는 것은 안전하지만(옛 일꾼·지금 앱은 새 종류를 보내지 않는다 — 단, 계정 동기화는 올리는 즉시 확인 중 등록을 쓴다), 올린 뒤 이 판보다 앞으로 되돌리는 것은 그렇지 않다. 두 자리 교대(계획 E)에서 옛 자리와 새 자리가 잠깐 같이 뜨는 동안에도 같다.
+- **가격 없는 확인 중 상품의 음성(휴대폰 마이크) 길.** 음성 등록·고치기는 가격이 빈 상품을 "없는 번호"처럼 다룬다 — 음성으로 그 번호를 다시 말해도 가격이 채워지지 않는다("이미 있는 번호"). 가격은 확인 카드의 [가격 적기]나 수정창에서 적는다(D-RECOG-27).
+- **서버를 옛 판으로 되돌릴 때(가격 없는 등록).** 가격 없는 임시 등록이 한 번이라도 기록된 방송 날짜는 이 판보다 앞의 서버가 다시 재생하지 못한다(옛 엔진은 `price`가 필수). 일꾼은 `waived` 칸을 보고서만 보내므로 서버를 먼저 올리면 안전하다.
 - **판매자 화면 문구**: 상태값 `READY`·`tentative`·까닭 낱말을 그대로 보이지 않는다(CLAUDE.md 절대 규칙 6). "확인 중" 같은 쉬운 말로.
 
 ## 6. 시험이 지키는 것
@@ -251,5 +282,9 @@
 |---|---|
 | 엔진 규칙·성질(확인 중에는 효과 없음, 확정 시점의 값, 번호 옮김, 거두기, 옛 로그 그대로) | `packages/core/test/unit/engine-tentative.test.ts` |
 | 손으로 계산한 골든 7개 | `tests/golden/engine/26-retro-tentative.yaml` (G-ENG-RETRO-01~07) |
+| 가격 없는 확인 중 — 엔진 규칙·성질·INV-14 | `packages/core/test/unit/engine-tentative.test.ts` ("R-2 가격 없는 확인 중") |
+| 가격 없는 확인 중 골든 4개 | `tests/golden/engine/28-recog-priceless.yaml` (G-ENG-RETRO-08~11) |
+| 가격 없는 임시 등록·`NO_PRICE`·금액 고치기로 채움·판매자 앱 400·계정 동기화·처음 맞추기 | `apps/server/test/tentative.test.ts` ("D-RECOG-22~26") |
+| 앱의 "가격 듣는 중"·[거두기 \| 가격 적기]·가격 없이 확정 막기 | `apps/mobile/test/tentative-retro-90.test.tsx` ("D-RECOG-22·27") |
 | 일꾼 입구·판매자 확정·가격 단위·313번 재현·확정 전달·옛 일꾼 호환 | `apps/server/test/tentative.test.ts` |
 | 서버가 받는 일꾼 요청 목록 | `apps/server/test/screen-intake.test.ts` (D-RETRO-32 묶음) |

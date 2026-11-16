@@ -65,7 +65,7 @@ describe('P2 문서 ↔ 코어 정산 (번호 변경·직접 배정·문자찜·
         const confirmed = listClaims(state).filter((claim) => claim.status === 'CONFIRMED')
         const sold = ledger.rows.filter((row) => row.status === '1등')
         expect(sold).toHaveLength(confirmed.length)
-        expect(sold.reduce((sum, row) => sum + row.price, 0)).toBe(listSettlements(state).reduce((sum, settlement) => sum + settlement.subtotal, 0))
+        expect(sold.reduce((sum, row) => sum + (row.price as number), 0)).toBe(listSettlements(state).reduce((sum, settlement) => sum + settlement.subtotal, 0))
         const unsoldProducts = listProducts(state).filter((product) => !confirmed.some((claim) => claim.product === product.key))
         expect(ledger.rows.filter((row) => row.status !== '1등')).toHaveLength(unsoldProducts.length)
       }),

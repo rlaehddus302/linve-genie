@@ -116,6 +116,11 @@ interface Spec {
   readonly nested?: (event: Readonly<Record<string, unknown>>) => EventProblem[]
   /** 필드 안쪽의 판매자가 적는 글 칸 [필드, 값] (옵션 이름·별칭) — 기록 전 검사가 휴대폰 번호를 본다 */
   readonly texts?: (event: Readonly<Record<string, unknown>>) => [string, string][]
+  /**
+   * 필수 필드 → 이 필드가 있으면 빠져도 되는 필드 (D-RECOG-22: 확인 중 등록만 가격을 비울 수 있다).
+   * 적었으면 값 검사는 그대로 한다. 빠진 필드의 "필수 필드가 없다"는 지금과 같은 자리·같은 문장이다.
+   */
+  readonly waivedBy?: Readonly<Record<string, string>>
 }
 
 const BY_PRODUCT = { [BROADCAST]: id, no }
@@ -236,6 +241,9 @@ const SPECS: Readonly<Record<string, Spec>> = {
   'product.register': {
     required: { ...BY_PRODUCT, name: freeText, price: money },
     optional: { stock, status: oneOf('OPEN', 'READY'), ...PRODUCT_OPTIONS, tentative: nestedShape, pieces },
+    // 가격은 확인 중 등록(tentative가 있을 때)만 비울 수 있다 — 화면 일꾼이 "N번"만 듣고 먼저 올린다. 가격이 빈 상품은
+    // 가격을 채우기 전에는 판매 중이 되지 않는다(R-2 "가격 없는 확인 중", D-RECOG-22). 손 등록·확인 중 칸 없는 등록은 가격 필수 그대로
+    waivedBy: { price: 'tentative' },
     nested: (e) => [...productOptionShapes(e), ...(e.tentative === undefined ? [] : checkTentativeShape(e.tentative).problems)],
     texts: (e) => [...productOptionTexts(e), ...(e.tentative === undefined ? [] : checkTentativeShape(e.tentative).texts)],
     // 확인 중으로 올리는 등록은 공개 전이다 — 바로 판매 중(OPEN)과 함께 쓸 수 없다 (R-2 "확인 중")
@@ -365,6 +373,8 @@ function inspect(state: EngineState, event: unknown, withPhone: boolean): Inspec
   for (const [field, check] of Object.entries(spec.required)) {
     const value = record[field]
     if (value === undefined) {
+      const waiver = spec.waivedBy?.[field]
+      if (waiver !== undefined && record[waiver] !== undefined) continue
       problems.push({ field, message: '필수 필드가 없다' })
       continue
     }

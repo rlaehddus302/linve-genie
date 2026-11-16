@@ -9,7 +9,7 @@ import { Draft, ownSet, unitKeyOf, variantActiveKey } from './draft.ts'
 import { groupEntries, settle } from './ledger.ts'
 import { pentries, pget, pkeys, pvalues } from './pmap.ts'
 import { applyMerge, planMerge } from './merge.ts'
-import { isActive, isLocked, sortedPending, stockOf, unitPrice } from './rules.ts'
+import { isActive, isLocked, sortedPending, stockOf, unitPriceOrNull } from './rules.ts'
 import type {
   BroadcastDetails,
   FocusInfo,
@@ -134,7 +134,7 @@ function variantInfo(state: EngineState, r: Draft, slot: SlotRecord, product: Pr
     stock,
     confirmedUnits: confirmed,
     remaining: stock - confirmed,
-    price: unitPrice(product, unit.text),
+    price: unitPriceOrNull(product, unit.text),
     winners: unit.winners.map(current),
     winnerClaims: [...unit.winners],
     waitlist: unit.waitlist.map(current),

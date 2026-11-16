@@ -325,6 +325,8 @@ export interface HistoryItem {
 
 const rejection = (status: number, code: Rejection['code'], message: string, problems: readonly FieldProblem[] = []): Rejection => ({ status, code, message, problems })
 const invalidInput = (problems: readonly FieldProblem[]): Rejection => rejection(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', problems)
+/** 가격이 빈 확인 중 상품을 가격 없이 확정·공개하려 할 때 (R-2 "가격 없는 확인 중", D-RECOG-22) */
+export const PRICE_FIRST_MESSAGE = '가격을 먼저 적어 주세요. 가격을 적어야 판매를 시작할 수 있어요.'
 
 const notFound = { kind: 'not_found' } as const
 /** 코드 포인트 수 (이모지 하나 = 1) */
@@ -717,6 +719,10 @@ export class Service {
         if (type === 'product.register' && raw?.text === undefined && raw?.noText === undefined) {
           const outOfRange = smsNumberProblem(ctx.state, resolved.fields.b, resolved.fields.no, 'no')
           if (outOfRange !== null) return outOfRange
+        }
+        // 가격이 빈 확인 중 상품은 가격 없이 판매 중이 되지 않는다 — 엔진은 아무 일도 하지 않으므로, 기록하지 않고 쉬운 말로 알린다 (D-RECOG-22)
+        if ((type === 'product.open' || type === 'product.confirm') && resolved.fields.price === undefined && typeof resolved.fields.b === 'string' && typeof resolved.fields.no === 'number') {
+          if (getProduct(ctx.state, resolved.fields.b, resolved.fields.no)?.price === null) return invalidInput([{ field: 'price', message: PRICE_FIRST_MESSAGE }])
         }
         return [{ fields: resolved.fields, actor, requestId }]
       },

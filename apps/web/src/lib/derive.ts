@@ -428,3 +428,11 @@ export function splitPending(data: ScopeData, now: number): { live: PendingGroup
 
 /** 금액 표시 — 코어 formatWon 모양 */
 export { formatWon } from '@livejjim/core'
+import { formatWon as formatWonCore } from '@livejjim/core'
+
+/** 가격이 빈 확인 중 상품의 가격 자리 (R-2 "가격 없는 확인 중", D-RECOG-22) — 0원으로 보이지 않는다 */
+export const PRICE_WAITING = '가격 듣는 중'
+/** 상품 가격 표시: 금액이면 "20,000원", 아직 가격이 없으면 "가격 듣는 중" */
+export function priceWords(price: number | null): string {
+  return price === null ? PRICE_WAITING : formatWonCore(price)
+}

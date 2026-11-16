@@ -92,7 +92,8 @@ export interface ProductExpect {
   readonly waitlist?: readonly string[]
   readonly conflict?: boolean
   readonly exists?: boolean
-  readonly price?: number
+  /** null = 가격이 빈 확인 중 상품 (R-2 "가격 없는 확인 중", D-RECOG-22) */
+  readonly price?: number | null
   readonly priceHistory?: readonly { readonly from: number; readonly to: number }[]
   /** 지금까지 확정 횟수 (0 이상 정수 — 코어 ProductInfo.confirmVersion, N5 D-N5-14) */
   readonly confirmVersion?: number
@@ -469,7 +470,8 @@ function checkExpect(c: Checker, ctx: ScenarioContext, path: readonly PathSegmen
         if (hasValue(product, 'waitlist')) checkBuyerList(c, ctx, [...kp, 'waitlist'], product.waitlist)
         if (hasValue(product, 'conflict')) c.value([...kp, 'conflict'], product.conflict, bool)
         if (hasValue(product, 'exists')) c.value([...kp, 'exists'], product.exists, bool)
-        if (hasValue(product, 'price')) c.value([...kp, 'price'], product.price, intAtLeast(0))
+        // null = 가격이 빈 확인 중 상품 (D-RECOG-22)
+        if (hasValue(product, 'price') && product.price !== null) c.value([...kp, 'price'], product.price, intAtLeast(0))
         if (hasValue(product, 'confirmedUnits')) c.value([...kp, 'confirmedUnits'], product.confirmedUnits, intAtLeast(0))
         if (hasValue(product, 'confirmVersion')) c.value([...kp, 'confirmVersion'], product.confirmVersion, intAtLeast(0))
         if (hasValue(product, 'tentative')) c.value([...kp, 'tentative'], product.tentative, bool)
@@ -1134,6 +1136,8 @@ function validateScenario(raw: Record<string, unknown>): ValidationResult {
         if (entry.mode === 'FIXED' && !hasValue(entry, 'amount')) c.fail(p, `mode FIXED에는 amount가 필요하다`)
         if (entry.mode !== 'FIXED' && hasValue(entry, 'amount')) c.fail([...p, 'amount'], `amount는 mode FIXED일 때만 쓴다`)
       }
+      // 가격 없는 등록은 확인 중 등록만 (README 이벤트 표, R-2 "가격 없는 확인 중", D-RECOG-22)
+      if (type === 'product.register' && !hasValue(entry, 'price') && !hasValue(entry, 'tentative')) c.fail(p, "필수 필드 'price'가 없다 (가격은 확인 중 등록 tentative만 비울 수 있다)")
       if (type === 'host.assign') {
         const present = ASSIGN_REPLACE_FIELDS.filter((field) => hasValue(entry, field))
         if (present.length === 1) c.fail(p, `host.assign의 replace와 replaceTo는 함께 쓴다 ('${present[0] ?? ''}'만 있다)`)

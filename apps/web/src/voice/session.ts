@@ -340,6 +340,8 @@ export class VoiceSession {
       const product = this.#data()?.products.get(productKey(this.broadcastId, no))
       if (product === undefined) return null
       const slots = productSlots(product)
+      // 가격이 빈 확인 중 상품(D-RECOG-22)은 음성 같은 번호 규칙이 견줄 가격이 없다 — 음성 길에서는 없는 번호로 본다(등록은 이미 있는 번호라 아무 일 없음)
+      if (product.price === null) return null
       return { key: product.key, name: product.name, price: product.price, claimCount: slots.winners.length + slots.waitlist.length, closed: product.status === 'CLOSED', status: product.status }
     },
     fetchHistory: () => {
@@ -364,7 +366,7 @@ export class VoiceSession {
       const claimed = slots.winners.length + slots.waitlist.length > 0
       const before: { name?: string; price?: number } = {}
       if (changes.name !== undefined) before.name = product.name
-      if (changes.price !== undefined) before.price = product.price
+      if (changes.price !== undefined && product.price !== null) before.price = product.price
       try {
         // 콘솔 밖은 창이 없다 — 찜이 있으면 새 찜부터만 새 가격 (NEW_ONLY, D-V3-57)
         const applyTo = options.applyTo ?? 'NEW_ONLY'

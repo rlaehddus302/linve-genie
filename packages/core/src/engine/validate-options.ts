@@ -214,7 +214,8 @@ export function checkOptionContext(state: EngineState, type: string, e: Rec): Ev
       const options = (e.options as readonly OptionItem[] | undefined) ?? []
       const problems: EventProblem[] = []
       if (e.stocks !== undefined) problems.push(...checkStocksKeys(e.stocks as Rec, options))
-      if (options.length > 0 && lowestUnitPrice(e.price as number, options) < 0) problems.push({ field: 'options', message: '변형 단가(상품 가격 + 가격 차이)는 0원 이상이어야 한다' })
+      // 가격 없는 확인 중 등록(D-RECOG-22)은 단가를 아직 셈하지 않는다 — 가격을 채울 때(update·confirm) 본다
+      if (options.length > 0 && e.price !== undefined && lowestUnitPrice(e.price as number, options) < 0) problems.push({ field: 'options', message: '변형 단가(상품 가격 + 가격 차이)는 0원 이상이어야 한다' })
       return problems
     }
     case 'product.update': {
@@ -223,7 +224,7 @@ export function checkOptionContext(state: EngineState, type: string, e: Rec): Ev
       const price = (e.price as number | undefined) ?? product.price
       const problems: EventProblem[] = []
       if (e.stocks !== undefined) problems.push(...checkStocksKeys(e.stocks as Rec, options))
-      if (options.length > 0 && lowestUnitPrice(price, options) < 0) problems.push({ field: e.options === undefined ? 'price' : 'options', message: '변형 단가(상품 가격 + 가격 차이)는 0원 이상이어야 한다' })
+      if (options.length > 0 && price !== null && lowestUnitPrice(price, options) < 0) problems.push({ field: e.options === undefined ? 'price' : 'options', message: '변형 단가(상품 가격 + 가격 차이)는 0원 이상이어야 한다' })
       return problems
     }
     case 'sms':
