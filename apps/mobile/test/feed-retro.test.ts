@@ -21,8 +21,9 @@ function world(patch: Parameters<typeof fullView>[0]) {
 
 describe('찜 기록 보기 기억 (lib/feed-view)', () => {
   // D-UX4-151: 보기(mode)·번호별 정렬(numberSort)을 걷어 정렬·글자 크기만 남는다 — 기대값의 그 두 칸을 뺐다
-  it('기본은 지금까지의 모습: 최근순 · 큰 글자', () => {
-    expect(getFeedView()).toEqual({ buyerSort: 'recent', size: 'large' })
+  // D-UX4-199 (사용자 "글자 크기 옵션은 지워라"): 글자 크기(size)도 걷어 정렬만 남는다 — 기대값의 size 칸을 뺐다(옛 기대: 기본 size 'large')
+  it('기본은 지금까지의 모습: 최근순', () => {
+    expect(getFeedView()).toEqual({ buyerSort: 'recent' })
     expect(FEED_VIEW_DEFAULT).toEqual(getFeedView())
   })
 
@@ -30,24 +31,34 @@ describe('찜 기록 보기 기억 (lib/feed-view)', () => {
     const saved = new Map<string, string>()
     const store = { getItem: async (key: string) => saved.get(key) ?? null, setItem: async (key: string, value: string) => void saved.set(key, value) }
     await wireFeedView(store)
-    setFeedView({ buyerSort: 'name', size: 'small' })
-    expect(getFeedView()).toEqual({ buyerSort: 'name', size: 'small' })
+    setFeedView({ buyerSort: 'name' })
+    expect(getFeedView()).toEqual({ buyerSort: 'name' })
     await flush()
-    expect(JSON.parse(saved.get(FEED_VIEW_KEY) ?? '')).toEqual({ buyerSort: 'name', size: 'small' })
+    expect(JSON.parse(saved.get(FEED_VIEW_KEY) ?? '')).toEqual({ buyerSort: 'name' })
     resetFeedView()
     expect(getFeedView().buyerSort).toBe('recent')
     await wireFeedView(store)
-    expect(getFeedView()).toEqual({ buyerSort: 'name', size: 'small' })
+    expect(getFeedView()).toEqual({ buyerSort: 'name' })
   })
 
   it('옛 앱이 저장한 번호별 보기(mode·numberSort)는 읽을 때 버리고 나머지는 되살린다 (D-UX4-151)', () => {
-    expect(parseFeedView(JSON.stringify({ mode: 'number', buyerSort: 'name', numberSort: 'recent', size: 'small' }))).toEqual({ buyerSort: 'name', size: 'small' })
+    expect(parseFeedView(JSON.stringify({ mode: 'number', buyerSort: 'name', numberSort: 'recent', size: 'small' }))).toEqual({ buyerSort: 'name' })
+  })
+
+  it('옛 앱이 저장한 글자 크기(size)는 읽을 때 버리고 다시 쓰지 않는다 (D-UX4-199)', async () => {
+    const saved = new Map<string, string>([[FEED_VIEW_KEY, JSON.stringify({ buyerSort: 'name', size: 'small' })]])
+    await wireFeedView({ getItem: async (key: string) => saved.get(key) ?? null, setItem: async (key: string, value: string) => void saved.set(key, value) })
+    expect(getFeedView()).toEqual({ buyerSort: 'name' })
+    setFeedView({ buyerSort: 'recent' })
+    await flush()
+    expect(JSON.parse(saved.get(FEED_VIEW_KEY) ?? '')).toEqual({ buyerSort: 'recent' })
   })
 
   it('저장한 값이 깨졌거나 모르는 값이면 그 칸만 기본으로, 저장소가 실패해도 화면은 고른 대로', async () => {
     expect(parseFeedView('{')).toEqual(FEED_VIEW_DEFAULT)
     expect(parseFeedView('[1]')).toEqual(FEED_VIEW_DEFAULT)
-    expect(parseFeedView(JSON.stringify({ buyerSort: 'zzz', size: 'small' }))).toEqual({ ...FEED_VIEW_DEFAULT, size: 'small' })
+    // D-UX4-199: size 칸이 없어져 기대값에서 뺐다 (옛 기대: { ...기본, size: 'small' })
+    expect(parseFeedView(JSON.stringify({ buyerSort: 'zzz', size: 'small' }))).toEqual(FEED_VIEW_DEFAULT)
     expect(parseFeedView(JSON.stringify({ buyerSort: 'name', size: 5 }))).toEqual({ ...FEED_VIEW_DEFAULT, buyerSort: 'name' })
     await wireFeedView({ getItem: async () => { throw new Error('저장소 없음') }, setItem: async () => { throw new Error('저장소 없음') } })
     setFeedView({ buyerSort: 'name' })

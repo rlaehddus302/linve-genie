@@ -36,20 +36,33 @@ describe('상품 줄 (D-UX4-105)', () => {
     expect(getComputedStyle(fill).backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
   })
 
-  // D-UX4-148로 바뀐 기대 (사용자 2026-11-16 "번호·품종·가격을 왼쪽 정렬로 사이에 ·"; 옛: 번호 48·가격 104 고정 칸, 품종 가운데·가격 오른쪽 맞춤)
-  it('번호 · 품종 · 가격을 왼쪽부터 한 줄로 — 고정 칸 없이, 품종만 줄어들고 가격은 늘 다 보인다', async () => {
+  // D-UX4-197로 바뀐 기대 (사용자 2026-11-16 "라이브 화면에서 상품 목록도 이렇게 만들어달라" — 정산서 상품별 줄과 같은 꼴).
+  // 옛(D-UX4-148): "8 · 창금 · 2,000원"을 왼쪽부터 한 줄로 — 품종만 줄어들고 가격은 늘 다 보였다. 이제 왼쪽 "N번" 표 · 가운데 품종 칸(늘어남) · 오른쪽 가격(줄지 않음, 오른쪽 맞춤)
+  it('왼쪽 "N번" 표 · 가운데 품종 · 오른쪽 가격 — 고정 칸 없이, 가운데 칸만 늘고 줄며 가격은 늘 다 보인다', async () => {
     await open(makeWorld({ products: [product(8, { name: '창금', price: 2000 }), product(999, { name: '삼광수박금', price: 10_000_000 })] }))
     for (const [no, name, price] of [[8, '창금', '2,000원'], [999, '삼광수박금', '10,000,000원']] as const) {
       const row = within(screen.getByRole('button', { name: `상품 자세히 — ${no}번` }))
-      expect(row.getByTestId('product-row-line').textContent).toBe(`${no} · ${name} · ${price}`)
+      expect(row.getByTestId('product-row-no').textContent).toBe(`${no}번`)
+      expect(row.getByTestId('product-row-name').textContent).toBe(name)
+      expect(row.getByTestId('product-row-price').textContent).toBe(price)
       expect(row.getByTestId('product-row-line').getAttribute('aria-label')).toBe(`${no} · ${name} · ${price}`)
       expect(getComputedStyle(row.getByTestId('product-row-no')).width).not.toBe('48px')
       expect(getComputedStyle(row.getByTestId('product-row-price')).width).not.toBe('104px')
-      expect(getComputedStyle(row.getByTestId('product-row-name')).flexGrow).not.toBe('1')
-      expect(getComputedStyle(row.getByTestId('product-row-name')).flexShrink).toBe('1')
+      expect(getComputedStyle(row.getByTestId('product-row-main')).flexGrow).toBe('1')
+      expect(getComputedStyle(row.getByTestId('product-row-main')).flexShrink).toBe('1')
       expect(getComputedStyle(row.getByTestId('product-row-price')).flexShrink).toBe('0')
-      for (const text of [String(no), name, price]) expect(['', 'left', 'start']).toContain(getComputedStyle(row.getByText(text)).textAlign)
+      expect(['', 'left', 'start']).toContain(getComputedStyle(row.getByText(name)).textAlign)
+      expect(['right', 'end']).toContain(getComputedStyle(row.getByText(price)).textAlign)
     }
+  })
+
+  it('상품 줄은 한 흰 둥근 카드 안에 1px 선으로 나뉜다 (D-UX4-197 — 옛: 상품마다 따로 카드)', async () => {
+    await open(makeWorld({ products: [product(8, { name: '창금', price: 2000 }), product(9, { name: '라울', price: 3000 })] }))
+    const list = screen.getByRole('list', { name: '상품 목록' })
+    expect(getComputedStyle(list).borderTopLeftRadius).toBe('20px')
+    expect(getComputedStyle(list).overflowX).toBe('hidden')
+    expect(within(list).getAllByRole('button')).toHaveLength(2)
+    for (const row of within(list).getAllByRole('button')) expect(['', '0', '0px']).toContain(getComputedStyle(row).borderTopLeftRadius)
   })
 })
 

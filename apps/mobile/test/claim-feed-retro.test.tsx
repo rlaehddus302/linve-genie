@@ -53,20 +53,35 @@ const SAMPLE = {
 
 describe('찜 기록 보기 고르기 (D-RETRO-50~52)', () => {
   // D-UX4-151: [손님별 | 번호별] 고르기와 번호별 줄을 걷었다 — 고르기 줄은 [최근순 | 이름순] · 글자 [크게 | 작게]만, 그 위에 찾기 칸(D-UX4-152)
-  it('목록 위 도구 줄: 찾기 칸 아래 한 줄에 [최근순 | 이름순] · 글자 [크게 | 작게] — 기본은 최근순·크게, 번호별 보기는 없다', async () => {
+  // D-UX4-199 (사용자 "정렬 ui도 상품 목록과 맞춰라. 글자 크기 옵션은 지워라"): 옛 기대는 찾기 칸 아래 한 줄에 [최근순 | 이름순] · 글자 [크게 | 작게] 네 단추.
+  // 이제 그 줄 오른쪽에 상품 목록 [목록 순서]와 같은 단추 하나(지금 순서 이름) — 누르면 아래 창에서 고른다. 글자 크기 단추는 없다.
+  const sortButton = () => screen.getByTestId('feed-sort-button')
+  const pickSort = (name: string) => {
+    fireEvent.click(sortButton())
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: '목록 순서' })).getByRole('radio', { name }))
+  }
+
+  it('목록 위 도구 줄: 찾기 칸 아래 줄 오른쪽에 [목록 순서] 단추(기본 최근순) — 글자 크기 고르기·번호별 보기는 없다', async () => {
     const world = makeWorld({ products: [product(15), product(7)] })
     await open(world, SAMPLE)
     await openFeed()
-    const sort = await screen.findByRole('group', { name: '정렬' })
-    const bar = sort.parentElement as HTMLElement
-    // 단추는 좌우 한 줄 (D-UX4-01) — 위아래로 쌓지 않는다
-    expect(getComputedStyle(bar).flexDirection).toBe('row')
-    expect(getComputedStyle(bar).flexWrap).not.toBe('wrap')
-    expect(within(bar).getAllByRole('button').map((button) => `${button.getAttribute('aria-label') ?? ''}${button.getAttribute('aria-selected') === 'true' ? ' ✓' : ''}`)).toEqual(['최근순 정렬 ✓', '이름순 정렬', '글자 크게 ✓', '글자 작게'])
-    expect(within(bar).getAllByRole('button').map((button) => button.textContent)).toEqual(['최근순', '이름순', '크게', '작게'])
+    const group = await screen.findByRole('group', { name: '찜 기록 찾기·정렬' })
+    expect(within(group).getByLabelText('찜 기록 찾기')).toBeTruthy()
+    expect(group.contains(sortButton())).toBe(true)
+    expect(sortButton().getAttribute('aria-label')).toBe('목록 순서 — 최근순')
+    expect(sortButton().textContent).toBe('최근순')
+    // 상품 목록 도구 줄과 같은 자리: 둘째 줄 오른쪽(가로 줄, 양 끝 정렬)
+    const row = sortButton().parentElement as HTMLElement
+    expect(getComputedStyle(row).flexDirection).toBe('row')
+    expect(getComputedStyle(row).justifyContent).toBe('space-between')
+    expect(row.lastElementChild).toBe(sortButton())
+    expect(within(group).getAllByRole('button').filter((button) => button !== sortButton())).toHaveLength(0)
+    expect(screen.queryByRole('group', { name: '정렬' })).toBeNull()
+    expect(screen.queryByRole('group', { name: '글자 크기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '글자 크게' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '글자 작게' })).toBeNull()
     expect(screen.queryByRole('button', { name: '번호별 보기' })).toBeNull()
     expect(screen.queryByRole('list', { name: '번호별 찜 기록' })).toBeNull()
-    expect(within(screen.getByRole('group', { name: '찜 기록 찾기·정렬' })).getByLabelText('찜 기록 찾기')).toBeTruthy()
     // 기본: 지금까지의 손님별 (가장 최근에 찜한 손님이 맨 아래)
     expect(labels(screen.getByRole('list', { name: '찜 기록' }))).toEqual(['홍길동 15 찜', '문자-0937 88 보류', '김영희 15 대기 1 · 이미 찜됨 · 1등 홍길동, 7 찜'])
   }, SLOW)
@@ -75,27 +90,30 @@ describe('찜 기록 보기 고르기 (D-RETRO-50~52)', () => {
     const world = makeWorld({ products: [product(15), product(7)] })
     await open(world, SAMPLE)
     await openFeed()
-    fireEvent.click(await screen.findByRole('button', { name: '이름순 정렬' }))
+    await screen.findByTestId('feed-sort-button')
+    // 고르는 판: 최근순 · 이름순, 지금 것에 표시 (D-UX4-199 — 상품 목록 고르는 판과 같은 부품)
+    fireEvent.click(sortButton())
+    const choices = screen.getByRole('radiogroup', { name: '목록 순서' })
+    expect(within(choices).getAllByRole('radio').map((radio) => `${radio.getAttribute('aria-label') ?? ''}${radio.getAttribute('aria-checked') === 'true' ? ' ✓' : ''}`)).toEqual(['최근순 ✓', '이름순'])
+    fireEvent.click(within(choices).getByRole('radio', { name: '이름순' }))
     expect(labels(screen.getByRole('list', { name: '찜 기록' }))).toEqual(['김영희 7 찜, 15 대기 1 · 이미 찜됨 · 1등 홍길동', '문자-0937 88 보류', '홍길동 15 찜'])
     expect(getFeedView().buyerSort).toBe('name')
-    fireEvent.click(screen.getByRole('button', { name: '최근순 정렬' }))
+    expect(sortButton().textContent).toBe('이름순')
+    pickSort('최근순')
     expect(labels(screen.getByRole('list', { name: '찜 기록' }))[0]).toBe('홍길동 15 찜')
   }, SLOW)
 
-  it('글자 작게: 꼬리표가 낮아지고(36 → 30) 글자가 작아지지만 누르는 폭은 48 이상 그대로 — 보류 찜 판은 고르기 줄 없이 늘 큰 글자', async () => {
+  // D-UX4-199 (사용자 "글자 크기 옵션은 지워라"): 옛 시험은 [글자 작게]로 꼬리표가 36 → 30으로 낮아지는지 봤다. 이제 그 단추가 없고 꼬리표는 늘 보통 크기.
+  it('꼬리표는 늘 보통 크기(높이 36·누르는 폭 48 이상)이고 이름 아래 줄에 놓인다 — 보류 찜 판은 고르기 줄 없이 같은 크기', async () => {
     const world = makeWorld({ products: [product(15), product(7)] })
     await open(world, { ...SAMPLE, pending: [{ product: 'b1/88', broadcast: 'b1', no: 88, buyers: ['s1'], claims: ['c3'] } as never] })
     await openFeed()
     const tag = () => within(screen.getByRole('list', { name: '찜 기록' })).getByRole('button', { name: '15 찜' })
     expect(getComputedStyle(tag()).minHeight).toBe('36px')
-    const largeFont = Number.parseFloat(getComputedStyle(within(tag()).getByText('15 찜')).fontSize)
-    fireEvent.click(screen.getByRole('button', { name: '글자 작게' }))
-    expect(getComputedStyle(tag()).minHeight).toBe('30px')
     expect(getComputedStyle(tag()).minWidth).toBe('48px')
-    expect(Number.parseFloat(getComputedStyle(within(tag()).getByText('15 찜')).fontSize)).toBeLessThan(largeFont)
-    expect(getFeedView().size).toBe('small')
+    expect(screen.queryByRole('button', { name: '글자 작게' })).toBeNull()
     // (D-UX4-151: 번호별 꼬리표의 같은 확인은 번호별 보기와 함께 걷었다)
-    // 보류 찜 판: 손님별·큰 글자 그대로, 도구 줄(찾기 칸·고르기) 없음 — 도구 줄은 찜 기록 탭의 하나뿐
+    // 보류 찜 판: 손님별·같은 크기 그대로, 도구 줄(찾기 칸·고르기) 없음 — 도구 줄은 찜 기록 탭의 하나뿐
     fireEvent.click(screen.getByRole('button', { name: /^보류 찜 1/ }))
     const pending = (await screen.findAllByRole('list', { name: '찜 기록' })).find((list) => labels(list).length === 1)!
     expect(labels(pending)).toEqual(['문자-0937 88 보류'])

@@ -2,6 +2,7 @@
 // - 152 찾기 칸 하나에서 번호 또는 닉네임. 지우기 x는 상품 탭 번호 검색칸과 같은 SearchField. 도구 줄(ClaimFeedToolbar)은 따로 그릴 수 있고
 //   ClaimFeed는 toolbar={false}면 목록만, query·sort를 주면 그 값으로 그린다(방송 화면이 위에 붙는 머리로 옮길 때).
 // - 154 손님 줄 이름 아래 가장 최근 찜 시각(초까지), 끝난·봉인한 라이브에서도 상품이 있는 꼬리표는 눌러 [상품 보기].
+// - D-UX4-199 (사용자 지시 2026-11-16): 이름 아래 시각을 걷고, 꼬리표를 이름 아래 줄로, 정렬은 상품 목록 [목록 순서] 단추·고르는 판으로, 글자 크기 고르기는 없앴다.
 // 닉네임은 지어낸 이름만 쓴다.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -102,16 +103,33 @@ describe('방송 화면 찜 기록 찾기 (D-UX4-152)', () => {
     expect(labels(list())).toHaveLength(3)
   }, SLOW)
 
-  it('손님 줄 이름 아래에 그 손님이 가장 최근에 찜한 시각이 초까지 보인다 (D-UX4-154)', async () => {
+  // D-UX4-199 (사용자 "닉네임 아래에 시간이 왜 있는가? 지워라 … 닉네임 옆에 번호를 나열하지 말고 닉네임 아래에 나열하라"):
+  // 옛 기대(D-UX4-154)는 이름 아래 가장 최근 찜 시각 ['20:00:01', '20:00:03', '20:00:09']. 이제 시각은 없고, 이름 아래 줄에 꼬리표가 왼쪽부터 놓인다.
+  it('손님 줄은 위에 이름, 그 아래 줄에 번호 꼬리표 — 시각은 없다 (D-UX4-199)', async () => {
     await openFeed()
     const rows = within(screen.getByRole('list', { name: '찜 기록' })).getAllByRole('listitem')
-    // 홍길동 11:00:01Z · 문자-0937 11:00:03Z · Mint Garden 가장 최근 11:00:09Z → 한국 시각
-    expect(rows.map((row) => within(row).getByLabelText(/^가장 최근 찜 /).textContent)).toEqual(['20:00:01', '20:00:03', '20:00:09'])
+    expect(rows.map((row) => within(row).queryByLabelText(/^가장 최근 찜/))).toEqual([null, null, null])
+    expect(rows.map((row) => row.textContent?.match(/\d{1,2}:\d{2}/g)?.length ?? 0)).toEqual([0, 0, 0])
+    const mint = rows[2]!
+    // 줄은 세로로 쌓인다: 이름 → 꼬리표 묶음(가로로 늘어놓고 넘치면 아랫줄, 왼쪽부터)
+    expect(getComputedStyle(mint).flexDirection).toBe('column')
+    const name = within(mint).getByText('Mint Garden')
+    const tags = within(mint).getByTestId('feed-tags')
+    expect(name.compareDocumentPosition(tags) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(tags.contains(name)).toBe(false)
+    expect(getComputedStyle(tags).flexDirection).toBe('row')
+    expect(getComputedStyle(tags).flexWrap).toBe('wrap')
+    expect(getComputedStyle(tags).justifyContent).toBe('flex-start')
+    expect(within(tags).getAllByRole('button').map((tag) => tag.textContent)).toEqual(['15 대기 1', '7 찜'])
+    // 문자 손님은 "문자-끝 4자리" 이름 그대로
+    expect(within(rows[1]!).getByText('문자-0937')).toBeTruthy()
   }, SLOW)
 
   it('이름순은 한글 이름이 먼저, 영문 이름은 그 뒤 (D-UX4-153)', async () => {
     await openFeed()
-    fireEvent.click(screen.getByRole('button', { name: '이름순 정렬' }))
+    // D-UX4-199: 정렬은 [목록 순서] 단추 → 고르는 판 (옛: [이름순 정렬] 단추를 바로 누름)
+    fireEvent.click(screen.getByTestId('feed-sort-button'))
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: '목록 순서' })).getByRole('radio', { name: '이름순' }))
     expect(labels(screen.getByRole('list', { name: '찜 기록' })).map((label) => label?.split(' ')[0])).toEqual(['문자-0937', '홍길동', 'Mint'])
   }, SLOW)
 })
@@ -124,7 +142,8 @@ describe('도구 줄을 따로 그리기 (ClaimFeedToolbar · ClaimFeed toolbar=
     expect(labels(screen.getByRole('list', { name: '찜 기록' })).map((label) => label?.split(' ')[0])).toEqual(['홍길동', 'Mint'])
   })
 
-  it('ClaimFeedToolbar는 받은 상태를 그리고 바꾸면 알린다 — 찾기 칸·지우기 x · [최근순 | 이름순] · 글자 [크게 | 작게]', () => {
+  // D-UX4-199: 옛 기대는 [최근순 | 이름순] · 글자 [크게 | 작게] 네 단추가 한 줄(aria-selected로 고른 것). 이제 [목록 순서] 단추 하나 → 아래 창 고르기
+  it('ClaimFeedToolbar는 받은 상태를 그리고 바꾸면 알린다 — 찾기 칸·지우기 x · [목록 순서] 단추 → 최근순 · 이름순 고르는 판', () => {
     const queries: string[] = []
     const sorts: string[] = []
     const { rerender } = render(<ClaimFeedToolbar query="" onQuery={(text) => queries.push(text)} sort="recent" onSort={(sort) => sorts.push(sort)} />)
@@ -133,15 +152,27 @@ describe('도구 줄을 따로 그리기 (ClaimFeedToolbar · ClaimFeed toolbar=
     expect(queries).toEqual(['홍'])
     rerender(<ClaimFeedToolbar query="홍" onQuery={(text) => queries.push(text)} sort="name" onSort={(sort) => sorts.push(sort)} />)
     expect((screen.getByLabelText('찜 기록 찾기') as HTMLInputElement).value).toBe('홍')
-    expect(screen.getByRole('button', { name: '이름순 정렬' }).getAttribute('aria-selected')).toBe('true')
+    const button = screen.getByTestId('feed-sort-button')
+    expect(button.getAttribute('aria-label')).toBe('목록 순서 — 이름순')
+    expect(button.textContent).toBe('이름순')
+    expect(within(button).getByTestId('chip-sort')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '찜 기록 찾기 지우기' }))
     expect(queries).toEqual(['홍', ''])
-    fireEvent.click(screen.getByRole('button', { name: '최근순 정렬' }))
+    fireEvent.click(button)
+    const choices = screen.getByRole('radiogroup', { name: '목록 순서' })
+    expect(within(choices).getByRole('radio', { name: '이름순' }).getAttribute('aria-checked')).toBe('true')
+    // 지금 것을 다시 고르면 알리지 않고 판만 닫는다
+    fireEvent.click(within(choices).getByRole('radio', { name: '이름순' }))
+    expect(sorts).toEqual([])
+    fireEvent.click(screen.getByTestId('feed-sort-button'))
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: '목록 순서' })).getByRole('radio', { name: '최근순' }))
     expect(sorts).toEqual(['recent'])
-    // 단추는 한 줄 (D-UX4-01)
-    const bar = screen.getByRole('group', { name: '정렬' }).parentElement as HTMLElement
-    expect(getComputedStyle(bar).flexDirection).toBe('row')
-    expect(within(bar).getAllByRole('button').map((button) => button.textContent)).toEqual(['최근순', '이름순', '크게', '작게'])
+    // 정렬 단추는 둘째 줄 오른쪽 (상품 목록 도구 줄과 같은 자리), 글자 크기 고르기는 없다
+    const row = screen.getByTestId('feed-sort-button').parentElement as HTMLElement
+    expect(getComputedStyle(row).flexDirection).toBe('row')
+    expect(row.lastElementChild).toBe(screen.getByTestId('feed-sort-button'))
+    expect(screen.queryByRole('button', { name: '글자 작게' })).toBeNull()
+    expect(screen.queryByRole('group', { name: '정렬' })).toBeNull()
   })
 
   it('보류 찜 판(only="PENDING")은 그대로: 도구 줄 없이 보류 찜만, 누르지 않는다', () => {

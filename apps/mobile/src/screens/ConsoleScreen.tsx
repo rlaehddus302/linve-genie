@@ -152,7 +152,7 @@ export const SHOW_AFTER_BACK_MS = 600
 /** "그 상품 보기"로 스크롤할 때 그 줄 위에 남기는 자리 (붙는 탭 바 아래에 줄이 보이게) */
 const ROW_PEEK = 64
 
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, openStatement, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 정산서 화면 안에 겹쳐 그린다 */ readonly openStatement?: (buyer: string) => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -198,6 +198,17 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const follow = useFollowScroll()
   const { scroll, reset: resetFollow } = follow
   const scrollOffset = useRef(new Animated.Value(0)).current
+  // 숫자판이 덜 올라오던 것 (D-UX4-200, 사용자 "가끔 저렇게 키보드가 다 안 올라오는 버그"): 숫자판은 목록 안에서 스크롤 위치(scrollOffset)만큼 내려 화면 아래에 둔다.
+  // 목록을 내린 채 번호를 넣으면 결과가 줄어 목록이 맨 위로 당겨지는데, 이때 휴대폰이 스크롤 알림을 주지 않으면 옛 위치가 남아 그만큼 숫자판이 아래로 밀려 잘렸다.
+  // 번호가 바뀌면 결과를 맨 위부터 보이고 위치 값도 직접 0으로 맞춘다 — 알림이 오든 안 오든 숫자판 자리가 맞다
+  const searchTop = useRef(searchDigits)
+  useEffect(() => {
+    if (searchTop.current === searchDigits) return
+    searchTop.current = searchDigits
+    if (!searchPad) return
+    scroll.current?.scrollTo({ y: 0, animated: false })
+    scrollOffset.setValue(0)
+  }, [searchDigits, searchPad, scroll, scrollOffset])
   const [viewportHeight, setViewportHeight] = useState(0)
   // 채팅·문자·음성 인식 탭만 라이브 채팅처럼 맨 아래(새 줄)에서 시작하고, 상품·찜 기록은 맨 위에서 (D-UX4-98 — 옛: 모든 탭이 맨 아래로 굴러가
   // 라이브 화면에 들어오거나 탭을 바꿀 때마다 목록이 아래로 튀었다)
@@ -477,7 +488,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const help = closed ? '끝난 라이브예요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   if (salesPage === 'sales' || (closed && salesPage === 'auto')) {
     // 머리는 정산서 화면이 그린다 — 정산 정보 화면(오른쪽에서 밀려 들어옴)이 상태 막대 자리·머리까지 덮게 (D-UX4-184, 라이브 화면 D-UX4-51과 같은 자리 칸)
-    return <BroadcastSalesList {...{ broadcastId, title, sales, inset, names, sealed, rehearsal }} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} justEnded={seller && endedNow && focused}
+    return <BroadcastSalesList {...{ broadcastId, title, sales, inset, names, sealed, rehearsal }} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} {...(openStatement === undefined ? {} : { openBuyer: openStatement })} justEnded={seller && endedNow && focused}
       header={<>
         <View style={{ height: pageTop }} />
         {/* 제목 "정산서" (D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔" — 옛 "정산 내역서") */}
@@ -559,6 +570,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
             tabHide.drag(true)
             draggingSearch.current = searchPad
             if (searchPad) padOpacity.setValue(0)
+            // 찜 기록 찾기 칸의 키보드는 목록을 끌기 시작하면 바로 내린다 (D-UX4-200, 사용자 "스크롤 시작하면 키보드 내려가게") —
+            // 상품 번호 숫자판은 위처럼 손을 뗄 때 닫는다(첫 드래그를 이어 가야 해서 지금 칸을 놓지 않는다)
+            else Keyboard.dismiss()
           }}
           onScrollEndDrag={(event) => {
             follow.end(event)

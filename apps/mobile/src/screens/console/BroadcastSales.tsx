@@ -14,25 +14,27 @@
 //   모두에게 보내기를 시작할 때만 묻는다(손님에게 나가기 전).
 // - 구매자 정산서는 목록 위로 오른쪽에서 밀려 들어오는 다음 화면(SlidePage): 왼쪽 끝에서 밀거나 ‹·안드로이드 뒤로면 목록으로 (D-UX4-192,
 //   사용자 "지금은 아무 애니메이션 없이 창 전환되는데 … 구매자 정산서 화면 안에 들어갔을 때 스와이프로 뒤로가기"). 머리에는 제목 없이 뒤로만(D-UX4-193).
+//   D-UX4-198 (사용자 "화면 저렇게 넘어가면 안 된다 … 아이폰 기본적인 화면으로 해라"): 기기에서는 openBuyer로 진짜 쌓인 경로(/console/<방송>/statement)를 연다 —
+//   손으로 그린 겹친 화면이 가끔 넘김 중간에 멈췄다. 겹친 화면(SlidePage)은 경로가 없을 때(시험·웹)만. 모두에게 보내기 차례는 statement-queue로 잇는다.
 // - 모두에게 보내기(D-RETRO-64): 문자는 판매자 휴대폰의 문자 앱으로 한 명씩 보낸다(앱이 대신 보내지 않는다) — 보내면 다음 손님으로 바로 넘어가고 보낸 손님을 표시한다.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Animated, ScrollView, View, useWindowDimensions } from 'react-native'
 import type { ReceiptBuyers } from '@livejjim/web/src/api/types.ts'
 import { getBytes, withRetry } from '../../api/client.ts'
-import { useCachedGet } from '../../lib/cached-get.ts'
+import { useCachedGet, useScreenFocusCount } from '../../lib/cached-get.ts'
 import { type broadcastSales, salesMoney, statementInfoMissing, statementName, statementRows, type StatementRow } from '../../lib/broadcast-sales.ts'
 import type { BuyerNames } from '../../lib/derive.ts'
 import { markBuyerSent, markStatementInfoAsked, sentBuyers, shouldAskStatementInfo, useStatementInfo } from '../../lib/statement-info.ts'
-import { BigButton, BottomSheet, SmallButton, Txt, useKit } from '../../ui/kit/index.ts'
+import { BigButton, BottomSheet, Txt, useKit } from '../../ui/kit/index.ts'
 import { GUTTER, SPACE } from '../../ui/kit/tokens.ts'
 import { Pill } from '../../ui/day-pills.tsx'
 import { EXPORT_FAILED, EXPORT_LABEL, type ExportKind } from '../order-export.tsx'
 import { MenuRow } from '../order-parts.tsx'
 import { nativeShareFile } from '../../native/index.ts'
 import { wait, SHEET_GAP_MS } from '../../lib/receipt-sms-flow.ts'
-import { LOAD_FAILED } from '../StatementInfo.tsx'
 import { StatementPhoto, statementPages } from './StatementPhoto.tsx'
-import { BuyerOrderPaper } from './BuyerOrderPaper.tsx'
+import { BuyerStatementBody, buyerPageName, BUYER_PAGE_NAME, sendAllFinished, sendAllProgress } from './BuyerStatement.tsx'
+import { clearSendQueueNote, sendQueueNote, startSendQueue, useSendQueueVersion } from './statement-queue.ts'
 import { BUYER_JOIN, productBuyers, StatementList } from './StatementList.tsx'
 import { InfoButton, StatementFooter } from './StatementControls.tsx'
 import { StatementSetupPage } from './StatementSetup.tsx'
@@ -60,7 +62,7 @@ export const PHONE_CHECKING = '휴대폰 번호를 확인하고 있어요.'
 export const PHONE_CHECK_FAILED = '휴대폰 번호를 확인하지 못했어요. 보낼 때 번호를 물어볼 수 있어요.'
 export const SENT_WORD = '보냄'
 export const NOT_SENT_WORD = '아직'
-export const sendAllProgress = (total: number, sent: number): string => `구매자 ${total}명 가운데 ${sent}명에게 보냈어요.`
+export { sendAllProgress }
 
 /** 줄 이름 (화면 읽기·시험) — 구매자별은 누르면 그 손님 정산서 */
 function rowLabel(row: StatementRow, sent: boolean, buyers: readonly string[] = []): string {
@@ -68,8 +70,10 @@ function rowLabel(row: StatementRow, sent: boolean, buyers: readonly string[] = 
   return `${row.label} 정산서 · ${salesMoney(row.money)} · ${row.qty}개${sent ? ` · ${SENT_WORD}` : ''}`
 }
 
-export function BroadcastSalesList({ broadcastId, title, date, sales, names, buyer, select, inset, rehearsal, sealed, justEnded = false, header }: {
+export function BroadcastSalesList({ broadcastId, title, date, sales, names, buyer, select, openBuyer, inset, rehearsal, sealed, justEnded = false, header }: {
   broadcastId: string; title: string; date: string; sales: Sales; names: BuyerNames; buyer: string | null; select: (id: string | null) => void; inset: number; rehearsal: boolean; sealed: boolean
+  /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 이 화면 안에 겹쳐 그린다(buyer·select) */
+  openBuyer?: (id: string) => void
   /** 화면 머리(상태 막대 자리 · 제목 · 알림) — 정산 정보 화면이 머리까지 덮도록 이 화면이 그린다 (D-UX4-184) */
   header?: ReactNode
   /** 이 화면을 보는 동안 방송이 끝났다 — 정산 정보가 비어 있으면 한 번 묻는다 */
@@ -77,7 +81,7 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
 }) {
   const { p } = useKit()
   const path = `/api/broadcasts/${encodeURIComponent(broadcastId)}/order-shop`
-  const { data: shop, reload } = useCachedGet<{ name: string }>(path)
+  const { data: shop } = useCachedGet<{ name: string }>(path)
   const statement = useStatementInfo()
   const { width: windowWidth } = useWindowDimensions()
   const tabHide = useTabBarHide()
@@ -97,6 +101,11 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   const [queueKeys, setQueueKeys] = useState<readonly string[]>([])
   const [sent, setSent] = useState<readonly string[]>(() => sentBuyers(broadcastId))
   const [doneNote, setDoneNote] = useState('')
+  // 쌓인 정산서 화면에서 보낸 손님·모두에게 보내기 마침 한 줄 (D-UX4-198) — 돌아와 다시 보이면 다시 읽는다
+  const queueVersion = useSendQueueVersion()
+  const focusCount = useScreenFocusCount()
+  useEffect(() => { setSent(sentBuyers(broadcastId)) }, [broadcastId, queueVersion, focusCount])
+  const shownNote = doneNote || sendQueueNote(broadcastId)
   const tab = products ? 'products' : 'buyers'
   const rows = useMemo(() => statementRows(sales, tab, id => names.name(id)), [tab, sales, names])
   const buyerRows = useMemo(() => statementRows(sales, 'buyers', id => names.name(id)), [sales, names])
@@ -180,7 +189,7 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
     const next = queueKeys.slice(at + 1).find(key => !sentNow.includes(key))
     if (next !== undefined) { select(next); return }
     setQueue(false)
-    setDoneNote(`모두에게 보내기를 마쳤어요. ${sendAllProgress(queueKeys.length, queueKeys.filter(key => sentNow.includes(key)).length)}`)
+    setDoneNote(sendAllFinished(queueKeys.length, queueKeys.filter(key => sentNow.includes(key)).length))
     select(null)
   }
   const startSendAll = () => {
@@ -188,7 +197,11 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
     if (firstUnsent === undefined) return
     const first = firstUnsent.key
     const keys = groups.sendable.map(row => row.key)
-    withInfo(() => { setDoneNote(''); setQueueKeys(keys); setQueue(true); select(first) })
+    if (openBuyer !== undefined) {
+      withInfo(() => { setDoneNote(''); startSendQueue(broadcastId, keys); openBuyer(first) })
+      return
+    }
+    withInfo(() => { setDoneNote(''); clearSendQueueNote(broadcastId); setQueueKeys(keys); setQueue(true); select(first) })
   }
   // 정산 정보 화면 — 머리까지 덮는 다음 화면 (D-UX4-184)
   const askPage = <StatementSetupPage visible={asking} shopPath={path} shopName={shop?.name ?? null} info={editable ? info : null} onLater={closeAsk} onSaved={closeAsk} />
@@ -200,26 +213,16 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   const buyerContent = (): ReactNode => {
     if (pageBuyer === null) return null
     const order = sales.orders.find(row => row.id === pageBuyer)
-    if (!order) return <View style={{ padding: GUTTER }}><Txt>현재 확정된 주문이 없어요.</Txt></View>
-    if (!shop?.name) {
-      return <View style={{ padding: GUTTER, gap: SPACE.md }}>
-        {shop !== null
-          ? <InfoButton onPress={openInfo} />
-          : <><Txt>정산서의 가게 이름을 불러오는 중이에요.</Txt><SmallButton label="다시 불러오기" onPress={() => void reload()} /></>}
-      </View>
-    }
-    // 정산 정보를 모르면 만들지 않는다 — 받지 않기로 한 배송비가 붙은 정산서가 손님에게 나가지 않게
-    if (info === null) return <View style={{ padding: GUTTER, gap: SPACE.md }}><Txt>{statement.failed ? LOAD_FAILED : '정산 정보를 불러오는 중이에요.'}</Txt><SmallButton label="다시 불러오기" onPress={statement.reload} /></View>
-    const at = queueKeys.indexOf(order.id)
+    const at = order === undefined ? -1 : queueKeys.indexOf(order.id)
     const inQueue = queue && at >= 0
     const lastInQueue = queueKeys.slice(at + 1).every(key => sent.includes(key))
-    return <BuyerOrderPaper key={order.id} {...{ order, date, shop: shop.name, buyerName: statementName(names.name(order.id)), inset, rehearsal, sealed, info }}
-      onSent={() => setSent(markBuyerSent(broadcastId, order.id))}
-      queue={inQueue ? { position: at + 1, total: queueKeys.length, last: lastInQueue, next: () => nextBuyer(order.id, sentBuyers(broadcastId)) } : undefined} />
+    return <BuyerStatementBody broadcastId={broadcastId} order={order} date={date} buyerName={statementName(names.name(pageBuyer))} inset={inset} rehearsal={rehearsal} sealed={sealed}
+      onSent={() => setSent(markBuyerSent(broadcastId, pageBuyer))} onOpenInfo={openInfo}
+      queue={inQueue ? { position: at + 1, total: queueKeys.length, last: lastInQueue, next: () => nextBuyer(pageBuyer, sentBuyers(broadcastId)) } : undefined} />
   }
   const buyerSlide = useSlideProgress(buyer !== null)
   const buyerPage = (
-    <SlidePage visible={buyer !== null} progress={buyerSlide} onClose={() => select(null)} name={pageBuyer === null ? '구매자 정산서' : `${statementName(names.name(pageBuyer))} 님 정산서`} gray scroll={false} testID="buyer-page">
+    <SlidePage visible={buyer !== null} progress={buyerSlide} onClose={() => select(null)} name={pageBuyer === null ? BUYER_PAGE_NAME : buyerPageName(statementName(names.name(pageBuyer)))} gray scroll={false} testID="buyer-page">
       {buyerContent()}
     </SlidePage>
   )
@@ -266,12 +269,13 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
           </View>
         </Animated.View>
       </View>
-      {doneNote ? <Txt color="textSub">{doneNote}</Txt> : null}
+      {shownNote ? <Txt color="textSub">{shownNote}</Txt> : null}
       {shareError ? <Txt color="dangerText">{shareError}</Txt> : null}
       <StatementList tab={tab} rows={rows} sent={sent} buyers={lineBuyers}
         rowLabel={row => rowLabel(row, sent.includes(row.key), products ? lineBuyers.get(row.key) : [])}
         // 누르면 바로 그 손님 정산서 — 정산 정보를 묻지 않는다 (D-UX4-192)
-        {...(products ? {} : { onRow: (key: string) => select(key) })} />
+        // 기기에서는 진짜 쌓인 화면으로 (D-UX4-198)
+        {...(products ? {} : { onRow: (key: string) => (openBuyer === undefined ? select(key) : openBuyer(key)) })} />
     </ScrollView>
     {/* 아래 고정 판: 총계 + [보내기] — 굴림과 상관없이 늘 보인다 (D-UX4-178) */}
     <StatementFooter total={sales.total} qty={sales.qty} buyers={sales.buyers} bottom={footerBottom} onSend={openSend}

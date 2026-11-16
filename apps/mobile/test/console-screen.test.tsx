@@ -124,8 +124,8 @@ describe('ConsoleScreen', () => {
     const world = makeWorld({ products: [product(15, { name: '핑크프릴', price: 12_000 })] })
     await open(world)
     const list = screen.getByRole('list', { name: '상품 목록' })
-    // D-UX4-148로 바뀐 기대 (옛: '15번' 칸): 번호는 "번" 없이 "15 · 핑크프릴 · 12,000원"
-    expect(within(list).getByText('15')).toBeTruthy()
+    // D-UX4-197로 바뀐 기대 (정산서 상품별 줄처럼 왼쪽 회색 "15번" 표 — 옛 D-UX4-148: "번" 없이 "15 · 핑크프릴 · 12,000원")
+    expect(within(list).getByText('15번')).toBeTruthy()
     expect(within(list).getByText('핑크프릴')).toBeTruthy()
     expect(within(list).getByText('12,000원')).toBeTruthy()
     // 찜·대기가 없으면 아래 줄을 그리지 않는다 (D-UX3-78 — 옛 기대: '아직 예약 없음')
@@ -281,9 +281,10 @@ describe('ConsoleScreen', () => {
     expect(within(rows[1]!).getByText('문자-0937')).toBeTruthy()
     expect(rows[1]?.textContent).not.toContain('문자손님')
     // D-UX4-154로 바뀐 기대 (사용자 지시 2026-11-16 "찜 기록의 시간에 초까지"): 옛 기대는 시각을 그리지 않음(/\d{1,2}:\d{2}/ 없음).
-    // 이제 손님 줄 이름 아래에 그 손님이 가장 최근에 찜한 한국 시각을 초까지 — 시각은 줄마다 하나뿐, 채팅 원문은 여전히 없다
-    expect(rows.map((row) => row.textContent?.match(/\d{2}:\d{2}:\d{2}/g)?.length ?? 0)).toEqual([1, 1, 1])
-    expect(within(rows[0]!).getByLabelText(/^가장 최근 찜 \d{2}:\d{2}:\d{2}$/)).toBeTruthy()
+    // D-UX4-199로 다시 바뀐 기대 (사용자 지시 2026-11-16 "닉네임 아래에 시간이 왜 있는가? 지워라"): 154의 기대는 줄마다 시각 하나·"가장 최근 찜" 읽기 낱말.
+    // 이제 손님 줄에 시각이 없다 — 채팅 원문도 여전히 없다
+    expect(rows.map((row) => row.textContent?.match(/\d{1,2}:\d{2}/g)?.length ?? 0)).toEqual([0, 0, 0])
+    expect(within(rows[0]!).queryByLabelText(/^가장 최근 찜/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /^보류 찜 1/ }))
     const pendingRows = await waitFor(() => {
       const lists = screen.getAllByRole('list', { name: '찜 기록' })
