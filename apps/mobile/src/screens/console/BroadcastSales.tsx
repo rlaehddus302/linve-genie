@@ -192,8 +192,6 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   }
   // 정산 정보 화면 — 머리까지 덮는 다음 화면 (D-UX4-184)
   const askPage = <StatementSetupPage visible={asking} shopPath={path} shopName={shop?.name ?? null} info={editable ? info : null} onLater={closeAsk} onSaved={closeAsk} />
-  /** 머리 · 내용 · 그 위를 덮는 정산 정보 화면 */
-  const frame = (content: ReactNode) => <View style={{ flex: 1, backgroundColor: p.background }}>{header}{content}{askPage}</View>
 
   // 구매자 정산서 화면 (D-UX4-192): 닫히며 밀려 나가는 동안에도 마지막 손님을 그린다
   const lastBuyer = useRef(buyer)
@@ -224,6 +222,8 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
       {buyerContent()}
     </SlidePage>
   )
+  /** 머리 · 내용 · 그 위를 머리까지 덮는 구매자 정산서 · 정산 정보 화면 — 정산서를 목록 칸 안에 두면 바깥 머리(‹ 정산서)가 남아 ‹가 두 개 보였다 (D-UX4-194) */
+  const frame = (content: ReactNode) => <View style={{ flex: 1, backgroundColor: p.background }}>{header}{content}{buyerPage}{askPage}</View>
   const pick = (next: boolean) => {
     setProducts(next)
     // 탭을 바꾸면 탭 바는 늘 보인다 (D-UX4-155와 같다)
@@ -307,6 +307,5 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
         {receiptsError !== null ? <Txt step="caption" color="textSub">{PHONE_CHECK_FAILED}</Txt> : null}
       </>}
     </BottomSheet>
-    {buyerPage}
   </View>)
 }

@@ -79,6 +79,25 @@ it('정산 정보는 아래 판이 아니라 머리까지 덮는 다음 화면 �
   expect(screen.getByRole('list', { name: '구매자별 정산' })).toBeTruthy()
 })
 
+// D-UX4-194 (사용자 2026-11-16 화면 사진 두 장 "이거 화면 왜이러냐. 고쳐라"): 구매자 정산서가 목록 칸 안에만 떠서
+// 바깥 머리(‹ 정산서 · 라이브 기록)가 그대로 남아 ‹가 두 개 보였다 — 정산 정보 화면처럼 머리까지 맨 위 0부터 덮는다
+it('구매자 정산서는 바깥 머리까지 덮는다 — 목록 칸 안이 아니라 머리와 같은 틀에 겹친다 (D-UX4-194)', async () => {
+  const world = makeWorld()
+  world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [{ ...BROADCAST, date: '2026-11-12', ended: true, endedAt: '2026-11-12T12:00:00.000Z' }] } }))
+  world.server.on('GET', /^\/api\/days\/2026-11-12$/, () => ({ body: fullView({ date: '2026-11-12', broadcasts: [{ ...BROADCAST_VIEW, date: '2026-11-12', ended: true, endedAt: '2026-11-12T12:00:00.000Z' }], products: [product(201, { name: '색금', price: 30000 })], claims: [claim('0', 201, '가을여행', { amount: 30000 })], buyers: [buyer('가을여행', '가을여행')] }) }))
+  world.server.on('GET', /order-shop$/, () => ({ body: { name: '용용다육' } }))
+  world.server.on('GET', /^\/api\/statement-info$/, () => ({ body: { info: { ...EMPTY, bank: '농협', accountNumber: '302-0000-0000-00', accountHolder: '김판매', phone: '010-0000-0000', decided: true } } }))
+  render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
+  fireEvent.click(await screen.findByRole('button', { name: /^가을여행 정산서/ }))
+  const page = await screen.findByRole('dialog', { name: '가을여행 님 정산서' })
+  const head = screen.getByRole('heading', { name: '정산서' })
+  // 머리와 한 틀(머리의 형제 줄): 목록 칸 안에 들어 있지 않다
+  expect(page.parentElement?.contains(head)).toBe(true)
+  expect(screen.getByTestId('statement-scroll').parentElement?.contains(page)).toBe(false)
+  expect(getComputedStyle(page).position).toBe('absolute')
+  expect(getComputedStyle(page).top).toBe('0px')
+})
+
 // D-UX4-186 (사용자 2026-11-16 "정산서 상품별에서 닉네임도 개수 옆에 붙여서 한줄로 만들어 …")
 // 글자 크기 옛 기대(186): 번호·품종·개수·닉네임·가격 모두 16. 새 기대(D-UX4-188, 사용자 "텍스트 크기 맞추니까 가독성 별로다. 가독성 좋게 다시 맞춰"):
 // 품종·가격 16 굵게, 번호·개수·닉네임 14 — 한 줄 칸은 그대로
