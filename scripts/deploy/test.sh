@@ -220,7 +220,7 @@ restarts() { grep -c '^kill SIGTERM ' "$SVC/log"; }
 
 # 원본 저장소(내보내기 작업 폴더 구실): 진짜 일꾼 관리자 파일로 커밋 A → B(지시문 바뀜)
 SRC="$T/src"; mkdir -p "$SRC/packages/screen-worker/sw/prompts" "$SRC/packages/screen-worker/tests"
-cp "$ROOT_REPO/packages/screen-worker/sw/__init__.py" "$ROOT_REPO/packages/screen-worker/sw/serve.py" "$ROOT_REPO/packages/screen-worker/sw/post.py" "$SRC/packages/screen-worker/sw/"
+cp "$ROOT_REPO/packages/screen-worker/sw/__init__.py" "$ROOT_REPO/packages/screen-worker/sw/serve.py" "$ROOT_REPO/packages/screen-worker/sw/post.py" "$ROOT_REPO/packages/screen-worker/sw/tiktok.py" "$SRC/packages/screen-worker/sw/"
 cp "$ROOT_REPO/packages/screen-worker/requirements.lock.txt" "$ROOT_REPO/packages/screen-worker/.python-version" "$SRC/packages/screen-worker/"
 echo "지시문 1" > "$SRC/packages/screen-worker/sw/prompts/p.txt"
 git -C "$SRC" init -q -b main && git -C "$SRC" add -A && git -C "$SRC" commit -q -m A
