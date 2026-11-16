@@ -11,6 +11,18 @@ from sw.llm_live import LlmRegister
 from sw.replay_live import FakeTime
 
 
+# D-RECOG-43(2026-11-17): 품종 고르기 기본이 시장 방식(market)이 됐다. 이 파일의 시험은 가게 장부 방식(shop — LLM_NAME_MODE=shop으로 되돌릴 때의 길)을 본다.
+_SHOP_MODE = patch("sw.llm_live.NAME_MODE", "shop")
+
+
+def setUpModule():
+    _SHOP_MODE.start()
+
+
+def tearDownModule():
+    _SHOP_MODE.stop()
+
+
 class Stage:
     """가짜 시계 위에서 받아쓰기 줄·화면·LLM 답을 차례로 넣는 무대"""
 

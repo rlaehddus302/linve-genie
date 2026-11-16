@@ -35,11 +35,30 @@ def norm(s):
 
 
 class Dictionary:
-    def __init__(self, exclude_src=None, harvest=True, seller=False, clean=False):
-        """seller=True: 판매자가 손으로 고친 이름·별칭(data/varieties_seller.json)도 읽는다 — 라이브 LLM 등록의 품종 고르기(pick_name)만 켠다.
+    def __init__(self, exclude_src=None, harvest=True, seller=False, clean=False, market=False):
+        """market=True: 넓은 시장 사전(data/varieties_market.json, D-RECOG-43)만 읽는다 — 품종 고르기 시장 방식(sw.variety_market)이 쓴다.
+        이름마다 실제로 붙어 팔린 무늬 말을 붙인 이름("먼로철화")과 철자 변형(별칭)도 싣는다.
+        seller=True: 판매자가 손으로 고친 이름·별칭(data/varieties_seller.json)도 읽는다 — 라이브 LLM 등록의 품종 고르기(pick_name)만 켠다.
         옛 규칙 길(decide_name·variety_regress)은 그대로라 지난 시험 점수가 바뀌지 않는다.
         clean=True: 품종과 옵션을 따로 정리한 사전(data/varieties_clean.json, D-SCR-38)을 읽는다 — 가게 장부 방식(shop)의 품종 고르기만 켠다.
         품종 이름과 틀리게 들리는 모양을 싣고, 사전에 적혀 있던 그대로의 이름("쿠스백금")도 그대로 알아본다. 품종이 아닌 말·옵션뿐인 말은 없다"""
+        mp = os.path.join(HERE, "..", "data", "varieties_market.json")
+        if market and os.path.exists(mp):
+            names = {}
+            with open(mp, encoding="utf-8") as f:
+                rows = json.load(f)["names"]
+            for v in rows:
+                if not v.get("of") and len(norm(v["name"])) >= 2:
+                    names.setdefault(norm(v["name"]), v["name"])
+            for v in rows:
+                if v.get("of"):
+                    names.setdefault(norm(v["name"]), v["of"])          # 철자 변형은 흔한 쪽 이름으로
+                for w in v.get("written", ()):                          # 무늬 말·앞말이 붙어 팔린 꼴("먼로철화", "SP몰게인")
+                    names.setdefault(norm(w), w.replace(v["name"], v["of"]) if v.get("of") else w)
+            self.names = names
+            self.keys = list(names)
+            self.jkeys = [jamo(k) for k in self.keys]
+            return
         cp = os.path.join(HERE, "..", "data", "varieties_clean.json")
         if clean and os.path.exists(cp):
             names = {}

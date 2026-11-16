@@ -12,6 +12,18 @@ from test_llm_live_safe import Stage, row
 from test_tentative import Http, PosterCase, caps
 
 
+# D-RECOG-43(2026-11-17): 품종 고르기 기본이 시장 방식(market)이 됐다. 이 파일의 시험은 가게 장부 방식(shop — LLM_NAME_MODE=shop으로 되돌릴 때의 길)을 본다.
+_SHOP_MODE = patch("sw.llm_live.NAME_MODE", "shop")
+
+
+def setUpModule():
+    _SHOP_MODE.start()
+
+
+def tearDownModule():
+    _SHOP_MODE.stop()
+
+
 def ledger_file(case, names, habits=None):
     tmp = tempfile.TemporaryDirectory()
     case.addCleanup(tmp.cleanup)

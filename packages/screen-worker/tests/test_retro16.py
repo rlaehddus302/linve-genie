@@ -1,9 +1,22 @@
 # 2026-11-16 방송(@bit_succulent_farm) 판매자 의견 복기(D-RETRO16-04~11) 시험.
 # 줄은 그날 사례를 본떠 지어낸 것이다(손님 이름·실제 기록 없음). LLM·서버는 가짜 — 실제 LLM·서버는 부르지 않는다.
 import unittest
+from unittest.mock import patch
 
 from sw import reg_rules, variety
 from test_llm_live_safe import Stage, row
+
+
+# D-RECOG-43(2026-11-17): 품종 고르기 기본이 시장 방식(market)이 됐다. 이 파일의 시험은 가게 장부 방식(shop — LLM_NAME_MODE=shop으로 되돌릴 때의 길)을 본다.
+_SHOP_MODE = patch("sw.llm_live.NAME_MODE", "shop")
+
+
+def setUpModule():
+    _SHOP_MODE.start()
+
+
+def tearDownModule():
+    _SHOP_MODE.stop()
 
 
 def tiny_dictionary(*names):

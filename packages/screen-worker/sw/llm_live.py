@@ -130,7 +130,9 @@ NAME_ASK_SYNC = bool(NAME_ASK_CACHE)                                # 재현·�
 # 품종 묻기의 모델(D-RECOG-42): Claude면 Opus 노력 low, 답 모양 강제(--json-schema) 없이 — Sonnet은 노력을 올려도 61 ~ 64%, Sonnet에 답 모양을 강제하면 빈 글 칸이 33%쯤 깨졌다
 NAME_MODEL = os.environ.get("LLM_NAME_MODEL", "opus" if BACKEND == "claude" else MODEL)
 NAME_CLEAN_DICT = os.environ.get("LLM_NAME_CLEAN_DICT", "1") != "0" # 가게 장부 방식은 품종과 옵션을 따로 정리한 사전(data/varieties_clean.json)을 읽는다(D-SCR-38). 0 = 정리 전 사전
-NAME_MODE = os.environ.get("LLM_NAME_MODE", "shop")                 # shop = LLM 이름을 가게 장부에 맞추고 장부에 없으면 확인 중 품종으로(D-SCR-29~32) · dict = 전국 사전으로 거르기(D-SCR-15)
+NAME_MODE = os.environ.get("LLM_NAME_MODE", "market")               # market = 넓은 시장 사전 하나로 고른다(D-RECOG-43, 기본 — sw.variety_market) ·
+                                                                    # shop = LLM 이름을 가게 장부에 맞추고 장부에 없으면 확인 중 품종으로(D-SCR-29~32, 되돌릴 때) · dict = 전국 사전으로 거르기(D-SCR-15)
+SHOP_MODES = ("shop", "market")                                     # 보낸 뒤 답까지 모아 다시 고르기(D-SCR-35)·다시 말한 이름 세기는 두 방식이 같이 쓴다
 SHOP_LEDGER = os.environ.get("LLM_SHOP_LEDGER")                     # 가게 품종 장부 파일(없으면 빈 장부 — 처음 오는 가게)
 # 묻는 때(D-SCR-40): line = 숫자가 들린 줄마다 그 앞 WINDOW초를 묻는다(지금) · product = 상품 구간마다 묻는다.
 #   상품 구간은 판매자가 새 번호("N번")를 말하거나, 번호 없이 화면의 큰 번호표가 다른 번호로 바뀐 줄에서 시작한다(그 앞 SEG_PRE초의 말도 넣되 다른 번호를 말한 줄에서 끊는다).
@@ -735,7 +737,7 @@ class LlmRegister:
             if not g["now"] or g.get("blank0"):
                 return False
             # 가게 장부가 있는데 장부에 없는 이름으로 보낸 번호도 계속 묻는다 — 뒤 답에서 장부 이름이 나오면 바꾼다(D-SCR-35)
-            if not g.get("held") and NAME_MODE == "shop" and NAME_REPICK and g.get("rank", 0) == 0 and g.get("line") is not None and bool(self._ledger()):
+            if not g.get("held") and NAME_MODE in SHOP_MODES and NAME_REPICK and g.get("rank", 0) == 0 and g.get("line") is not None and bool(self._ledger()):
                 return False
         numbers = R.spoken_numbers([text])
         explicit, short = R.spoken_amounts(text, self.unit, exclude={tag} if tag is not None else ())
@@ -752,7 +754,7 @@ class LlmRegister:
         """이미 보낸 번호 no를 부른 이 줄에 지금 서버 이름과 다른 품종 이름 말이 있나(D-RETRO16-10).
         "442번 SP분체 3,000원"처럼 이름을 다시 말한 줄은 새 번호·새 금액이 없어 묻지 않았다(SKIP_SETTLED) — 그래서 처음 이름이 틀려도 고칠 답이 오지 않았다(11-16 방송 442·484번).
         이름을 더 고칠 수 없는 번호(굳은 이름·판매자가 고친 이름·고치기 횟수를 다 씀·NAME_WINDOW 지남)와 "○○님 감사합니다" 같은 줄은 그대로 묻지 않는다"""
-        if not (self.safe and NAME_DICT and NAME_MODE == "shop" and NAME_REPICK):
+        if not (self.safe and NAME_DICT and NAME_MODE in SHOP_MODES and NAME_REPICK):
             return False
         g = self.names.get(no)
         if g is None or g.get("held") or g.get("seller") or g["fixes"] >= NAME_MAX_FIX_SHOP or t is None or t - g["t"] > NAME_WINDOW:
@@ -835,7 +837,7 @@ class LlmRegister:
         if not NAME_DICT:
             return False
         from . import variety
-        if NAME_MODE == "shop":                              # 가게 장부에 맞춘 품종끼리 견준다. 한쪽이 무늬 말뿐이면 다르다고 할 수 없다
+        if NAME_MODE in SHOP_MODES:                                         # 가게 장부에 맞춘 품종끼리 견준다. 한쪽이 무늬 말뿐이면 다르다고 할 수 없다
             x, y = (variety.shop_name(v, self._ledger(), self._dic())[0] for v in (a, b))
             return not x or not y or variety.norm(x) == variety.norm(y)
         return variety.norm(variety.canon(variety.tidy(a), self._dic())[0]) == variety.norm(variety.canon(variety.tidy(b), self._dic())[0])
@@ -1595,7 +1597,10 @@ class LlmRegister:
     def _dic(self):
         if self.dic is None:
             from . import variety
-            self.dic = variety.Dictionary(seller=NAME_SELLER, clean=NAME_CLEAN_DICT and NAME_MODE == "shop")
+            if NAME_MODE == "market":
+                self.dic = variety.Dictionary(market=True)                 # 넓은 시장 사전(D-RECOG-43)
+            else:
+                self.dic = variety.Dictionary(seller=NAME_SELLER, clean=NAME_CLEAN_DICT and NAME_MODE == "shop")
         return self.dic
 
     def _ledger(self):
@@ -1628,15 +1633,23 @@ class LlmRegister:
         if not NAME_DICT:
             return (collections.Counter(names).most_common(1)[0][0] if names else None), "LLM 이름", False
         from . import variety
-        if NAME_MODE == "shop":
+        if NAME_MODE in SHOP_MODES:
             names = self._name_votes(no, rows)[0]
             lines, nicks = self._product_lines(no, p), self._all_nicks()
             self._dump_pick("처음", no, p["t"], names, lines, nicks)
-            name, why, strong, unsure, extra = variety.pick_shop(names, lines, self._dic(), self._ledger(), nicks, no)
+            name, why, strong, unsure, extra = self._pick(names, lines, nicks, no, p["t"])
             self.name_info[no] = dict(extra, unsure=bool(name) and unsure)
             return name or None, why, strong
         name, why, strong = variety.pick_name(names, self._product_lines(no, p), self._dic(), self.nicks, detail=True)
         return name or None, why, strong
+
+    def _pick(self, names, lines, nicks, no, t0):
+        """품종 고르기: market(D-RECOG-43)은 넓은 시장 사전 하나로, shop은 가게 장부에 맞춘다. 둘 다 (이름, 까닭, 굳은 이름인가, 확인 중인가, extra)"""
+        from . import variety, variety_market
+        if NAME_MODE == "market":
+            trs = [(s, x) for s, _, x in self.tr]
+            return variety_market.pick_market(names, lines, self._dic(), trs, t0, nicks)
+        return variety.pick_shop(names, lines, self._dic(), self._ledger(), nicks, no)
 
     def _name_votes(self, no, rows, t0=None):
         """품종을 고를 답 이름들 → (이름 목록, 다시 말한 이름 Counter). 그 번호와 이름을 한 마디에 말한 줄의 답은 두 번 넣는다(D-RETRO16-10 —
@@ -1670,14 +1683,14 @@ class LlmRegister:
         """D-SCR-07: 보낸 번호에 대한 확실한 품종 답을 세고, 지금 이름과 다르면 고쳐 보낸다"""
         g = self.names.get(r["no"])
         name = (r.get("variety") or "").strip()
-        if self.safe and NAME_DICT and NAME_MODE == "shop" and NAME_REPICK and g is not None and g.get("line") is not None:
+        if self.safe and NAME_DICT and NAME_MODE in SHOP_MODES and NAME_REPICK and g is not None and g.get("line") is not None:
             return self._repick_name(r, g)
         if g is None or not name or str(r.get("confidence")).lower() != "high" or r["t"] - g["t"] > NAME_WINDOW:
             return
         key = "".join(name.split())
         if key in NOT_NAMES:
             return
-        if self.safe and NAME_DICT and NAME_MODE == "shop":
+        if self.safe and NAME_DICT and NAME_MODE in SHOP_MODES:
             # 품종이 아닌 말·손님 닉네임을 거르고 가게 장부에 맞춘 뒤 센다. 장부에 있는 이름은 지금 이름을 바꿀 수 있고,
             # 장부에 없는 이름은 빈칸을 채울 때만 쓴다(확인 중 품종) — 맞는 이름을 모르는 말로 바꾸지 않는다(D-SCR-30)
             from . import variety
@@ -1728,7 +1741,7 @@ class LlmRegister:
     def _repick_name(self, r, g):
         """D-SCR-35: 보낸 번호에 새 답이 오면, 처음 고를 때 쓴 답과 그 뒤 답을 모두 모아 품종을 다시 고르고, 바꿀 만하면 고쳐 보낸다.
         (옛 방식은 뒤 답만 따로 세어 빈칸을 처음 두 번 나온 말로 채우고 더 고치지 않았다 — 11-13 방송 83번: 킹스톤 7번·모즈 3번인데 모즈)"""
-        from . import variety
+        from . import variety, variety_market
         no = r["no"]
         asked_pattern = isinstance(g.get("ask"), dict) and g.get("held")
         if r["t"] - g["t"] > NAME_WINDOW or ((g.get("held") or g["fixes"] >= NAME_MAX_FIX_SHOP) and not asked_pattern):
@@ -1739,13 +1752,14 @@ class LlmRegister:
         names, again = self._name_votes(no, rows, g.get("t0", g["t"]))
         lines, nicks = self._product_lines(no, {"line": g["line"], "t": g["t"]}), self._all_nicks()
         self._dump_pick("다시", no, g["t"], names, lines, nicks, g["now"])
-        name, why, strong, unsure, extra = variety.pick_shop(names, lines, self._dic(), self._ledger(), nicks, no)
+        name, why, strong, unsure, extra = self._pick(names, lines, nicks, no, g["t"])
         extra["again"] = again.get(variety.norm(variety.split_parts(name)[0] or name), 0) if name else 0
         if name and variety.split_parts(name)[0]:
             g["voted"] = name                                # 등록 답들이 가리키는 이름(남은 번호표 가리기에 쓴다)
         if g.get("held") or g["fixes"] >= NAME_MAX_FIX_SHOP:
             return
-        if not variety.should_rename(g["now"], name, extra, g.get("rank", 0)):
+        rename = variety_market.should_rename if NAME_MODE == "market" else variety.should_rename
+        if not rename(g["now"], name, extra, g.get("rank", 0)):
             return
         g["fixes"] += 1
         old, g["now"], g["sure"], g["rank"] = g["now"], name, True, extra.get("rank", 0)
@@ -2131,7 +2145,7 @@ class LlmRegister:
             # LLM과 사전이 같았거나 사전 이름이 여러 번 나온 이름은 굳힌다 — 뒤 답으로 바꾸지 않는다(재현: 맞던 이름 7개가 틀리게 바뀜)
             locked = NAME_MAX_FIX if note and note.get("name_locked") else 0
             prev = self.names.get(no)
-            if prev is not None and not fresh and tent is None and prev.get("line") is not None and NAME_MODE == "shop" and NAME_REPICK:
+            if prev is not None and not fresh and tent is None and prev.get("line") is not None and NAME_MODE in SHOP_MODES and NAME_REPICK:
                 # 다시 보낸 등록은 서버가 무시한다(R-2) — 서버에 남은 이름은 처음 보낸 이름이다. 그 이름을 그대로 적어 둔다
                 # (11-13 방송 13·83번: 다시 내놓을 때 "이름 없이 보냄"으로 적어 두었다가, 맞던 레다색금·킹스톤을 색금·모즈로 "채웠다")
                 if not prev["now"] and name and not prev.get("held") and prev["fixes"] < NAME_MAX_FIX_SHOP:
@@ -2145,7 +2159,7 @@ class LlmRegister:
             else:
                 # 앞 실행(다시 켜지기 전)이 올린 번호를 다시 보낸 것이면 서버에 남은 이름을 모른다 — 묻기로 덮어쓰지 않는다
                 # (11-12 방송 326번: 다시 켜진 뒤 "이름 없음"으로 알고 물어, 맞던 녹금종자를 다른 이름으로 바꿨다)
-                again = not fresh and tent is None and NAME_MODE == "shop" and NAME_REPICK
+                again = not fresh and tent is None and NAME_MODE in SHOP_MODES and NAME_REPICK
                 self.names[no] = {"t": r["t"], "now": name, "sure": sure, "votes": collections.Counter(), "last": {}, "shown": {}, "fixes": locked,
                                   "held": bool(locked), "line": r.get("line"), "rank": (ni.get("rank", 0) if ni and name else 0),
                                   "t0": r["t"], "line0": r.get("line"), "ask": "건너뜀" if again else None,

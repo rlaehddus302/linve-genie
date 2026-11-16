@@ -11,6 +11,18 @@ from sw import llm_live, post, replay_live
 from test_llm_live_safe import Stage, row
 
 
+# D-RECOG-43(2026-11-17): 품종 고르기 기본이 시장 방식(market)이 됐다. 이 파일의 시험은 가게 장부 방식(shop — LLM_NAME_MODE=shop으로 되돌릴 때의 길)을 본다.
+_SHOP_MODE = patch("sw.llm_live.NAME_MODE", "shop")
+
+
+def setUpModule():
+    _SHOP_MODE.start()
+
+
+def tearDownModule():
+    _SHOP_MODE.stop()
+
+
 class Server(replay_live.FakePoster):
     """가짜 서버에 보내는 가짜 보내기: 기본은 계약서대로 답하고, replies[종류]에 넣어 둔 답이 있으면 한 번 그 답을 돌려준다(판매자가 먼저 손댄 경우)"""
 
