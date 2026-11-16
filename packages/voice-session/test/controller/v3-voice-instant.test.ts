@@ -3,7 +3,7 @@ import * as voiceModule from '@livejjim/voice'
 import type { SuggestionCard, VoiceSettings } from '@livejjim/voice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VoiceController, type ExistingView, type RecentFixOutcome, type VoiceHost } from '../../src/controller/controller.ts'
-import { askMessage, fixedMessage, otherNumberMessage, readInstant, REASON_PRICE_ONCE, registeredReadout } from '../../src/controller/instant.ts'
+import { askMessage, fixedMessage, otherNumberMessage, priceFilledReadout, PRICE_FILL_FAILED, readInstant, REASON_PRICE_ONCE, registeredReadout } from '../../src/controller/instant.ts'
 
 const T0 = Date.UTC(2026, 9, 25, 1, 0, 0)
 
@@ -41,6 +41,8 @@ interface Harness {
   readonly fixes: { id: string; changes: { name?: string; price?: number } }[]
   /** 상품 보드 (번호 → 상품) */
   readonly board: Map<number, ExistingView>
+  /** 가격이 빈 확인 중 상품 (번호 → 키, D-RECOG-28) — 상품 보드(existingProduct)에는 없는 번호로 보인다 */
+  readonly empty: Map<number, string>
   fixResult: RecentFixOutcome | null
   dialog: boolean
   readonly undone: string[]
@@ -55,6 +57,7 @@ function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: '
     written: [] as unknown[],
     fixes: [] as Harness['fixes'],
     board: new Map<number, ExistingView>(),
+    empty: new Map<number, string>(),
     fixResult: null as RecentFixOutcome | null,
     dialog: false,
     undone: [] as string[],
@@ -106,6 +109,7 @@ function harness(options: { settings?: unknown; noBoard?: boolean; priceUnit?: '
       return true
     },
     ...(options.noBoard === true ? {} : { existingProduct: (no: number) => state.board.get(no) ?? null }),
+    emptyPrice: (no) => state.empty.get(no) ?? null,
   }
   const voice = new VoiceController(host)
   return Object.assign(state, { voice }) as unknown as Harness
@@ -1028,6 +1032,67 @@ describe('음성 번호 옮기기 (R-24, D-V3-58)', () => {
   })
 })
 
+// D-RECOG-28: 화면 일꾼이 "N번"만 듣고 가격 없이 올린 확인 중 상품 — 음성으로 그 번호의 가격이 들리면 새로 등록하지 않고 가격만 채운다
+describe('가격이 빈 확인 중 상품 채우기 (D-RECOG-28)', () => {
+  it('"5번 3만 원"이 들리면 등록하지 않고 그 상품의 가격만 채운다 — 되돌리기 없음, 채운 뒤 "5번 가격을 30,000원으로 적었어요"', async () => {
+    const h = await ready()
+    h.empty.set(5, 'b1:5')
+    say('5번 3만 원')
+    await settle()
+    expect(h.registered).toEqual([])
+    expect(h.fixes).toEqual([{ id: 'b1:5', changes: { price: 30000 } }])
+    expect(h.fixOptions[0]).toMatchObject({ voiceLog: { heard: '5번 3만 원', source: 'voice' } })
+    expect(h.voice.getSnapshot().readout?.text).toBe('5번 가격을 30,000원으로 적었어요')
+    expect(cards(h)).toEqual([])
+    expect(h.voice.getSnapshot().offers).toEqual([])
+    // 같은 말이 다시 끝나도 한 번만
+    at(5000)
+    await settle()
+    expect(h.fixes).toHaveLength(1)
+    expect(h.registered).toEqual([])
+    expect(h.undone).toEqual([])
+  })
+
+  it('가격이 있는 상품·없는 번호는 지금 그대로다 (빈 가격 상품만 채운다)', async () => {
+    const h = await ready()
+    h.empty.set(5, 'b1:5')
+    say('6번 3만 원')
+    await settle()
+    expect(reg(h)).toEqual([{ no: 6, name: '', price: 30000, source: 'instant' }])
+    expect(h.fixes).toEqual([])
+  })
+
+  it('채우지 못하면 그 가격을 든 카드로 돌려놓고 까닭을 보인다', async () => {
+    const h = await ready()
+    h.empty.set(5, 'b1:5')
+    h.fixResult = { kind: 'failed', message: PRICE_FILL_FAILED }
+    say('5번 3만 원')
+    await settle()
+    expect(h.registered).toEqual([])
+    expect(cards(h).map((card) => [card.no, card.price, card.touched])).toEqual([[5, 30000, true]])
+    const id = cards(h)[0]?.id ?? ''
+    expect(h.voice.getSnapshot().notes.get(id)).toBe(PRICE_FILL_FAILED)
+    expect(h.voice.getSnapshot().readout?.text).not.toBe(priceFilledReadout(5, 30000))
+  })
+
+  it('바로 등록을 끈 카드도 판매자가 누르면 등록 대신 가격 채우기', async () => {
+    const h = await ready({ settings: { 'voice.autoRegister': false } })
+    h.empty.set(5, 'b1:5')
+    say('5번 3만 원')
+    at(3000)
+    expect(h.fixes).toEqual([])
+    const id = cards(h)[0]?.id ?? ''
+    h.voice.confirm(id, 'click')
+    await settle()
+    expect(h.registered).toEqual([])
+    expect(h.fixes).toEqual([{ id: 'b1:5', changes: { price: 30000 } }])
+    expect(cards(h)).toEqual([])
+    // 카드를 만들 때의 큰 글자 칸이 아직 보이면 그 뒤 차례로 (D-V3-61)
+    at(8000)
+    expect(h.voice.getSnapshot().readout?.text).toBe(priceFilledReadout(5, 30000))
+  })
+})
+
 describe('바로 등록 문장', () => {
   it('저장값 읽기: 없거나 모르는 값은 켬', () => {
     expect(readInstant(null)).toBe(true)
@@ -1041,6 +1106,7 @@ describe('바로 등록 문장', () => {
     expect(askMessage(108, { name: 'zeta', price: 100000 }, { price: 120000 })).toBe('108번을 고칠까요? 가격 100,000원 → 120,000원')
     expect(registeredReadout(108, '', 100000)).toBe('108번 100,000원 등록했어요')
     expect(registeredReadout(180, '삼광색금', 350000)).toBe('180번 삼광색금 350,000원 등록했어요')
+    expect(priceFilledReadout(5, 30000)).toBe('5번 가격을 30,000원으로 적었어요')
     expect(otherNumberMessage(189, [139])).toBe('189번으로 등록했는데 139번도 들렸어요. 맞는지 확인해 주세요.')
   })
 })

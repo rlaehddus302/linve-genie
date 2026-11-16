@@ -89,6 +89,9 @@ import {
   LOG_PENDING,
   LOG_TOUCHED,
   LOG_UNDONE,
+  LOG_PRICE_FILLED,
+  PRICE_FILL_FAILED,
+  priceFilledReadout,
   droppedZeroNote,
   REASON_NOT_OPEN,
   claimsKeptNote,
@@ -647,6 +650,11 @@ export interface VoiceHost {
   // ── V3 — 이것이 있어야 바로 등록을 한다 (없는 화면은 V2 카드 확인 그대로) ──
   /** 그 방송의 그 번호 상품, 없으면 null */
   existingProduct?(no: number): ExistingView | null
+  /**
+   * 그 번호가 가격이 빈 확인 중 상품(화면 일꾼이 "N번"만 듣고 올림, D-RECOG-22)이면 그 상품 키, 아니면 null.
+   * existingProduct는 이 상품을 없는 번호로 본다 — 그 번호의 등록은 새 상품이 아니라 빈 가격 채우기다 (D-RECOG-28)
+   */
+  emptyPrice?(no: number): string | null
 }
 
 /** 컨트롤러가 생기기 전·꺼진 처음 상태 */
@@ -2199,7 +2207,7 @@ export class VoiceController {
     const price = parseAmount(text.trim(), { 'price.unit': unit })
     if (price === null || price < 100) return MISSED_PRICE_PROBLEM
     this.take(id)
-    this.#host.register({ ...card, price, touched: true }, { no: card.no, name: '', price }, 'click')
+    this.sendRegistration({ ...card, price, touched: true }, { no: card.no, name: '', price }, 'click')
     return null
   }
 
@@ -3157,6 +3165,14 @@ export class VoiceController {
     if (no === null || price === null) return { action: 'discard', reason: LOG_INSTANT_DONE, readout: null }
     work.cards = work.cards.filter((item) => !(isOpen(item) && (item.no === no || item.id === card.id)))
     this.#dueCards.delete(card.id)
+    // 가격이 빈 확인 중 상품의 번호면 새로 등록하지 않고 가격만 채운다 (D-RECOG-28) — 큰 글자 칸은 채운 뒤에
+    const empty = this.#emptyPriceKey(no)
+    if (empty !== null) {
+      this.#instantNos.set(no, 'existing')
+      this.#chunkActs.add('FIXED')
+      void this.#fillPrice(card, empty, no, price)
+      return { action: 'edit', reason: LOG_PRICE_FILLED, readout: null }
+    }
     this.#instantNos.set(no, 'register')
     // 확인이 필요한 품종(추측·사전 밖)은 보지 않은 등록에 쓰지 않는다 (D-V3-37)
     const name = card.nameNeedsCheck === true ? '' : (card.name ?? '')
@@ -3166,6 +3182,57 @@ export class VoiceController {
     this.#touchVoice(no, 'register')
     this.#chunkActs.add('REGISTERED')
     return { action: 'create', reason: LOG_INSTANT, readout: registeredReadout(no, name, price) }
+  }
+
+  /** 그 번호가 가격이 빈 확인 중 상품이면 그 키 (D-RECOG-28). 상품 자료를 못 보면 null(지금처럼 등록 경로) */
+  #emptyPriceKey(no: number): string | null {
+    try {
+      return this.#host.emptyPrice?.(no) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 카드에서 고른 등록(클릭·자동 확정·빠른 입력 칸)을 보낸다: 가격이 빈 확인 중 상품의 번호면 가격 채우기, 아니면 등록 경로 (D-RECOG-28).
+   * 가격 채우기면 true
+   */
+  sendRegistration(card: SuggestionCard, registration: CardRegistration, source: RegisterSource): boolean {
+    const empty = this.#emptyPriceKey(registration.no)
+    if (empty === null) {
+      this.#host.register(card, registration, source)
+      return false
+    }
+    this.#instantNos.set(registration.no, 'existing')
+    void this.#fillPrice(card, empty, registration.no, registration.price)
+    return true
+  }
+
+  /**
+   * 빈 가격 채우기 (D-RECOG-28): 새 등록 대신 손 고치기와 같은 상품 고치기(가격만)로 보낸다. 가격 바꿈이 아니라 가격 이력에 남지 않고(D-RECOG-24)
+   * 상품은 확인 중 그대로다 — 판매는 판매자가 확인 카드에서 확정한 뒤. 등록이 아니라 5초 되돌리기는 없다. 못 채우면 카드로 돌려놓는다
+   */
+  async #fillPrice(card: SuggestionCard, key: string, no: number, price: number): Promise<void> {
+    const requestId = this.#requestId()
+    const log = this.voiceLogFor(card.text)
+    // 기록·카드 목록에 들어간 뒤에 바꾼다 (이 함수는 목록을 만드는 중에 불릴 수 있다)
+    await Promise.resolve()
+    if (this.#disposed) return
+    const fix = this.#host.fixRecent
+    let outcome: RecentFixOutcome
+    try {
+      outcome = fix === undefined ? { kind: 'failed', message: PRICE_FILL_FAILED } : await fix(key, { price }, { requestId, ...(log === null ? {} : { voiceLog: log }) })
+    } catch {
+      outcome = { kind: 'failed', message: PRICE_FILL_FAILED }
+    }
+    if (this.#disposed || outcome.kind === 'dialog') return
+    if (outcome.kind === 'failed') {
+      this.#instantNos.delete(no)
+      this.restore({ ...card, price }, { touched: true, note: outcome.message })
+      return
+    }
+    this.#touchVoice(no, 'fix')
+    this.#set({ readout: { text: priceFilledReadout(no, price), discarded: false, until: this.#host.now() + READOUT_MS } })
   }
 
   /** 이미 있는 번호 (R-22, D-V3-06·07): 무시 · 바로 고침(되돌리기 10초) · 묻기 카드 + 까닭 줄. quiet = 같은 덩어리 끝처럼 무시를 조용히 */
@@ -3586,7 +3653,7 @@ export class VoiceController {
     this.take(id)
     this.#set({ tooSoon: false })
     this.learnFrom(card, result.registration.name)
-    this.#host.register(card, result.registration, source)
+    this.sendRegistration(card, result.registration, source)
   }
 
   /** 목록에서 뺀다 (등록 경로·"고칠까요?"로 넘길 때) */

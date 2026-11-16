@@ -88,6 +88,24 @@ describe('APP1b server reading session', () => {
     expect(latest().offers.some((offer) => offer.stage === 'fixed')).toBe(true)
     session.close()
   })
+  it('D-RECOG-28: 가격이 빈 확인 중 상품의 번호와 가격이 들리면 등록 대신 기기에 가격 채우기(fixRecent)를 보내고, 채운 뒤 큰 글자 칸에 알린다', async () => {
+    const messages: VoiceServerMessage[] = []
+    const session = createReadingSession({ host: { ...data(), existingProduct: () => null, emptyPrice: (no) => (no === 5 ? 'broadcast:5' : null) }, device: 'test', send: (message) => messages.push(message) })
+    const speak = speaker(session)
+    session.onMessage({ type: 'voice.session', op: 'hello', context: { ...context(), settings: { 'voice.autoRegister': true } } }); await settle()
+    speak('5번 3만 원')
+    await vi.advanceTimersByTimeAsync(1900)
+    const effects = messages.filter((message): message is VoiceEffectMessage => message.type === 'voice.effect')
+    expect(effects.filter((message) => message.method === 'register')).toEqual([])
+    const fixes = effects.filter((message) => message.method === 'fixRecent')
+    expect(fixes).toHaveLength(1)
+    expect(fromWire(fixes[0]!.args)).toEqual(['broadcast:5', { price: 30000 }, expect.objectContaining({ voiceLog: expect.objectContaining({ heard: '5번 3만 원' }) })])
+    session.onMessage({ type: 'voice.session', op: 'effectResult', id: fixes[0]!.id, value: { kind: 'fixed', before: {} } }); await settle()
+    const latest = fromWire(messages.filter((message): message is VoiceStateMessage => message.type === 'voice.state').at(-1)!.snapshot) as ReturnType<VoiceController['getSnapshot']>
+    expect(latest.readout?.text).toBe('5번 가격을 30,000원으로 적었어요')
+    expect(latest.cards).toEqual([])
+    session.close()
+  })
   it('preserves the other-number notice after an early interim registration in the long R7 utterance', async () => {
     const messages: VoiceServerMessage[] = []
     let product: { key: string; name: string; price: number; claimCount: number; closed: boolean } | null = null

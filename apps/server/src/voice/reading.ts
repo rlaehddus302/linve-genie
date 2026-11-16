@@ -68,10 +68,15 @@ export function readingFactory(deps: { screenProducts: boolean; db: Db; service:
         existingProduct: (no) => {
           const product = getProduct(no)
           if (product === undefined) return null
-          // 가격이 빈 확인 중 상품(D-RECOG-22)은 음성 같은 번호 규칙이 견줄 가격이 없다 — 음성 길에서는 없는 번호로 본다(등록은 이미 있는 번호라 아무 일 없음)
+          // 가격이 빈 확인 중 상품(D-RECOG-22)은 음성 같은 번호 규칙이 견줄 가격이 없다 — 음성 길에서는 없는 번호로 보고, 그 번호의 등록은 emptyPrice로 가격 채우기가 된다(D-RECOG-28)
           if (product.price === null) return null
           const slots = productSlots(product)
           return { key: product.key, name: product.name, price: product.price, claimCount: slots.winners.length + slots.waitlist.length, closed: product.status === 'CLOSED', status: product.status }
+        },
+        // 가격이 빈 확인 중 상품(D-RECOG-22): 음성으로 "N번 3만 원"이 들리면 새로 등록하지 않고 가격만 채운다 (D-RECOG-28). 거둔 상품은 아니다
+        emptyPrice: (no) => {
+          const product = getProduct(no)
+          return product !== undefined && product.price === null && product.status !== 'CLOSED' ? product.key : null
         },
         fetchHistory: async () => {
           const days = pickHistoryDays(await historyRead(null, () => deps.service.days(sellerId, false)), broadcast)

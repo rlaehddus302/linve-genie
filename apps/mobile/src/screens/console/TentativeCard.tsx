@@ -8,7 +8,7 @@
 // 방송 화면에는 한 번에 한 장만, 먼저 올라온 것부터 — 화면 아래(엄지 자리)의 같은 곳에 뜬다. 상품 자세히도 같은 조각(TentativePanel)을 쓴다.
 // - 일꾼이 품종을 여러 가지로 들었으면(품종 후보) 품종 단추 한 줄을 띄운다 — 누른 품종으로 확정된다(D-VARIETY-01, 개선 계획 E1). 지금 품종이 먼저 골라져 있다.
 // - 가격 없이 올라온 상품(일꾼이 "N번"만 들음, D-RECOG-22): 값 줄의 가격 자리에 "가격 듣는 중". 금액 후보가 있으면 후보 단추로만 고르고(지금 값 단추 없음),
-//   후보도 없으면 "가격이 얼마예요?" — 왼쪽 [거두기] · 오른쪽 [가격 적기](수정창의 가격 칸). 가격 없이는 확정 단추가 없다(서버도 받지 않는다).
+//   후보도 없으면 "가격이 얼마예요?" — 왼쪽 [거두기] · 오른쪽 [가격 적기](수정창을 열며 가격 칸 숫자판을 바로 띄운다, D-RECOG-29). 가격 없이는 확정 단추가 없다(서버도 받지 않는다).
 // 앱은 판정하지 않는다. 닉네임·채팅 글은 그리지 않는다. 품종은 글자로만 그린다.
 import { productTitle } from '@livejjim/core/format'
 import { useRef, useState } from 'react'
@@ -28,7 +28,7 @@ export const ASK_WHICH_NUMBER = '몇 번이 맞나요?'
 export const ASK_WHICH_PRICE = '얼마가 맞나요?'
 /** 가격 없이 올라온 상품에 금액 후보도 없을 때 (D-RECOG-22) */
 export const ASK_PRICE = '가격이 얼마예요?'
-/** 그 물음의 오른쪽 단추 — 수정창의 가격 칸을 연다 */
+/** 그 물음의 오른쪽 단추 — 수정창을 열며 가격 칸을 바로 연다 (D-RECOG-29) */
 export const WRITE_PRICE = '가격 적기'
 /** 상품 자세히(수정창이 이미 위에 있음)에서의 안내 */
 export const WRITE_PRICE_ABOVE = '위 가격 칸을 눌러 가격을 적고 확정해 주세요.'
@@ -74,10 +74,10 @@ function SmallAction({ label, ariaLabel, disabled, onPress }: { readonly label: 
 
 /**
  * 확인 중 상품 하나의 물음과 단추. values: 번호·품종·가격의 지금 값을 크게 보인다(상품 자세히는 위 칸이 이미 보이므로 끈다).
- * more: 이 상품 말고 더 기다리는 확인 중 상품 수. onEdit: [고치기](없으면 단추가 없다). onDone: 확정·거둔 뒤.
+ * more: 이 상품 말고 더 기다리는 확인 중 상품 수. onEdit: [고치기](없으면 단추가 없다) — [가격 적기]는 'price'를 넘겨 가격 칸을 바로 연다(D-RECOG-29). onDone: 확정·거둔 뒤.
  * guardMs: 뜬 직후 누름을 받지 않는 시간
  */
-export function TentativePanel({ product, values = true, more = 0, guardMs = 0, onEdit, onDone }: { readonly product: Product; readonly values?: boolean; readonly more?: number; readonly guardMs?: number; readonly onEdit?: () => void; readonly onDone?: () => void }) {
+export function TentativePanel({ product, values = true, more = 0, guardMs = 0, onEdit, onDone }: { readonly product: Product; readonly values?: boolean; readonly more?: number; readonly guardMs?: number; readonly onEdit?: (field?: 'price') => void; readonly onDone?: () => void }) {
   const api = useConsoleApi()
   const { p } = useKit()
   // 번호와 금액이 둘 다 갈릴 때 먼저 고른 번호 — 금액을 고를 때 같이 보낸다
@@ -213,7 +213,7 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
           <>
             {/* 부정(거두기) 왼쪽 · 긍정(가격 적기) 오른쪽, 한 줄 (절대 규칙 8). 수정창이 위에 있는 상품 자세히에서는 거두기만 */}
             <BigButton kind="outline" label={WITHDRAW} ariaLabel={`${WITHDRAW} — ${String(product.no)}번`} disabled={busy} onPress={() => { if (!tooSoon()) setAsking(true) }} />
-            {onEdit === undefined ? null : <BigButton label={WRITE_PRICE} ariaLabel={`${WRITE_PRICE} — ${String(product.no)}번`} disabled={busy} onPress={() => { if (!tooSoon()) onEdit() }} />}
+            {onEdit === undefined ? null : <BigButton label={WRITE_PRICE} ariaLabel={`${WRITE_PRICE} — ${String(product.no)}번`} disabled={busy} onPress={() => { if (!tooSoon()) onEdit('price') }} />}
           </>
         ) : (
           <>
@@ -238,9 +238,9 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
 
 /**
  * 방송 화면의 확인 카드: 확인 중 상품이 있으면 화면 아래(목록과 아래 창 사이)에 한 장 — 먼저 올라온 것부터, 확정·거두면 다음 것이 같은 자리에 뜬다.
- * onEdit: [고치기] — 그 상품 자세히(수정창)를 연다. bottom: 아래 여백(아래 창이 없으면 홈 막대 자리)
+ * onEdit: [고치기] — 그 상품 자세히(수정창)를 연다. [가격 적기]는 field 'price' — 가격 칸을 바로 연다(D-RECOG-29). bottom: 아래 여백(아래 창이 없으면 홈 막대 자리)
  */
-export function TentativeCards({ onEdit, bottom, guardMs = Platform.OS === 'web' ? 0 : CARD_GUARD_MS }: { readonly onEdit: (key: string) => void; readonly bottom: number; readonly guardMs?: number }) {
+export function TentativeCards({ onEdit, bottom, guardMs = Platform.OS === 'web' ? 0 : CARD_GUARD_MS }: { readonly onEdit: (key: string, field?: 'price') => void; readonly bottom: number; readonly guardMs?: number }) {
   const api = useConsoleApi()
   const { p } = useKit()
   const waitingList = api.ended || api.sealed ? [] : tentativeProducts(api.data, api.b)
@@ -249,7 +249,7 @@ export function TentativeCards({ onEdit, bottom, guardMs = Platform.OS === 'web'
   return (
     <View role="region" aria-label={TENTATIVE_REGION} testID="tentative-card" style={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: bottom, backgroundColor: p.background }}>
       <Appear key={first.key} style={{ padding: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', borderWidth: 1.5, borderColor: p.warnText, backgroundColor: p.surface, ...SHADOW.card }}>
-        <TentativePanel product={first} more={waitingList.length - 1} guardMs={guardMs} onEdit={() => onEdit(first.key)} />
+        <TentativePanel product={first} more={waitingList.length - 1} guardMs={guardMs} onEdit={(field) => onEdit(first.key, field)} />
       </Appear>
     </View>
   )

@@ -8,7 +8,7 @@ import { VoiceController, type VoiceHost } from './controller/controller.ts'
 import { CHROME_RESULT_UNSUPPORTED, VOICE_COMMANDS, isRecord, isVoiceClientMessage, toWire, type VoiceFlowMode, type VoiceServerMessage } from './wire.ts'
 import { sealResume, openResume } from './resume.ts'
 
-type DataKeys = 'screenProducts' | 'maxNumber' | 'currentNames' | 'products' | 'fetchHistory' | 'priceUnit' | 'existingProduct' | 'smsReadOptions' | 'smsProduct' | 'smsProductName' | 'readSmsTime' | 'readLearned' | 'writeLearned' | 'lastVoiceDevice' | 'ready'
+type DataKeys = 'screenProducts' | 'maxNumber' | 'currentNames' | 'products' | 'fetchHistory' | 'priceUnit' | 'existingProduct' | 'emptyPrice' | 'smsReadOptions' | 'smsProduct' | 'smsProductName' | 'readSmsTime' | 'readLearned' | 'writeLearned' | 'lastVoiceDevice' | 'ready'
 export type ReadingHost = Pick<VoiceHost, DataKeys>
 export interface ReadingSessionOptions {
   readonly host: ReadingHost
@@ -288,7 +288,7 @@ export function createReadingSession(options: ReadingSessionOptions) {
         if (parsed.kind === 'fix') controller.formProblem(id, parsed.message, parsed.focus)
         else if (parsed.kind === 'register') {
           const card = controller.take(id)
-          if (card !== undefined) { controller.learnFrom(card, parsed.name); automaticContext.run({ automatic: false }, () => host.register(card, { no: parsed.no, name: parsed.name, price: parsed.price }, 'click')) }
+          if (card !== undefined) { controller.learnFrom(card, parsed.name); automaticContext.run({ automatic: false }, () => controller.sendRegistration(card, { no: parsed.no, name: parsed.name, price: parsed.price }, 'click')) }
         }
         sendState(); return
       }

@@ -517,6 +517,23 @@ describe('D-RECOG-22~26 가격 없는 확인 중 — "N번"만 듣고 올림', (
     expect((await api.post('/api/events', { requestId: 'reg-72', type: 'product.register', b: shop.b.id, no: 72, name: '' })).status).toBe(400)
   })
 
+  it('D-RECOG-28 음성 채우기: 판매자 앱의 음성 상품 고치기(가격만·음성 기록 칸)는 빈 가격을 채우고 확인 중 그대로 둔다 — 판매 시작은 확정 뒤, 음성 기록 앞 가격은 비움', async () => {
+    const world = await newWorld()
+    const { shop, videoId } = await host(world)
+    const api = client(world, shop.seller.cookie)
+    await worker(world, 'register', { videoId, no: 5, requestId: 'screen-v-5-1', tentative: { reasons: ['PRICE_SINGLE_SOURCE'] } })
+    const filled = await api.post('/api/events', { requestId: 'voice-fill-5', type: 'product.update', b: shop.b.id, no: 5, price: 30000, voiceLog: { heard: '5번 3만 원', source: 'voice', device: 'phone-1' } })
+    expect(filled.status, filled.text).toBe(200)
+    expect(filled.body).toMatchObject({ changed: true })
+    expect(await row(world, shop, 5)).toMatchObject({ status: 'READY', price: 30000, tentative: { by: 'WORKER' } })
+    const log = await api.get(`/api/voice/log?b=${shop.b.id}`)
+    expect(log.status, log.text).toBe(200)
+    // 일꾼 등록 줄(REGISTER, 가격 칸 없음) 뒤에 채운 줄 — 앞 가격은 0원이 아니라 비움
+    const entries = (log.body as { entries: { kind: string; no: number; before: unknown; after: unknown; heard: string }[] }).entries.filter((entry) => entry.no === 5)
+    expect(entries.map((entry) => entry.kind)).toEqual(['REGISTER', 'PRICE'])
+    expect(entries[1]).toMatchObject({ before: null, after: { price: 30000 }, heard: '5번 3만 원' })
+  })
+
   it('같은 영상의 다른 계정에도 가격 없이 확인 중으로 들어가고, 한 계정에서 가격을 적어 확정하면 다른 계정도 그 가격으로 확정된다 (0원으로 옮기지 않는다)', async () => {
     const world = await newWorld()
     const { shop: a, videoId } = await host(world)

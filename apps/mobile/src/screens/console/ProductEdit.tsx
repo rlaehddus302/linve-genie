@@ -141,8 +141,9 @@ function FieldBox({ label, shown, active, flex, disabled, onPress }: { readonly 
  * 상품 자세히 아래 창 (D-UX4-30 → D-UX4-106). product가 없으면 닫힌다(닫히는 동안은 아래 창이 마지막 내용을 붙들고 있다 — D-UX4-103).
  * onClose: 창을 내린다(고친 것은 이미 보냈거나 버렸다). onKey: 번호를 바꿔 상품 열쇠가 바뀌었을 때. onDecide: 겹침·승계 정하기(판매자만).
  * onShow: 이미 있는 번호의 [그 상품 보기] — 상품 목록의 그 줄로 가서 그 상품 자세히를 연다 (D-RETRO-22). 없으면 자세히만 바꾼다
+ * focus: 열 때 바로 열 칸 — 확인 카드의 [가격 적기]는 'price'(가격 칸 숫자판이 바로 뜬다, D-RECOG-29)
  */
-export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { readonly product: Product | undefined; readonly onClose: () => void; readonly onKey: (key: string) => void; readonly onDecide?: () => void; readonly onShow?: (key: string) => void }) {
+export function ProductSheet({ product, onClose, onKey, onDecide, onShow, focus = null }: { readonly product: Product | undefined; readonly onClose: () => void; readonly onKey: (key: string) => void; readonly onDecide?: () => void; readonly onShow?: (key: string) => void; readonly focus?: EditField | null }) {
   const api = useConsoleApi()
   const { p } = useKit()
   const closed = api.ended || api.sealed
@@ -194,6 +195,12 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow }: { re
     setOriginal(null)
     setError(null)
     setSame(null)
+    // [가격 적기]로 열었으면 가격 칸을 바로 연다 — 칸을 한 번 더 누르지 않고 숫자판으로 적는다 (D-RECOG-29)
+    if (focus !== null && !closed && product.status !== 'CLOSED') {
+      setOriginal({ key: product.key, no: product.no, name: product.name, price: product.price, ...(product.pieces === undefined ? {} : { pieces: product.pieces }) })
+      setHalf(true)
+      setField(focus)
+    }
     // 저장 중에 우리가 번호를 바꿔 열쇠가 바뀐 것이면 이어지는 물음을 그대로 둔다
     if (!saving.current) reply('dismiss')
   }, [product?.key, product])

@@ -498,7 +498,7 @@ describe('가격 없는 확인 중 — "N번"만 듣고 올라온 상품 (D-RECO
     for (const text of [row.textContent ?? '', card().textContent ?? '']) expect(text).not.toMatch(/(^|[^0-9,])0원/)
   })
 
-  it('확인 카드: 금액 후보가 없으면 "가격이 얼마예요?" — 왼쪽 [거두기] · 오른쪽 [가격 적기] 한 줄, [이대로 확정]은 없다. [가격 적기]는 수정창을 연다', async () => {
+  it('확인 카드: 금액 후보가 없으면 "가격이 얼마예요?" — 왼쪽 [거두기] · 오른쪽 [가격 적기] 한 줄, [이대로 확정]은 없다. [가격 적기]는 수정창의 가격 칸을 연다', async () => {
     const world = worldWith(BARE)
     await open(world)
     const box = card()
@@ -510,8 +510,35 @@ describe('가격 없는 확인 중 — "N번"만 듣고 올라온 상품 (D-RECO
     expect(write.textContent).toBe(WRITE_PRICE)
     expectSideBySide(withdraw, write)
     fireEvent.click(write)
-    expect(await screen.findByRole('group', { name: '상품 자세히' })).toBeTruthy()
+    // D-RECOG-29: 자세히 대신 수정창의 가격 칸(숫자판)이 바로 열린다 (옛 기대: 자세히 묶음 '상품 자세히'가 보임 — D-RECOG-27)
+    expect(await screen.findByTestId('product-edit')).toBeTruthy()
     expect(world.events).toHaveLength(0)
+  })
+
+  it('확인 카드 [가격 적기]: 수정창을 열며 가격 칸 숫자판이 바로 뜬다 — 칸을 또 누르지 않고 적어 확정한다 (D-RECOG-29)', async () => {
+    const world = worldWith(BARE)
+    follow(world, (events) => (events.some((event) => event.type === 'product.confirm') ? { products: [product(356, { name: '', price: 20_000 })] } : { products: [held(356, { reasons: ['PRICE_SINGLE_SOURCE'] }, { name: '', price: 20_000 })] }))
+    await open(world)
+    fireEvent.click(within(card()).getByRole('button', { name: `${WRITE_PRICE} — 356번` }))
+    // 가격 칸이 열려 있다: 숫자판이 보이고 고치는 칸은 가격("가격 듣는 중"을 묻는다, 번호 "356번"이 아니다) — 칸을 또 누르지 않는다
+    await screen.findByRole('group', { name: '숫자판' })
+    const editor = screen.getByTestId('product-edit')
+    expect(within(editor).getByText(PRICE_WAITING)).toBeTruthy()
+    expect(within(editor).queryByText('356번')).toBeNull()
+    expect(screen.queryByText(PRICE_NEEDED)).toBeNull()
+    typePad('20000')
+    fireEvent.click(screen.getByRole('button', { name: EDIT_CONFIRM }))
+    await waitFor(() => expect(world.events).toHaveLength(2))
+    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.update', b: 'b1', noText: '356', priceText: '20000원' })
+    expect(world.events[1]?.body).toEqual({ requestId: expect.any(String), type: 'product.confirm', b: 'b1', no: 356 })
+  })
+
+  it('상품 목록에서 연 수정창은 칸을 저절로 열지 않는다 (D-RECOG-29는 [가격 적기]만)', async () => {
+    await open(worldWith(BARE))
+    fireEvent.click(within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 356번' }))
+    await screen.findByRole('group', { name: '상품 자세히' })
+    expect(screen.queryByRole('group', { name: '숫자판' })).toBeNull()
+    expect(screen.queryByTestId('product-edit')).toBeNull()
   })
 
   it('확인 카드: 금액 후보가 있으면 후보 단추만(지금 값 단추 없음) — 누르면 그 금액으로 확정', async () => {

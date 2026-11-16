@@ -226,6 +226,18 @@ describe('모바일 전체 서버 음성 세션', () => {
     expect(command).toHaveBeenCalledWith('instantExists', [{ id: 'c1', text: '15번 2만 원' }])
     expect(registered).not.toHaveBeenCalled()
   })
+  it('D-RECOG-28: 가격이 빈 확인 중 상품의 가격 채우기는 가격만 적는 상품 고치기 — 찜 범위 물음 없이, 앞 가격은 적지 않는다(0원 아님)', async () => {
+    const server = new FakeServer(); server.install()
+    server.on('GET', /^\/api\/days\//, () => ({ body: { broadcasts: [{ id: 'b1', settings: {} }], products: [product(5, { key: 'b1/5', name: '', price: null, status: 'READY' })] } }))
+    server.on('POST', /^\/api\/events/, () => ({ body: { changed: true, seq: 9 } }))
+    const { session } = await setup()
+    const ask = vi.spyOn(session, 'choosePriceScope')
+    const voiceLog = { heard: '5번 3만 원', source: 'voice' }
+    const result = await createVoiceEffects(async () => ({ date: '2026-10-29', rehearsal: false }))('b1', 'fixRecent', ['b1/5', { price: 30000 }, { requestId: 'fill-5', voiceLog }], session)
+    expect(result).toEqual({ kind: 'fixed', before: {} })
+    expect(ask).not.toHaveBeenCalled()
+    expect(server.callsTo('POST', /^\/api\/events/).map((call) => call.body)).toEqual([{ type: 'product.update', b: 'b1', no: 5, price: 30000, voiceLog, requestId: 'fill-5' }])
+  })
   it('없거나 손상된 서버 비트맵은 빈 그림 성공으로 대체하지 않는다', async () => {
     const server = new FakeServer(); server.install()
     await expect(fetchJobBitmap({ id: 'missing', attempt: 'a1' }, 'abcdefgh')).rejects.toThrow()
