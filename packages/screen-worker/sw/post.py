@@ -341,10 +341,11 @@ class Poster:
 
         threading.Thread(target=go, name="renumber", daemon=True).start()
 
-    def rename(self, vid, no, name, n):
-        """품종 이름 고치기(D-SCR-07): 서버가 일꾼 등록이고 판매자가 이름을 고친 적 없을 때만 바꾼다. n = 이 번호의 몇 번째 고침(요청 번호용)"""
+    def rename(self, vid, no, name, n, on_result=None):
+        """품종 이름 고치기(D-SCR-07): 서버가 일꾼 등록이고 판매자가 이름을 고친 적 없을 때만 바꾼다. n = 이 번호의 몇 번째 고침(요청 번호용).
+        on_result(응답) — 판매자가 고친 이름이라 그대로 둔 것(SELLER_NAMED)을 일꾼이 알게(D-RETRO16-10)"""
         body = {"videoId": vid, "no": int(no), "name": str(name)[:NAME_MAX], "requestId": f"screen-{rid_key(vid)}-name-{int(no)}-{int(n)}"}
-        self._fix("rename", body, f"이름 고치기 {no}번 → {name}")
+        self._fix("rename", body, f"이름 고치기 {no}번 → {name}", on_result)
 
     def reprice(self, vid, no, price, n):
         """금액 고치기(D-SCR-09): 같은 번호를 다른 금액으로 다시 내놓았을 때. 판매자가 금액을 고친 적 없을 때만 서버가 바꾼다"""

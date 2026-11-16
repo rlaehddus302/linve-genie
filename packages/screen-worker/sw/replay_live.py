@@ -166,8 +166,8 @@ class FakePoster:
     def renumber(self, vid, frm, to, rid, drop=False):
         self._do("renumber", {"from": frm, "to": to, "rid": rid, "drop": drop})
 
-    def rename(self, vid, no, name, n):
-        self._do("rename", {"no": no, "name": name})
+    def rename(self, vid, no, name, n, on_result=None):
+        self._do("rename", {"no": no, "name": name}, on_result)
 
     def reprice(self, vid, no, price, n):
         self._do("reprice", {"no": no, "price": price})

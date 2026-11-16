@@ -188,8 +188,13 @@ def nicknames(lines):
     return out
 
 
+# "유아이"(요 아이 = 이 상품)를 받아쓰기·LLM이 이름 옆에 적는다(2026-11-16 방송 408번 "뿌리 보감 유아이도" → 뿌리보감유아이도, "UI는 LSP",
+#   450번 "유아의 환영 마리아") — 따로 선 말일 때만 뗀다(D-RETRO16-08)
+_UI = re.compile(r"(?:^|(?<=\s))(?:UI|유아이|요아이|여아이|유아의|요아의)(?:는|도|가|의)?(?=\s|$)", re.I)
+
+
 def clean(name):
-    name = _FILLER.sub("", (name or "").strip())
+    name = _UI.sub("", _FILLER.sub("", (name or "").strip())).strip()
     return _SAEK.sub("색금", name)
 
 
@@ -204,6 +209,31 @@ def dict_name(name, dic, cutoff=85):
         if _tail(cand) == _tail(name):
             return cand
     return None
+
+
+def sound(s):
+    """받아쓰기가 흔히 바꿔 듣는 소리만 접은 자모(D-RETRO16-04): 모음 ㅡ·ㅜ(포르트나 → 포르투나), 받침 ㅇ·ㄴ(킨레드 → 킹레드), ㅐ·ㅔ.
+    가게 장부의 sjamo보다 훨씬 좁다 — 전국 사전 2,500여 이름에서 이렇게 접어 같아지는 이름은 18쌍뿐이다"""
+    out = []
+    for ch in s:
+        c = ord(ch) - 0xAC00
+        if 0 <= c < 11172:
+            jung, jong = _JUNG[(c % 588) // 28], _JONG[c % 28].strip()
+            out.append(_CHO[c // 588] + ("ㅜ" if jung == "ㅡ" else jung) + ("ㄴ" if jong == "ㅇ" else jong))
+        else:
+            out.append(ch)
+    return "".join(out).replace("ㅔ", "ㅐ")
+
+
+def sound_name(name, dic, cutoff=88):
+    """dict_name이 못 찾은 이름을 소리를 접어 한 번 더 찾는다 — 접은 소리로 cutoff 넘게 비슷한 사전 이름이 하나뿐일 때만(둘이면 고르지 않는다).
+    자모 편집 거리 비율(rapidfuzz ratio)은 모음 하나 바뀐 네 글자 이름이 87.5점이라 cutoff 88에 걸렸다(186번 포르트나 분채)"""
+    skeys = dic.__dict__.get("_skeys")
+    if skeys is None:
+        skeys = dic.__dict__["_skeys"] = [sound(k) for k in dic.keys]
+    hits = {dic.names[dic.keys[i]] for _, _, i in process.extract(sound(norm(name)), skeys, scorer=fuzz.ratio, limit=3, score_cutoff=cutoff)}
+    hits = {h for h in hits if _tail(h) == _tail(name)}
+    return hits.pop() if len(hits) == 1 else None
 
 
 def snap(name, dic, cutoff=85, lines=()):
@@ -244,6 +274,9 @@ def _words(text):
     return out
 
 
+_words_of = _words                                                         # 아래 옵션 글 나누기(_words)가 같은 이름이라 낱말 나누기를 이 이름으로도 둔다
+
+
 def said_with_number(lines, no, dic, nicks=None, need_dict=False):
     """그 번호를 말한 문장들에서 이름 후보 → 가장 그럴듯한 이름 하나(없으면 None)"""
     from .decide import numbers_loose, numbers_with_beon
@@ -252,7 +285,7 @@ def said_with_number(lines, no, dic, nicks=None, need_dict=False):
     for _, x in lines:
         if no not in numbers_with_beon(x) and no not in numbers_loose(x):
             continue
-        ws = _words(x)
+        ws = _words_of(x)                                                  # 낱말 나누기(옵션 글 나누기 _words가 같은 이름으로 뒤에 있다)
         pos = [i for i, (_, w) in enumerate(ws) if w == str(no) or w == f"{no}번"] or [len(ws) // 2]
         # 이름 덩어리: 쉬는 말·가격·숫자로 끊고, '색금'처럼 꼬리만 따로 적힌 건 앞 말에 붙인다
         from .price import prices_in
@@ -320,12 +353,29 @@ _GREET = re.compile(r"감사|고맙|고마워|축하|안녕|어서\s?오|반갑|
 _SAEK_LIVE = re.compile(r"(?<![선썬])셋금|(?:세|새|색|섹|쌕)\s?(?:금|끔|껌|꿈|검|급|컴|김)|세크|(?<=[가-힣A-Za-z])\s?3\s?금|^3\s?금")
 # 한글로 읽어 적은 "에스피"는 SP다(D-DICT-SP-01, 사용자 2026-11-16 "사전에 에스피 들어있는데 이거 다 SP로 병합해") — 이름의 앞·끝·따로 선 말일 때만
 # 받아쓰기는 SP를 NSP·ASP·엔스피로도 적는다(2026-11-16 방송: 3·7·14·484번이 "NSP"로 등록, 판매자는 "SP입니다") — 따로 선 말일 때만 SP로(D-RETRO16-02)
-_SP_READ = re.compile(r"(?<![가-힣])(?:에|엔|앤|애)스\s?피|(?:에|엔|앤|애)스\s?피(?![가-힣])|(?<![A-Za-z])[NA]?SP(?![A-Za-z])", re.I)
+#   같은 방송에 LSP·N.SP·UISP·에이스피·앤스피도 나왔다(442·161·437번, 판매자 "SP를 ASP, LSP, NSP 로 인식함") — 앞에 붙은 로마자 한 글자(점 있어도)는 모두 SP로(D-RETRO16-05)
+_SP_READ = re.compile(r"(?<![가-힣])(?:에이|에|엔|앤|애)스\s?피|(?:에이|에|엔|앤|애)스\s?피(?![가-힣])|(?<![A-Za-z])(?:UI\s?|[A-Za-z]\.?)?SP(?![A-Za-z])", re.I)
 
 
 def sp_read(text):
-    """ "에스피색금"·"에스피 금"·"NSP 분채"·"엔스피" → "SP색금"·"SP 금"·"SP 분채"·"SP". 사전을 만들 때(clean_dict)와 방송 중 이름을 쪼갤 때(split_parts) 같이 쓴다"""
+    """ "에스피색금"·"에스피 금"·"NSP 분채"·"LSP"·"N.SP"·"엔스피" → "SP색금"·"SP 금"·"SP 분채"·"SP"·"SP"·"SP". 사전을 만들 때(clean_dict)와 방송 중 이름을 쪼갤 때(split_parts) 같이 쓴다"""
     return _SP_READ.sub("SP", text or "")
+
+
+# 받아쓰기가 이름 뒤 옵션 말을 적는 모양(2026-11-16 방송, D-RETRO16-06~08) — 방송 중 들은 이름에만(사전 이름에는 하지 않는다, D-DICT-OPT-01 ⑤):
+#   백금 → "100금"(427번 쿠스 100금, 판매자 "숫자 백금으로 적히네요") — 금이 바로 붙은 100만. 가격 "100"·"1,100금"은 그대로
+#   녹금 → "높금"(484번 높금 SP) · 철화 → 철학·처라·쳐라·절하(161번 N.SP 철학, 레인보우 철학, 진달래처라) · 분채 → 분체·문채(442번 SP분체, 417번 슈빌문채)
+_BAEK = re.compile(r"(?<![\d,.])100\s?금")
+_NOK_HIGH = re.compile(r"높\s?금")
+_CHEOL = re.compile(r"(?:철학|처라|쳐라|절하)(?=$|[\s.,]|분채|분체|SP|[A-Za-z])")
+_BUNCHAE = re.compile(r"(?:분체|문채)(?=$|[\s.,])")
+
+
+def heard_fix(text):
+    """LLM·받아쓰기가 적은 이름 글에서 옵션 말의 받아쓰기 모양을 바로잡는다: 색금·SP·백금·녹금·철화·분채"""
+    text = sp_read(_SAEK_LIVE.sub("색금", text or ""))
+    text = _NOK_HIGH.sub("녹금", _BAEK.sub("백금", text))
+    return _BUNCHAE.sub("분채", _CHEOL.sub("철화", text))
 
 
 AFFIX = ("복륜금", "색금종자", "색금", "창금", "녹금", "철화", "산반", "복륜", "종자", "무지", "금")   # 이름 뒤에 붙는 말 — 앞 이름만 사전과 맞추고 그대로 붙인다
@@ -335,7 +385,7 @@ PREFIX = ("창",)                                                          # 이
 def tidy(name):
     """LLM·받아쓰기가 적은 이름 다듬기: 앞 군말·뒤 수량("로라클론 4개") 떼기, 색금 바로잡기"""
     name = _COUNT_TAIL.sub("", clean(name))
-    return _SAEK_LIVE.sub("색금", name).strip()
+    return heard_fix(name).strip()
 
 
 def not_a_name(name, nicks=()):
@@ -355,20 +405,21 @@ def not_a_name(name, nicks=()):
     return None
 
 
-def canon(name, dic, cutoff=88):
-    """다듬은 이름 → (정식 이름, 사전에 있는가). 통째로 사전에 있거나(철자 바로잡기 포함), 앞 이름이 사전에 있고 뒤에 색금·금·철화…가 붙은 꼴"""
+def canon(name, dic, cutoff=88, fold=True):
+    """다듬은 이름 → (정식 이름, 사전에 있는가). 통째로 사전에 있거나(철자 바로잡기 포함), 앞 이름이 사전에 있고 뒤에 색금·금·철화…가 붙은 꼴.
+    fold = 철자로 못 찾으면 받아쓰기가 헷갈리는 소리를 접어 한 번 더 찾는다(sound_name, D-RETRO16-04) — LLM이 적은 이름에만. 받아쓰기 낱말을 셀 때(said_counts)는 끈다"""
     key = norm(name)
     if key in dic.names:
         return dic.names[key], True
     memo = dic.__dict__.setdefault("_canon", {})           # 같은 말을 여러 번 견주므로(받아쓰기 n-그램) 사전마다 기억해 둔다
-    if (name, cutoff) not in memo:
-        memo[(name, cutoff)] = _canon(name, key, dic, cutoff)
-    return memo[(name, cutoff)]
+    if (name, cutoff, fold) not in memo:
+        memo[(name, cutoff, fold)] = _canon(name, key, dic, cutoff, fold)
+    return memo[(name, cutoff, fold)]
 
 
-def _canon(name, key, dic, cutoff):
+def _canon(name, key, dic, cutoff, fold=True):
     if len(key) >= 3:
-        hit = dict_name(name, dic, cutoff)
+        hit = dict_name(name, dic, cutoff) or (sound_name(name, dic, cutoff) if fold else None)
         if hit:
             return hit, True
     for suf in AFFIX:
@@ -378,7 +429,7 @@ def _canon(name, key, dic, cutoff):
                 if pre and not base.startswith(pre):
                     continue
                 stem = base[len(pre):]
-                head = dic.names.get(stem) or (dict_name(stem, dic, cutoff) if len(stem) >= 3 else None)
+                head = dic.names.get(stem) or (dict_name(stem, dic, cutoff) or (sound_name(stem, dic, cutoff) if fold else None) if len(stem) >= 3 else None)
                 if head and len(stem) >= 2:
                     return pre + head + suf, True
             break
@@ -396,7 +447,7 @@ def said_counts(lines, dic, nicks=(), cutoff=90):
                 ph = "".join(ws[i:i + n])
                 if len(norm(ph)) < 2 or ph in _STOP or not_a_name(ph, nicks):
                     continue
-                name, known = canon(ph, dic, cutoff)
+                name, known = canon(ph, dic, cutoff, fold=False)
                 if known and not any(i < j + m and j < i + n for j, m, _ in found):
                     found.append((i, n, name))
         for name in {name for _, _, name in found}:
@@ -471,6 +522,10 @@ EVENT = ("꿀이벵", "이벵", "특가", "툭가")                             
 # 옵션만으로 된 말(품종이 아니다)
 PATTERN_ONLY = set(OPTIONS) | set(HEADS) | set(UNNAMED) | {"창", "환엽", "골드"}
 PATTERNS, FORMS = OPTIONS, ()                                              # 옛 이름(다른 도구가 읽는다)
+# 품종 없이 이 말만 하고 판 상품(D-RETRO16-09, 판매자 "그냥 옵션만 말하면 상품명으로 안 적는 문제"): "4번 분채 2만원"·"164번 화분 6,000원"(화분 자체를 판다).
+#   답이 이 말뿐이면 품종이 아닌 말(NOT_NAMES)로 버려져 이름이 비었다 — 품종도 다른 옵션도 들리지 않았을 때만 그 말을 이름으로 보낸다.
+#   분채는 옵션이라 "포르투나 분채"처럼 이름에 붙으면 그대로 남는다(D-DICT-OPT-01). 이름이 이 말뿐이면 빈칸처럼 보고 뒤 답의 이름으로 채운다(bare_name)
+BARE_WORDS = ("분채", "화분")
 _QTY = re.compile(r"\s*((?:\d+|한|두|세|네|다섯)\s*(?:개|포기|두|촉|장|세트)|통째|통채|통으로)\s*$")
 LEDGER_CUT = float(os.environ.get("LLM_LEDGER_CUT", 72))                  # 장부 이름과 자모 편집 거리 비율이 이만큼 넘으면 그 이름으로 맞춘다
 LEDGER_CUT_SHORT = float(os.environ.get("LLM_LEDGER_CUT_SHORT", 80))      # 두 글자쯤의 짧은 이름은 더 엄하게("청수"가 청춘에, "산마"가 삼광에 붙지 않게)
@@ -559,7 +614,7 @@ def parts(name, heard=True):
     m = _QTY.search(text)
     if m:
         qty, text = "".join(m.group(1).split()), text[:m.start()]
-    text = sp_read(_SAEK_LIVE.sub("색금", text)).strip()
+    text = (heard_fix(text) if heard else sp_read(_SAEK_LIVE.sub("색금", text))).strip()
     fix = (lambda k: _JJIN_TAIL.sub("찐녹", _NOK_TAIL.sub("녹금", k))) if heard else (lambda k: k)
     key = fix(norm(text))
     if heard and len(key) >= 3 and key[0] in "이자요저그" and key[1:] in PATTERN_ONLY:   # "이 색금"·"자 색금"을 붙여 적은 것
@@ -654,9 +709,9 @@ _PAT_SAID = (("창녹금", re.compile(r"창\s?(?:녹\s?금|노\s?금|녹\s?음|�
              ("창색금", re.compile(r"창\s?(?:세|새|색)\s?(?:금|끔|급|껌)")),
              ("녹색금", re.compile(r"녹\s?색\s?금|녹\s?(?:세|새)\s?(?:금|끔)")),
              ("찐녹", re.compile(r"(?:찐|진)\s?(?:녹|노|농|록)(?![금음급끔])")),
-             ("녹금", re.compile(r"(?<!창)(?<!창\s)(?:녹\s?금|노\s?금|녹\s?음|노\s?끔|녹\s?급)")),
+             ("녹금", re.compile(r"(?<!창)(?<!창\s)(?:녹\s?금|높\s?금|노\s?금|녹\s?음|노\s?끔|녹\s?급)")),
              ("색금", re.compile(r"(?<![창녹])(?<![창녹]\s)(?:세|새|색|섹)\s?(?:금|끔|껌|꿈|검|급|컴|김)")),
-             ("SP", re.compile(r"(?<![A-Za-z])SP(?![A-Za-z])|에스피")))
+             ("SP", re.compile(r"(?<![A-Za-z])(?:[A-Za-z]\.?)?SP(?![A-Za-z])|(?:에이|에|엔|앤)스\s?피", re.I)))
 
 
 def pattern_said(lines):
@@ -758,10 +813,14 @@ def pick_shop(llm_names, lines, dic, ledger=None, nicks=(), no=None):
     nicks = set(nicks) | nicknames(lines)
     votes, info, order = collections.Counter(), {}, {}
     pats, forms, qtys, only = collections.Counter(), collections.Counter(), collections.Counter(), collections.Counter()
+    bare = collections.Counter()                                           # "분채"·"화분"만 적은 답 — 품종이 아닌 말(NOT_NAMES)이라 아래에서 버려지므로 따로 센다
     for k, raw in enumerate(llm_names):
         if not raw:
             continue
         cleaned = tidy(raw)
+        if norm(cleaned) in BARE_WORDS:
+            bare[norm(cleaned)] += 1
+            continue
         if not cleaned or not_a_name(cleaned, nicks):
             continue
         name, pat, form, qty, in_ledger, in_dic = shop_name(raw, ledger, dic)
@@ -822,7 +881,61 @@ def pick_shop(llm_names, lines, dic, ledger=None, nicks=(), no=None):
             hit = ledger.near(top_said)[0] if ledger is not None and ledger else None
             extra.update(votes=named[top_said], in_ledger=bool(hit), rank=2 if hit else 1, source="사전 말")
             return hit or top_said, f"받아쓰기에 {named[top_said]}번 나온 이름", named[top_said] >= STRONG_MENTIONS, False, extra
+    if bare:                                                               # 품종도 다른 옵션도 없이 "분채"·"화분"만 말하고 팔았다 — 빈칸 대신 그 말을 이름으로(D-RETRO16-09)
+        word = bare.most_common(1)[0][0]
+        extra.update(votes=bare[word], source="파는 꼴 말")
+        return word, "파는 꼴·물건 말만 들림", False, False, extra
     return "", "모름", False, False, extra
+
+
+def said_in(name, text, cutoff=85):
+    """이름 name을 이 받아쓴 줄에서 말했나(띄어쓰기·받아쓰기 모양을 바로잡아 견준다). 두 글자 이름은 글자가 같을 때만, 더 긴 이름은 자모가 cutoff 넘게 비슷하면"""
+    key, line = norm(heard_fix(clean(name))), norm(heard_fix(text))
+    if not key:
+        return False
+    if key in line:
+        return True
+    return len(key) > 2 and fuzz.partial_ratio(jamo(key), jamo(line)) >= cutoff
+
+
+def sounds_alike(a, b, cutoff=70):
+    """두 이름이 비슷하게 들리나(같은 상품을 받아쓰기가 다르게 적었을 수 있나, D-RETRO16-11). 소리를 접은 자모의 부분 비율로 본다.
+    11-16 방송: 산비 ↔ 선비 군생 80 · 한연말 ↔ 유아의 환영 마리아 89(같은 상품) / 링구아스 ↔ 설록 40 · 진달래변이 ↔ 까르띠에 철화 32(다른 상품)"""
+    a, b = norm(heard_fix(clean(a or ""))), norm(heard_fix(clean(b or "")))
+    if len(a) < 2 or len(b) < 2:
+        return False
+    return fuzz.partial_ratio(sound(a), sound(b)) >= cutoff
+
+
+_NOT_RESTATE = {"여러분", "그쵸", "그죠", "UI", "유아이", "요아이", "여아이", "여기", "여기는", "거기", "저기", "이건", "요건", "얘가", "얘도", "이것도", "요것도", "아이", "애기"}
+
+
+def name_words(text, nicks=(), no=None, near=4):
+    """한 줄에서 품종 이름일 수 있는 낱말 — 번호·금액·쉬는 말·끝말(갈게요·입니다)·인사·손님 이름을 뺀 것.
+    no를 주면 그 번호를 말한 낱말에서 near 낱말 안의 것만("442번 SP분체"는 되고, "61번이구요. 사이즈 … 포장하기도 힘들어"의 먼 말은 뺀다).
+    "146번 은희님 감사합니다"는 [], "484번 녹음 SP입니다"는 ["녹음"]"""
+    nicks = set(nicks) | nicknames([(0, text)])
+    words = _words_of(heard_fix(text))
+    at = [i for i, (raw, _) in enumerate(words) if no is not None and re.fullmatch(rf"0*{int(no)}(?:번.*)?", raw)]
+    out = []
+    for i, (raw, w) in enumerate(words):
+        if no is not None and not any(abs(i - j) <= near for j in at):
+            continue
+        if re.search(r"\d", raw) or raw in _STOP or w in _STOP or w in _STOP_THANK or w.upper() in _NOT_RESTATE or _GREET.search(raw) or raw.endswith("님") \
+                or _VERB.search(raw) or len(norm(w)) < 2:
+            continue
+        if norm(w).upper() != "SP" and not_a_name(w, nicks):
+            continue
+        out.append(w)
+    return out
+
+
+def bare_name(name):
+    """품종도 무늬 말도 없이 파는 꼴·물건 말뿐인 이름("분채", "화분")인가 — 빈칸처럼 뒤 답의 이름으로 채운다"""
+    if norm(name) == "화분":
+        return True
+    base, heads, opts, _ = parts(name or "")
+    return not base and not heads and opts == ["분채"]
 
 
 NAME_FILL = int(os.environ.get("LLM_NAME_FILL", 2))                        # 빈칸을 LLM이 적은 모르는 이름으로 채우려면 답이 이만큼
@@ -831,29 +944,36 @@ NAME_FILL = int(os.environ.get("LLM_NAME_FILL", 2))                        # 빈
 def should_rename(now, name, extra, now_rank=0):
     """이미 보낸 품종 now를 (그 뒤 답까지 모아) 다시 고른 name으로 바꿀까(D-SCR-35). extra = pick_shop의 다섯째 값, now_rank = 지금 이름을 고를 때의 extra["rank"]
     (2 = 가게 장부 이름, 1 = 전국 사전 이름, 0 = 모르는 이름). 빈칸은 채운다. 아는 이름을 덜 아는 이름으로 바꾸지 않는다.
-    무늬 말은 장부 이름으로만 바꾼다. 같은 급이면 답이 더 많이 나온 쪽으로"""
+    무늬 말은 장부 이름으로만 바꾼다. 같은 급이면 답이 더 많이 나온 쪽으로.
+    extra["again"] = 판매자가 보낸 뒤 그 번호와 함께 다시 말한 이름의 답 수(D-RETRO16-10) — 두 번 넘게 다시 말했으면 아는 이름(사전)도 그 이름으로 바꾼다"""
     if not name or norm(name) == norm(now or ""):
         return False
     votes, rank, source = extra.get("votes", 0), extra.get("rank", 0), extra.get("source")
-    if not now:
-        return votes >= NAME_FILL if source == "무늬 말" or (source == "LLM" and rank == 0) else True
+    if not now or bare_name(now):                                          # 빈칸, 또는 파는 꼴·물건 말뿐인 이름("분채", "화분")은 빈칸처럼 채운다
+        return votes >= NAME_FILL if source in ("무늬 말", "파는 꼴 말") or (source == "LLM" and rank == 0) else True
+    if bare_name(name):
+        return False                                                       # 이름·옵션을 파는 꼴·물건 말뿐인 이름으로 바꾸지 않는다
     old, new = split_parts(now), split_parts(name)
     if not old[0]:                                                         # 지금은 무늬 말뿐
+        if not new[0] and old[1] and norm(new[1]).startswith(norm(old[1])):
+            return votes >= 2                                              # 옵션에 옵션이 더 붙었다(161번 SP → SP 철화)
         had = (extra.get("only") or {}).get(norm(old[1]), 0)
         if not new[0] and votes >= 2 and _unnamed(new[1]) and not _unnamed(old[1]) and 0 < had < votes:
             return True                                                    # 같은 장면에서 옵션뿐("특이종")보다 품종 SP·종자가 더 많이 나왔다(D-DICT-OPT-01, 11-12 방송 220번)
                                                                            # 지금 옵션이 이 답들에 없으면(번호를 다시 쓴 다른 장면) 바꾸지 않는다(11-13 방송 31번)
         return bool(new[0]) and rank == 2 and (votes >= 2 or source == "장부 말")
-    if not new[0]:                                                         # 이름 → 무늬 말: 모르는 이름일 때만
-        return now_rank == 0 and votes >= 2
+    if not new[0]:                                                         # 이름 → 무늬 말: 모르는 이름일 때만, 그 옵션이 이미 이름에 들어 있지 않을 때만
+        return now_rank == 0 and votes >= 2 and norm(new[1]) not in norm(now)   # 89번 킹레드SP변이 → SP로 줄이지 않는다
     if norm(old[0]) == norm(new[0]):
         return bool(new[1]) and not old[1]                                 # 같은 품종에 무늬 말이 더 붙었다("테라로사" → "테라로사색금")
-    if rank < now_rank:
-        return False
-    if source == "장부 말":
-        return now_rank < 2
+    if norm(now).startswith(norm(name)):
+        return False                                                       # 더 자세한 이름을 그 앞부분으로 줄이지 않는다(65번 레오파드찐실버 → 레오파드, 446번 가르시아산만금 → 가르시아)
     tally = extra.get("tally") or {}
     had = max(tally.get(norm(now), 0), tally.get(norm(old[0]), 0))
+    if rank < now_rank:
+        return extra.get("again", 0) >= 2 and votes > had                 # 판매자가 번호와 함께 두 번 넘게 다시 말한 이름은 사전 이름도 바꾼다
+    if source == "장부 말":
+        return now_rank < 2
     if rank > now_rank:
         return votes >= 2 or 0 < had <= votes                              # 지금 이름이 이 답들에 없으면(다른 장면) 한 번 나온 이름으로는 바꾸지 않는다
     return votes >= 2 and votes > had
