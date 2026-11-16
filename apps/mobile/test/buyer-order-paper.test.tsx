@@ -57,8 +57,10 @@ it('구매자 정산서는 판매자 양식대로 그리고, 문자에는 그 �
   // 줄 순서: 상품 → 배송비 → 총 개수 → 계좌 → 전화번호
   const order_ = ['5개 세트', '배송비', '총 개수', '계좌', '전화번호'].map(text => texts().indexOf(text))
   expect(order_).toEqual([...order_].sort((a, b) => a - b))
-  // 화면에 보이는 그림은 하나뿐이고(D-RETRO-62) 그 그림을 찍어 보낸다
+  // 옛 기대(D-RETRO-62): 화면에 보이는 그림은 하나뿐이고 그 그림을 찍어 보낸다.
+  // 새 기대(D-UX4-183): 화면은 카드 줄이고, 그림은 사진용 하나 — 화면 밖에 붙어 있고 읽어 주지 않는다. 그 그림을 찍어 보낸다
   expect(document.querySelectorAll('svg')).toHaveLength(1)
+  expect(document.querySelector('svg')!.closest('[aria-hidden="true"]')).not.toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '문자 보내기' }))
   await waitFor(() => expect(compose).toHaveBeenCalledWith('01000000000', '[용용다육] 2026-11-12 가을여행님 정산서\n배송비 포함 45,000원\n입금 계좌 농협 302-9988-7766-11 김판매', expect.objectContaining({ mimeType: 'image/png', bytes: new Uint8Array([137,80,78,71,13,10,26,10]) })))
 })
@@ -95,7 +97,8 @@ it('계좌·전화번호·방송 이름을 넣지 않았으면 그 줄을 빼고
 })
 
 // 절대 규칙 8 (D-UX4-01): 단추 둘은 위아래로 쌓지 않고 한 줄 — 옛: [문자 보내기] 아래에 [사진 저장]
-it('단추는 좌우 한 줄: 왼쪽 [사진 저장] · 오른쪽 [문자 보내기], 사진 저장은 화면의 그림을 그대로 내보낸다', async () => {
+// 옛 제목 "…사진 저장은 화면의 그림을 그대로 내보낸다" → D-UX4-183: 화면은 카드 줄, 사진은 화면 밖에 붙여 둔 정산서 그림을 찍는다
+it('단추는 좌우 한 줄: 왼쪽 [사진 저장] · 오른쪽 [문자 보내기], 사진 저장은 정산서 그림을 찍어 내보낸다', async () => {
   const { world, shareFile, snapshot } = devices()
   render(world.wrap(<BuyerOrderPaper {...BASE} order={order} info={INFO} />))
   const save = screen.getByRole('button', { name: '사진 저장' })

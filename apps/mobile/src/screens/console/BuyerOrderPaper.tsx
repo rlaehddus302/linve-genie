@@ -1,11 +1,14 @@
 // 구매자별 정산서 (D-RETRO-61, 판매자가 직접 만들어 쓰던 양식 2026-11-12):
 //   ✲{가게 이름} 정산서✲ (초록 굵은 제목 · 연한 하늘색 띠) → 방송 이름 · {손님} 님 · 날짜(YYYY.MM.DD)
 //   → 번호 / 종자 / 개수 / 가격(원) 표(칸 선, ₩ 기호, 금액 오른쪽 맞춤) → (배송비를 받는 설정이면) 배송비 줄 → 총 개수 줄 → 계좌 줄 → 전화번호 줄.
-// - 화면에 보이는 그림(Svg)을 그대로 찍어 사진으로 만든다 — 화면과 사진이 다를 수 없다(D-RETRO-62).
+// - 옛: 화면에 보이는 그림(Svg)을 그대로 찍어 사진으로 만든다 — 화면과 사진이 같다(D-RETRO-62).
+//   새(D-UX4-183, 사용자 지시 2026-11-16 "눌렀을 때 뜨는 표도 바깥 스타일처럼 깔끔하게 만들어"): 화면은 바깥 정산서(StatementList)처럼
+//   흰 둥근 카드 줄로 그린다(번호 · 이름 · 개수 · 금액 → 배송비 → 총 개수·합계, 아래 카드에 입금 계좌·전화번호·방송 이름).
+//   위 양식 그림은 사진(문자 첨부·사진 저장)에만 쓴다 — 화면 밖에 붙여 두고(보이지 않고 읽어 주지도 않음) 그대로 찍는다. 같은 셈(statementTotals)에서 나온다.
 // - 배송비는 정산 정보에서 정한 규칙대로(정수 원). 받지 않으면 줄 자체가 없다. 계좌·전화번호를 넣지 않았으면 그 줄을 뺀다.
 // - 단추는 좌우 한 줄(D-UX4-01): 왼쪽 [사진 저장] · 오른쪽 [문자 보내기]. 연속 보내기(D-RETRO-64)에서는 왼쪽 [건너뛰기] · 오른쪽 [문자 보내기].
-// - 손님 전화번호·계좌번호는 기록(로그)에 남기지 않는다.
-import { useEffect, useRef, useState } from 'react'
+// - 손님 전화번호·계좌번호는 기록(로그)에 남기지 않는다. 손님 닉네임은 글자(Txt)로만 그린다.
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { ScrollView, View, useWindowDimensions } from 'react-native'
 import Svg, { G as SvgGroup, Line, Rect, Text as SvgText } from 'react-native-svg'
 import { wrap, snapshot } from './paper-image.ts'
@@ -13,8 +16,8 @@ import { isApiError, newRequestId } from '../../api/client.ts'
 import { type BuyerOrder, type SaleLine, type StatementInfo, salesMoney, statementAccount, statementTotals } from '../../lib/broadcast-sales.ts'
 import { prepareSms, SHEET_GAP_MS, wait } from '../../lib/receipt-sms-flow.ts'
 import { nativeSms, nativeShareFile } from '../../native/index.ts'
-import { BigButton, BottomSheet, ButtonRow, SmallButton, TextField, Txt } from '../../ui/kit/index.ts'
-import { GUTTER, SPACE } from '../../ui/kit/tokens.ts'
+import { BigButton, BottomSheet, ButtonRow, SmallButton, TextField, Txt, useKit } from '../../ui/kit/index.ts'
+import { GUTTER, RADIUS, SPACE, TOUCH } from '../../ui/kit/tokens.ts'
 
 const WIDTH = 412
 const INK = '#172F39'
@@ -63,6 +66,49 @@ function price(amount: number | null, y: number, bold = false) {
   return <SvgGroup key={`price:${y}`}>{ink('₩', X.price + 8, y, 14, bold)}{ink(salesMoney(amount).slice(0, -1), X.right - 8, y, 14, bold, 'end')}</SvgGroup>
 }
 const paperDate = (date: string): string => date.split('-').join('.')
+/** 상품 이름 (종류가 있으면 " · "로 잇는다 — 사진 그림과 같은 글) */
+const lineName = (line: SaleLine): string => [line.name, line.variant].filter(Boolean).join(' · ')
+
+// ── 화면 카드 (D-UX4-183): 바깥 정산서(StatementList)와 같은 흰 둥근 카드 · 줄 사이 1px 선 ──
+const ROW = { minHeight: TOUCH.min, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl, flexDirection: 'row', alignItems: 'center', gap: SPACE.md } as const
+
+function Divider() {
+  const { p } = useKit()
+  return <View aria-hidden style={{ height: 1, backgroundColor: p.border, marginHorizontal: SPACE.xl }} />
+}
+
+function Card({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+  const { p } = useKit()
+  return <View role="list" aria-label={label} style={{ alignSelf: 'stretch', backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', overflow: 'hidden', paddingVertical: SPACE.xs }}>{children}</View>
+}
+
+/** 금액 — 모르면 "금액 확인 필요"(주의 글자) */
+function Money({ amount, total = false }: { readonly amount: number | null; readonly total?: boolean }) {
+  return amount === null
+    ? <Txt step="body" weight="medium" color="warnText" right>{salesMoney(null)}</Txt>
+    : <Txt step={total ? 'lead' : 'bodyLarge'} weight="bold" right>{salesMoney(amount)}</Txt>
+}
+
+function LineRow({ line }: { readonly line: SaleLine }) {
+  const { p } = useKit()
+  const name = lineName(line)
+  return <View role="listitem" testID="statement-line" aria-label={`${line.no}번 ${name} ${line.qty}개 ${salesMoney(line.amount)}`} style={ROW}>
+    <View aria-hidden style={{ minWidth: 40, height: 28, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start', marginTop: 1 }}>
+      <Txt step="caption" weight="medium" color="textSub">{`${line.no}번`}</Txt>
+    </View>
+    <View style={{ flex: 1 }}><Txt step="bodyLarge" weight="medium">{name}</Txt></View>
+    <Txt step="body" color="textSub">{`${line.qty}개`}</Txt>
+    <Money amount={line.amount} />
+  </View>
+}
+
+/** 이름 · 값 한 줄 (배송비 · 입금 계좌 · 전화번호 · 방송 이름) */
+function InfoRow({ name, value, testID }: { readonly name: string; readonly value: string; readonly testID: string }) {
+  return <View role="listitem" testID={testID} aria-label={`${name} ${value}`} style={ROW}>
+    <Txt step="body" color="textSub">{name}</Txt>
+    <View style={{ flex: 1 }}><Txt step="bodyLarge" weight="medium" right>{value}</Txt></View>
+  </View>
+}
 
 /** 연속 보내기 (D-RETRO-64): 몇 번째 손님인지와 다음 손님으로 넘어가기. next가 null이면 마지막 손님 */
 export interface SendQueue {
@@ -179,16 +225,68 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
       else setNotice(isApiError(e) ? e.message : PAPER_FAILED)
     } finally { setBusy(false) }
   }
+  const shippingWord = shipping === 0 ? '무료' : salesMoney(shipping)
+  // 화면 내용 전체 (D-UX4-183: 화면은 장으로 나누지 않고 모든 줄을 보인다)
   const label = [
     `${shop} 정산서`, host, buyerWord, dateWord,
-    page.map(({ line }) => `${line.no}번 ${line.name} ${line.qty}개 ${salesMoney(line.amount)}`).join(', '),
-    ...(last ? [...(charged ? [`배송비 ${shipping === 0 ? '무료' : salesMoney(shipping)}`] : []), `총 ${order.qty}개 ${salesMoney(total)}`, ...(account === null ? [] : [`계좌 ${account}`]), ...(sellerPhone === '' ? [] : [`전화번호 ${sellerPhone}`])] : []),
+    order.lines.map(line => `${line.no}번 ${lineName(line)} ${line.qty}개 ${salesMoney(line.amount)}`).join(', '),
+    ...(charged ? [`배송비 ${shippingWord}`] : []), `총 ${order.qty}개 ${salesMoney(total)}`, ...(account === null ? [] : [`계좌 ${account}`]), ...(sellerPhone === '' ? [] : [`전화번호 ${sellerPhone}`]),
   ].filter(part => part !== '').join('. ')
   const smsLabel = pages.length > 1 ? '이 장 문자 보내기' : '문자 보내기'
-  return <ScrollView contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: inset + SPACE.xl, gap: SPACE.md, alignItems: 'center' }}>
+  const infoRows = [
+    ...(account === null ? [] : [{ name: '입금 계좌', value: account, testID: 'statement-account' }]),
+    ...(sellerPhone === '' ? [] : [{ name: '전화번호', value: sellerPhone, testID: 'statement-phone' }]),
+    ...(host === '' ? [] : [{ name: '방송 이름', value: host, testID: 'statement-host' }]),
+  ]
+  return <>
+  <ScrollView contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: inset + SPACE.xl, gap: SPACE.md, alignItems: 'center' }}>
     {queue !== undefined ? <Txt step="caption" color="textSub">{`모두에게 보내기 · ${queue.total}명 가운데 ${queue.position}번째`}</Txt> : null}
-    <View accessibilityLabel={label}>
-      <Svg ref={svg} width={displayWidth} height={displayWidth * height / WIDTH} viewBox={`0 0 ${WIDTH} ${height}`}>
+    <View testID="buyer-statement" role="group" aria-label={label} style={{ width: displayWidth, gap: SPACE.md }}>
+      <Card label={`${buyerWord} 정산서`}>
+        {order.lines.map((line, i) => <View key={line.key}>{i > 0 ? <Divider /> : null}<LineRow line={line} /></View>)}
+        {charged ? <><Divider /><InfoRow name="배송비" value={shippingWord} testID="statement-shipping" /></> : null}
+        <Divider />
+        <View role="listitem" testID="statement-total" aria-label={`총 ${order.qty}개 ${salesMoney(total)}`} style={ROW}>
+          <View style={{ flex: 1 }}><Txt step="bodyLarge" weight="bold">{`총 ${order.qty}개`}</Txt></View>
+          <Money amount={total} total />
+        </View>
+      </Card>
+      {infoRows.length > 0 ? <Card label="입금 안내">
+        {infoRows.map((row, i) => <View key={row.testID}>{i > 0 ? <Divider /> : null}<InfoRow {...row} /></View>)}
+      </Card> : null}
+    </View>
+    {pages.length > 1 && <View style={{ width: displayWidth, gap: SPACE.sm, alignItems: 'center' }}>
+      <Txt step="caption" color="textSub" center>{`정산서가 길어 사진 ${pages.length}장으로 나눠 보내요.`}</Txt>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
+        <SmallButton label="이전 장" disabled={busy || index === 0} onPress={() => setPageIndex(index - 1)} /><Txt>{`사진 ${pageWord}장`}</Txt>
+        <SmallButton label="다음 장" disabled={busy || last} onPress={() => setPageIndex(index + 1)} />
+      </View>
+    </View>}
+    <View style={{ width: displayWidth, gap: SPACE.sm }}>
+      {queue !== undefined && !rehearsal ? (
+        // 연속 보내기: 왼쪽은 넘어가기(건너뛰기 · 다시 보내기), 오른쪽은 다음으로 가는 일
+        opened ? <ButtonRow>
+          <BigButton kind="secondary" label="다시 보내기" disabled={busy || total === null} onPress={() => { setOpened(false); void action('sms') }} />
+          <BigButton label={queue.last ? '마치기' : '다음 손님'} onPress={() => { setOpened(false); setNotice(''); queue.next() }} />
+        </ButtonRow> : <ButtonRow>
+          <BigButton kind="secondary" label={queue.last ? '건너뛰고 마치기' : '건너뛰기'} disabled={busy} onPress={queue.next} />
+          <BigButton label={smsLabel} busy={busy} disabled={total === null} onPress={() => void action('sms')} />
+        </ButtonRow>
+      ) : <ButtonRow>
+        <BigButton kind="secondary" label="사진 저장" disabled={busy || total === null} onPress={() => void action('save')} />
+        {!rehearsal && <BigButton label={smsLabel} busy={busy} disabled={total === null} onPress={() => void action('sms')} />}
+      </ButtonRow>}
+      {notice ? <Txt>{notice}</Txt> : null}
+    </View>
+    <BottomSheet visible={askPhone} onClose={() => setAskPhone(false)} title={`${buyerName}님에게 문자 보내기`} actions={<BigButton label="문자 앱 열기" disabled={phone.replace(/\D/g, '').length < 10} busy={busy} onPress={() => void action('sms', phone)} />}>
+      <TextField label="받는 번호" value={phone} onChangeText={setPhone} keyboardType="phone-pad" maxLength={20} error={phoneError || null} />
+    </BottomSheet>
+  </ScrollView>
+    {/* 사진 그림 (D-UX4-183): 지금 장을 화면 밖(왼쪽 멀리)에 실제 크기로 붙여 둔다 — 보이지 않고 읽어 주지도 않지만 찍을 수 있다.
+        아이폰은 그림의 실제 크기(bounds)에 그리므로 사진 크기(WIDTH × height)와 같게 둔다.
+        스크롤 밖(형제)에 두어 스크롤이 화면 밖 줄을 떼어 내도 그림은 남는다. */}
+    <View aria-hidden pointerEvents="none" testID="buyer-statement-photo" style={{ position: 'absolute', left: -10000, top: 0, width: WIDTH, height }}>
+      <Svg ref={svg} width={WIDTH} height={height} viewBox={`0 0 ${WIDTH} ${height}`}>
         <Rect width={WIDTH} height={height} fill="white" />
         <Rect width={WIDTH} height={titleHeight} fill={BAND_LIGHT} />
         {titleLines.map((line, i) => ink(line, WIDTH / 2, 33 + i * 28, 22, true, 'middle', TITLE_GREEN))}
@@ -237,28 +335,5 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
         {pages.length > 1 && ink(pageWord, X.right, height - 7, 11, false, 'end', MUTED)}
       </Svg>
     </View>
-    {pages.length > 1 && <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
-      <SmallButton label="이전 장" disabled={busy || index === 0} onPress={() => setPageIndex(index - 1)} /><Txt>{pageWord}</Txt>
-      <SmallButton label="다음 장" disabled={busy || last} onPress={() => setPageIndex(index + 1)} />
-    </View>}
-    <View style={{ width: displayWidth, gap: SPACE.sm }}>
-      {queue !== undefined && !rehearsal ? (
-        // 연속 보내기: 왼쪽은 넘어가기(건너뛰기 · 다시 보내기), 오른쪽은 다음으로 가는 일
-        opened ? <ButtonRow>
-          <BigButton kind="secondary" label="다시 보내기" disabled={busy || total === null} onPress={() => { setOpened(false); void action('sms') }} />
-          <BigButton label={queue.last ? '마치기' : '다음 손님'} onPress={() => { setOpened(false); setNotice(''); queue.next() }} />
-        </ButtonRow> : <ButtonRow>
-          <BigButton kind="secondary" label={queue.last ? '건너뛰고 마치기' : '건너뛰기'} disabled={busy} onPress={queue.next} />
-          <BigButton label={smsLabel} busy={busy} disabled={total === null} onPress={() => void action('sms')} />
-        </ButtonRow>
-      ) : <ButtonRow>
-        <BigButton kind="secondary" label="사진 저장" disabled={busy || total === null} onPress={() => void action('save')} />
-        {!rehearsal && <BigButton label={smsLabel} busy={busy} disabled={total === null} onPress={() => void action('sms')} />}
-      </ButtonRow>}
-      {notice ? <Txt>{notice}</Txt> : null}
-    </View>
-    <BottomSheet visible={askPhone} onClose={() => setAskPhone(false)} title={`${buyerName}님에게 문자 보내기`} actions={<BigButton label="문자 앱 열기" disabled={phone.replace(/\D/g, '').length < 10} busy={busy} onPress={() => void action('sms', phone)} />}>
-      <TextField label="받는 번호" value={phone} onChangeText={setPhone} keyboardType="phone-pad" maxLength={20} error={phoneError || null} />
-    </BottomSheet>
-  </ScrollView>
+  </>
 }
