@@ -15,6 +15,7 @@ import { Platform } from 'react-native'
 import type { Claim, Product, WriteResult } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { claimsOfProduct, productSlots } from '../../lib/derive.ts'
+import { isTentative } from '../../lib/tentative.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import type { ConsoleApi } from './context.ts'
 
@@ -198,4 +199,82 @@ export function useSheetHandoff(): (next: () => void) => void {
       next()
     }, SHEET_HANDOFF_MS)
   }
+}
+
+// ── 같은 물건 더 팔기 (D-STK-02, 사용자 지시 2026-11-16 "동일 상품 번호에 여러 개가 있을 수 있다 … 뒷사람도 라벨 뽑을 수 있도록") ──
+// 엔진의 재고(R-10 재고 변경, ORD-11)만 쓴다: 재고를 하나 늘리면 엔진이 대기 1순위를 확정하고(선착순 그대로) 그 손님의 라벨·감사 효과가 나온다.
+// 앱은 누구를 올릴지 고르지 않는다 — 대기 1번이 아닌 손님을 먼저 팔려면 앞 손님 찜을 지운 뒤 누른다. 묻는 팝업에 찜이 될 손님 이름을 미리 보이고,
+// 보내기 직전 최신 상태에서 그 손님이 여전히 대기 1번인지 다시 본다(그사이 바뀌었으면 보내지 않는다 — 다른 손님이 조용히 찜이 되지 않게).
+
+export const SELL_MORE = '같은 물건 더 팔기'
+export const SELL_FEWER = '하나 덜 팔기'
+export const SELL_TO_THIS = '이 손님에게도 팔기'
+/** 재고 상한 (웹 개수 칸과 같다 — D-STK-01) */
+export const STOCK_MAX = 999
+/** 보내기 직전에 대기 1번이 바뀌었을 때 */
+export const SELL_MORE_CHANGED = '그사이 대기 손님이 바뀌었어요. 다시 눌러 주세요.'
+
+export interface SellMorePlan {
+  /** 보낼 새 재고 */
+  readonly stock: number
+  /** 이 조치로 찜이 될 대기 1번 손님 (자리가 남아 있거나 대기가 없으면 null — 다음에 찜하는 손님이 찜이 된다) */
+  readonly next: string | null
+}
+
+const sellable = (product: Product): boolean =>
+  !product.hasOptions && product.status !== 'CLOSED' && !isTentative(product) && product.price !== null && !productSlots(product).conflict
+
+/**
+ * 같은 물건을 하나 더 팔 수 있는지와 그 결과. 할 수 없으면 null.
+ * 옵션 상품(변형 재고 표)·판매 종료·확인 중·가격 없는 상품·겹친 상품은 하지 않는다. 자리가 비었는데 대기 손님이 있으면(승계 결정 필요)
+ * "누가 살지 정하기"·"찜으로 올리기"가 먼저다 — 늘려도 그 빈 자리는 그대로라 판매자가 뜻과 다르게 보게 된다.
+ */
+export function sellMorePlan(product: Product): SellMorePlan | null {
+  if (!sellable(product) || product.stock >= STOCK_MAX) return null
+  const slots = productSlots(product)
+  const full = slots.winners.length >= product.stock
+  if (!full && slots.waitlist.length > 0) return null
+  return { stock: product.stock + 1, next: full ? (slots.waitlist[0] ?? null) : null }
+}
+
+/** 하나 덜 팔기: 재고가 2 이상이고 아직 빈 자리가 있을 때만 (확정 수보다 적게 줄이지 않는다 — R-10). 할 수 없으면 null, 되면 보낼 새 재고 */
+export function sellFewerStock(product: Product): number | null {
+  if (!sellable(product) || product.stock < 2) return null
+  const taken = Math.max(productSlots(product).winners.length, product.confirmedUnits)
+  return taken < product.stock ? product.stock - 1 : null
+}
+
+/** 재고 2 이상인 상품의 "같은 물건 3개 중 1개 남음" (재고 1·옵션 상품은 null — AC-ORD11-07과 같은 말) */
+export function stockWords(product: Product): string | null {
+  if (product.hasOptions || product.stock < 2) return null
+  const left = Math.max(0, product.stock - Math.max(productSlots(product).winners.length, product.confirmedUnits))
+  return `같은 물건 ${String(product.stock)}개 중 ${String(left)}개 남음`
+}
+
+/** 같은 물건 더 팔기 팝업의 설명 (next: 찜이 될 손님 이름, 없으면 null) */
+export function sellMoreDescription(next: string | null, stock: number): string {
+  const who = next === null ? '다음에 찜하는 손님도 찜이 돼요.' : `대기 1번 ${next} 님도 찜이 되어 라벨을 뽑을 수 있어요.`
+  return `${who}\n이 번호는 같은 물건 ${String(stock)}개를 팔아요.`
+}
+
+/**
+ * 같은 물건을 하나 더 판다(product.update 재고 +1). expectNext: 팝업에 보인 찜이 될 손님(없으면 null) — 최신 상태에서 다르면 보내지 않는다.
+ * 할 수 없거나 바뀐 것이 없으면 오류 문장
+ */
+export async function sellMore(api: ConsoleApi, product: Product, expectNext: string | null): Promise<void> {
+  const latest = latestOf(api).products.get(product.key) ?? product
+  const plan = sellMorePlan(latest)
+  if (plan === null) throw new Error(CLAIM_NOT_APPLIED)
+  if (plan.next !== expectNext) throw new Error(SELL_MORE_CHANGED)
+  const result = await api.command({ type: 'product.update', b: latest.broadcast, no: latest.no, stock: plan.stock })
+  if (!result.changed) throw new Error(CLAIM_NOT_APPLIED)
+}
+
+/** 하나 덜 판다(product.update 재고 −1). 빈 자리가 없어졌으면 CLAIM_NOT_APPLIED */
+export async function sellFewer(api: ConsoleApi, product: Product): Promise<void> {
+  const latest = latestOf(api).products.get(product.key) ?? product
+  const stock = sellFewerStock(latest)
+  if (stock === null) throw new Error(CLAIM_NOT_APPLIED)
+  const result = await api.command({ type: 'product.update', b: latest.broadcast, no: latest.no, stock })
+  if (!result.changed) throw new Error(CLAIM_NOT_APPLIED)
 }

@@ -1,0 +1,90 @@
+# 같은 물건 더 팔기 — 한 번호에 같은 물건이 여러 개일 때 1등 뒤 손님도 산다 (SPEC ORD-11, DOMAIN_RULES R-10 재고 변경·R-13, D-STK-02).
+# 사용자 지시 2026-11-16: "동일 상품 번호에 여러 개가 있을 수 있다 … 두 명 이상이 찜하면 그 뒷사람들은 라벨을 뽑지 못한다 … 그 뒷사람도 라벨 뽑을 수 있도록".
+# 앱의 [같은 물건 더 팔기]·[이 손님에게도 팔기]는 새 이벤트 없이 `product.update`의 재고를 하나 늘린다 — 엔진이 대기 1순위부터 확정하고(선착순 그대로)
+# 그 손님의 라벨·감사 효과가 나온다. 가격은 늘 한 개의 값이고(곱하지 않는다), 찜 금액·정산 합계는 손님마다 그 값이다.
+# 모든 기대값은 손으로 계산했다. 감사 문구 = "{번호}번 {품종} {가격} {구매자}님 구매 감사합니다"(R-13).
+---
+id: G-ENG-STK-01
+title: 15번 재고 1에 셋이 찜 — 1등 라벨을 뽑은 뒤 같은 물건을 하나씩 더 팔면 대기 1번부터 차례로 1등이 되어 라벨·감사가 나오고, 앞 1등의 라벨·찜은 그대로다
+refs: [ORD-11, R-4, R-10, R-12, R-13, D-044, D-STK-02]
+broadcasts: [{ id: b1, date: 2026-11-16, title: 다육 라이브 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 15, name: 핑크프릴, price: 10000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "15" }      # A 확정(1) → SOLD
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "15" }      # 대기 [B]
+  - { at: "20:00:03", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "15" }      # 대기 [B, C]
+  - { at: "20:00:05", type: effect.labelPrinted, b: b1, no: 15, buyer: UC_A }             # A 라벨 출력됨
+  - type: assert
+    expect:
+      products:
+        b1/15: { status: SOLD, winners: [UC_A], waitlist: [UC_B, UC_C], confirmVersion: 1 }
+      effectCounts: { PRINT_PRODUCT_LABEL: 1, POST_THANKS: 1 }
+  # [같은 물건 더 팔기] — 재고 1→2: 대기 1순위 B 확정(2). A는 그대로
+  - { at: "20:01:00", type: product.update, b: b1, no: 15, stock: 2 }
+  - type: assert
+    expect:
+      products:
+        b1/15: { status: SOLD, winners: [UC_A, UC_B], waitlist: [UC_C], confirmVersion: 2 }
+      effectCounts: { PRINT_PRODUCT_LABEL: 2, POST_THANKS: 2 }
+  # 한 번 더 — 재고 2→3: C 확정(3)
+  - { at: "20:01:10", type: product.update, b: b1, no: 15, stock: 3 }
+expect:
+  products:
+    b1/15: { status: SOLD, winners: [UC_A, UC_B, UC_C], waitlist: [], price: 10000, priceHistory: [], confirmVersion: 3 }
+  claims:
+    - { product: b1/15, buyer: UC_A, status: CONFIRMED }
+    - { product: b1/15, buyer: UC_B, status: CONFIRMED }
+    - { product: b1/15, buyer: UC_C, status: CONFIRMED }
+  buyers:
+    UC_A: { items: [b1/15], subtotal: 10000 }
+    UC_B: { items: [b1/15], subtotal: 10000 }
+    UC_C: { items: [b1/15], subtotal: 10000 }
+  effects:
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_B, confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_B, text: "15번 핑크프릴 10,000원 김철수님 구매 감사합니다", confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_C, confirmVersion: 3 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_C, text: "15번 핑크프릴 10,000원 이영희님 구매 감사합니다", confirmVersion: 3 }
+  pendingEffects:                                  # A 라벨은 출력됨 — 남은 것은 B·C 라벨과 셋의 감사
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_A, confirmVersion: 1 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_B, confirmVersion: 2 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_B, confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/15, buyer: UC_C, confirmVersion: 3 }
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/15, buyer: UC_C, confirmVersion: 3 }
+  effectCounts: { PRINT_PRODUCT_LABEL: 3, POST_THANKS: 3 }
+---
+id: G-ENG-STK-02
+title: 대기 2번 손님에게 먼저 팔려면 앞 대기 찜을 지운 뒤 늘린다 — 늘리면 늘 대기 1순위가 확정되고, 빈 자리가 남은 재고는 확정 수까지 줄일 수 있다(덜 팔기)
+refs: [ORD-11, R-8, R-9, R-10, D-STK-02]
+broadcasts: [{ id: b1, date: 2026-11-16, title: 다육 라이브 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 21, name: 라울, price: 5000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "21" }      # A 확정(1)
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "21" }      # 대기 [B]
+  - { at: "20:00:03", type: chat, b: b1, id: m3, ch: UC_C, nick: 이영희, text: "21" }      # 대기 [B, C]
+  - { at: "20:01:00", type: host.cancel, b: b1, no: 21, buyer: UC_B, reason: 판매자가 찜을 삭제했어요 }   # 대기 B 취소 → 대기 [C]
+  - { at: "20:01:10", type: product.update, b: b1, no: 21, stock: 2 }                    # 재고 1→2 → 대기 1순위 C 확정(2)
+  - type: assert
+    expect:
+      products:
+        b1/21: { status: SOLD, winners: [UC_A, UC_C], waitlist: [] }
+  - { at: "20:01:20", type: product.update, b: b1, no: 21, stock: 3 }                    # 대기 없음 → 빈 자리 1, OPEN
+  - type: assert
+    expect:
+      products:
+        b1/21: { status: OPEN, winners: [UC_A, UC_C] }
+  - { at: "20:01:30", type: product.update, b: b1, no: 21, stock: 2 }                    # [하나 덜 팔기] 3→2 = 확정 수 → 받음 → SOLD
+  - { at: "20:01:40", type: product.update, b: b1, no: 21, stock: 1 }                    # 확정 수 2보다 적게 → 아무 일도 없음
+  - { at: "20:01:50", type: chat, b: b1, id: m4, ch: UC_D, nick: 박민수, text: "21" }      # 자리 다 참 → 대기 [D]
+expect:
+  products:
+    b1/21: { status: SOLD, winners: [UC_A, UC_C], waitlist: [UC_D], confirmVersion: 2 }
+  claims:
+    - { product: b1/21, buyer: UC_B, status: CANCELLED }
+    - { product: b1/21, buyer: UC_C, status: CONFIRMED }
+    - { product: b1/21, buyer: UC_D, status: WAITLISTED }
+  buyers:
+    UC_C: { items: [b1/21], subtotal: 5000 }
+  effects:
+    - { kind: PRINT_PRODUCT_LABEL, product: b1/21, buyer: UC_C, confirmVersion: 2 }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/21, buyer: UC_C, text: "21번 라울 5,000원 이영희님 구매 감사합니다", confirmVersion: 2 }
+  effectCounts: { PRINT_PRODUCT_LABEL: 2, POST_THANKS: 2 }

@@ -12,6 +12,8 @@
 // 토스 메뉴 줄로 [판매 시작](공개 전·멈춘 상품만) · [누가 살지 정하기](겹침·승계만) · [🗑 상품 삭제] — 삭제는 "상품을 삭제할까요?" 팝업 [닫기 | 삭제].
 // D-UX4-141·142 (사용자 메모 11-13, 개선 계획 E4): 목록 위 [찜 된 것만] 켜고 끄기, 대기가 차 대기 밖이 된 찜도 줄 꼬리표(흐리게)·자세히("대기 밖 n명")에 보인다.
 // 목록 위 도구 줄(ProductToolbar — 번호 검색칸 / [찜 된 것만] 걸러 보기 칩 · [목록 순서])은 따로 꺼내 쓸 수 있다(D-UX4-150): ProductList toolbar={false}면 목록만 그린다.
+// D-STK-02 (사용자 지시 2026-11-16 "동일 상품 번호에 여러 개 … 뒷사람도 라벨"): 메뉴 줄 [같은 물건 더 팔기] — 재고를 하나 늘려 대기 1번 손님이 찜(1등)이 되고 라벨을 뽑는다.
+//   팝업 "같은 물건을 하나 더 팔까요?" [닫기 | 더 팔기]에 찜이 될 손님 이름. 재고 2 이상이면 손님 알약 위에 "같은 물건 3개 중 1개 남음", 빈 자리가 있으면 [하나 덜 팔기].
 // D-RETRO-54 (복기 F7): 메뉴 줄 [찜 넣기] — 누르면 메뉴 자리에 손님 이름·전화번호 끝 네 자리 칸이 나오고 [닫기 | 찜 넣기]로 그 상품에 문자찜을 넣는다(ClaimAdd). 옵션 상품·끝난 라이브는 없다.
 import { displayNickname, productTitle } from '@livejjim/core/format'
 import { memo, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
@@ -30,7 +32,7 @@ import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, priceWords } from '../../lib/wor
 import { BottomSheet, EmptyFill, ErrorLine, PopupDialog, SheetChoices, Txt, useKit, Tap } from '../../ui/kit/index.ts'
 import { GUTTER, MAX_FONT_SCALE, RADIUS, SPACE, TOUCH, TYPE, pressedFill } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
-import { ACTIVE_CLAIM, deleteClaim, deleteProduct } from './claim-actions.ts'
+import { ACTIVE_CLAIM, SELL_FEWER, SELL_MORE, deleteClaim, deleteProduct, sellFewer, sellFewerStock, sellMore, sellMoreDescription, sellMorePlan, stockWords } from './claim-actions.ts'
 import { CLAIM_ADD, ClaimAddForm, type ClaimAdded } from './ClaimAdd.tsx'
 import { feedBuyerName } from './feed-rows.ts'
 import { useConsoleApi } from './context.ts'
@@ -485,6 +487,8 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
   const [error, setError] = useState<string | null>(null)
   const [askClaim, setAskClaim] = useState<{ readonly id: string; readonly name: string } | null>(null)
   const [askProduct, setAskProduct] = useState(false)
+  // 같은 물건 더 팔기 (D-STK-02): 누른 순간의 찜이 될 손님(ID·이름)과 새 재고를 붙들어 둔다 — 보낼 때 그 손님이 여전히 대기 1번인지 본다
+  const [askMore, setAskMore] = useState<{ readonly next: string | null; readonly name: string | null; readonly stock: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const [copy, setCopy] = useState(0)
   // 찜 넣기 (D-RETRO-54): 칸을 연 동안은 메뉴 줄 대신 칸을 보인다. added: 넣은 결과 한 줄
@@ -531,6 +535,21 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
       onDone?.()
     }
   }
+  const moreNow = closed ? null : sellMorePlan(product)
+  const fewerNow = closed ? null : sellFewerStock(product)
+  const stockLine = stockWords(product)
+  const sellMoreNow = async () => {
+    if (askMore === null) return
+    setBusy(true)
+    await run(async () => {
+      await sellMore(api, product, askMore.next)
+    }, '바꾸지 못했어요. 다시 눌러 주세요.')
+    setBusy(false)
+    setAskMore(null)
+  }
+  const sellFewerNow = async () => run(async () => {
+    await sellFewer(api, product)
+  }, '바꾸지 못했어요. 다시 눌러 주세요.')
   const open = async () => run(async () => {
     await api.command({ type: 'product.open', b: api.b, no: product.no })
   }, '판매를 시작하지 못했어요. 다시 눌러 주세요.')
@@ -543,6 +562,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
       {/* 확인 중 상품 (D-RETRO-91): 방송 화면 카드와 같은 물음·단추 — [판매 시작]·[상품 삭제] 자리에 확정·거두기. */}
       {/* 끝난 라이브에도 둔다(봉인 전까지) — 라이브가 끝날 때 남은 확인 중 상품의 기다리는 찜을 판매자가 뒤에 정리할 수 있게 */}
       {tentative && !api.sealed ? <TentativePanel product={product} values={false} {...(onDone === undefined ? {} : { onDone })} /> : null}
+      {stockLine === null ? null : <Txt color="textSub" testID="stock-left">{stockLine}</Txt>}
       {claims.length === 0 ? null : (
         <View role="list" aria-label={`${String(product.no)}번 찜·대기`} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>
           {claims.map((claim) => {
@@ -573,6 +593,11 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
         ))}
         {!closed && !tentative && (product.status === 'READY' || product.status === 'HOLD') ? <IconMenuRow emoji="▶️" tint="#E6F2EB" title="판매 시작" ariaLabel={`판매 시작 — ${String(product.no)}번`} onPress={() => void open()} /> : null}
         {!closed && !product.hasOptions ? <IconMenuRow emoji="✍️" tint="#F8E3A3" title={CLAIM_ADD} ariaLabel={`${CLAIM_ADD} — ${String(product.no)}번`} onPress={() => { setError(null); setAdded(null); setAdding(true) }} /> : null}
+        {moreNow !== null ? (
+          <IconMenuRow emoji="🪴" tint="#E6F2EB" title={SELL_MORE} ariaLabel={`${SELL_MORE} — ${String(product.no)}번`} testID="sell-more"
+            onPress={() => { setError(null); setAskMore({ next: moreNow.next, name: moreNow.next === null ? null : feedBuyerName(api.data, api.names, moreNow.next), stock: moreNow.stock }) }} />
+        ) : null}
+        {fewerNow !== null ? <IconMenuRow emoji="➖" tint="#EEF0EC" title={SELL_FEWER} ariaLabel={`${SELL_FEWER} — ${String(product.no)}번`} testID="sell-fewer" onPress={() => void sellFewerNow()} /> : null}
         {undecided(product) && onDecide !== undefined ? <IconMenuRow emoji="🙋" tint="#FFF4E5" title="누가 살지 정하기" onPress={onDecide} /> : null}
         {/* 확인 중 상품은 삭제(판매 종료 — 기다리던 찜이 "판매 중 아님"으로 끝난다) 대신 위 [거두기](찜은 그대로 남는다) */}
         {!closed && !tentative ? <IconMenuRow emoji="🗑️" tint={TRASH_TINT} title="상품 삭제" ariaLabel={`상품 삭제 — ${String(product.no)}번`} onPress={() => setAskProduct(true)} /> : null}
@@ -587,6 +612,16 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
         busy={busy}
         onCancel={() => setAskClaim(null)}
         onConfirm={() => void removeClaim()}
+      />
+      <PopupDialog
+        visible={askMore !== null}
+        message="같은 물건을 하나 더 팔까요?"
+        description={askMore === null ? null : sellMoreDescription(askMore.name, askMore.stock)}
+        cancelLabel="닫기"
+        confirmLabel="더 팔기"
+        busy={busy}
+        onCancel={() => setAskMore(null)}
+        onConfirm={() => void sellMoreNow()}
       />
       <PopupDialog
         visible={askProduct}
