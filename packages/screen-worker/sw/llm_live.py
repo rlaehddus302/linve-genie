@@ -933,7 +933,9 @@ class LlmRegister:
                 price, why_price = fp_price, "같은 값을 번호와 함께 두 마디에서 들음(빠른 길)"
             t = p.get("tent")
             if ok and price is not None:
-                twin = self._screen_twin(p, cand, mains) if tent_on else None
+                # 빠른 길이 번호를 맞음으로 본 상품(말 + 앞 딱지가 같음, 앞 딱지는 이미 판매 중인 앞 상품 …)은 합치지 않는다 —
+                # 번호 먼저에서는 앞 상품이 가격 없이 확인 중으로 오래 남아 있어, 앞 상품 번호표를 든 채 다음 번호를 부른 것을 잘못 들은 번호로 합치게 된다(11-13 107번)
+                twin = self._screen_twin(p, cand, mains) if tent_on and not self._fp_sure(p) else None
                 if twin is not None:
                     self._twin_merge(p, *twin)               # 화면에 내내 보인 다른 번호가 임시로 올라가 있다 — 잘못 들은 번호로 보고 그 상품에 합친다
                     continue
@@ -1186,6 +1188,14 @@ class LlmRegister:
             return False, "번호표만 보임 — 말이나 LLM 답을 기다림"
         return ok, why_no
 
+    def _fp_rec(self, p):
+        return self.fp.recs.get(p["no"]) if p.get("fp") and self.fp is not None else None
+
+    def _fp_sure(self, p):
+        """빠른 길이 이 번호를 맞음(판매 중)으로 봤나"""
+        r = self._fp_rec(p)
+        return r is not None and r["state"] == "판매 중"
+
     def _fp_name(self, p):
         """빠른 길의 품종: 가게 장부 이름이 번호와 같은·옆 마디에서 들렸으면 그 이름("들림"). 장부에 없는 이름을 자리로 찾아 넣지는 않는다(0단계)"""
         r = self.fp.recs.get(p["no"]) if self.fp is not None else None
@@ -1386,7 +1396,8 @@ class LlmRegister:
         elif t.get("rule") and not p.get("keep") and not p["votes"] and not p["agree"] and p["miss"]:
             self.rule_dropped.add(t["no"])
             self._withdraw(t, "그 줄을 본 LLM 답이 이 번호를 적지 않음")
-        elif TENT_KEEP and (p.get("ok_no") or p["pair"] or t.get("ok") or t.get("pair")):
+        elif TENT_KEEP and (p.get("ok_no") or p["pair"] or t.get("ok") or t.get("pair") or (self._fp_rec(p) or {}).get("keep")):
+            # 빠른 길이 "말과 화면이 다름" 카드를 띄운 번호(두 번 들림)도 거두지 않고 판매자가 고르게 둔다
             self._leave(t, "가격을 정하지 못함" if p.get("ok_no") else "번호를 정하지 못함")
         else:
             self._withdraw(t, "번호 근거를 끝내 얻지 못함")

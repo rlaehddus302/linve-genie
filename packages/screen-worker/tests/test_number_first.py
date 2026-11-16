@@ -103,6 +103,14 @@ class NumberFirstTest(unittest.TestCase):
         self.assertEqual(st.product(107)["state"], "임시")
         self.assertEqual([b["no"] for b in st.srv.of("confirm")], [])
         self.assertEqual(st.kinds_of("LLM확인요청"), [])                    # 번호를 정하지 못했다(가격 확인 요청이 아니다)
+        st.show(13, 20, 152)
+        st.hear(15, "107번 3만원 갑니다", end=16)                             # 같은 번호를 다시 말했다 — 판매자에게 묻는 카드
+        st.reply()
+        self.assertEqual([e["why"] for e in st.kinds_of("빠른길카드")], ["말과 화면이 다름"])
+        st.clock.now += llm_live.HOLD_MAX + 1
+        st.reply()
+        self.assertEqual(st.product(107)["state"], "임시")                  # 기다림을 접어도 거두지 않고 판매자가 고르게 둔다(11-13 1번)
+        self.assertEqual([b["no"] for b in st.srv.of("withdraw")], [152])   # 앞 번호표만 보이던 152번(딱지만)은 60초에 거둔다
 
     def test_off_by_default_keeps_the_current_way(self):
         with patch.object(llm_live, "NUMBER_FIRST", False):
