@@ -44,7 +44,8 @@ class Dictionary:
         if clean and os.path.exists(cp):
             names = {}
             with open(cp, encoding="utf-8") as f:
-                rows = json.load(f)["varieties"]
+                # SP·종자(품종 이름을 모르는 것을 부르는 품종, D-DICT-SP-02)는 여기서 맞추지 않는다 — 일꾼은 이름 없이 판 상품 길(split_parts·pick_shop)로 고른다
+                rows = [v for v in json.load(f)["varieties"] if not v.get("unnamed")]
             for v in rows:
                 names[norm(v["name"])] = v["name"]
             for v in rows:

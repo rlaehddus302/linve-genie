@@ -469,9 +469,16 @@ class CleanDictionaryTest(unittest.TestCase):
         self.assertEqual(clean_dict.split("먼로쌍두"), ("먼로", [], ["쌍두"], []))
         self.assertEqual(clean_dict.split("블루엘프특가"), ("블루엘프", [], [], []))
         self.assertEqual(clean_dict.split("SP아리아골드"), ("아리아골드", [], [], ["SP"]))
-        self.assertEqual(clean_dict.split("SP창녹금"), ("", ["창녹금"], [], ["SP"]))          # 품종 없이 옵션뿐
-        self.assertEqual(clean_dict.split("수입색금SP"), ("", ["색금"], [], ["SP", "수입"]))
-        self.assertEqual(clean_dict.split("SP"), ("", [], [], ["SP"]))                       # SP는 옵션이 아니라 "품종 없음" 표시
+        # D-DICT-SP-02(사용자 2026-11-17 "sp(종자 모름), 종자(고급 SP)는 옵션이 아니라 품종에 넣어라"): 처음 기대 "SP·종자뿐이면 품종 없음"을 바꿈 — SP·종자가 품종
+        self.assertEqual(clean_dict.split("SP창녹금"), ("SP", ["창녹금"], [], []))
+        self.assertEqual(clean_dict.split("수입색금SP"), ("SP", ["색금"], [], ["수입"]))
+        self.assertEqual(clean_dict.split("SP"), ("SP", [], [], []))
+        self.assertEqual(clean_dict.split("종자"), ("종자", [], [], []))
+        self.assertEqual(clean_dict.split("색금종자"), ("종자", ["색금"], [], []))
+        self.assertEqual(clean_dict.split("SP 종자"), ("종자", [], [], []))                   # 둘 다 있으면 종자(고급 SP)
+        self.assertEqual(clean_dict.split("SP군생"), ("SP", [], ["군생"], []))
+        self.assertEqual(clean_dict.split("녹금무지"), ("", ["녹금", "무지"], [], []))        # 품종 없이 옵션뿐
+        self.assertEqual(clean_dict.split("원종자라고사")[0], "원종자라고사")                 # 이름 가운데 든 글자는 그대로
         for read in ("에스피색금", "에스피 색금"):                                            # 한글로 읽어 적은 에스피는 SP로 합친다(D-DICT-SP-01)
             self.assertEqual(clean_dict.split(read), clean_dict.split("SP색금"), read)
         self.assertEqual(clean_dict.split("에스피"), clean_dict.split("SP"))
@@ -505,12 +512,24 @@ class CleanDictionaryTest(unittest.TestCase):
         self.assertIn("색금", maldives["options"])
         self.assertIn("손으로 만든 기본 사전", maldives["sources"])
         self.assertIn("지난 판매 영수증", maldives["sources"])
-        for junk in ("다육방송", "다육판매영상", "배송비", "선인장", "SP색금", "녹금", "SP", "이벵"):
+        for junk in ("다육방송", "다육판매영상", "배송비", "선인장", "SP색금", "색금종자", "녹금", "이벵"):
             self.assertNotIn(junk, names, junk)
         self.assertFalse([n for n in names if "님" in n])                                   # 손님을 부른 말이 없다
         self.assertFalse([v["name"] for v in varieties if "에스피" in v["name"] or any("에스피" in w for w in v["written"])])   # 에스피는 SP로 합쳤다(D-DICT-SP-01)
         gone = {r["name"]: r["why"] for r in removed}
-        self.assertEqual(gone["SP색금"], "품종 없이 옵션·갈래뿐")
+        self.assertEqual(gone["녹금무지"], "품종 없이 옵션·갈래뿐")
+        # SP·종자는 품종이다(D-DICT-SP-02): 옵션이 붙어 적힌 이름은 그 품종의 옵션으로 모인다
+        sp, seed = (next(v for v in varieties if v["name"] == n) for n in ("SP", "종자"))
+        self.assertEqual((sp["unnamed"], seed["unnamed"]), ("종자를 모르는 것", "고급 SP"))
+        for option in ("색금", "녹금", "창금", "수박금"):
+            self.assertIn(option, sp["options"], option)
+        self.assertIn("SP색금", sp["written"])
+        self.assertEqual(sp["aliases"], [])                                                 # "에스피녹음" 같은 모양이 SP의 다른 이름으로 들어가지 않는다
+        self.assertEqual(seed["options"], ["녹금", "색금"])
+        self.assertIn("색금종자", seed["written"])
+        self.assertNotIn("SP색금", gone)
+        self.assertFalse([v["name"] for v in varieties if v.get("unnamed") and v["name"] not in ("SP", "종자")])
+        self.assertFalse([v["name"] for v in varieties if any("종자" in o or "SP" in o for o in v["options"])])   # 옵션 칸에는 없다
         self.assertEqual(gone["이벵"], "품종이 아닌 말")
         maek = next(v for v in varieties if v["name"] == "맥라이징")
         self.assertIn("창", maek["kinds"])                                                  # "창맥라이징"은 옵션 창 + 품종 맥라이징
@@ -528,6 +547,8 @@ class CleanDictionaryTest(unittest.TestCase):
         self.assertEqual(dic.names.get("삼강"), "삼광")                                      # 틀리게 들리는 모양은 품종으로
         self.assertNotIn("다육방송", dic.names)
         self.assertNotIn("SP색금", dic.names)
+        for unnamed in ("SP", "종자", "색금종자"):                                            # 일꾼은 SP·종자를 사전 맞춤이 아니라 이름 없이 판 상품 길로 고른다(D-DICT-SP-02)
+            self.assertNotIn(unnamed, dic.names, unnamed)
         old = variety.Dictionary(seller=True)
         self.assertIn(variety.norm("몰디브색금"), old.names)                                 # 옛 길(clean=False)은 정리 전 사전 그대로
 
