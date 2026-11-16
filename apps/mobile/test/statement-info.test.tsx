@@ -177,23 +177,29 @@ describe('방송을 끝낸 직후·정산서를 처음 만들 때 묻기', () =>
     await waitFor(() => expect(paperTexts()).toEqual(expect.arrayContaining(['홍재라이브', '나오미다육 님', '2026.11.12', '계좌', '농협 302-9988-7766-11 김판매', '전화번호', '010-1234-5678'])))
   })
 
-  it('끝난 방송을 나중에 열면 바로 묻지 않고, 정산서를 처음 만들 때 한 번 묻는다 — 저장하면 그 정산서가 열린다', async () => {
+  // 옛 기대(D-RETRO-60): 끝난 방송의 구매자 줄을 처음 누르면 정산 정보 판이 먼저 뜨고, 저장하면 그 정산서가 열린다.
+  // 새 기대(D-UX4-192, 사용자 "구매자별에서 하나 누르면 정산 정보 알려달라는 창이 뜬 다음에 넘어가는데, 그 창 안뜨게 해주고 … 구매자 정산서 화면 안에 들어갔을 때 스와이프로 뒤로가기"):
+  // 누르면 묻지 않고 바로 오른쪽에서 밀려 들어오는 구매자 정산서 화면 — 머리에 제목 없이 뒤로만, 큰 제목 "{닉네임} 님 정산서"(D-UX4-193). 뒤로면 목록
+  it('끝난 방송을 나중에 열면 묻지 않고, 구매자 줄을 눌러도 묻지 않고 바로 그 손님 정산서 화면이 밀려 들어온다', async () => {
     const { world, puts } = salesWorld(EMPTY)
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} />))
     const row = await screen.findByRole('button', { name: /^미자네 정산서/ })
     await act(async () => { await flush() })
     expect(sheetOf()).toBeNull()
     fireEvent.click(row)
-    const sheet = await screen.findByRole('dialog', { name: '정산 정보' })
-    // 아직 정산서는 열리지 않았다
-    expect(paperTexts()).not.toContain('✲용용다육 정산서✲')
-    fireEvent.click(within(sheet).getByRole('switch', { name: '배송비 받기 — 켜짐' }))
-    fireEvent.click(within(sheet).getByRole('button', { name: SAVE_LABEL }))
+    const page = await screen.findByRole('dialog', { name: '미자네 님 정산서' })
+    expect(sheetOf()).toBeNull()
+    expect(within(page).getByRole('heading', { name: '미자네 님 정산서' })).toBeTruthy()
+    // 머리에는 "구매자 정산서" 제목이 없다
+    expect(screen.queryByText('구매자 정산서')).toBeNull()
     await waitFor(() => expect(paperTexts()).toContain('✲용용다육 정산서✲'))
-    expect(puts()).toHaveLength(1)
-    // 받지 않기로 했으니 배송비 줄이 없다
     expect(paperTexts()).toContain('미자네 님')
-    expect(paperTexts()).not.toContain('배송비')
+    expect(puts()).toHaveLength(0)
+    // 뒤로(밀어 닫기와 같은 닫기)면 목록으로
+    fireEvent.click(within(page).getByRole('button', { name: '뒤로' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '미자네 님 정산서' })).toBeNull())
+    expect(screen.getByRole('list', { name: '구매자별 정산' })).toBeTruthy()
+    expect(sheetOf()).toBeNull()
   })
 
   it('정산 정보가 다 있으면 방송을 끝낸 직후에도 묻지 않는다', async () => {

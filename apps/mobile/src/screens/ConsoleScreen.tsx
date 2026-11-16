@@ -481,7 +481,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
       header={<>
         <View style={{ height: pageTop }} />
         {/* 제목 "정산서" (D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔" — 옛 "정산 내역서") */}
-        <AppHeader title={orderBuyer === null ? "정산서" : "구매자 정산서"} onBack={orderBuyer !== null ? () => setOrderBuyer(null) : closed ? onBack : () => setSalesPage('auto')} right={closed && orderBuyer === null ? <HeaderTextButton label="라이브 기록" onPress={() => (openRecord === undefined ? setSalesPage('record') : openRecord())} /> : undefined} />
+        {/* 구매자 정산서는 이 머리 위로 밀려 들어오는 다음 화면이라 이 머리는 늘 "정산서" (D-UX4-192 — 옛: 같은 자리에서 "구매자 정산서"로 바뀜) */}
+        <AppHeader title="정산서" onBack={closed ? onBack : () => setSalesPage('auto')} right={closed ? <HeaderTextButton label="라이브 기록" onPress={() => (openRecord === undefined ? setSalesPage('record') : openRecord())} /> : undefined} />
         <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
       </>} />
   }

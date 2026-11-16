@@ -58,12 +58,14 @@ it('카드 줄마다 번호 · 이름 · 개수 · 금액을 보이고, 합계 �
   const { total, shipping } = statementTotals(TWO.subtotal, INFO.shipping)
   expect(shipping).toBe(5000)
   expect(within(screen.getByTestId('statement-shipping')).getByText('5,000원')).toBeTruthy()
-  const sum = within(screen.getByTestId('statement-total'))
+  // 옛 기대(183): 합계 줄 testID 'statement-total'. 새 기대(D-UX4-192·193): 'buyer-total' — 목록 아래 고정 판의 총액(statement-total)과 같은 화면에 함께 있다
+  const sum = within(screen.getByTestId('buyer-total'))
+  expect(sum.getByText('총액')).toBeTruthy()
   expect(sum.getByText(`총 ${TWO.qty}개`)).toBeTruthy()
   expect(sum.getByText(salesMoney(total))).toBeTruthy()
   expect(salesMoney(total)).toBe('47,000원')
   // 줄 순서: 상품 → 배송비 → 합계
-  const order = [rows[0]!, rows[1]!, screen.getByTestId('statement-shipping'), screen.getByTestId('statement-total')]
+  const order = [rows[0]!, rows[1]!, screen.getByTestId('statement-shipping'), screen.getByTestId('buyer-total')]
   for (let i = 1; i < order.length; i += 1) expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   // 아래 카드: 입금 계좌 · 전화번호 · 방송 이름
   expect(within(screen.getByTestId('statement-account')).getByText('농협 302-9988-7766-11 김판매')).toBeTruthy()
@@ -78,12 +80,12 @@ it('배송비 줄은 받을 때만: 받지 않으면 없고, 무료 기준을 �
   const { world } = devices()
   const off = render(world.wrap(<BuyerOrderPaper {...BASE} order={TWO} info={{ ...INFO, shipping: { charge: false, fee: 0, freeFrom: null } }} />))
   expect(screen.queryByTestId('statement-shipping')).toBeNull()
-  expect(within(screen.getByTestId('statement-total')).getByText('42,000원')).toBeTruthy()
+  expect(within(screen.getByTestId('buyer-total')).getByText('42,000원')).toBeTruthy()
   off.unmount()
   const big = orderOf([[3, '채홍', 1, 20000], [7, '라울', 2, 30000]])
   render(world.wrap(<BuyerOrderPaper {...BASE} order={big} info={INFO} />))
   expect(within(screen.getByTestId('statement-shipping')).getByText('무료')).toBeTruthy()
-  expect(within(screen.getByTestId('statement-total')).getByText('50,000원')).toBeTruthy()
+  expect(within(screen.getByTestId('buyer-total')).getByText('50,000원')).toBeTruthy()
 })
 
 it('계좌·전화번호·방송 이름이 없으면 아래 카드가 없다', () => {
@@ -134,6 +136,7 @@ it('사진이 여러 장이면 화면 카드에는 모든 줄을 보이고, 사�
 it('손님 닉네임은 글자로만 쓴다 (꺾쇠도 글자)', () => {
   const { world } = devices()
   render(world.wrap(<BuyerOrderPaper {...BASE} buyerName="<b>꽃</b>" order={TWO} info={INFO} />))
-  expect(screen.getByRole('list', { name: '<b>꽃</b> 님 정산서' })).toBeTruthy()
+  // 옛 기대(183): 카드 이름 '<b>꽃</b> 님 정산서'. 새 기대(D-UX4-193): 맨 위 큰 제목
+  expect(screen.getByRole('heading', { name: '<b>꽃</b> 님 정산서' })).toBeTruthy()
   expect(document.querySelector('b')).toBeNull()
 })

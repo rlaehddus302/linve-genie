@@ -5,6 +5,9 @@
 //   새(D-UX4-183, 사용자 지시 2026-11-16 "눌렀을 때 뜨는 표도 바깥 스타일처럼 깔끔하게 만들어"): 화면은 바깥 정산서(StatementList)처럼
 //   흰 둥근 카드 줄로 그린다(번호 · 이름 · 개수 · 금액 → 배송비 → 총 개수·합계, 아래 카드에 입금 계좌·전화번호·방송 이름).
 //   위 양식 그림은 사진(문자 첨부·사진 저장)에만 쓴다 — 화면 밖에 붙여 두고(보이지 않고 읽어 주지도 않음) 그대로 찍는다. 같은 셈(statementTotals)에서 나온다.
+// - D-UX4-193 (사용자 지시 2026-11-16 "'구매자 정산서' 상단 영역 제목 없애고 그 아래에 구매자 닉네임 표시해줘. (대박다육 님 정산서) 상품 목록과 배송비, 총 개수,
+//   총액이 다 똑같은 리스트에 있어서 구분감이 없다. 개선해."): 맨 위 큰 제목 "{닉네임} 님 정산서". 카드를 셋으로 나누고 위에 작은 묶음 이름 —
+//   "주문한 상품"(상품 줄만) · "정산 금액"(상품 금액 · 배송비, 굵은 선 아래 총액 크게 · 총 n개) · "입금 안내". 옛(183): 상품·배송비·총 개수가 한 카드.
 // - 배송비는 정산 정보에서 정한 규칙대로(정수 원). 받지 않으면 줄 자체가 없다. 계좌·전화번호를 넣지 않았으면 그 줄을 뺀다.
 // - 단추는 좌우 한 줄(D-UX4-01): 왼쪽 [사진 저장] · 오른쪽 [문자 보내기]. 연속 보내기(D-RETRO-64)에서는 왼쪽 [건너뛰기] · 오른쪽 [문자 보내기].
 // - 손님 전화번호·계좌번호는 기록(로그)에 남기지 않는다. 손님 닉네임은 글자(Txt)로만 그린다.
@@ -34,6 +37,11 @@ const FEE_ROW = 34
 const TOTAL_ROW = 36
 /** 한 장에 담는 상품 줄 높이 합 — 넘으면 다음 장 */
 const PAGE_ROWS_MAX = 650
+
+/** 카드 묶음 이름 (D-UX4-193) */
+export const LINES_TITLE = '주문한 상품'
+export const PAY_TITLE = '정산 금액'
+export const INFO_TITLE = '입금 안내'
 
 export const SMS_SENT_NOTE = '정산서 문자를 보냈어요.'
 export const SMS_OPENED_NOTE = '문자 앱을 열었어요. 보냈으면 다음 손님으로 넘어가 주세요.'
@@ -77,9 +85,13 @@ function Divider() {
   return <View aria-hidden style={{ height: 1, backgroundColor: p.border, marginHorizontal: SPACE.xl }} />
 }
 
+/** 흰 둥근 카드 — 위에 작은 묶음 이름 (D-UX4-193) */
 function Card({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   const { p } = useKit()
-  return <View role="list" aria-label={label} style={{ alignSelf: 'stretch', backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', overflow: 'hidden', paddingVertical: SPACE.xs }}>{children}</View>
+  return <View style={{ alignSelf: 'stretch', gap: SPACE.sm }}>
+    <View style={{ paddingHorizontal: SPACE.xs }}><Txt step="body" weight="bold" color="textSub">{label}</Txt></View>
+    <View role="list" aria-label={label} style={{ backgroundColor: p.surface, borderRadius: RADIUS.xl, borderCurve: 'continuous', overflow: 'hidden', paddingVertical: SPACE.xs }}>{children}</View>
+  </View>
 }
 
 /** 금액 — 모르면 "금액 확인 필요"(주의 글자) */
@@ -127,6 +139,7 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
   onSent?: (() => void) | undefined
 }) {
   const svg = useRef<Svg>(null)
+  const { p } = useKit()
   const { width } = useWindowDimensions()
   const [pageIndex, setPageIndex] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -239,19 +252,30 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
     ...(host === '' ? [] : [{ name: '방송 이름', value: host, testID: 'statement-host' }]),
   ]
   return <>
-  <ScrollView contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: inset + SPACE.xl, gap: SPACE.md, alignItems: 'center' }}>
-    {queue !== undefined ? <Txt step="caption" color="textSub">{`모두에게 보내기 · ${queue.total}명 가운데 ${queue.position}번째`}</Txt> : null}
-    <View testID="buyer-statement" role="group" aria-label={label} style={{ width: displayWidth, gap: SPACE.md }}>
-      <Card label={`${buyerWord} 정산서`}>
+  <ScrollView contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: inset + SPACE.xl, gap: SPACE.lg, alignItems: 'center' }}>
+    {/* 큰 제목 "{닉네임} 님 정산서" — 머리에는 제목이 없다 (D-UX4-193) */}
+    <View style={{ width: displayWidth, gap: SPACE.xs, paddingHorizontal: SPACE.xs }}>
+      <Txt step="headline" weight="bold" role="heading" aria-level={1} testID="buyer-statement-title">{`${buyerWord} 정산서`}</Txt>
+      {queue !== undefined ? <Txt step="caption" color="textSub">{`모두에게 보내기 · ${queue.total}명 가운데 ${queue.position}번째`}</Txt> : null}
+    </View>
+    <View testID="buyer-statement" role="group" aria-label={label} style={{ width: displayWidth, gap: SPACE.xl }}>
+      <Card label={LINES_TITLE}>
         {order.lines.map((line, i) => <View key={line.key}>{i > 0 ? <Divider /> : null}<LineRow line={line} /></View>)}
+      </Card>
+      {/* 정산 금액(앱 글에 "결제"를 쓰지 않는다): 상품 금액 · 배송비 → 굵은 선 → 총액(크게) · 총 n개 (D-UX4-193) */}
+      <Card label={PAY_TITLE}>
+        <InfoRow name="상품 금액" value={salesMoney(order.subtotal)} testID="statement-subtotal" />
         {charged ? <><Divider /><InfoRow name="배송비" value={shippingWord} testID="statement-shipping" /></> : null}
-        <Divider />
-        <View role="listitem" testID="statement-total" aria-label={`총 ${order.qty}개 ${salesMoney(total)}`} style={ROW}>
-          <View style={{ flex: 1 }}><Txt step="bodyLarge" weight="bold">{`총 ${order.qty}개`}</Txt></View>
+        <View aria-hidden style={{ height: 2, backgroundColor: p.text, opacity: 0.85, marginHorizontal: SPACE.xl, marginTop: SPACE.xs }} />
+        <View role="listitem" testID="buyer-total" aria-label={`총액 ${salesMoney(total)} · 총 ${order.qty}개`} style={{ ...ROW, paddingVertical: SPACE.lg }}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Txt step="bodyLarge" weight="bold">총액</Txt>
+            <Txt step="caption" color="textSub">{`총 ${order.qty}개`}</Txt>
+          </View>
           <Money amount={total} total />
         </View>
       </Card>
-      {infoRows.length > 0 ? <Card label="입금 안내">
+      {infoRows.length > 0 ? <Card label={INFO_TITLE}>
         {infoRows.map((row, i) => <View key={row.testID}>{i > 0 ? <Divider /> : null}<InfoRow {...row} /></View>)}
       </Card> : null}
     </View>
