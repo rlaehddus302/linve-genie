@@ -141,7 +141,7 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
   const { p, fontScale } = useKit()
   const [width, setWidth] = useState(0)
   // 확인 중 상품은 주황 줄 "확인 중 · 기다리는 찜 n건 · 눌러서 확정하기" (D-RETRO-90)
-  // 등록 확인 전(확인 중) 상품은 주황 글 대신 … 움직임 (D-UX4-207) — 주황 줄은 찜이 겹친 상품(rowAttention)만
+  // 등록 확인 전(확인 중) 상품은 주황 글 없이 빈 품종·가격만 … 움직임 (D-UX4-207·208) — 주황 줄은 찜이 겹친 상품(rowAttention)만
   const pending = tentativeAttention(product, waiting)
   const attention = pending === null ? rowAttention(product, conflicts) : null
   const { tags, keep } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id), undefined, outside)
@@ -201,11 +201,9 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
             </View>
             {/* 아랫줄은 토스처럼 윗줄에 바짝 붙는다 (D-UX4-203) */}
             <View style={{ marginVertical: SUB_PULL }}>
-            {pending !== null ? (
-              // 확인 중 — 글 대신 … 움직임. 읽어 주기는 "확인 중 · 기다리는 찜 n건 · 눌러서 확정하기" 그대로 (D-UX4-207)
-              <View style={SUB_LINE}><WaitDots label={`${pending.who} ${pending.what}`} line={CHIP_HEIGHT} testID="product-row-pending" /></View>
-            ) : attention !== null ? (
-              <View style={[SUB_LINE, { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }]}>
+            {/* 확인 중 상품도 찜 줄은 … 없이 바로 "아직 찜이 없어요"나 손님 캡슐 (D-UX4-208, 사용자 "찜은 ... 말고 그냥 바로 아직 찜이 없어요 띄워") */}
+            {attention !== null ? (
+              <View style={[SUB_LINE, { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-start', gap: SPACE.xs }]}>
                 <Txt step="meta" weight="bold" ink={p.warnText}>
                   {attention.who}
                 </Txt>
@@ -216,11 +214,11 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
             ) : tags.length === 0 ? (
               // 찜이 없으면 회색 글 (D-UX4-206)
               // 찜 캡슐 줄과 같은 높이 — 찜이 들어와도 줄 높이가 그대로 (D-UX4-207)
-              <View style={SUB_LINE}><Txt step="meta" ink={p.placeholder} numberOfLines={1} testID="product-row-empty">{NO_CLAIMS}</Txt></View>
+              <View style={[SUB_LINE, { justifyContent: 'center' }]}><Txt step="meta" ink={p.placeholder} numberOfLines={1} testID="product-row-empty">{NO_CLAIMS}</Txt></View>
             ) : (
               // 찜한 손님 캡슐 — 1등 금색 · 대기 회색 · 대기 밖 흐린 회색 (D-UX4-206, D-UX4-197 꼴로 되돌림). 한 줄만: 들어가는 만큼 놓고 나머지는 [+N],
               // 어림이 틀려도 줄을 넘기지 않고 캡슐 글이 … 로 줄어든다
-              <View role="list" aria-label={`${String(product.no)}번 찜한 손님`} testID="product-row-buyers" onLayout={(event) => setWidth(Math.floor(event.nativeEvent.layout.width))} style={[SUB_LINE, { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: TAG_GAP, overflow: 'hidden' }]}>
+              <View role="list" aria-label={`${String(product.no)}번 찜한 손님`} testID="product-row-buyers" onLayout={(event) => setWidth(Math.floor(event.nativeEvent.layout.width))} style={[SUB_LINE, { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', justifyContent: 'flex-start', gap: TAG_GAP, overflow: 'hidden' }]}>
                 {fit.shown.map((tag, index) => (
                   <View key={`${tag.kind}-${String(index)}`} role="listitem" {...(tag.kind === 'out' ? { 'aria-label': `${tag.text} 대기 밖` } : {})} style={[tagStyle(tag.kind === 'win' ? p.goldBg : p.soft), { flexShrink: 1, minWidth: 0 }, tag.kind === 'out' ? { opacity: OUTSIDE_DIM } : null]}>
                     <Txt step="meta" weight={tag.kind === 'win' ? 'bold' : 'medium'} ink={tag.kind === 'win' ? p.goldText : p.textSub} numberOfLines={1}>
@@ -262,7 +260,8 @@ const CHIP_HEIGHT = 24
 /** 손님 캡슐 모양 */
 const tagStyle = (fill: string) => ({ height: CHIP_HEIGHT, justifyContent: 'center' as const, paddingHorizontal: TAG_PAD_X + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous' as const, backgroundColor: fill })
 /** 품종 아랫줄 칸 — 찜 없음 글·손님 캡슐·확인 중 … 모두 같은 높이 (D-UX4-207, 사용자 "아직 찜이 없어요 뜰 때랑 찜 들어올 때랑 높이가 다르다") */
-const SUB_LINE = { minHeight: CHIP_HEIGHT, marginVertical: SPACE.xs, justifyContent: 'center' as const }
+// 가로 맞춤(justifyContent)은 넣지 않는다 — 캡슐 줄(가로)에 'center'가 섞여 캡슐이 줄 가운데로 밀렸다 (D-UX4-208, 사용자 "닉네임 저 멀리 있는데 왜 저래 버그 고쳐"). 칸마다 따로 정한다
+const SUB_LINE = { minHeight: CHIP_HEIGHT, marginVertical: SPACE.xs }
 /** 윗줄(17) 글 줄 높이 — … 움직임이 글과 같은 자리를 차지하게 */
 const NAV_LINE = Math.round(TYPE.nav * 1.4)
 /** 확인 중 상품의 빈 품종 읽어 주기 */

@@ -196,5 +196,7 @@ describe('상품 줄 아랫줄 높이 (D-UX4-207)', () => {
     const buyers = screen.getByRole('list', { name: '218번 찜한 손님' })
     for (const key of ['minHeight', 'marginTop', 'marginBottom'] as const) expect(getComputedStyle(empty)[key], key).toBe(getComputedStyle(buyers)[key])
     expect(getComputedStyle(buyers).minHeight).toBe('24px')
+    // D-UX4-208 (사용자 "닉네임 저 멀리 있는데 왜 저래 버그 고쳐"): 캡슐은 왼쪽부터 — 줄 가운데로 밀리지 않는다
+    expect(['', 'flex-start', 'normal']).toContain(getComputedStyle(buyers).justifyContent)
   })
 })

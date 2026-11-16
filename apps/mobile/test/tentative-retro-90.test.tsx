@@ -14,6 +14,7 @@ import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { ConsoleContext, type ConsoleApi } from '../src/screens/console/context.ts'
 import { ASK_ADD, ASK_CONFIRM_HELD, CONFIRM_HELD, heldWords } from '../src/screens/console/ProductAdd.tsx'
 import { EDIT_CONFIRM, EDIT_DONE, PRICE_NEEDED } from '../src/screens/console/ProductEdit.tsx'
+import { NO_CLAIMS } from '../src/screens/console/ProductBoard.tsx'
 import { ASK_PRICE, ASK_WHICH_NUMBER, ASK_WHICH_PRICE, CARD_GUARD_MS, CONFIRM_AS_IS, PICK_NUMBER_AGAIN, TENTATIVE_EDIT, TENTATIVE_REGION, TentativeCards, WITHDRAW, WITHDRAW_ASK, WITHDRAW_CLOSE, WITHDRAW_NOTE, WRITE_PRICE, WRITE_PRICE_ABOVE, numberTaken } from '../src/screens/console/TentativeCard.tsx'
 import { BuyerNames } from '../src/lib/derive.ts'
 import { makeWorld } from './screen-support.tsx'
@@ -132,9 +133,10 @@ describe('상품 목록의 확인 중 표시 (D-RETRO-90)', () => {
     await open(worldWith({ ...MISMATCH, claims: [...(MISMATCH.claims ?? []), waiting('c3', 334, 'u1', 14)], pending: [...(MISMATCH.pending ?? []), slot(334, ['c3'], ['u1'])] }))
     const row = within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 334번' })
     // D-UX4-207로 바뀐 기대 (사용자 "확인 중 눌러서 확정하기 이런 말 뜨는데 그런거 빨갛게 띄우지 말고, ... 애니메이션으로 넣어줘"; 옛 D-RETRO-90: 주황 글 "확인 중 · 기다리는 찜 1건 · 눌러서 확정하기"):
-    // 줄에는 글 대신 … 점 셋, 읽어 주기는 그 문장 그대로. 주황 바탕도 없다
+    // D-UX4-208 (사용자 "찜은 ... 말고 그냥 바로 아직 찜이 없어요 띄워"): 줄에는 확인 중 문구도 … 도 없이 찜 줄 그대로("아직 찜이 없어요"). 주황 바탕도 없다
     expect(within(row).queryByText(TENTATIVE_TAG)).toBeNull()
-    expect(within(row).getByRole('img', { name: `${TENTATIVE_TAG} · 기다리는 찜 1건 · 눌러서 확정하기` })).toBeTruthy()
+    expect(within(row).queryByText('· 기다리는 찜 1건 · 눌러서 확정하기')).toBeNull()
+    expect(within(row).getByText(NO_CLAIMS)).toBeTruthy()
     expect(getComputedStyle(within(row).getByTestId('product-row-fill')).backgroundColor).toBe('rgb(255, 255, 255)')
     const all = screen.getByTestId('console-screen').textContent ?? ''
     for (const raw of ['tentative', 'TENTATIVE', 'READY', 'NUMBER_MISMATCH', 'PRICE_SINGLE_SOURCE', 'WORKER', 'SYNC', '임시']) expect(all, raw).not.toContain(raw)
