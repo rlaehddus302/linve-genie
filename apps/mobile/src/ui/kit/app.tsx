@@ -448,7 +448,8 @@ export function RowDivider() {
 }
 
 /** 할 일 줄: 숫자 배지 · 제목 · 짧은 설명 · 화살표 */
-export function TodoRow({ count, tone, title, sub, onPress, ariaLabel, testID }: { readonly count?: number; readonly tone?: BadgeTone; readonly title: string; readonly sub?: string; readonly onPress: () => void; readonly ariaLabel?: string; readonly testID?: string }) {
+/** right: 화살표 앞 오른쪽 조각 (연동된 계정 로고 등, D-UX4-201) */
+export function TodoRow({ count, tone, title, sub, right, onPress, ariaLabel, testID }: { readonly count?: number; readonly tone?: BadgeTone; readonly title: string; readonly sub?: string; readonly right?: ReactNode; readonly onPress: () => void; readonly ariaLabel?: string; readonly testID?: string }) {
   const { p } = useKit()
   const name = ariaLabel ?? (count === undefined ? title : `${title} ${String(count)}`)
   return (
@@ -465,6 +466,7 @@ export function TodoRow({ count, tone, title, sub, onPress, ariaLabel, testID }:
           </Txt>
         )}
       </View>
+      {right}
       <Icon name="chevron" color={p.textSub} size={18} />
     </Tap>
   )

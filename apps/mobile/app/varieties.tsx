@@ -11,7 +11,7 @@ export default function VarietiesRoute() {
   if (session.state !== 'in') return null
   return (
     <RouteFrame>
-        <VarietiesScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/settings'))} />
+        <VarietiesScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} />
       </RouteFrame>
   )
 }

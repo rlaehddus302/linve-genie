@@ -1,38 +1,24 @@
+// 설정 화면 — 줄 조각은 전체 탭과 같다(settings/SettingRows.tsx, D-UX4-201). 전체 탭이 같은 줄을 바로 보이므로 이 화면은 다른 화면의 "설정으로" 길에서만 연다.
 // 설정 중 음성·라벨·휴대폰 알림 받기(SMS3 AC-SMS3-29) (APP-01 화면 범위). 나머지 설정은 앱 "가게 설정"(D-APPX-03). 로그아웃도 여기.
 // 모양 (D-UX3-96, 토스 설정처럼): 흰 묶음 카드 안 맨 위에 작은 회색 이름, 줄 오른쪽에 스위치·›. 권한 설명 세 줄은 "앱이 쓰는 권한"을 펼쳐야 보이고,
 // 로그아웃은 큰 초록 단추 대신 카드 아래 글자 단추(확인 판은 그대로).
 // - 음성: "번호와 가격이 들리면 바로 등록"(이 기기), 권한 설명 문장 보기.
 // - 라벨: 라벨 기능 켬/끔(PUT /api/settings/labels), 1등 확정 때 라벨 자동 출력(PATCH /api/settings print.autoOnConfirm — 다음 방송부터).
-import { View } from 'react-native'
-import { useMemo, useState, useSyncExternalStore } from 'react'
-import type { LabelSettings } from '@livejjim/web/src/api/print-types.ts'
-import { isApiError, patch, put } from '../api/client.ts'
-import { useCachedGet } from '../lib/cached-get.ts'
+import { ScrollView, View } from 'react-native'
+import { useState } from 'react'
 import { openExternal, openWeb } from '../lib/open-web.ts'
-import { OPEN_IN_WEB, VOICE_INSTANT_LABEL } from '../lib/words.ts'
-import { useServices, useSession } from '../services.tsx'
-import { AppHeader, Appear, ConfirmSheet, ErrorLine, ListRow, Toast, ToggleRow, Txt, useKit, useToast } from '../ui/kit/index.ts'
+import { OPEN_IN_WEB } from '../lib/words.ts'
+import { useSession } from '../services.tsx'
+import { AppHeader, ConfirmSheet, ListRow, Toast, Txt, useKit } from '../ui/kit/index.ts'
 import { SPACE } from '../ui/kit/tokens.ts'
-import { ScrollView } from 'react-native'
-import { DetailToggle, GroupNote, SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
+import { SETTINGS_GUTTER, SettingsGroup, TextButton } from './settings/Group.tsx'
+import { LabelToggleRows, LinkedLogos, PermissionNotes, useLinkedProviders, useSettingsActions, VoiceInstantRow } from './settings/SettingRows.tsx'
 import { PhoneNoticeCard } from './PhoneNoticeCard.tsx'
 import { VARIETIES_TITLE } from './VarietiesScreen.tsx'
-import { LINKED_TITLE, methodsOf, PROVIDER_NAMES, type LoginProvider } from '@livejjim/web/src/lib/social-login.ts'
-import { SocialTile } from '../ui/SocialTile.tsx'
-import { Late, useCameLate } from '../ui/late.tsx'
+import { LINKED_TITLE, PROVIDER_NAMES } from '@livejjim/web/src/lib/social-login.ts'
+import { Late } from '../ui/late.tsx'
 
-export const SETTING_NEXT_BROADCAST = '다음에 시작하는 라이브부터 적용돼요.'
-export const PERMISSION_WORDS = {
-  microphone: '라이브 중 사장님 말을 받아쓸 때 마이크를 써요.',
-  bluetooth: '라벨 프린터에 연결해 라벨을 찍으려고 블루투스를 써요.',
-  notification: '음성 인식 중이라는 알림을 보여 드리려고 해요.',
-} as const
-
-interface Done {
-  readonly text: string
-  /** 있으면 알림 막대에 "되돌리기"가 붙는다 */
-  readonly undo?: () => Promise<Done>
-}
+export { PERMISSION_WORDS, SETTING_NEXT_BROADCAST } from './settings/SettingRows.tsx'
 
 /** showPhoneNotice: 알림 받기를 뺀 빌드(LIVEGENIE_NOTICE=off)면 false — 칸을 숨긴다 */
 export function SettingsScreen({
@@ -56,97 +42,25 @@ export function SettingsScreen({
   readonly linkedRefresh?: number
   readonly showPhoneNotice?: boolean
 }) {
-  const { voice } = useServices()
   const { session, logout } = useSession()
-  const view = useSyncExternalStore(voice.subscribe, voice.getView)
-  // 설정 값은 기억해 둔 것을 바로 보이고 뒤에서 다시 받는다 (D-UX4-77) — 못 받으면 그 줄을 숨긴다(전과 같다)
-  const { data: labels, set: setLabels } = useCachedGet<LabelSettings>('/api/settings/labels')
-  // 서버에서 받은 뒤에야 생기는 줄은 부드럽게 — 기억해 둔 설정으로 처음부터 그리면 바로 (D-UX4-112)
-  const labelsLate = useCameLate(labels !== null)
-  const { data: settings, set: setSettings } = useCachedGet<{ settings: Record<string, unknown> }>('/api/settings')
-  const auto = settings === null ? null : settings.settings['print.autoOnConfirm'] !== false
-  const [busy, setBusy] = useState(false)
+  const act = useSettingsActions()
   const [asking, setAsking] = useState(false)
-  const [why, setWhy] = useState(false)
-  const { toast, show, hide } = useToast()
   const { p } = useKit()
-  /** 연결된 간편 로그인 (null: 모름·간편 로그인을 안 쓰는 서버) */
-  const methods = useCachedGet<unknown>(onOpenLinked === undefined ? null : '/api/auth/methods', linkedRefresh).data
-  const linked = useMemo<readonly LoginProvider[] | null>(() => (methods === null ? null : methodsOf(methods).providers.filter((item) => item.linked).map((item) => item.provider)), [methods])
-
-  const run = async (work: () => Promise<Done>) => {
-    if (busy) return
-    setBusy(true)
-    hide()
-    try {
-      const done = await work()
-      const undo = done.undo
-      show(done.text, undo === undefined ? undefined : { actionLabel: '되돌리기', onAction: () => void run(undo) })
-    } catch (caught) {
-      show(isApiError(caught) ? caught.message : '저장하지 못했어요. 다시 눌러 주세요.', { problem: true })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const setLabelEnabled = async (enabled: boolean, previous: boolean): Promise<Done> => {
-    const next = await put<LabelSettings & { changed: boolean }>('/api/settings/labels', { enabled })
-    setLabels(next)
-    const text = next.enabled ? '라벨 기능을 켰어요.' : `라벨 기능을 껐어요.${next.waiting > 0 ? ` 대기 중이던 ${String(next.waiting)}장은 출력하지 않아요.` : ''}`
-    return { text, undo: () => setLabelEnabled(previous, enabled) }
-  }
-
-  const setAutoPrint = async (next: boolean, previous: boolean): Promise<Done> => {
-    await patch<{ settings: Record<string, unknown> }>('/api/settings', { settings: { 'print.autoOnConfirm': next } })
-    setSettings((old) => ({ settings: { ...(old?.settings ?? {}), 'print.autoOnConfirm': next } }))
-    return { text: `${next ? '자동 출력을 켰어요.' : '자동 출력을 껐어요.'} ${SETTING_NEXT_BROADCAST}`, undo: () => setAutoPrint(previous, next) }
-  }
+  const linked = useLinkedProviders(onOpenLinked !== undefined, linkedRefresh)
 
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="settings-screen">
       <AppHeader title="설정" onBack={onBack} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: SETTINGS_GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: SPACE.md }} keyboardShouldPersistTaps="handled">
         <SettingsGroup title="음성" label="음성">
-          {session.state === 'in' && session.me.screenProducts ? (
-            <ListRow title="상품 자동 등록" subtitle="유튜브 라이브의 화면과 음성을 보고 상품을 등록해요." />
-          ) : (
-            <ToggleRow
-              title={VOICE_INSTANT_LABEL}
-              subtitle="끄면 인식한 말이 카드로 먼저 보이고, 등록을 눌러야 올라가요."
-              on={view.instant}
-              onChange={(next) => {
-                const previous = view.instant
-                voice.setInstant(next)
-                hide()
-                show(next ? '바로 등록을 켰어요.' : '바로 등록을 껐어요.', { actionLabel: '되돌리기', onAction: () => voice.setInstant(previous) })
-              }}
-            />
-          )}
-          {view.problem !== null ? (
-            // 잘못 문장은 어디서나 같은 모양 (D-UX3-51)
-            <ErrorLine>{view.problem}</ErrorLine>
-          ) : null}
+          <VoiceInstantRow act={act} />
           {/* 내 품종 장부 (D-V3-127) — 직접 지은 이름도 알아듣게 */}
           {onOpenVarieties !== undefined ? <ListRow title={VARIETIES_TITLE} subtitle="키우는 품종 이름을 적어 두면 더 정확히 음성 인식해요." onPress={onOpenVarieties} /> : null}
           {/* 권한 설명은 펼쳐야 보인다 (D-UX3-96 — 늘 보이던 세 줄을 접었다) */}
-          <DetailToggle label="앱이 쓰는 권한" open={why} onPress={() => setWhy((open) => !open)} />
-          {why ? (
-            <View style={{ gap: SPACE.xs, paddingBottom: SPACE.xs }}>
-              <GroupNote>{`마이크: ${PERMISSION_WORDS.microphone}`}</GroupNote>
-              <GroupNote>{`블루투스: ${PERMISSION_WORDS.bluetooth}`}</GroupNote>
-              <GroupNote>{`알림(안드로이드): ${PERMISSION_WORDS.notification}`}</GroupNote>
-            </View>
-          ) : null}
+          <PermissionNotes />
         </SettingsGroup>
         <SettingsGroup title="라벨" label="라벨">
-          {labels === null ? (
-            <Txt color="textSub">라벨 설정을 불러오지 못했어요.</Txt>
-          ) : (
-            <Appear instant={!labelsLate}>
-              <ToggleRow title="라벨 기능" on={labels.enabled} disabled={busy} onChange={(next) => void run(() => setLabelEnabled(next, labels.enabled))} />
-            </Appear>
-          )}
-          <Late>{auto !== null ? <ToggleRow title="1등 확정 때 라벨 자동 출력" subtitle="다음 라이브부터 적용돼요." on={auto} disabled={busy} onChange={(next) => void run(() => setAutoPrint(next, auto))} /> : null}</Late>
+          <LabelToggleRows act={act} />
         </SettingsGroup>
         {/* 휴대폰 알림 받기 (SMS3 AC-SMS3-29) */}
         {showPhoneNotice ? <PhoneNoticeCard /> : null}
@@ -168,15 +82,7 @@ export function SettingsScreen({
               <ListRow
                 title={LINKED_TITLE}
                 ariaLabel={`${LINKED_TITLE} — ${linked.length === 0 ? '없음' : linked.map((provider) => PROVIDER_NAMES[provider]).join(', ')}`}
-                right={
-                  linked.length === 0 ? undefined : (
-                    <View style={{ flexDirection: 'row', gap: SPACE.xs }}>
-                      {linked.map((provider) => (
-                        <SocialTile key={provider} provider={provider} size={24} />
-                      ))}
-                    </View>
-                  )
-                }
+                right={<LinkedLogos linked={linked} />}
                 onPress={onOpenLinked}
                 testID="settings-linked"
               />
@@ -186,7 +92,7 @@ export function SettingsScreen({
         {/* 로그아웃은 카드 아래 글자 단추 (토스 설정 맨 아래처럼) */}
         <TextButton label="로그아웃" align="flex-start" onPress={() => setAsking(true)} />
       </ScrollView>
-      <Toast toast={toast} onDismiss={hide} />
+      <Toast toast={act.toast} onDismiss={act.hide} />
       <ConfirmSheet
         visible={asking}
         question="로그아웃할까요?"

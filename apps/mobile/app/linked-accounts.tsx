@@ -11,7 +11,7 @@ export default function LinkedAccountsRoute() {
   if (session.state !== 'in') return null
   return (
     <RouteFrame>
-        <LinkedAccountsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/settings'))} />
+        <LinkedAccountsScreen onBack={() => (router.canGoBack() ? router.back() : router.replace('/more'))} />
       </RouteFrame>
   )
 }

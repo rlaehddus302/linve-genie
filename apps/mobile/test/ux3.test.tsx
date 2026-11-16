@@ -120,19 +120,21 @@ describe('누르는 동안 바탕 (D-UX3-03)', () => {
   })
 })
 
-describe('전체 탭 (D-UX3-04)', () => {
-  it('맨 위에 설정, 화면들은 묶음 이름이 든 카드로, 택배 줄은 없고(아래 탭으로 옮김) 라벨 프린터 줄이 가게 묶음에 있다 (D-UX3-39)', () => {
+describe('전체 탭 (D-UX3-04 → D-UX4-201)', () => {
+  it('화면들은 묶음 이름이 든 카드로, 택배 줄은 없고(아래 탭으로 옮김) 라벨 프린터·라벨 디자인은 라벨 묶음에 있다 (D-UX3-39 → D-UX4-201)', () => {
     const world = makeWorld()
-    const openSettings = vi.fn()
     const openApp = vi.fn()
-    render(world.wrap(<MoreScreen nav={{ openSettings, openApp }} account="김다육 · kim" onLogout={() => {}} />))
+    render(world.wrap(<MoreScreen nav={{ openApp }} account="김다육 · kim" onLogout={() => {}} />))
     // 탭 이름과 같은 맨 위 제목은 없다 (D-UX3-41)
     expect(screen.queryByRole('heading', { name: '전체' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '설정' }))
-    expect(openSettings).toHaveBeenCalled()
-    for (const group of ['라이브', '주문·입금', '배송', '가게', '계정']) expect(screen.getByRole('group', { name: group })).toBeTruthy()
+    // 옛 기대(D-UX3-04): 맨 위 [설정] 단추. 새 기대(D-UX4-201, 사용자 지시 2026-11-16): 설정은 이 탭에 바로 보여서 단추가 없다
+    expect(screen.queryByRole('button', { name: '설정' })).toBeNull()
+    for (const group of ['라이브', '주문·입금', '배송', '라벨', '가게', '계정']) expect(screen.getByRole('group', { name: group })).toBeTruthy()
     expect(within(screen.getByRole('group', { name: '배송' })).queryByRole('button', { name: '택배' })).toBeNull()
-    expect(within(screen.getByRole('group', { name: '가게' })).getByRole('button', { name: '라벨 프린터' })).toBeTruthy()
+    expect(within(screen.getByRole('group', { name: '라벨' })).getByRole('button', { name: '라벨 프린터' })).toBeTruthy()
+    expect(within(screen.getByRole('group', { name: '가게' })).queryByRole('button', { name: '라벨 프린터' })).toBeNull()
+    fireEvent.click(within(screen.getByRole('group', { name: '라벨' })).getByRole('button', { name: '라벨 디자인' }))
+    expect(openApp).toHaveBeenCalledWith('/label-setup?step=design')
     fireEvent.click(screen.getByRole('button', { name: '입금 확인' }))
     expect(openApp).toHaveBeenCalledWith('/deposits')
   })
