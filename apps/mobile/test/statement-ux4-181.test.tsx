@@ -77,3 +77,17 @@ it('정산 정보는 아래 판이 아니라 머리까지 덮는 다음 화면 �
   await waitFor(() => expect(screen.queryByRole('dialog', { name: '정산 정보' })).toBeNull())
   expect(screen.getByRole('list', { name: '구매자별 정산' })).toBeTruthy()
 })
+
+// D-UX4-186 (사용자 2026-11-16 "정산서 상품별에서 닉네임도 개수 옆에 붙여서 한줄로 만들어. 글자크기도 번호, 품종, 개수, 닉네임, 가격 다 일정하게 맞추고")
+it('상품별 줄: 번호 · 품종 · 개수 · 닉네임 캡슐이 한 줄 칸에 이어지고, 가격까지 글자 크기가 모두 같다 (D-UX4-186)', () => {
+  const world = makeWorld()
+  const buyers = new Map([['k1', ['가람', '나무']]])
+  render(world.wrap(<StatementList tab="products" rows={[{ key: 'k1', no: 7, label: '색금', money: 40000, qty: 3 }]} sent={[]} buyers={buyers} rowLabel={row => row.label} />))
+  const tags = screen.getByTestId('product-buyers')
+  const name = screen.getByText((_, node) => node?.textContent === '색금 · 3개' && node.parentElement?.textContent !== '색금 · 3개')
+  // 닉네임 묶음은 품종·개수와 같은 가로 칸 안 (옛 D-UX4-182: 아랫줄)
+  expect(tags.parentElement).toBe(name.parentElement)
+  expect(getComputedStyle(tags.parentElement!).flexDirection).toBe('row')
+  const sizes = new Set([screen.getByText('7번'), name, ...within(tags).getAllByText(/가람|나무/), screen.getByText('40,000원')].map(node => getComputedStyle(node).fontSize))
+  expect([...sizes]).toEqual(['16px'])
+})

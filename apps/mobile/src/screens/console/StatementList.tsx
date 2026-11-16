@@ -9,6 +9,8 @@
 // D-UX4-182 (사용자 지시 2026-11-16 "상품명, 개수, 구매자 닉네임이 한줄씩 있어서 공간을 너무 많이 차지해 … 구매자별 정산서에서도 닉네임을 금색 캡슐말고 버튼 모양으로 감싸고,
 //   개수는 아래줄에 넣지 말고 금액 왼쪽에"):
 // - 상품별 줄: 첫 줄 "상품명 · n개", 그 아래 산 구매자를 라이브 화면 찜 꼬리표처럼 금색 캡슐로 하나씩(넘치면 다음 줄로, 줄이지 않는다). 옛: 이름 · 개수 · 구매자 " · " 글이 세 줄.
+// - D-UX4-186 (사용자 "정산서 상품별에서 닉네임도 개수 옆에 붙여서 한줄로 만들어. 글자크기도 번호, 품종, 개수, 닉네임, 가격 다 일정하게"):
+//   상품별 줄은 번호 · 품종 · 개수 · 닉네임 캡슐 · 가격을 한 줄에, 모두 16. 옛(182): 닉네임 캡슐은 아랫줄, 번호 13·닉네임 12.
 // - 구매자별 줄: 닉네임을 회색 둥근 네모(작은 단추 모양)로 감싸고, 개수는 금액 왼쪽에 한 줄로. 옛: 닉네임 글자 아래 줄에 개수.
 import { View } from 'react-native'
 import { salesMoney, type BuyerOrder, type StatementRow, type StatementTab } from '../../lib/broadcast-sales.ts'
@@ -43,35 +45,39 @@ function Divider() {
   return <View aria-hidden style={{ height: 1, backgroundColor: p.border, marginHorizontal: SPACE.xl }} />
 }
 
-function Money({ amount }: { readonly amount: number | null }) {
+/** 상품별 줄 글자 크기 — 번호·품종·개수·닉네임·가격 모두 (D-UX4-186, 라이브 화면 상품 줄 16과 같다 D-UX3-84) */
+const STEP = 'bodyLarge'
+
+function Money({ amount, step }: { readonly amount: number | null; readonly step?: typeof STEP }) {
   return amount === null
-    ? <Txt step="body" weight="medium" color="warnText" right>{salesMoney(null)}</Txt>
+    ? <Txt step={step ?? 'body'} weight="medium" color="warnText" right>{salesMoney(null)}</Txt>
     : <Txt step="bodyLarge" weight="bold" right>{salesMoney(amount)}</Txt>
 }
 
 function Row({ row, tab, sent, buyers, label, onPress }: { readonly row: StatementRow; readonly tab: StatementTab; readonly sent: boolean; readonly buyers: readonly string[]; readonly label: string; readonly onPress?: (() => void) | undefined }) {
   const { p } = useKit()
+  // 상품별 줄 (D-UX4-186): 번호 · 품종 · 개수 · 산 구매자(금색 캡슐) · 가격을 한 줄에, 글자 크기는 모두 16(STEP).
+  // 한 줄에 다 안 들어가면 줄이지 않고 다음 줄로 넘긴다(가격은 늘 오른쪽).
   const body = tab === 'products' ? <>
-    {row.no !== null ? (
-      <View aria-hidden style={{ minWidth: 40, height: 28, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start', marginTop: 1 }}>
-        <Txt step="caption" weight="medium" color="textSub">{`${row.no}번`}</Txt>
-      </View>
-    ) : null}
-    <View style={{ flex: 1, gap: SPACE.sm }}>
-      {/* 상품명 · 개수 한 줄 (D-UX4-182) */}
-      <Txt step="bodyLarge" weight="medium" numberOfLines={2}>{row.label}<Txt step="bodyLarge" color="textSub">{`${BUYER_JOIN}${row.qty}개`}</Txt></Txt>
-      {/* 산 구매자 — 라이브 화면 찜 꼬리표와 같은 금색 캡슐 (D-UX4-182) */}
+    <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, rowGap: SPACE.xs }}>
+      {row.no !== null ? (
+        <View aria-hidden style={{ minWidth: 40, paddingHorizontal: SPACE.sm, paddingVertical: 2, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center' }}>
+          <Txt step={STEP} weight="medium" color="textSub">{`${row.no}번`}</Txt>
+        </View>
+      ) : null}
+      <Txt step={STEP} weight="medium">{row.label}<Txt step={STEP} color="textSub">{`${BUYER_JOIN}${row.qty}개`}</Txt></Txt>
+      {/* 산 구매자 — 라이브 화면 찜 꼬리표와 같은 금색 캡슐, 같은 글자 크기 */}
       {buyers.length > 0 ? (
-        <View role="list" aria-label="산 구매자" testID="product-buyers" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: TAG_GAP }}>
+        <View role="list" aria-label="산 구매자" testID="product-buyers" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: TAG_GAP, flexShrink: 1, maxWidth: '100%' }}>
           {buyers.map(name => (
             <View key={name} role="listitem" style={{ paddingHorizontal: TAG_PAD_X, paddingVertical: 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.goldBg, maxWidth: '100%' }}>
-              <Txt step="note" weight="bold" ink={p.goldText} numberOfLines={1}>{name}</Txt>
+              <Txt step={STEP} weight="bold" ink={p.goldText} numberOfLines={1}>{name}</Txt>
             </View>
           ))}
         </View>
       ) : null}
     </View>
-    <Money amount={row.money} />
+    <Money amount={row.money} step={STEP} />
   </> : <>
     {/* 닉네임은 작은 단추 모양 회색 둥근 네모 · 보냄 꼬리표 · 오른쪽에 개수와 금액 (D-UX4-182) */}
     <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
