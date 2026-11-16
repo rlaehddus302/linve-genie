@@ -82,15 +82,21 @@ it('정산 정보는 아래 판이 아니라 머리까지 덮는 다음 화면 �
 // D-UX4-186 (사용자 2026-11-16 "정산서 상품별에서 닉네임도 개수 옆에 붙여서 한줄로 만들어 …")
 // 글자 크기 옛 기대(186): 번호·품종·개수·닉네임·가격 모두 16. 새 기대(D-UX4-188, 사용자 "텍스트 크기 맞추니까 가독성 별로다. 가독성 좋게 다시 맞춰"):
 // 품종·가격 16 굵게, 번호·개수·닉네임 14 — 한 줄 칸은 그대로
-it('상품별 줄: 번호 · 품종 · 개수 · 닉네임 캡슐이 한 줄 칸에 이어지고, 품종·가격은 크게·번호·개수·닉네임은 한 단계 작게 (D-UX4-186·188)', () => {
+it('상품별 줄: 첫 줄 번호 · 품종 · 개수 · 가격, 닉네임 캡슐은 아랫줄 — 품종·가격은 크게·번호·개수·닉네임은 한 단계 작게 (D-UX4-188·191)', () => {
   const world = makeWorld()
   const buyers = new Map([['k1', ['가람', '나무']]])
   render(world.wrap(<StatementList tab="products" rows={[{ key: 'k1', no: 7, label: '색금', money: 40000, qty: 3 }]} sent={[]} buyers={buyers} rowLabel={row => row.label} />))
   const tags = screen.getByTestId('product-buyers')
-  const name = screen.getByText((_, node) => node?.textContent === '색금 · 3개' && node.parentElement?.textContent !== '색금 · 3개')
-  // 닉네임 묶음은 품종·개수와 같은 가로 칸 안 (옛 D-UX4-182: 아랫줄)
-  expect(tags.parentElement).toBe(name.parentElement)
-  expect(getComputedStyle(tags.parentElement!).flexDirection).toBe('row')
+  // 품종 글 (첫 자식이 글자 "색금"인 글 칸)
+  const name = screen.getByText((_, node) => node?.textContent === '색금 · 3개' && node.firstChild?.nodeType === Node.TEXT_NODE)
+  // 닉네임 자리 옛 기대(D-UX4-186): 품종·개수와 같은 가로 칸. 새 기대(D-UX4-191, 사용자 "닉네임 길면 아래로 밀리는 경우가 있어서, 그냥 닉네임은 아래로 내리자"):
+  // 첫 줄(번호 · 품종 · 개수 · 가격) 아래 줄 — 세로 칸에서 첫 줄 다음
+  const column = tags.parentElement!
+  expect(getComputedStyle(column).flexDirection).toBe('column')
+  const firstLine = column.firstElementChild!
+  expect(firstLine.contains(name)).toBe(true)
+  expect(firstLine.contains(screen.getByText('40,000원'))).toBe(true)
+  expect(firstLine.contains(tags)).toBe(false)
   const size = (node: Element) => getComputedStyle(node).fontSize
   expect([size(name), size(screen.getByText('40,000원'))]).toEqual(['16px', '16px'])
   const qty = screen.getByText('· 3개')

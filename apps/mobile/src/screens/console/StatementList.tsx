@@ -62,17 +62,24 @@ function Row({ row, tab, sent, buyers, label, onPress }: { readonly row: Stateme
   // 상품별 줄 (D-UX4-186): 번호 · 품종 · 개수 · 산 구매자(금색 캡슐) · 가격을 한 줄에. 한 줄에 다 안 들어가면 줄이지 않고 다음 줄로 넘긴다(가격은 늘 오른쪽).
   // 글자 크기 (D-UX4-188, 사용자 "텍스트 크기 맞추니까 가독성 별로다. 가독성 좋게 다시 맞춰" — 옛 186: 모두 16): 눈이 먼저 갈 품종·가격은 16 굵게,
   // 거드는 번호·개수·닉네임은 14로 한 단계 작게 — 라이브 화면 상품 줄처럼 품종과 가격이 먼저 읽힌다. 번호·캡슐은 같은 높이(24)로 품종 줄 가운데에 맞춘다.
-  const body = tab === 'products' ? <>
-    <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, rowGap: SPACE.xs }}>
-      {row.no !== null ? (
-        <View aria-hidden style={{ minWidth: 36, height: CHIP_HEIGHT, paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
-          <Txt step={SUB} weight="medium" color="textSub">{`${row.no}번`}</Txt>
+  const body = tab === 'products' ? (
+    // 닉네임은 아랫줄 (D-UX4-191, 사용자 "닉네임 길면 아래로 밀리는 경우가 있어서, 그냥 닉네임은 아래로 내리자" — 옛 186: 품종·개수 옆에 이어 붙임):
+    // 첫 줄 번호 · 품종 · n개 · (오른쪽) 가격, 그 아래 산 구매자 금색 캡슐 — 늘 같은 자리라 들쭉날쭉하지 않다
+    <View style={{ flex: 1, gap: SPACE.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+        {row.no !== null ? (
+          <View aria-hidden style={{ minWidth: 36, height: CHIP_HEIGHT, paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+            <Txt step={SUB} weight="medium" color="textSub">{`${row.no}번`}</Txt>
+          </View>
+        ) : null}
+        <View style={{ flex: 1 }}>
+          <Txt step={STEP} weight="bold">{row.label}<Txt step={SUB} color="textSub">{`${BUYER_JOIN}${row.qty}개`}</Txt></Txt>
         </View>
-      ) : null}
-      <Txt step={STEP} weight="bold">{row.label}<Txt step={SUB} color="textSub">{`${BUYER_JOIN}${row.qty}개`}</Txt></Txt>
-      {/* 산 구매자 — 라이브 화면 찜 꼬리표와 같은 금색 캡슐, 같은 글자 크기 */}
+        <Money amount={row.money} step={STEP} />
+      </View>
+      {/* 산 구매자 — 라이브 화면 찜 꼬리표와 같은 금색 캡슐 */}
       {buyers.length > 0 ? (
-        <View role="list" aria-label="산 구매자" testID="product-buyers" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: TAG_GAP, flexShrink: 1, maxWidth: '100%' }}>
+        <View role="list" aria-label="산 구매자" testID="product-buyers" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: TAG_GAP }}>
           {buyers.map(name => (
             <View key={name} role="listitem" style={{ height: CHIP_HEIGHT, justifyContent: 'center', paddingHorizontal: TAG_PAD_X + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.goldBg, maxWidth: '100%' }}>
               <Txt step={SUB} weight="bold" ink={p.goldText} numberOfLines={1}>{name}</Txt>
@@ -81,8 +88,7 @@ function Row({ row, tab, sent, buyers, label, onPress }: { readonly row: Stateme
         </View>
       ) : null}
     </View>
-    <Money amount={row.money} step={STEP} />
-  </> : <>
+  ) : <>
     {/* 닉네임은 작은 단추 모양 둥근 네모 · 보냄 꼬리표 · 오른쪽에 개수와 금액 (D-UX4-182).
         바탕은 금색 (D-UX4-189, 사용자 "구매자별 정산서 목록에서 구매자 닉네임 배경 금색으로 해줘" — 옛: 회색 surfaceAlt) — 상품별 닉네임 캡슐과 같은 색 */}
     <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
