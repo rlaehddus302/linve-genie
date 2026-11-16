@@ -34,6 +34,11 @@ export interface BottomSheetProps {
   readonly half?: boolean
   /** 내용 자리 안쪽 여백(양옆 24)·줄 사이(12). false면 둘 다 없다 — 숫자판처럼 끝까지 붙는 내용을 부르는 쪽이 직접 놓는다 (기본 true) */
   readonly bodyPadding?: boolean
+  /**
+   * 내용 위에서 아래로 끌어 닫기 (기본 true). false면 손잡이·제목 자리에서만 끌어 닫는다 — 손글씨 판처럼 내용 위에서 아래로 긋는 것이
+   * 닫기가 아닌 판 (D-HANDWRITE-01: 1을 위에서 아래로 그으면 판이 내려가 닫혔다)
+   */
+  readonly contentDrag?: boolean
   readonly testID?: string
 }
 
@@ -221,6 +226,8 @@ export function BottomSheet({ visible, onClose, testID, ...look }: BottomSheetPr
   const gesture = useSheetGesture(visible, onClose)
   // 닫히는 동안은 열려 있던 마지막 모습 그대로 (D-UX4-103)
   const { title, description, children, actions, half = false, bodyPadding = true } = useHeldWhileClosing(visible, look)
+  // 손글씨 판: 내용 위 끌기로 닫지 않는다 (D-HANDWRITE-01) — 그리는 값이 아니라 손 처리라 붙잡지 않는다
+  const contentDrag = look.contentDrag !== false
   const viewHeight = useRef(0)
   const contentHeight = useRef(0)
   // 반 화면 판은 화면 끝에 붙는다 — 아래 띄움 없이 홈 표시줄 자리만 판 안에서 비운다(키보드가 뜨면 키보드 위라 0) (D-UX4-106)
@@ -253,7 +260,7 @@ export function BottomSheet({ visible, onClose, testID, ...look }: BottomSheetPr
           aria-modal
           aria-label={title}
           testID={testID}
-          {...gesture.card}
+          {...(contentDrag ? gesture.card : {})}
           onLayout={(event) => gesture.setCardHeight(event.nativeEvent.layout.height)}
           style={{
             marginHorizontal: half ? 0 : GUTTER,

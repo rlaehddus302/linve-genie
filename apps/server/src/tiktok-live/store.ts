@@ -2,6 +2,7 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { Db } from '../db/database.ts'
 import { accounts, broadcasts, chatRaw, events, pasteRequests, scopes, tiktokAccounts, tiktokConsents, tiktokLinks } from '../db/schema.ts'
+import { syncOnVideoLink } from '../screen/catalog.ts'
 
 // ── 아이디 ───────────────────────────────────────────────────────────────
 
@@ -162,6 +163,8 @@ export async function insertTiktokLink(
       createdAt: row.now,
     })
     .returning({ id: tiktokLinks.id })
+  // 같은 틱톡 라이브에 이은 다른 계정과 상품을 처음 맞추기 (D-SYNC2-01 — 유튜브 insertLink와 같은 표시, 라이브 열쇠 `@아이디`)
+  await syncOnVideoLink(db, `@${row.tiktokId}`)
   return inserted[0]?.id as number
 }
 

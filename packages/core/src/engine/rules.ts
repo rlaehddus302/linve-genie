@@ -212,9 +212,10 @@ function emit(d: Draft, claim: ClaimDraft, kind: EffectKind, target: ThanksTarge
 /**
  * 감사 문구의 구매자 이름 (R-13, D-057): 찜의 구매자 자신 기준이고 합치기와 상관없다.
  * 문자찜으로 생긴 찜(지정 구매자가 유튜브 채널이어도)과 문자 구매자의 찜은 항상 `문자찜`, 그 밖은 그 채널의 가장 최근 닉네임.
+ * 단 판매자가 "닉네임으로 보이기"로 넣은 문자찜(named, D-CLAIMADD-03)은 그 채널의 닉네임이다(문자 구매자면 그대로 `문자찜`).
  */
 function thanksName(d: Draft, claim: AnyClaim): string {
-  if (claim.origin === 'sms') return SMS_NAME
+  if (claim.origin === 'sms' && claim.named !== true) return SMS_NAME
   const buyer = d.knownBuyer(claim.buyer)
   return buyer.kind === 'sms' ? SMS_NAME : buyer.display
 }

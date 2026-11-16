@@ -703,15 +703,18 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 //   덜 팔기) — +1·+0·+2·+2 = 파일 44 · 파서 943 · 엔진 180 · 통과 1123 (새 시나리오만 — 기존 골든은 바꾸지 않았다).
 // D-RETRO16-03(2026-11-16 방송 9번): 지운(CLOSED) 번호로 온 찜은 거절이 아니라 보류 — G-ENG-018·085·167의 기대를 새 규칙으로 바꿈(스펙 변경, 약화 아님),
 //   engine/26-retro-tentative.yaml에 G-ENG-RETRO-12(잘못 등록해 지운 번호에 진짜 상품이 다시 나옴) — +0·+0·+1·+1 = 엔진 181 · 통과 1143.
+// D-CLAIMADD-03: engine/30-sms-named.yaml 새 파일 G-ENG-NAMED-01(닉네임으로 보이는 문자찜 — 감사 이름만 그 채널 닉네임, 대기·승계·정산 합산 그대로,
+//   named 없는 문자찜·문자 구매자는 그대로 문자찜) — +1·+0·+1·+1 = 파일 45 · 엔진 182 · 통과 1144 (새 시나리오만 — 기존 골든은 바꾸지 않았다).
+// D-CHAT-ME-01: parser/chat.yaml "저요" 말·덧붙인 말 주문 60사례(새 suite 셋) — +0·+60·+0·+60 = 파서 1022 · 통과 1204 (새 사례만 — 기존 골든은 바꾸지 않았다).
 describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 + O3 + O2 + O4 + FB1 + V3 + SMS3 합계)', () => {
-  it('파일 44 · 파서 962 · 엔진 181 · 통과 1143, 나머지 0', () => {
+  it('파일 45 · 파서 1022 · 엔진 182 · 통과 1204, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
-      files: 44,
-      parserCases: 962,
-      scenarios: 181,
-      pass: 1143,
+      files: 45,
+      parserCases: 1022,
+      scenarios: 182,
+      pass: 1204,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

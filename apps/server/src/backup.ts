@@ -56,6 +56,7 @@ import {
   voiceLog,
   voiceAliases,
   voiceHeard,
+  broadcastGroupEvents,
   voiceVarieties,
   assistSettings,
   customerArchiveDays,
@@ -1772,6 +1773,9 @@ export const RESTORE_KEPT_TABLES = [
   // D-UX4-156 음성 인식 기록: 방송 ID·날짜로만 잇고 범위를 참조하지 않는다 — 백업 파일에 없고 복구·가져오기가 지우지 않는다(복구해도 같은 방송 ID면 그대로 보인다).
   // 봉인이 그 날짜 줄을 지운다(seal.ts)
   voiceHeard,
+  // D-MERGE-LIVE-01 라이브 합치기 기록: 방송 ID·날짜로만 잇고 범위를 참조하지 않는다 — 백업 파일에 없고 복구·가져오기가 지우지 않는다(같은 방송 ID면 그대로 묶인다,
+  // 없는 방송은 읽을 때 뺀다). 덧붙이기만 하는 판매자의 결정 기록이다
+  broadcastGroupEvents,
   // D-REAL-03: 손님 휴대폰 번호(암호화)·영수증 문자 보낸 기록 — 백업 파일에 없고(번호를 파일로 내보내지 않는다), 복구가 지우지 않는다
   buyerPhones,
   receiptSmsSends,

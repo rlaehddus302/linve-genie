@@ -185,7 +185,7 @@ expect:
 | `product.renumber` | `b`, `from`, `to` | |
 | `product.focus` | `b`, `no` | (O1, R-20 6 — 옵션 방송만) |
 | `chat` | `b`, `id`(메시지 ID), `ch`(채널 ID), `nick`, `text` | `owner`(불리언, 기본 false), `publishedAt` |
-| `sms` | `b`, `ref`(영문·숫자·`_`·`-` 1~64자. 다시 적으면 재전송 사본, S03b. 글 칸), `no`, `received` | `memo`(글 칸), `phone`(판매자가 적은 글자 그대로 — 러너가 `phoneKey`·`phoneLast4`로 바꿔 넘긴다, S03b. 번호는 이 칸에만 적는다), `buyer`(지정 구매자 키 — ID 칸). `ref`·`memo`에 휴대폰 번호가 있거나 `buyer`가 휴대폰 번호면 읽기 오류다(아래 "판매자가 적는 칸의 휴대폰 번호", S04 마무리 D-079·D-080 — D-073의 "숫자만 모은 것이 번호 모양" 판단은 쓰지 않는다). 옵션 방송만(O1, R-19): `qty`(1 이상 `claim.maxQuantity` 이하 정수, 기본 1), `options`(항목 이름 → 선택지 `label` — 그 상품이 있으면 모든 항목, 없으면 쓰지 않는다) |
+| `sms` | `b`, `ref`(영문·숫자·`_`·`-` 1~64자. 다시 적으면 재전송 사본, S03b. 글 칸), `no`, `received` | `memo`(글 칸), `phone`(판매자가 적은 글자 그대로 — 러너가 `phoneKey`·`phoneLast4`로 바꿔 넘긴다, S03b. 번호는 이 칸에만 적는다), `buyer`(지정 구매자 키 — ID 칸), `named`(`true`/`false` — `true`면 그 문자찜으로 생긴 찜의 감사 문구 이름이 `문자찜` 대신 지정 구매자의 닉네임, 문자 구매자면 그대로 `문자찜`. 판정·순위·정산은 같다, D-CLAIMADD-03). `ref`·`memo`에 휴대폰 번호가 있거나 `buyer`가 휴대폰 번호면 읽기 오류다(아래 "판매자가 적는 칸의 휴대폰 번호", S04 마무리 D-079·D-080 — D-073의 "숫자만 모은 것이 번호 모양" 판단은 쓰지 않는다). 옵션 방송만(O1, R-19): `qty`(1 이상 `claim.maxQuantity` 이하 정수, 기본 1), `options`(항목 이름 → 선택지 `label` — 그 상품이 있으면 모든 항목, 없으면 쓰지 않는다) |
 | `host.cancel` / `host.reject` / `host.promote` | `b`, `no`, `buyer`, `reason` | `options`(O1 — 옵션 상품의 변형 고르기, R-19) |
 | `host.confirm` / `host.approveCancel` / `host.dismissCancel` | `b`, `no`, `buyer` | `reason`, `options`(O1 — 변형 고르기) |
 | `host.assign` | `b`, `no`, `buyer`, `reason` | `replace`(구매자 키 — 교체할 지금 1등), `replaceTo`(`WAITLIST`/`CANCEL`). 둘은 함께 쓴다(하나만 있으면 읽기 오류. 엔진에서도 입력 오류, D-065). 옵션 방송만(O1, R-19): `qty`(1 이상 `claim.maxQuantity` 이하, 기본 1), `options`(옵션 상품이면 모든 항목) |

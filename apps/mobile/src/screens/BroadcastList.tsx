@@ -2,11 +2,16 @@
 // 홈에는 최근 4개만 흰 카드 하나에, [모두보기]는 쌓인 화면 — 날짜마다 흰 카드를 나눈다.
 // 서버 목록은 오래된 순이라 여기서 뒤집어 최근 것을 위로 둔다 — 진행 중 방송도 가장 최근 것을 고른다.
 // 리허설 방송은 앱 어디에도 보이지 않는다 (D-UX3-86) — 예전에 만든 것도 목록에서 뺀다.
+// 라이브 합치기 (D-MERGE-LIVE-01·03, 판매자 요청 2026-11-17 "하루에 1차, 2차 이렇게 끊어서 방송하는 경우 … 정산할 때 정보가 파편화"):
+// 지난 라이브 머리 오른쪽 [합치기] → 같은 날 끝난 라이브를 골라 정산서 하나로. 합친 라이브 줄에는 "합침 · 1차" 꼬리표 — 어느 줄을 눌러도 합친 정산서가 열린다.
+import { useState } from 'react'
 import { ScrollView, View } from 'react-native'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
-import { EmptyFill, AppHeader, Icon, RowGroup, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { EmptyFill, AppHeader, HeaderTextButton, Icon, RowGroup, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
+import { MERGE_BUTTON, MERGED_TAG, mergeable, roundOf, useBroadcastGroups } from '../lib/broadcast-groups.ts'
+import { MergeLivesSheet } from './console/MergeLives.tsx'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 import { formatWon } from '../lib/words.ts'
@@ -107,7 +112,12 @@ export function pastBroadcasts(items: readonly BroadcastItem[]): BroadcastItem[]
 }
 
 /** 홈과 모두보기에서 같은 지난 라이브 행을 쓴다. */
-export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastItem; readonly now: number; readonly onPress: () => void }) {
+/** 합친 뒤 목록 위 한 줄 */
+export const MERGED_DONE = '합쳤어요. 어느 라이브를 눌러도 합친 정산서가 열려요.'
+
+export function HistoryRow({ item, now, onPress, round = null }: { readonly item: BroadcastItem; readonly now: number; readonly onPress: () => void
+  /** 합친 라이브의 차례 ("1차") — 없으면 꼬리표가 없다 (D-MERGE-LIVE-03) */
+  readonly round?: string | null }) {
   const { p } = useKit()
   const platform = item.platforms?.[0]
   const [, month, day] = item.date.split('-')
@@ -119,7 +129,7 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
   const sales = item.salesTotal == null ? '확인 필요' : formatWon(item.salesTotal)
   const sub = historyAgo(item.endedAt ?? item.createdAt, now) ?? ''
   return (
-    <Tap role="button" aria-label={`${title} — ${sub} · 총매출 ${sales} · ${counts}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={`${title}${round === null ? '' : ` · ${MERGED_TAG} ${round}`} — ${sub} · 총매출 ${sales} · ${counts}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       {platform === undefined ? (
         <View aria-hidden style={{ width: 34, height: 34, borderRadius: 34 * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
           <Icon name="play" color={p.textSub} size={18} />
@@ -128,9 +138,18 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
         <PlatformIcon platform={platform} size={34} />
       )}
       <View style={{ flex: 1, gap: 1 }}>
-        <Txt step="nav" weight="bold" numberOfLines={1}>
-          {title}
-        </Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
+          <View style={{ flexShrink: 1 }}>
+            <Txt step="nav" weight="bold" numberOfLines={1}>
+              {title}
+            </Txt>
+          </View>
+          {round === null ? null : (
+            <View testID={`merged-${item.id}`} style={{ paddingHorizontal: SPACE.sm, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.goldBg }}>
+              <Txt step="note" weight="bold" ink={p.goldText}>{`${MERGED_TAG} · ${round}`}</Txt>
+            </View>
+          )}
+        </View>
         {sub === '' ? null : (
           <Txt step="meta" color="textSub" numberOfLines={1}>
             {sub}
@@ -145,6 +164,17 @@ export function HistoryRow({ item, now, onPress }: { readonly item: BroadcastIte
   )
 }
 
+/** 같은 날 끝난 실제 라이브가 둘 이상인 날이 있나 (합치기 단추를 보일지) */
+export function hasSameDayPair(items: readonly BroadcastItem[]): boolean {
+  const seen = new Set<string>()
+  for (const item of items) {
+    if (!mergeable(item)) continue
+    if (seen.has(item.date)) return true
+    seen.add(item.date)
+  }
+  return false
+}
+
 /** 모든 방송 (쌓인 화면) — 홈 '내 방송'과 같은 줄 모양으로 지난 방송 모두, 최근 것이 위 (D-UX3-88) */
 export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { readonly onOpen: (id: string) => void; readonly onBack: () => void; readonly now?: number }) {
   const { p } = useKit()
@@ -154,9 +184,14 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
   const items = data?.broadcasts ?? null
   const error = loadError === null ? null : loadError.message
   const past = items === null ? [] : pastBroadcasts(items)
+  const { groups } = useBroadcastGroups()
+  const [merging, setMerging] = useState(false)
+  const [done, setDone] = useState(false)
+  // 같은 날 끝난 라이브가 2개 이상일 때만 [합치기]
+  const canMerge = items !== null && hasSameDayPair(items)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="all-broadcasts">
-      <AppHeader title="지난 라이브" onBack={onBack} />
+      <AppHeader title="지난 라이브" onBack={onBack} right={canMerge ? <HeaderTextButton label={MERGE_BUTTON} testID="merge-open" onPress={() => { setDone(false); setMerging(true) }} /> : undefined} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl + room, gap: SPACE.md }}>
         {items === null && error === null ? <Loading /> : null}
         {error !== null ? (
@@ -168,16 +203,18 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
         <Late style={{ flexGrow: 1 }}>
           {items !== null && past.length === 0 ? <EmptyFill title="아직 지난 라이브가 없어요" body="라이브를 끝내면 여기에 모여요" /> : null}
         </Late>
+        {done ? <Txt color="textSub" role="status">{MERGED_DONE}</Txt> : null}
         <Late>
           {past.length > 0 ? (
             <RowGroup label="지난 라이브">
               {past.map((item) => (
-                <HistoryRow key={item.id} item={item} now={now} onPress={() => onOpen(item.id)} />
+                <HistoryRow key={item.id} item={item} now={now} round={roundOf(groups, item.id)} onPress={() => onOpen(item.id)} />
               ))}
             </RowGroup>
           ) : null}
         </Late>
       </ScrollView>
+      {items !== null ? <MergeLivesSheet visible={merging} items={items} groups={groups} onClose={() => setMerging(false)} onMerged={() => { setMerging(false); setDone(true) }} /> : null}
     </View>
   )
 }

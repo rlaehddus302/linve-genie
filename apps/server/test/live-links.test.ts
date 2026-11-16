@@ -190,7 +190,8 @@ describe('AC-N2-04 어댑터 모양', () => {
     // 합친 뒤(N2 + N2b-1): 틱톡 연결 모듈은 따로 묶음 src/tiktok/**에만 있고(D-N2b-1-08), N2b-2의 서버 연결은 src/tiktok-live/**에 있다(바꾼 기존 시험, dev-notes).
     // 플랫폼 공통 어댑터(LiveSource·ThanksSender)의 틱톡 구현은 없다 — 틱톡은 라이브 찾기 없이 잇기 = 바로 연결, 감사는 보내지 않는다(D-N2b-2-05·09)
     const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true }).map(String)
-    expect(files.filter((file) => /tiktok/i.test(file) && !/^tiktok(-live)?([\\/]|$)/.test(file))).toEqual([])
+    // D-TT-SEND-01~08: 틱톡 봇 로그인 명령(commands/tiktok-bot.ts)은 운영자 명령 묶음에 둔다 — 그 밖에는 여전히 틱톡 파일이 없다
+    expect(files.filter((file) => /tiktok/i.test(file) && !/^tiktok(-live)?([\\/]|$)/.test(file) && !/^commands[\\/]tiktok-bot\.ts$/.test(file))).toEqual([])
     for (const file of files.filter((name) => /^tiktok(-live)?[\\/].+\.ts$/.test(name))) {
       const code = readFileSync(new URL(`../src/${file.replaceAll('\\', '/')}`, import.meta.url), 'utf8')
       expect(code, file).not.toMatch(/\b(LiveSource|ThanksSender)\b/)

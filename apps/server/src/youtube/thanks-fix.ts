@@ -114,7 +114,7 @@ export function planFix(state: EngineState, posted: PostedThanks): FixPlan | nul
     }
     const product = products.get(claim.product)
     const buyer = getBuyer(state, claim.buyer)
-    const names = claim.origin === 'sms' || buyer?.kind === 'sms' ? ['문자찜'] : buyer === null ? [] : [buyer.display, ...buyer.nameHistory]
+    const names = (claim.origin === 'sms' && claim.named !== true) || buyer?.kind === 'sms' ? ['문자찜'] : buyer === null ? [] : [buyer.display, ...buyer.nameHistory]
     const tail = thanksTail(old, names)
     if (product === undefined || tail === null) {
       // 고칠 값을 정할 수 없다 — 올린 문구 그대로 둔다(이름 자리를 짐작하지 않는다)

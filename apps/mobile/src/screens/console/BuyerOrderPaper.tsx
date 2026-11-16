@@ -11,12 +11,15 @@
 // - 배송비는 정산 정보에서 정한 규칙대로(정수 원). 받지 않으면 줄 자체가 없다. 계좌·전화번호를 넣지 않았으면 그 줄을 뺀다.
 // - 단추는 좌우 한 줄(D-UX4-01): 왼쪽 [사진 저장] · 오른쪽 [문자 보내기]. 연속 보내기(D-RETRO-64)에서는 왼쪽 [건너뛰기] · 오른쪽 [문자 보내기].
 // - 손님 전화번호·계좌번호는 기록(로그)에 남기지 않는다. 손님 닉네임은 글자(Txt)로만 그린다.
+// - 합친 라이브(D-MERGE-LIVE-01): 번호는 라이브마다 다시 쓰여 "1차 12번"·"2차 12번"으로 가른다(화면·사진·문자 글 모두). 배송비는 합친 정산서 한 장에 한 번.
+//   다른 정산서(합치기·나누기 전)를 먼저 받은 손님이면 단추 위에 알린다(D-MERGE-LIVE-04) — 같은 상품 값을 두 번 청구하지 않게.
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { ScrollView, View, useWindowDimensions } from 'react-native'
 import Svg, { G as SvgGroup, Line, Rect, Text as SvgText } from 'react-native-svg'
 import { wrap, snapshot } from './paper-image.ts'
 import { isApiError, newRequestId } from '../../api/client.ts'
-import { type BuyerOrder, type SaleLine, type StatementInfo, salesMoney, statementAccount, statementTotals } from '../../lib/broadcast-sales.ts'
+import { type BuyerOrder, type SaleLine, type StatementInfo, lineNoWord, salesMoney, statementAccount, statementTotals } from '../../lib/broadcast-sales.ts'
+import { EARLIER_NOTE, EARLIER_TITLE } from '../../lib/broadcast-groups.ts'
 import { prepareSms, SHEET_GAP_MS, wait } from '../../lib/receipt-sms-flow.ts'
 import { nativeSms, nativeShareFile } from '../../native/index.ts'
 import { BigButton, BottomSheet, ButtonRow, SmallButton, TextField, Txt, useKit } from '../../ui/kit/index.ts'
@@ -104,9 +107,9 @@ function Money({ amount, total = false }: { readonly amount: number | null; read
 function LineRow({ line }: { readonly line: SaleLine }) {
   const { p } = useKit()
   const name = lineName(line)
-  return <View role="listitem" testID="statement-line" aria-label={`${line.no}번 ${name} ${line.qty}개 ${salesMoney(line.amount)}`} style={ROW}>
+  return <View role="listitem" testID="statement-line" aria-label={`${lineNoWord(line)} ${name} ${line.qty}개 ${salesMoney(line.amount)}`} style={ROW}>
     <View aria-hidden style={{ minWidth: 40, height: 28, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start', marginTop: 1 }}>
-      <Txt step="caption" weight="medium" color="textSub">{`${line.no}번`}</Txt>
+      <Txt step="caption" weight="medium" color="textSub">{lineNoWord(line)}</Txt>
     </View>
     <View style={{ flex: 1 }}><Txt step="bodyLarge" weight="medium">{name}</Txt></View>
     <Txt step="body" color="textSub">{`${line.qty}개`}</Txt>
@@ -130,8 +133,10 @@ export interface SendQueue {
   readonly last: boolean
 }
 
-export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, rehearsal, info, queue, onSent }: {
+export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, rehearsal, info, queue, onSent, earlier = false }: {
   order: BuyerOrder; shop: string; date: string; buyerName: string; inset: number; sealed: boolean; rehearsal: boolean
+  /** 다른 정산서(합치기·나누기 전)를 먼저 받은 손님 (D-MERGE-LIVE-04) */
+  earlier?: boolean
   /** 정산 정보 — 계좌·전화번호·방송 이름·배송비 규칙 */
   info: StatementInfo
   queue?: SendQueue | undefined
@@ -242,7 +247,7 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
   // 화면 내용 전체 (D-UX4-183: 화면은 장으로 나누지 않고 모든 줄을 보인다)
   const label = [
     `${shop} 정산서`, host, buyerWord, dateWord,
-    order.lines.map(line => `${line.no}번 ${lineName(line)} ${line.qty}개 ${salesMoney(line.amount)}`).join(', '),
+    order.lines.map(line => `${lineNoWord(line)} ${lineName(line)} ${line.qty}개 ${salesMoney(line.amount)}`).join(', '),
     ...(charged ? [`배송비 ${shippingWord}`] : []), `총 ${order.qty}개 ${salesMoney(total)}`, ...(account === null ? [] : [`계좌 ${account}`]), ...(sellerPhone === '' ? [] : [`전화번호 ${sellerPhone}`]),
   ].filter(part => part !== '').join('. ')
   const smsLabel = pages.length > 1 ? '이 장 문자 보내기' : '문자 보내기'
@@ -287,6 +292,10 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
       </View>
     </View>}
     <View style={{ width: displayWidth, gap: SPACE.sm }}>
+      {earlier ? <View testID="statement-earlier" role="alert" style={{ gap: 2, padding: SPACE.md, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surface }}>
+        <Txt weight="bold" color="warnText">{EARLIER_TITLE}</Txt>
+        <Txt step="meta" color="textSub">{EARLIER_NOTE}</Txt>
+      </View> : null}
       {queue !== undefined && !rehearsal ? (
         // 연속 보내기: 왼쪽은 넘어가기(건너뛰기 · 다시 보내기), 오른쪽은 다음으로 가는 일
         opened ? <ButtonRow>
@@ -323,7 +332,7 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
         {page.map(({ line, words, y, height: rowHeight }) => {
           const mid = start + y + rowHeight / 2 + 5
           return <SvgGroup key={line.key}>
-            {ink(String(line.no), MID.no, mid, 14, false, 'middle')}
+            {ink(line.round ? `${line.round} ${String(line.no)}` : String(line.no), MID.no, mid, line.round ? 13 : 14, false, 'middle')}
             {words.map((word, i) => ink(word, MID.name, mid - (words.length - 1) * 9 + i * 18, 14, false, 'middle'))}
             {ink(String(line.qty), MID.qty, mid, 14, false, 'middle')}
             {price(line.amount, mid)}

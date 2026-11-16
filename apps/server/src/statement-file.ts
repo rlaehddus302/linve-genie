@@ -6,13 +6,14 @@ import { BuyerNames } from '../../web/src/lib/derive.ts'
 import { broadcastSales, statementColumns, statementRows, type StatementTab } from '../../web/src/lib/broadcast-sales.ts'
 import { orderCsv } from './orders.ts'
 
-export async function statementFile(view: FullView, broadcast: string, shop: string, tab: StatementTab, format: 'csv' | 'xlsx', hideSuffix: boolean) {
+/** broadcasts: 정산서에 담을 라이브 — 합친 라이브(D-MERGE-LIVE-01)면 묶음의 라이브 모두(그날 시작 순서), 번호 칸은 "1차 12" */
+export async function statementFile(view: FullView, broadcasts: string | readonly string[], shop: string, tab: StatementTab, format: 'csv' | 'xlsx', hideSuffix: boolean) {
   const data = fromFull(view)
-  const sales = broadcastSales(data.claims, data.products, broadcast)
+  const sales = broadcastSales(data.claims, data.products, broadcasts)
   const names = new BuyerNames(data.buyers, data.claims, hideSuffix)
   const cols = statementColumns(tab)
   const lines = statementRows(sales, tab, id => names.name(id)).map(row => [
-    ...(row.no === null ? [] : [row.no]), row.label, row.money ?? '금액 확인 필요', row.qty,
+    ...(row.no === null ? [] : [row.round ? `${row.round} ${String(row.no)}` : row.no]), row.label, row.money ?? '금액 확인 필요', row.qty,
   ])
   const mode = tab === 'buyers' ? '구매자별' : '상품별'
   const totals = ['총계', ...(tab === 'products' ? [''] : []), sales.total ?? '금액 확인 필요', sales.qty]

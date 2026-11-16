@@ -16,8 +16,41 @@ const MAX_NUMBER_DIGITS = 4
 const SEPARATORS = new Set([' ', ',', '/', '·', '.', '&', '+'])
 /** 번호 사이의 이음말 (R-3 문법, D-CHAT-JOIN-01 — "418. 하고94. 번주세요"). 뒤에 번호가 이어질 때만 구분자다. 같은 자리에서 가장 긴 말을 쓴다. */
 const JOIN_WORDS = byLengthDesc(['하고', '하구', '그리고', '이랑', '랑', '와', '과', '및'])
+/** "저요" 말 (R-3 문법, D-CHAT-ME-01 — 손님 "2번 저요"·"ㅈㅇ"를 놓쳤다): 꼬리말이면서 번호 앞에도 온다("저요 2번") */
+const ME_WORDS = ['저요', '저여', '저용', '제가요', '제꺼요', 'ㅈㅇ', 'ㅈㅅㅇ']
 /** 주문 꼬리말 (R-3 문법). 같은 자리에서 가장 긴 말을 쓴다. */
-const CLAIM_WORDS = byLengthDesc(['이요', '요', '여', '찜', '찜이요', '찜할게요', '주세요', '할게요', '구매', '구매요', '구매합니다'])
+const CLAIM_WORDS = byLengthDesc(['이요', '요', '여', '찜', '찜이요', '찜할게요', '주세요', '주세여', '주세용', '할게요', '구매', '구매요', '구매합니다', ...ME_WORDS])
+/** 번호 앞에 오는 "저요" 말 (R-3 문법 `[앞말]`, skipLead). 길이 내림차순 */
+const LEAD_ME_WORDS = byLengthDesc(ME_WORDS)
+/**
+ * 덧붙인 말 주문(D-CHAT-ME-01)의 "또렷한 주문 말": 번호 바로 뒤 꼬리말 중 `이요`·`요`·`여`와 이름씨 `찜`·`구매`를 뺀 것.
+ * `요`·`여` 하나는 수다 속에서 주문 뜻이 약하고("그거 15번요 예뻐요"), `찜`·`구매`는 남의 찜 이야기에도 쓴다("26번 찜 축하해요").
+ */
+const CLEAR_CLAIM_WORDS = byLengthDesc(CLAIM_WORDS.filter((word) => !['이요', '요', '여', '찜', '구매'].includes(word)))
+/**
+ * 덧붙인 말 주문을 막는 말(D-CHAT-ME-01): 메시지 어디든 들어 있으면 주문이 아니다(언급). 오인 주문이 놓친 주문보다 위험하다(D-006).
+ * 부정·취소, 질문, 지난 일(산 뒤 이야기), 나중·바꾸기, 수량·다른 것.
+ */
+const CHATTER_BLOCK_WORDS = [
+  // 부정·취소
+  '취소', '패스', '아니', '아닌', '아님', '아뇨', '말고', '대신', '빼고', '제외', '포기', '못', '없', '놓쳤', '늦었',
+  '안 사', '안사', '안 살', '안살', '안 할', '안할', '안 해', '안해', '안 돼', '안돼', '안 되', '안되',
+  // 질문
+  '얼마', '가격', '몇', '뭐', '무슨', '어떤', '어떻', '어때', '언제', '어디', '누구', '누가', '혹시', '있나', '있을까', '되나', '될까', '가능', '맞나', '맞죠',
+  '인가', '인지', '나요', '까요', '는지', '건가', '거죠', '냐',
+  // 지난 일
+  '샀', '받았', '했', '었', '았', '였', '셨',
+  // 남 이야기·남에게 하는 말·옮긴 말
+  '하시', '하신', '하세요', '계세', '계신', '축하', '부러', '부럽', '하는', '하면', '하라', '라고', '래요', '대요', '돼',
+  // 나중·바꾸기
+  '다음', '나중', '이따', '내일', '바꿔', '바꿀', '바꾸', '변경', '교환', '환불', '반품',
+  // 수량·다른 것·값 (`원`은 값 이야기, `개`는 수량)
+  '하나 더', '하나더', '한개', '한 개', '두개', '두 개', '세개', '세 개', '네개', '네 개', '둘', '셋', '더 주세요', '더주세요', '다른', '째', '개', '원',
+]
+/** 덧붙인 말 주문에서 막지 않는 문장 부호: , . · … " ' ( ) */
+const CHATTER_PUNCTUATION: ReadonlySet<number> = new Set([...',.·…"\'()'].map((char) => char.codePointAt(0) as number))
+/** 덧붙인 말 주문에서 막지 않는 한글 호환 자모: 꼬리 기호 ㅎ ㅋ와 "저요" 말 ㅈㅇ·ㅈㅅㅇ (그 밖의 ㅠ ㅜ ㄴ ㅇ 등은 막는다) */
+const CHATTER_JAMO_WORDS = byLengthDesc(['ㅈㅅㅇ', 'ㅈㅇ'])
 /** 패스 말 (R-3 "패스", D-RETRO-113): 손님이 자기 찜을 거두는 말. 번호와 함께면 취소 말과 같고, 혼자면 isBarePass */
 const PASS_WORDS = ['패스', '패스요', '패스할게요', '패스합니다', '패스해요', '패스 할게요', '패스 합니다', '패스 해요']
 /** 취소 말 (R-3 취소 문법) */
@@ -196,12 +229,38 @@ function scanTail(s: string, start: number, isVisibleTail: (codePoint: number) =
   }
 }
 
-/** 주문 문법 `[찜] 번호목록 [꼬리말] [꼬리 기호]`에 맞는 맨 앞 부분들. 번호 목록은 parts의 count로 자른다. */
+/** i부터 꼬리 기호(주문 꼬리)를 가장 길게 건너뛴 자리. 없으면 i 그대로 */
+function skipClaimTail(s: string, i: number): number {
+  let end = i
+  scanTail(s, i, isVisibleClaimTail, (tailEnd) => {
+    end = tailEnd
+  })
+  return end
+}
+
+/**
+ * i부터 번호 앞 말 `[찜] ("저요" 말)*`을 건너뛴 자리(D-CHAT-ME-01). `찜`은 맨 앞 한 번만("찜찜"은 다른 뜻)이고 뒤에 공백 하나만 와도 된다(`찜 15`).
+ * "저요" 말은 여러 번 와도 되고 말마다 뒤에 꼬리 기호와 공백 하나가 와도 된다(`저요! 2번`, `저요저요 2`). 앞 말이 없으면 i 그대로
+ */
+function skipLead(s: string, i: number, jjim = true): number {
+  const after = (at: number): number => {
+    const end = skipClaimTail(s, at)
+    return s[end] === ' ' ? end + 1 : end
+  }
+  let at = i
+  if (jjim && s.startsWith('찜', i)) at = s[i + 1] === ' ' ? i + 2 : i + 1
+  for (;;) {
+    const word = longestWordAt(s, at, LEAD_ME_WORDS)
+    if (word === undefined) return at
+    at = after(at + word.length)
+  }
+}
+
+/** 주문 문법 `[앞말] 번호목록 [꼬리말] [꼬리 기호]`에 맞는 맨 앞 부분들. 번호 목록은 parts의 count로 자른다. */
 function scanClaim(s: string): { numbers: number[]; parts: PartEnd[] } {
   const numbers: number[] = []
   const parts: PartEnd[] = []
-  let i = 0
-  if (s.startsWith('찜')) i = s[1] === ' ' ? 2 : 1
+  let i = skipLead(s, 0)
   for (;;) {
     const token = readNumber(s, i)
     if (token === undefined) break
@@ -300,6 +359,91 @@ function endsWithSignal(s: string, picked: PartEnd, parts: readonly PartEnd[], i
   return hasEndSignal(s, picked.end, isVisibleTail) || (longest !== picked.end && hasEndSignal(s, longest, isVisibleTail))
 }
 
+// ── 덧붙인 말 주문 (R-3 세부 "덧붙인 말", D-CHAT-ME-01) ───────────────────
+
+const isHangulSyllable = (s: string, i: number): boolean => {
+  const code = s.charCodeAt(i)
+  return code >= 0xac00 && code <= 0xd7a3
+}
+const isAsciiLetter = (s: string, i: number): boolean => {
+  const code = s.charCodeAt(i) | 0x20
+  return code >= 0x61 && code <= 0x7a
+}
+
+/** 낱말이 i에서 끝났다고 볼 수 있는가: 메시지 끝이거나 다음 글자가 한글 음절·숫자·로마자가 아니다 */
+function wordEndsAt(s: string, i: number): boolean {
+  return i >= s.length || !(isHangulSyllable(s, i) || isDigitAt(s, i) || isAsciiLetter(s, i))
+}
+
+/** i에서 끝난 주문 말 뒤에 이어지는 꼬리 기호·꼬리말(`저요저요`, `주세요 ㅈㅇ`)을 건너뛴 자리 */
+function skipClaimRest(s: string, i: number): number {
+  let at = i
+  for (;;) {
+    const tailEnd = skipClaimTail(s, at)
+    const wordAt = s[tailEnd] === ' ' ? tailEnd + 1 : tailEnd
+    const word = longestWordAt(s, wordAt, CLAIM_WORDS)
+    if (word === undefined) return tailEnd
+    at = wordAt + word.length
+  }
+}
+
+/**
+ * 메시지 어딘가에 또렷한 주문 부분이 있는가 (D-CHAT-ME-01):
+ * (가) 번호 + [공백 하나] + 또렷한 주문 말(`26번 저요`, `26 주세요`) 또는 (나) 낱말 첫머리의 "저요" 말 + 번호(`저요 26번`, `ㅈㅇ 26` — `찜 26`은 아님).
+ * 어느 쪽이든 그 부분(뒤따르는 꼬리말·꼬리 기호 포함)이 낱말 끝에서 끝나야 한다(`26번 주세요오`·`저요 2개` → 아님).
+ * 앞에서부터 한 번 훑는다 — 자리마다 짧은 말 맞추기만 해서 길이에 비례하는 시간이다.
+ */
+function hasClearClaimPart(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    if (isDigitAt(s, i) && !isDigitAt(s, i - 1)) {
+      const token = readNumber(s, i)
+      if (token === undefined) continue
+      const wordAt = s[token.end] === ' ' ? token.end + 1 : token.end
+      const word = longestWordAt(s, wordAt, CLEAR_CLAIM_WORDS)
+      if (word !== undefined && wordEndsAt(s, skipClaimRest(s, wordAt + word.length))) return true
+      continue
+    }
+    if (i > 0 && isHangulSyllable(s, i - 1)) continue
+    const at = skipLead(s, i, false)
+    if (at === i) continue
+    const token = readNumber(s, at)
+    if (token !== undefined && wordEndsAt(s, skipClaimRest(s, token.end))) return true
+    // 앞말 사슬 안의 뒷자리에서 다시 시작해도 같은 자리에서 끝난다 — 건너뛰어 길이에 비례하는 시간을 지킨다(놓치는 쪽으로만 틀린다)
+    i = at - 1
+  }
+  return false
+}
+
+/**
+ * 덧붙인 말 주문을 막는 것이 메시지 어디든 있는가 (D-CHAT-ME-01). 막는 말이 있거나, 아래 밖의 글자가 하나라도 있으면 막는다:
+ * 한글 음절, 숫자, 공백, 주문 꼬리 기호(허용 목록 그림 이모지·수식 문자 포함), ㅈㅇ·ㅈㅅㅇ, 문장 부호 `,` `.` `·` `…` `"` `'` `(` `)`.
+ * 그래서 질문 기호·`@`(남 부르기)·ㅠ ㅜ ㄴㄴ ㅇㅇ 같은 자모·목록 밖 그림 이모지(❌ 😭 🤔)·로마자·`%` `#` `=`·보이지 않는 글자는 모두 막는다.
+ * 보이지 않는 글자·수식 문자로 쪼갠 숫자도 막는다.
+ */
+function hasChatterBlock(s: string): boolean {
+  if (CHATTER_BLOCK_WORDS.some((word) => s.includes(word))) return true
+  for (let i = 0; i < s.length; ) {
+    const codePoint = s.codePointAt(i) as number
+    if (codePoint >= 0x3131 && codePoint <= 0x318e) {
+      const word = longestWordAt(s, i, CHATTER_JAMO_WORDS)
+      if (word !== undefined) {
+        i += word.length
+        continue
+      }
+    }
+    if (isDigitAt(s, i)) {
+      // 보이지 않는 글자·수식 문자로 쪼갠 숫자(`2`·U+FE0F·`2 주세요`)는 같은 번호 되풀이가 아니라 번호 하나다 — 막는다
+      let at = i + 1
+      while (at < s.length && isInvisible(s.codePointAt(at) as number)) at += (s.codePointAt(at) as number) > 0xffff ? 2 : 1
+      if (at > i + 1 && isDigitAt(s, at)) return true
+    }
+    const ok = isDigitAt(s, i) || isHangulSyllable(s, i) || codePoint === 0x20 || CHATTER_PUNCTUATION.has(codePoint) || isClaimTailChar(codePoint)
+    if (!ok) return true
+    i += codePoint > 0xffff ? 2 : 1
+  }
+  return false
+}
+
 // ── 옵션 방송 인식(R-20)이 함께 쓰는 도구 ─────────────────────────────────
 
 /** 주문 꼬리말 (R-3 문법) — 길이 내림차순. 옵션 댓글 인식(R-20 4-3)의 끝 꼬리말 */
@@ -327,15 +471,15 @@ const result = (claims: number[], cancels: number[], mentions: number[]): ChatPa
 
 /** 채팅 메시지 → 주문·취소·언급 (R-3, D-028). 어떤 문자열에도 예외를 던지지 않는다. */
 export function parseChat(text: string, settings: SettingsOverride = {}): ChatParseResult {
-  return readChat(text, settings, true)
+  return readChat(text, settings, true, true)
 }
 
-/** 손님 문자 읽기(R-26, sms-text)가 쓰는 R-3 — "패스" 말을 취소로 보지 않는다(문자의 "775 패스"는 지금처럼 확인 필요, D-RETRO-113) */
+/** 손님 문자 읽기(R-26, sms-text)가 쓰는 R-3 — "패스" 말을 취소로 보지 않는다(문자의 "775 패스"는 지금처럼 확인 필요, D-RETRO-113). 덧붙인 말 주문(D-CHAT-ME-01)도 없다 */
 export function parseChatWithoutPass(text: string, settings: SettingsOverride = {}): ChatParseResult {
-  return readChat(text, settings, false)
+  return readChat(text, settings, false, false)
 }
 
-function readChat(text: string, settings: SettingsOverride, pass: boolean): ChatParseResult {
+function readChat(text: string, settings: SettingsOverride, pass: boolean, chatter: boolean): ChatParseResult {
   const config = resolveSettings(settings)
   const maxNumber = config['claim.maxNumber']
   const loose = config['claim.parseMode'] === 'LOOSE'
@@ -373,6 +517,11 @@ function readChat(text: string, settings: SettingsOverride, pass: boolean): Chat
         if (multi !== 'IGNORE' || unique.length === 1) return result(unique, [], [])
       }
     }
+
+    // 덧붙인 말 주문 (D-CHAT-ME-01 — "26번 저요, 예쁘네요 26번"을 놓쳤다): 문법 밖 메시지라도 번호가 한 가지뿐이고(5자리 이상 숫자도 없음)
+    // 또렷한 주문 부분이 있고 막는 것이 없으면 그 번호 주문이다. 채팅만(옵션 방송 R-20 2도 이 결과를 먼저 쓴다) — 손님 문자 읽기(R-26)는 지금처럼 확인 필요.
+    const single = uniqueInOrder(numberValues)
+    if (chatter && single.length === 1 && runs.every((run) => run.end - run.start <= MAX_NUMBER_DIGITS) && hasClearClaimPart(s) && !hasChatterBlock(s)) return result(single, [], [])
   }
 
   // 언급: 금액 덩어리가 아닌 1~4자리 숫자 덩어리 중 범위 안의 값

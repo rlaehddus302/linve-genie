@@ -6,6 +6,7 @@ import { LINE, RADIUS, SPACE, TOUCH, TYPE, WEIGHT } from './tokens.ts'
 import { Txt, useKit } from './theme.tsx'
 import { font } from './font.ts'
 import { Tap } from './press.tsx'
+import { HandwritingButton, HandwritingSheet } from './handwriting.tsx'
 
 export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'aria-label' | 'accessibilityLabel'> {
   /** 칸 위의 큰 라벨 — 무엇을 적는지 */
@@ -79,6 +80,17 @@ export interface UnderlineFieldProps extends Omit<TextInputProps, 'style' | 'ari
   readonly unit?: string
   /** 칸이 비었을 때 오른쪽에 붙는 조각 ([붙여넣기] 등) — 값이 있으면 [지우기]가 그 자리 */
   readonly trailing?: ReactNode
+  /**
+   * 오른쪽 [손글씨] 단추 (D-HANDWRITE-01): 누르면 손가락으로 숫자를 쓰는 판이 열리고, [넣기]로 칸 값을 바꾼다.
+   * 기본: 숫자 칸(keyboardType number-pad·numeric·decimal-pad·phone-pad 또는 inputMode numeric·decimal·tel)이면 켜짐. false로 끈다.
+   */
+  readonly handwriting?: boolean
+}
+
+/** 숫자 칸인가 — 손글씨 단추를 기본으로 붙인다 (D-HANDWRITE-01) */
+export function isDigitField(input: Pick<TextInputProps, 'keyboardType' | 'inputMode' | 'secureTextEntry'>): boolean {
+  if (input.secureTextEntry === true) return false
+  return ['number-pad', 'numeric', 'decimal-pad', 'phone-pad'].includes(input.keyboardType ?? '') || ['numeric', 'decimal', 'tel'].includes(input.inputMode ?? '')
 }
 
 /**
@@ -88,7 +100,7 @@ export interface UnderlineFieldProps extends Omit<TextInputProps, 'style' | 'ari
  * - 예시 글(placeholder)이 있는 칸은 라벨을 늘 위에 두고 칸 안에 예시를 보인다(예: 빠른 입력 "예: 15 핑크프릴 10").
  * - 밑줄 하나(초점이면 초록, 잘못이면 빨강). 값이 있고 고칠 수 있으면 오른쪽에 동그란 [지우기] — 줄 안에 겹쳐 놓는다.
  */
-export function UnderlineField({ label, help, error, again, unit, trailing, onFocus, onBlur, placeholder, autoFocus, ...input }: UnderlineFieldProps) {
+export function UnderlineField({ label, help, error, again, unit, trailing, handwriting, onFocus, onBlur, placeholder, autoFocus, ...input }: UnderlineFieldProps) {
   const { p, fontScale, forced } = useKit()
   const inputRef = useRef<TextInputInstance>(null)
   const focusNow = useDeferredAutoFocus(inputRef, autoFocus === true)
@@ -114,6 +126,11 @@ export function UnderlineField({ label, help, error, again, unit, trailing, onFo
     Animated.timing(motion, { toValue: resting ? 0 : 1, duration: FIELD_LABEL_MS, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start()
   }, [resting, motion])
   const clearable = !empty && input.onChangeText !== undefined && input.editable !== false
+  // 손글씨 단추 (D-HANDWRITE-01) — 고칠 수 있는 숫자 칸만. 단추 폭을 재어 [지우기]를 그 왼쪽에 둔다
+  const pen = (handwriting ?? isDigitField(input)) && input.onChangeText !== undefined && input.editable !== false
+  const [penOpen, setPenOpen] = useState(false)
+  const [penWidth, setPenWidth] = useState(0)
+  const penRoom = pen ? penWidth + SPACE.sm : 0
   // 비어 있으면 눌러도 라벨은 기본 회색 (D-UX3-54, 사용자 지시 2026-11-07 "아무것도 입력하지 않았을 때 라벨 색깔 … 포인트 컬러가 아니라 그냥 회색 기본 색" — 옛 D-UX3-53은 누르면 초록)
   const accent = bad ? p.dangerText : resting ? p.placeholder : focused ? p.primaryText : p.textSub
   return (
@@ -146,8 +163,13 @@ export function UnderlineField({ label, help, error, again, unit, trailing, onFo
               {unit}
             </Txt>
           )}
+          {pen ? (
+            <View onLayout={(event) => setPenWidth(event.nativeEvent.layout.width)}>
+              <HandwritingButton label={label} onPress={() => setPenOpen(true)} />
+            </View>
+          ) : null}
           {clearable ? (
-            <View style={{ position: 'absolute', right: unit === undefined ? 0 : 40, top: 0, bottom: 0, justifyContent: 'center' }}>
+            <View style={{ position: 'absolute', right: (unit === undefined ? 0 : 40) + penRoom, top: 0, bottom: 0, justifyContent: 'center' }}>
               <ClearButton label={`${label} 지우기`} onPress={() => input.onChangeText?.('')} />
             </View>
           ) : empty && trailing !== undefined && trailing !== null ? (
@@ -178,6 +200,16 @@ export function UnderlineField({ label, help, error, again, unit, trailing, onFo
         </Txt>
       )}
       {bad ? <ErrorLine>{error}</ErrorLine> : null}
+      {pen ? (
+        <HandwritingSheet
+          visible={penOpen}
+          onClose={() => setPenOpen(false)}
+          label={label}
+          onInsert={(text) => input.onChangeText?.(text)}
+          {...(input.maxLength === undefined ? {} : { maxLength: input.maxLength })}
+          {...(unit === undefined ? {} : { unit })}
+        />
+      ) : null}
     </Animated.View>
   )
 }

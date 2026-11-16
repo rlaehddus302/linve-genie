@@ -108,6 +108,11 @@ export type ErrorCode =
   | 'UNAVAILABLE'
   // N4a 라벨 기능 끄기 (LABEL_RULES L-13 5)
   | 'LABELS_OFF'
+  // 라이브 합치기 (D-MERGE-LIVE-01): 끝나지 않음 · 날짜가 다름 · 연습 라이브 · 같은 요청 번호의 묶음이 이미 바뀜
+  | 'NOT_ENDED'
+  | 'OTHER_DAY'
+  | 'REHEARSAL'
+  | 'GROUP_CHANGED'
   // I2 API (harness/sprints/I2/dev-notes.md)
   | 'NO_ITEMS'
   | 'AMOUNT_MISMATCH'

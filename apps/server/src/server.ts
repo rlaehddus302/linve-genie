@@ -47,7 +47,7 @@ import type { LiveTimer } from './instagram/notices.ts'
 import { createWebhookApp } from './instagram/routes.ts'
 import { SellerLocks } from './seller-locks.ts'
 import { routeThanks } from './thanks-route.ts'
-import { libraryWebcast, type ShortLinkResolver, type TikTokAttemptLimiter, type TikTokClock, type TikTokSettings, type WebcastFactory } from './tiktok/index.ts'
+import { libraryWebcast, type ShortLinkResolver, type TikTokAttemptLimiter, type TikTokAvatarFetch, type TikTokClock, type TikTokSettings, type WebcastFactory } from './tiktok/index.ts'
 import { TikTokLive } from './tiktok-live/live.ts'
 import { TikTokExtension } from './tiktok-live/extension.ts'
 import { OwnThanks } from './tiktok-live/thanks/own.ts'
@@ -235,6 +235,8 @@ export interface ServerOptions {
     readonly noticeVersion?: string
     /** 짧은 공유 링크 풀기 (시험·E2E는 가짜 — 틱톡에 나가지 않게, D-UX3-14) */
     readonly shortLinks?: ShortLinkResolver
+    /** 틱톡 프로필 사진 받기 (시험은 가짜 — 틱톡에 나가지 않게, D-TT-PHOTO-01) */
+    readonly avatarFetch?: TikTokAvatarFetch
   }
   /**
    * 틱톡 감사 채팅 (D-TT-SEND-01~). 없으면 꺼짐 — 틱톡 구매자 감사는 지금처럼 건너뜀(NOT_SUPPORTED).
@@ -776,6 +778,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(tiktokOptions.limiter === undefined ? {} : { limiter: tiktokOptions.limiter }),
     ...(tiktokOptions.noticeVersion === undefined ? {} : { noticeVersion: tiktokOptions.noticeVersion }),
     ...(tiktokOptions.shortLinks === undefined ? {} : { shortLinks: tiktokOptions.shortLinks }),
+    ...(tiktokOptions.avatarFetch === undefined ? {} : { avatarFetch: tiktokOptions.avatarFetch }),
+    syncCatalog: (seller, date) => catalog.afterLink(seller, date),
     onLiveEnded: (sellerId, b) => autoEnd.ended(sellerId, b, { platform: 'TIKTOK' }),
   })
   const tiktokLive = tiktok

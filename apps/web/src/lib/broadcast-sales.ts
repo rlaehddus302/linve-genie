@@ -8,7 +8,13 @@ export interface SaleLine {
   variant: string | null
   qty: number
   amount: number | null
+  /** 합친 라이브(D-MERGE-LIVE-01)에서 몇 차의 상품인지 ("1차") — 한 라이브 정산서면 없다. 번호는 라이브마다 다시 쓰여 같은 12번이 둘일 수 있다 */
+  round?: string
 }
+/** 합친 라이브의 차례 이름: 그날 시작 순서로 "1차" · "2차" … */
+export const roundWord = (index: number): string => `${String(index + 1)}차`
+/** 번호 글: "12번" · 합친 라이브면 "1차 12번" */
+export const lineNoWord = (line: { readonly no: number; readonly round?: string | undefined }): string => (line.round ? `${line.round} ${String(line.no)}번` : `${String(line.no)}번`)
 export interface BuyerOrder {
   id: string
   lines: SaleLine[]
@@ -70,20 +76,32 @@ function addLine(group: Map<string, SaleLine>, line: SaleLine) {
     old.amount = old.amount === null || line.amount === null ? null : old.amount + line.amount
   }
 }
-const sortedLines = (group: Map<string, SaleLine>) => [...group.values()].sort((a, b) => a.no - b.no)
+/** 줄 순서: 라이브 차례(합친 라이브) → 번호 */
+const sortedLines = (group: Map<string, SaleLine>, rank: (line: SaleLine) => number) => [...group.values()].sort((a, b) => rank(a) - rank(b) || a.no - b.no)
 
-export function broadcastSales(claims: ScopeData['claims'], products: ScopeData['products'], broadcast: string) {
+/**
+ * 라이브 정산서의 확정 판매 — 구매자별 주문과 상품별 줄. broadcast가 목록이면 합친 라이브(D-MERGE-LIVE-01): 그 라이브들의 확정 찜을 모두 담고,
+ * 같은 날 라이브는 한 엔진 범위라(D-069) 같은 손님은 같은 구매자로 한 주문에 모인다. 상품 줄은 라이브마다 따로 두고(상품 키가 라이브마다 다르다) "1차" · "2차"를 단다
+ */
+export function broadcastSales(claims: ScopeData['claims'], products: ScopeData['products'], broadcast: string | readonly string[]) {
+  const members: readonly string[] = typeof broadcast === 'string' ? [broadcast] : broadcast
+  const merged = members.length > 1
+  const order = new Map(members.map((id, index) => [id, index]))
+  const ranks = new Map<string, number>()
+  const rank = (line: SaleLine) => ranks.get(line.key) ?? 0
   const grouped = new Map<string, SaleLine>()
   const byBuyer = new Map<string, Map<string, SaleLine>>()
   for (const claim of claims.values()) {
-    if (claim.broadcast !== broadcast || claim.status !== 'CONFIRMED') continue
+    const at = order.get(claim.broadcast)
+    if (at === undefined || claim.status !== 'CONFIRMED') continue
     const product = products.get(claim.product)
     const name = product?.name?.trim() || '상품명 미입력'
     const set = saleSetSize(name)
     // 한 번호에 묶어 파는 개수 (D-PIECES-01): 품종 옆에 "3개", 판매 수량은 낱개로 센다(세트 이름과 같게)
     const pieces = product?.pieces ?? 1
-    const line = { key: claim.key ?? claim.product, no: claim.no, name: set ? `${String(set)}개 세트` : productTitle(name, pieces),
-      variant: claim.variant, qty: claim.qty * (set ?? pieces), amount: claim.amount ?? null }
+    const line: SaleLine = { key: claim.key ?? claim.product, no: claim.no, name: set ? `${String(set)}개 세트` : productTitle(name, pieces),
+      variant: claim.variant, qty: claim.qty * (set ?? pieces), amount: claim.amount ?? null, ...(merged ? { round: roundWord(at) } : {}) }
+    ranks.set(line.key, at)
     const buyer = byBuyer.get(claim.currentBuyer) ?? new Map<string, SaleLine>()
     addLine(buyer, line)
     byBuyer.set(claim.currentBuyer, buyer)
@@ -93,25 +111,25 @@ export function broadcastSales(claims: ScopeData['claims'], products: ScopeData[
   let total: number | null = 0
   let qty = 0
   for (const [id, items] of byBuyer) {
-    const lines = sortedLines(items)
+    const lines = sortedLines(items, rank)
     const count = lines.reduce((n, line) => n + line.qty, 0)
     const subtotal = lines.reduce<number | null>((sum, line) => sum === null || line.amount === null ? null : sum + line.amount, 0)
     orders.push({ id, lines, qty: count, subtotal })
     qty += count
     total = total === null || subtotal === null ? null : total + subtotal
   }
-  return { lines: sortedLines(grouped), orders, buyers: orders.length, qty, total }
+  return { lines: sortedLines(grouped, rank), orders, buyers: orders.length, qty, total }
 }
 
 export type StatementTab = 'buyers' | 'products'
-export interface StatementRow { key: string; no: number | null; label: string; money: number | null; qty: number }
+export interface StatementRow { key: string; no: number | null; label: string; money: number | null; qty: number; /** 합친 라이브의 차례 ("1차") */ round?: string }
 export function statementName(name: string): string {
   return name.replace(/(\S)\s*-[a-zA-Z0-9]+(?=\s*·|$)/u, '$1')
 }
 
 export function statementRows(sales: ReturnType<typeof broadcastSales>, tab: StatementTab, name: (id: string) => string): StatementRow[] {
   if (tab === 'products') return sales.lines.map(line => ({
-    key: line.key, no: line.no, label: [line.name, line.variant].filter(Boolean).join(' '), money: line.amount, qty: line.qty,
+    key: line.key, no: line.no, label: [line.name, line.variant].filter(Boolean).join(' '), money: line.amount, qty: line.qty, ...(line.round ? { round: line.round } : {}),
   }))
   return sales.orders.map(order => ({ key: order.id, no: null, label: statementName(name(order.id)), money: order.subtotal, qty: order.qty }))
     .sort((a, b) => a.label.localeCompare(b.label, 'ko') || a.key.localeCompare(b.key))

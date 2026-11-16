@@ -276,6 +276,11 @@ export interface SmsEvent extends EventBase {
   readonly phoneLast4?: string
   /** 지정 구매자 ID */
   readonly buyer?: string
+  /**
+   * 닉네임으로 보이기 (D-CLAIMADD-03): true면 이 문자찜으로 생긴 찜의 감사 문구·상품 라벨 이름이 `문자찜` 대신 그 구매자의 닉네임이다.
+   * 구매자가 문자 구매자면 아무 뜻이 없다(그대로 `문자찜`). 판정·순위·정산은 같다
+   */
+  readonly named?: boolean
   /** 수량 1~claim.maxQuantity (옵션 방송만, 기본 1) */
   readonly qty?: number
   /** 고른 옵션 — 상품이 있으면 모든 항목, 없으면 쓰지 않는다 (옵션 방송만) */
@@ -658,6 +663,8 @@ export interface ClaimRecord {
   /** 문자찜 입력 ID와 원문 수신 시각 */
   readonly ref: string | null
   readonly received: string | null
+  /** 닉네임으로 보이는 문자찜 (sms `named`, D-CLAIMADD-03) — 그렇지 않으면 칸이 없다 */
+  readonly named?: true
   readonly status: ClaimStatus
   readonly reason: ClaimReason | null
   /** 가격 스냅샷 = 확정 시점 상품 가격 (확정된 적 없으면 null) */
@@ -960,6 +967,8 @@ export interface ClaimInfo {
   readonly rankMinute: boolean
   /** 문자찜 원문 수신 시각 */
   readonly received: string | null
+  /** 닉네임으로 보이는 문자찜 (D-CLAIMADD-03) — 감사 문구·상품 라벨 이름이 `문자찜`이 아니다. 그렇지 않으면 칸이 없다 */
+  readonly named?: true
   /** 보류 찜 유효 시간의 기준 시각 */
   readonly at: number
   readonly price: number | null

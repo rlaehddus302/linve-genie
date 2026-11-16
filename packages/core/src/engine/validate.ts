@@ -268,7 +268,7 @@ const SPECS: Readonly<Record<string, Spec>> = {
   chat: { required: { [BROADCAST]: id, id, ch: channel, nick: text, text }, optional: { owner: bool, publishedAt: time } },
   sms: {
     required: { [BROADCAST]: id, ref: smsRef, no, received },
-    optional: { memo, phoneKey, phoneLast4, buyer: typedId, qty: quantity, ...PICK },
+    optional: { memo, phoneKey, phoneLast4, buyer: typedId, named: bool, qty: quantity, ...PICK },
     pairs: [['phoneKey', 'phoneLast4']],
     nested: pickShape,
     forbidden: { phone: '전화번호 원문은 엔진에 넣지 않는다 — 서버가 정규화해 phoneKey·phoneLast4로 바꿔 넣는다 (D-061)' },

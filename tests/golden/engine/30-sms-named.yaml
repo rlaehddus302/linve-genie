@@ -1,0 +1,59 @@
+# 닉네임으로 보이는 문자찜 — 판매자가 채팅 손님을 골라 손으로 넣는 찜 (SPEC ORD-08, DOMAIN_RULES R-11·R-13, D-CLAIMADD-03).
+# 사용자 지시 2026-11-17: "찜을 수동 입력할 때 문자찜으로만 표시되던데 기본 옵션은 문자찜으로 표시(=닉네임 비공개)로 하지만, 닉네임 표시 옵션도 있으면 좋을 듯".
+# `sms`의 `named: true`는 이름만 바꾼다: 그 문자찜으로 생긴 찜의 감사 문구 이름이 `문자찜` 대신 지정 구매자의 닉네임이다.
+# 판정·순위(지금 시각의 문자찜 — 먼저 찜한 손님이 있으면 대기)·정산(지정 구매자 = 그 채팅 손님 한 사람)은 `named`가 없을 때와 같다.
+# 문자 구매자(지정 구매자가 없거나 문자 구매자)의 찜은 `named`여도 그대로 `문자찜`이다. 모든 기대값은 손으로 계산했다.
+---
+id: G-ENG-NAMED-01
+title: 채팅 손님 홍길동을 골라 닉네임으로 넣은 문자찜은 감사 문구가 "홍길동님"이고, 대기로 들어갔다가 승계돼도 홍길동님 — 같은 손님의 채팅 찜과 한 정산, named 없는 문자찜·문자 구매자는 그대로 "문자찜님"
+refs: [ORD-08, R-4, R-11, R-13, D-CLAIMADD-01, D-CLAIMADD-03]
+broadcasts: [{ id: b1, date: 2026-11-17, title: 다육 라이브 }]
+events:
+  - { at: "20:00:00", type: product.register, b: b1, no: 26, name: 핑크프릴, price: 8000 }
+  - { at: "20:00:00", type: product.register, b: b1, no: 27, name: 라울, price: 5000 }
+  - { at: "20:00:00", type: product.register, b: b1, no: 28, name: 채홍, price: 3000 }
+  - { at: "20:00:00", type: product.register, b: b1, no: 29, name: 은행나무, price: 2000 }
+  - { at: "20:00:00", type: product.register, b: b1, no: 30, name: 슈렉, price: 4000 }
+  - { at: "20:00:01", type: chat, b: b1, id: m1, ch: UC_A, nick: 홍길동, text: "예쁘네요 저요" }   # 찜 아님 — 구매자 UC_A만 생긴다
+  - { at: "20:00:02", type: chat, b: b1, id: m2, ch: UC_B, nick: 김철수, text: "27" }           # B 27 확정
+  # 26: 판매자가 홍길동을 골라 닉네임으로 넣는다 → 홍길동 확정, 감사 이름 홍길동
+  - { at: "20:00:05", type: sms, b: b1, ref: s1, no: 26, received: "20:00:05", buyer: UC_A, named: true }
+  # 27: 이미 김철수가 1등 → 홍길동은 대기 1번 (지금 시각의 문자찜)
+  - { at: "20:00:06", type: sms, b: b1, ref: s2, no: 27, received: "20:00:06", buyer: UC_A, named: true }
+  - type: assert
+    expect:
+      products:
+        b1/27: { status: SOLD, winners: [UC_B], waitlist: [UC_A] }
+  # 김철수 찜을 지우면 홍길동이 승계 — 감사 이름은 여전히 홍길동
+  - { at: "20:00:10", type: host.cancel, b: b1, no: 27, buyer: UC_B, reason: 판매자가 찜을 삭제했어요 }
+  # 28: 홍길동이 채팅으로 직접 찜
+  - { at: "20:00:11", type: chat, b: b1, id: m3, ch: UC_A, nick: 홍길동, text: "28" }
+  # 29: 같은 손님을 골랐지만 닉네임으로 보이기를 고르지 않았다 → 감사 이름 문자찜 (옛 동작 그대로)
+  - { at: "20:00:12", type: sms, b: b1, ref: s3, no: 29, received: "20:00:12", buyer: UC_A }
+  # 30: 지정 구매자 없는 문자찜(새 문자 구매자)은 named여도 문자찜
+  - { at: "20:00:13", type: sms, b: b1, ref: s4, no: 30, received: "20:00:13", memo: 김영희, named: true }
+expect:
+  products:
+    b1/26: { status: SOLD, winners: [UC_A] }
+    b1/27: { status: SOLD, winners: [UC_A], waitlist: [] }
+    b1/28: { status: SOLD, winners: [UC_A] }
+    b1/29: { status: SOLD, winners: [UC_A] }
+    b1/30: { status: SOLD, winners: ["sms:s4"] }
+  claims:
+    - { product: b1/26, buyer: UC_A, status: CONFIRMED }
+    - { product: b1/27, buyer: UC_A, status: CONFIRMED }
+    - { product: b1/27, buyer: UC_B, status: CANCELLED }
+    - { product: b1/28, buyer: UC_A, status: CONFIRMED }
+    - { product: b1/29, buyer: UC_A, status: CONFIRMED }
+    - { product: b1/30, buyer: "sms:s4", status: CONFIRMED }
+  buyers:
+    UC_A: { items: [b1/26, b1/27, b1/28, b1/29], subtotal: 18000 }    # 8,000 + 5,000 + 3,000 + 2,000 — 손으로 넣은 찜과 채팅 찜이 한 손님
+    UC_B: { items: [], subtotal: 0 }
+    "sms:s4": { items: [b1/30], subtotal: 4000 }
+  effects:
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/26, buyer: UC_A, text: "26번 핑크프릴 8,000원 홍길동님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/27, buyer: UC_A, text: "27번 라울 5,000원 홍길동님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/28, buyer: UC_A, text: "28번 채홍 3,000원 홍길동님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/29, buyer: UC_A, text: "29번 은행나무 2,000원 문자찜님 구매 감사합니다" }
+    - { kind: POST_THANKS, target: LIVE_CHAT, product: b1/30, buyer: "sms:s4", text: "30번 슈렉 4,000원 문자찜님 구매 감사합니다" }
+  effectCounts: { PRINT_PRODUCT_LABEL: 6, POST_THANKS: 6 }

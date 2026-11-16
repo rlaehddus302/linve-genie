@@ -6,6 +6,7 @@
 // - 구매자별 줄을 누르면 그 손님 정산서가 열린다(옛 표의 투명한 누름 자리와 같은 이름). 상품별 줄은 누르지 않는다.
 // - 상품별 줄에는 그 상품을 산 구매자 이름을 모두 " · "로 잇는다 — 줄이지 않고 길면 다음 줄로 (D-UX4-179, 사용자 "상품별 목록에서 각 상품의 구매자가 안 적혀 있어").
 // - 손님 닉네임은 글자(Txt)로만 그린다 — 꺾쇠·기호도 그대로 글자다.
+// - 합친 라이브(D-MERGE-LIVE-01): 상품별 번호 표는 "1차 12번"·"2차 12번" — 번호는 라이브마다 다시 쓰인다.
 // D-UX4-182 (사용자 지시 2026-11-16 "상품명, 개수, 구매자 닉네임이 한줄씩 있어서 공간을 너무 많이 차지해 … 구매자별 정산서에서도 닉네임을 금색 캡슐말고 버튼 모양으로 감싸고,
 //   개수는 아래줄에 넣지 말고 금액 왼쪽에"):
 // - 상품별 줄: 첫 줄 "상품명 · n개", 그 아래 산 구매자를 라이브 화면 찜 꼬리표처럼 금색 캡슐로 하나씩(넘치면 다음 줄로, 줄이지 않는다). 옛: 이름 · 개수 · 구매자 " · " 글이 세 줄.
@@ -70,7 +71,7 @@ function Row({ row, tab, sent, buyers, label, onPress }: { readonly row: Stateme
     <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
       {row.no !== null ? (
         <View aria-hidden testID="product-no" style={{ minWidth: 36, height: CHIP_HEIGHT, paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
-          <Txt step={SUB} weight="medium" color="textSub">{`${row.no}번`}</Txt>
+          <Txt step={SUB} weight="medium" color="textSub">{`${row.round ? `${row.round} ` : ''}${row.no}번`}</Txt>
         </View>
       ) : null}
       <View testID="product-main" style={{ flex: 1, gap: SPACE.sm }}>

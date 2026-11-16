@@ -7,7 +7,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import type { FullView } from '@livejjim/web/src/api/types.ts'
 import { describe, expect, it } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
-import { SAME_NUMBER_CLOSE, SAME_NUMBER_SHOW, sameNumberWords } from '../src/screens/console/ProductAdd.tsx'
+import { DUP_MORE, SAME_NUMBER_CLOSE, SAME_NUMBER_SHOW, sameNumberWords } from '../src/screens/console/ProductAdd.tsx'
 import { REPRINT_HINT } from '../src/screens/console/ProductBoard.tsx'
 import { EDIT_DONE, PRICE_SCOPE_ALL, PRICE_SCOPE_NEW, RENUMBER_GO, RENUMBER_KEEP, REUSE_ASK, REUSE_GO, claimedBuyers, priceScopeAsk, renumberAsk, renumberLoses, reuseNote } from '../src/screens/console/ProductEdit.tsx'
 import { fromFull } from '../src/lib/scope-data.ts'
@@ -360,8 +360,10 @@ describe('이미 있는 번호 안내 (D-RETRO-22, 개선 계획표 F5)', () => 
     expect(world.events).toHaveLength(1)
   })
 
-  it('추가: 이미 있는 번호면 그 상품의 품종·가격과 [닫기 | 그 상품 보기]를 보이고, [그 상품 보기]면 추가 화면을 닫고 그 상품 자세히를 연다', async () => {
-    const world = worldWith({ products: [product(289, { name: '로라클론', price: 60_000 }), product(15)] })
+  // D-DUPNO-01 (사용자 지시 2026-11-17 "중복 번호일 경우 등록이 안 되는 게 아니라 … 해당 번호로 등록할까요?"): 같은 물건을 더 올릴 수 있는 번호는 막지 않고 묻는다.
+  // 그래서 옛 [닫기 | 그 상품 보기] 안내는 더 올릴 수 없는 번호(여기서는 999개를 파는 번호 — STOCK_MAX)에서만 본다. 묻는 쪽은 아래 D-DUPNO-01 묶음.
+  it('추가: 더 올릴 수 없는 이미 있는 번호면 그 상품의 품종·가격과 [닫기 | 그 상품 보기]를 보이고, [그 상품 보기]면 추가 화면을 닫고 그 상품 자세히를 연다', async () => {
+    const world = worldWith({ products: [product(289, { name: '로라클론', price: 60_000, stock: 999 }), product(15)] })
     followWrites(world)
     await open(world)
     fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
@@ -371,6 +373,7 @@ describe('이미 있는 번호 안내 (D-RETRO-22, 개선 계획표 F5)', () => 
     expect(within(page).getByText('289번은 이미 있어요. 다른 번호를 적어 주세요.')).toBeTruthy()
     expect(within(page).getByText('지금 289번은 로라클론 60,000원이에요.')).toBeTruthy()
     expect(within(page).queryByRole('button', { name: '다음' })).toBeNull()
+    expect(within(page).queryByRole('button', { name: DUP_MORE })).toBeNull()
     expectSideBySide(within(page).getByRole('button', { name: SAME_NUMBER_CLOSE }), within(page).getByRole('button', { name: SAME_NUMBER_SHOW }))
     fireEvent.click(within(page).getByRole('button', { name: SAME_NUMBER_SHOW }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '상품 추가' })).toBeNull())
@@ -380,8 +383,8 @@ describe('이미 있는 번호 안내 (D-RETRO-22, 개선 계획표 F5)', () => 
     expect(world.events).toHaveLength(0)
   })
 
-  it('추가: [닫기]나 다른 번호를 치면 [다음]이 돌아온다', async () => {
-    const world = worldWith({ products: [product(15, { name: '핑크프릴' })] })
+  it('추가: 더 올릴 수 없는 번호의 [닫기]나 다른 번호를 치면 [다음]이 돌아온다', async () => {
+    const world = worldWith({ products: [product(15, { name: '핑크프릴', stock: 999 })] })
     await open(world)
     fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
     const page = await screen.findByRole('dialog', { name: '상품 추가' })

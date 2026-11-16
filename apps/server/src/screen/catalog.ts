@@ -1,4 +1,4 @@
-// 같은 유튜브 라이브에 이어진 계정 사이에서 상품 편집만 전달한다 (주문·찜은 계정마다 따로).
+// 같은 라이브(유튜브 영상 또는 틱톡 `@아이디`, D-SYNC2-01)에 이어진 계정 사이에서 상품 편집만 전달한다 (주문·찜은 계정마다 따로).
 // - 사람이 고친 것(계정 조치)만 원본 쓰기와 같은 트랜잭션에서 대기열(live_catalog_delivery)에 넣는다. 영상마다 잠금을 잡고 넣으므로
 //   행 번호(id)가 그 영상의 고침 차례다. 받는 방송마다 차례대로 넣는다(앞 것이 끝나야 다음 것).
 // - 차례 지키기(D-RETRO-11): 원천 방송·순번·시각을 실어 보낸다. 받는 방송이 그 뒤에 스스로 고친 값이 있으면(뒤 차례의 자기 행) 옛 값은 건너뛴다.
@@ -99,6 +99,14 @@ const TRANSIENT = new Set(['STATE_FORMAT'])
 /** 대기열에 넣은 시각 (본문의 queuedAt — 숫자 모양일 때만. 옛 행에는 없다) */
 const QUEUED_AT = sql.raw(`CASE WHEN body->>'queuedAt' ~ '^[0-9]{1,15}$' THEN (body->>'queuedAt')::bigint END`)
 
+/**
+ * 라이브에 이어진 연결 (D-SYNC2-01): 끊지 않은 유튜브 연결 + 이어진(LINKED) 틱톡 연결. live_key는 화면 일꾼 열쇠와 같은 글자 —
+ * 유튜브 영상 번호 11자 또는 틱톡 `@아이디`(D-SCR-TT-01, `@`는 유튜브 영상 번호에 없는 글자라 겹치지 않는다).
+ * 틱톡 연결 번호(숫자)는 `tt-`를 붙여 유튜브 연결 번호와 겹치지 않게 한다 (전달 본문의 linkId).
+ */
+const LINKS = sql.raw(`(SELECT id,seller_id,broadcast_id,video_id AS live_key FROM youtube_links WHERE unlinked_at IS NULL
+  UNION ALL SELECT 'tt-'||id::text,seller_id,broadcast_id,'@'||tiktok_id FROM tiktok_links WHERE state='LINKED' AND unlinked_at IS NULL)`)
+
 async function rows<T extends Record<string, unknown>>(db: Db, query: SQL): Promise<T[]> {
   const result = await db.execute<T>(query)
   return Array.isArray(result) ? (result as T[]) : (result as { rows: T[] }).rows
@@ -140,12 +148,15 @@ export async function enqueueCatalogEdits(tx: Db, ctx: TxHookContext) {
     // 확인 중 상품을 공개한 것은 지금 값으로 확정한 것이다 (R-2 "확인 중") — 다른 계정에도 확정으로 옮긴다
     const kind = e.type === 'product.open' && getProduct(earlier, e.b, e.no)?.tentative !== undefined ? 'product.confirm' : e.type
     const still = kind === 'product.withdraw' ? undefined : tentativeOf(product)
-    const [link] = await rows<{ video_id: string }>(tx, sql`
-      SELECT l.video_id FROM youtube_links l JOIN broadcasts b ON b.id=l.broadcast_id
-      WHERE l.seller_id=${ctx.sellerId} AND l.broadcast_id=${e.b} AND l.unlinked_at IS NULL AND b.ended_at IS NULL
-        AND EXISTS (SELECT 1 FROM events WHERE scope_id=${ctx.scopeId} AND seq=${record.seq} AND actor='account') LIMIT 1`)
-    if (!link) continue
-    await lockVideo(tx, link.video_id)
+    // 이 방송이 이어진 라이브 (유튜브·틱톡을 함께 이었으면 둘 다 — 잠금은 늘 같은 차례로 잡는다)
+    const keys = (
+      await rows<{ live_key: string }>(tx, sql`
+      SELECT DISTINCT l.live_key FROM ${LINKS} l JOIN broadcasts b ON b.id=l.broadcast_id
+      WHERE l.seller_id=${ctx.sellerId} AND l.broadcast_id=${e.b} AND b.ended_at IS NULL
+        AND EXISTS (SELECT 1 FROM events WHERE scope_id=${ctx.scopeId} AND seq=${record.seq} AND actor='account') ORDER BY l.live_key`)
+    ).map((row) => row.live_key)
+    if (keys.length === 0) continue
+    for (const key of keys) await lockVideo(tx, key)
     const edit: Edit = {
       type: kind,
       no,
@@ -163,10 +174,14 @@ export async function enqueueCatalogEdits(tx: Db, ctx: TxHookContext) {
       srcAt: e.at,
       queuedAt: Math.round(ctx.now.getTime()),
     }
+    // 받는 방송마다 한 행 (두 라이브로 이어진 방송도 한 번만)
     await tx.execute(sql`INSERT INTO live_catalog_delivery (seller_id,broadcast_id,scope_date,body)
-      SELECT DISTINCT l.seller_id,l.broadcast_id,b.date,(${JSON.stringify(edit)}::text::jsonb || jsonb_build_object('linkId',l.id)) FROM youtube_links l
+      SELECT DISTINCT ON (l.seller_id,l.broadcast_id) l.seller_id,l.broadcast_id,b.date,(${JSON.stringify(edit)}::text::jsonb || jsonb_build_object('linkId',l.id)) FROM ${LINKS} l
       JOIN broadcasts b ON b.id=l.broadcast_id AND b.seller_id=l.seller_id JOIN scopes s ON s.id=b.scope_id AND NOT s.rehearsal
-      WHERE l.video_id=${link.video_id} AND l.unlinked_at IS NULL AND b.ended_at IS NULL`)
+      WHERE l.live_key IN (${sql.join(
+        keys.map((key) => sql`${key}`),
+        sql`,`,
+      )}) AND b.ended_at IS NULL ORDER BY l.seller_id,l.broadcast_id,l.id`)
     queued = true
   }
   return queued
@@ -176,17 +191,20 @@ async function lockVideo(tx: Db, video: string) {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('live-catalog'),hashtext(${video}))`)
 }
 
-/** 계정을 영상에 이을 때(같은 트랜잭션): "처음 맞추기 필요" 표시만 남긴다. 맞추기는 대기열 일꾼이 한다(CatalogDelivery#merge) */
+/**
+ * 계정을 라이브에 이을 때(같은 트랜잭션): "처음 맞추기 필요" 표시만 남긴다. 맞추기는 대기열 일꾼이 한다(CatalogDelivery#merge).
+ * video = 라이브 열쇠 (유튜브 영상 번호, 또는 틱톡이면 `@아이디`)
+ */
 export async function syncOnVideoLink(tx: Db, video: string) {
   await tx.execute(sql`INSERT INTO live_catalog_backfill(video_id) VALUES (${video}) ON CONFLICT DO NOTHING`)
 }
 
-/** 그 영상에 지금 이어진(끊지 않은·끝나지 않은·실제) 방송 — 판매자·방송마다 하나 */
+/** 그 라이브(유튜브 영상 번호 또는 틱톡 `@아이디`)에 지금 이어진(끊지 않은·끝나지 않은·실제) 방송 — 판매자·방송마다 하나 */
 async function membersOf(db: Db, video: string): Promise<Member[]> {
   const found = await rows<Member>(db, sql`
-    SELECT l.id,l.seller_id,l.broadcast_id,b.date,b.scope_id FROM youtube_links l
+    SELECT l.id,l.seller_id,l.broadcast_id,b.date,b.scope_id FROM ${LINKS} l
     JOIN broadcasts b ON b.id=l.broadcast_id AND b.seller_id=l.seller_id JOIN scopes s ON s.id=b.scope_id AND NOT s.rehearsal
-    WHERE l.video_id=${video} AND l.unlinked_at IS NULL AND b.ended_at IS NULL ORDER BY l.seller_id,l.broadcast_id,l.id`)
+    WHERE l.live_key=${video} AND b.ended_at IS NULL ORDER BY l.seller_id,l.broadcast_id,l.id`)
   const seen = new Map<string, Member>()
   for (const member of found) if (!seen.has(`${member.seller_id}/${member.broadcast_id}`)) seen.set(`${member.seller_id}/${member.broadcast_id}`, member)
   return [...seen.values()]
@@ -679,9 +697,8 @@ export class CatalogDelivery {
           SELECT d.done,${newer('setName')} AS name_newer,${newer('setPrice')} AS price_newer FROM live_catalog_delivery d WHERE d.id=${item.id}`)
         Object.assign(seen, { done: row === undefined || row.done, name: row?.name_newer === true, price: row?.price_newer === true })
         if (seen.done || !edit.linkId) return null
-        const linked = await rows(tx, sql`SELECT 1 FROM youtube_links l JOIN broadcasts b ON b.id=l.broadcast_id
-          WHERE l.id=${edit.linkId} AND l.seller_id=${item.seller_id} AND l.broadcast_id=${b}
-          AND l.unlinked_at IS NULL AND b.ended_at IS NULL`)
+        const linked = await rows(tx, sql`SELECT 1 FROM ${LINKS} l JOIN broadcasts b ON b.id=l.broadcast_id
+          WHERE l.id=${edit.linkId} AND l.seller_id=${item.seller_id} AND l.broadcast_id=${b} AND b.ended_at IS NULL`)
         return linked.length ? null : { status: 409, code: 'REQUEST_ERROR', message: '라이브 연결이 끝났어요.', problems: [] }
       },
       build: ({ state }) => {

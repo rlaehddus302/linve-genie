@@ -18,6 +18,7 @@ import { REQUEST_ID_RE, isPlainObject, own, ownKeys } from './api-fields.ts'
 import { VOICE_LOG_MESSAGES } from './voice-log.ts'
 import type { LogSink } from './log.ts'
 import { CLEAR_SESSION_COOKIE, SESSION_COOKIE, sessionCookie, type Auth, type SessionContext } from './auth.ts'
+import { GROUP_MESSAGES } from './broadcast-groups.ts'
 import { ClosingService, buyerParam, type ApiProblem, type FileResult, type Outcome } from './closing.ts'
 import { apiError, JSON_CONTENT_TYPE } from './errors.ts'
 import { MIME, fileResponse } from './files.ts'
@@ -504,6 +505,34 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (!file) return notFound()
     const name = `정산내역서-${file.date}-${tab === 'buyers' ? '구매자별' : '상품별'}.${format}`
     return fileResponse(file.bytes, MIME[format], name, `statement-${file.date}-${tab}.${format}`)
+  })
+  // 라이브 합치기 (D-MERGE-LIVE-01~): 같은 날 끝난 실제 라이브 여럿을 정산서 하나로. 엔진 기록은 바꾸지 않고 덧붙이기만 하는 묶음 기록을 남긴다
+  api.get('/broadcast-groups', async c => c.json({ groups: await service.broadcastGroups(sellerOf(c)) }))
+  api.post('/broadcast-groups', async c => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'broadcasts'])
+    if (extra !== null) return extra
+    const picked = input.broadcasts
+    if (!Array.isArray(picked) || !picked.every((id): id is string => typeof id === 'string' && id !== '' && id.length <= 64)) {
+      return apiError(400, 'INVALID_INPUT', GROUP_MESSAGES.count, [{ field: 'broadcasts', message: GROUP_MESSAGES.count }])
+    }
+    const result = await service.mergeBroadcasts(sellerOf(c), actorOf(c), requestId, picked)
+    if (!result.ok) return apiError(result.rejection.status, result.rejection.code, result.rejection.message)
+    return c.json({ group: result.group })
+  })
+  api.post('/broadcast-groups/:id/split', async c => {
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId'])
+    if (extra !== null) return extra
+    const id = c.req.param('id')
+    if (id === '' || id.length > 64) return notFound()
+    const result = await service.splitBroadcastGroup(sellerOf(c), actorOf(c), requestId, id)
+    if (!result.ok) return apiError(result.rejection.status, result.rejection.code, result.rejection.message)
+    return c.json({ ok: true })
   })
   // 품종 후보 (D-VARIETY-01): { recent: 이 방송 최근 등록 품종, frequent: 최근 방송들에서 많이 쓴 품종 } — 읽기만, 다른 판매자·없는 방송은 404
   api.get('/broadcasts/:id/varieties', async c => {

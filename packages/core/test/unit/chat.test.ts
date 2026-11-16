@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { parseChat, type ChatParseResult, type SettingsOverride } from '@livejjim/core'
-import { CLAIM_TAIL_EMOJI } from '../../src/parse/chat.ts'
+import { CLAIM_TAIL_EMOJI, matchesNumberGrammar, parseChatWithoutPass } from '../../src/parse/chat.ts'
 
 type Expected = Partial<Record<keyof ChatParseResult, number[]>>
 
@@ -835,5 +835,116 @@ describe('AC-S01-18 정규화', () => {
       }),
       { numRuns: 3000 },
     )
+  })
+})
+
+describe('D-CHAT-ME-01 "저요" 말과 덧붙인 말 주문', () => {
+  it('"저요" 말은 꼬리말이고 번호 앞에도 온다 (STRICT·LOOSE)', () => {
+    for (const settings of [STRICT, LOOSE]) {
+      check(
+        [
+          ['2번 저요', { claims: [2] }],
+          ['2 저요!!', { claims: [2] }],
+          ['15ㅈㅇ', { claims: [15] }],
+          ['15 ㅈㅅㅇ ㅎㅎ', { claims: [15] }],
+          ['15번 제가요', { claims: [15] }],
+          ['15번 주세용', { claims: [15] }],
+          ['저요 15번', { claims: [15] }],
+          ['저요~ 15', { claims: [15] }],
+          ['ㅈㅇ ㅈㅇ 15', { claims: [15] }],
+          ['찜 ㅈㅇ 15 28', { claims: [15, 28] }],
+          ['저요', {}],
+          ['ㅈㅇ', {}],
+        ],
+        settings,
+      )
+    }
+  })
+
+  it('판매자 사례: "26번 저요, 예쁘네요 26번"은 26번 주문, "418. 하고94. 번주세요"는 그대로 418·94 주문', () => {
+    check([['26번 저요, 예쁘네요 26번', { claims: [26] }], ['418. 하고94. 번주세요', { claims: [418, 94] }]], STRICT)
+    check([['26번 저요, 예쁘네요 26번', { claims: [26] }], ['418. 하고94. 번주세요', { claims: [418, 94] }]], LOOSE)
+  })
+
+  it('질문·부정·다른 번호·수량·지난 일·남 이야기가 섞이면 덧붙인 말 주문이 아니다 (언급)', () => {
+    check(
+      [
+        ['26번 저요?', { mentions: [26] }],
+        ['26번 저요 ❓', { mentions: [26] }],
+        ['26번 주세요 얼마예요', { mentions: [26] }],
+        ['26번 주세요 있나요', { mentions: [26] }],
+        ['26번 저요 아니고 27번', { mentions: [26, 27] }],
+        ['26번 저요 말고', { mentions: [26] }],
+        ['26번 저요 2개', { mentions: [26, 2] }],
+        ['26번 저요 두 개요', { mentions: [26] }],
+        ['26번 저요 샀어요', { mentions: [26] }],
+        ['26번 저요 하신 분', { mentions: [26] }],
+        ['26번 저요 ㄴㄴ', { mentions: [26] }],
+        ['26번 저요 🤔', { mentions: [26] }],
+        ['@누구 26번 저요', { mentions: [26] }],
+        ['26번 저요 패스', { mentions: [26] }],
+      ],
+      STRICT,
+    )
+  })
+
+  it('보이지 않는 글자로 쪼갠 숫자는 같은 번호 되풀이가 아니다 (`22`를 2·U+FEFF·2로)', () => {
+    check(
+      [
+        ['2\uFEFF2 주세요', { mentions: [2] }],
+        ['2\u200B2번 저요 예뻐요', { mentions: [2] }],
+      ],
+      STRICT,
+    )
+  })
+
+  it('손님 문자 읽기(R-26)에는 덧붙인 말 주문이 없다 — 문법(저요 꼬리말)은 같다', () => {
+    expect(parseChatWithoutPass('26번 저요, 예쁘네요 26번')).toEqual({ claims: [], cancels: [], mentions: [26] })
+    expect(parseChatWithoutPass('26번 저요')).toEqual({ claims: [26], cancels: [], mentions: [] })
+  })
+
+  it('속성: 덧붙인 말이 붙어도 번호 하나 + 저요는 그 번호 주문, 막는 말을 넣으면 주문이 아니다', () => {
+    const chatter = fc.constantFrom('예쁘네요', '너무 이뻐요', '감사합니다', 'ㅋㅋ', '♡♡', '😍', '사랑해요', '')
+    const block = fc.constantFrom('?', '얼마', '아니', '말고', '취소', '샀어요', 'ㅠㅠ', '😭', '@언니', '두개', '다음에')
+    const form = fc.constantFrom(
+      (n: number, c: string) => `${String(n)}번 저요, ${c} ${String(n)}번`,
+      (n: number, c: string) => `${c} ${String(n)}번 주세요`,
+      (n: number, c: string) => `저요 ${String(n)} ${c}`,
+      (n: number, c: string) => `${String(n)} ㅈㅇ ${c}`,
+    )
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 999 }), chatter, block, form, (n, c, b, make) => {
+        expect(parseChat(make(n, c), STRICT)).toEqual({ claims: [n], cancels: [], mentions: [] })
+        const blocked = parseChat(`${make(n, c)} ${b}`, STRICT)
+        expect(blocked.claims).toEqual([])
+        expect(blocked.mentions).toEqual([n])
+      }),
+      { numRuns: 2000 },
+    )
+  })
+
+  it('속성: 문법 밖 메시지가 주문이 되면 메시지의 번호는 한 가지뿐이다', () => {
+    const pieces = fc.constantFrom('15', '28', '저요', 'ㅈㅇ', '주세요', ' ', ',', '예뻐요', '번', '찜', '!', 'ㅋ')
+    fc.assert(
+      fc.property(fc.array(pieces, { maxLength: 8 }), chatSettings, (parts, settings) => {
+        const text = parts.join('')
+        const result = parseChat(text, settings)
+        const numbers = new Set(text.match(/\d+/g)?.map(Number) ?? [])
+        if (result.claims.length > 0 && !matchesNumberGrammar(text, settings)) {
+          expect(numbers.size).toBe(1)
+          expect(result.claims).toEqual([...numbers])
+        }
+      }),
+      { numRuns: 3000 },
+    )
+  })
+
+  it('길게 이어 붙여도 길이에 비례하는 시간이다', () => {
+    for (const text of ['ㅈㅇ '.repeat(50000), '저요 '.repeat(50000) + '1개', '1 저요'.repeat(30000), '1ㅈㅇ'.repeat(30000) + '?']) {
+      const started = performance.now()
+      parseChat(text, STRICT)
+      parseChat(text, LOOSE)
+      expect(performance.now() - started).toBeLessThan(1000)
+    }
   })
 })

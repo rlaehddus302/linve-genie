@@ -379,7 +379,7 @@ export const EVENT_SPECS: Readonly<Record<string, EventSpec>> = {
   ),
   sms: spec(
     { b: F.b, ref: F.smsRef, no: F.no, received: F.received },
-    { memo: F.v((value) => str(value) ?? notPhoneShaped(value)), phone: F.v(str), buyer: F.buyer, qty: F.qty, options: F.pick },
+    { memo: F.v((value) => str(value) ?? notPhoneShaped(value)), phone: F.v(str), buyer: F.buyer, named: F.v(bool), qty: F.qty, options: F.pick },
   ),
   'host.cancel': hostWithBuyer,
   'host.reject': hostWithBuyer,

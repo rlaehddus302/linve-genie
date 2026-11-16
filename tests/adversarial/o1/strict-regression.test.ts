@@ -28,7 +28,15 @@ describe('STRICT·LOOSE parseChat = BASE 코어 (AC-O1-03)', () => {
   const { cases } = read<{ cases: { text: string; settings: SettingsOverride; out: unknown }[] }>('parse-chat-base.json')
   it(`고정 시드 무작위 채팅 글 ${String(cases.length)}개의 결과가 BASE와 같다 (주문이 된 사례도 충분히 들어 있다)`, () => {
     expect(cases.filter((c) => (c.out as { claims: unknown[] }).claims.length > 0).length).toBeGreaterThan(100)
-    const differ = cases.filter((c) => JSON.stringify(parseChat(c.text, c.settings)) !== JSON.stringify(c.out))
+    // D-CHAT-ME-01(스펙 변경): BASE에서 언급이던 넷이 "덧붙인 말 주문"으로 그 번호 주문이 된다 — 새 결과를 따로 확인하고 비교에서 뺀다
+    const meChanged = new Map<string, number>([
+      ['님\t021주세요', 21],
+      [' 구매❤️3할게요', 3],
+      ['대형15번주세요', 15],
+      ['15번할게요·저１５', 15],
+    ])
+    for (const c of cases.filter((item) => meChanged.has(item.text))) expect(parseChat(c.text, c.settings).claims, JSON.stringify(c.text)).toEqual([meChanged.get(c.text)])
+    const differ = cases.filter((c) => !meChanged.has(c.text) && JSON.stringify(parseChat(c.text, c.settings)) !== JSON.stringify(c.out))
     expect(differ.slice(0, 5)).toEqual([])
   })
 })

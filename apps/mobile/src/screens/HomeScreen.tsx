@@ -25,6 +25,7 @@ import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { font } from '../ui/kit/font.ts'
 import { latestFirst } from '../lib/latest-days.ts'
 import { UpdateReady } from './UpdateReady.tsx'
+import { useChannelAvatar } from '../ui/ChannelPhoto.tsx'
 
 export interface HomeNavigation {
   readonly openConsole: (id: string) => void
@@ -197,8 +198,8 @@ export function useLiveNow(items: readonly BroadcastItem[] | null, now: number):
 
 function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: BroadcastItem | undefined; readonly channel: string | null; readonly onOpen: (id: string) => void; readonly onConnect: () => void }) {
   const { p, tones } = useKit()
-  // 사진을 모르면 기본 그림 — 받은 적 있으면 바로 (D-UX4-77)
-  const avatar = useCachedGet<{ avatar: string | null }>(channel === null || channel === '' ? null : `/api/youtube/channels/${encodeURIComponent(channel)}/avatar`).data?.avatar ?? null
+  // 사진을 모르면 기본 그림 — 받은 적 있으면 바로 (D-UX4-77). 유튜브 채널이 없는 틱톡 방송은 틱톡 프로필 사진 (D-TT-PHOTO-01)
+  const avatar = useChannelAvatar(channel, live !== undefined && (live.platforms ?? []).includes('tiktok') ? live.id : null)
   const on = live !== undefined
   // "내 라이브 연결" (D-UX3-92): 글자를 한 단계 키우고, 왼쪽에 + 원을 두고, 화면 끝에 붙지 않게 카드 안 글자 쪽으로 조금 들인다
   const label = on ? '지금 라이브 중' : '내 라이브 연결'

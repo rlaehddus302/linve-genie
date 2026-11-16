@@ -267,7 +267,7 @@ export class FakeWebcastHandle {
     if (this.options.processInitialData !== false) for (const fields of this.#owner.recent) this.chat(fields)
     this.#state = 'open'
     this.#owner.noteOpen(1)
-    const state = { isConnected: true, roomId: '7300000000000000001', roomInfo: { data: { status: 2 } }, availableGifts: null }
+    const state = { isConnected: true, roomId: '7300000000000000001', roomInfo: this.#owner.roomInfo(this.uniqueId), availableGifts: null }
     this.emit('connected', state)
     settle.resolve(state)
   }
@@ -316,6 +316,7 @@ export class FakeWebcast {
   #failures: TikTokFailureKind[] = []
   #holding = false
   #recent: FakeChatFields[] = []
+  #avatars = new Map<string, string[]>()
   #handles: FakeWebcastHandle[] = []
   #attempts = 0
   #open = 0
@@ -355,6 +356,18 @@ export class FakeWebcast {
 
   get recent(): readonly FakeChatFields[] {
     return this.#recent
+  }
+
+  /** 방 정보의 방송자 프로필 사진 주소 목록 (라이브러리 roomInfo.data.owner.avatar_thumb.url_list 모양 — D-TT-PHOTO-01) */
+  avatar(uniqueId: string, urls: readonly string[]): this {
+    this.#avatars.set(uniqueId, [...urls])
+    return this
+  }
+
+  /** @internal 연결 성공 때 돌려줄 방 정보 */
+  roomInfo(uniqueId: string): Record<string, unknown> {
+    const urls = this.#avatars.get(uniqueId)
+    return { data: { status: 2, ...(urls === undefined ? {} : { owner: { avatar_thumb: { url_list: urls } } }) } }
   }
 
   /** @internal 손잡이가 연결 시도 결과를 묻는다 */

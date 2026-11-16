@@ -62,6 +62,12 @@ export function registerTiktokRoutes(api: Hono<Env>, tiktok: TikTokLive, paste: 
     return link === null ? notFound() : c.json({ link })
   })
 
+  // 그 회차에 이은 틱톡 계정의 프로필 사진 (홈 "지금 라이브 중"·채널 사진 자리, D-TT-PHOTO-01) — data: 주소, 모르면 null
+  api.get('/broadcasts/:id/tiktok/avatar', async (c) => {
+    const avatar = await tiktok.avatar(session(c).sellerId, c.req.param('id'))
+    return avatar === undefined ? notFound() : c.json({ avatar })
+  })
+
   api.post('/broadcasts/:id/tiktok/reconnect', async (c) => {
     const extra = onlyKeys(body(c), ['requestId'])
     if (extra !== null) return extra

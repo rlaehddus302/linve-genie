@@ -202,6 +202,8 @@ interface ClaimSource {
   readonly qtyWritten: boolean
   /** 확인 필요로 보낼 때의 출처 (메시지 ID 또는 `sms:<ref>`) — 없으면 확인 필요를 만들지 않는다 */
   readonly item: string | null
+  /** 닉네임으로 보이는 문자찜 (D-CLAIMADD-03) */
+  readonly named?: boolean
 }
 
 function newClaimFields(source: ClaimSource): Omit<ClaimDraft, 'id' | 'n'> {
@@ -232,6 +234,7 @@ function newClaimFields(source: ClaimSource): Omit<ClaimDraft, 'id' | 'n'> {
     qtyWritten: source.qtyWritten,
     variant: source.variant,
     options: source.options === null ? null : source.options.map(([name, label]) => [name, label] as const),
+    ...(source.named === true ? { named: true as const } : {}),
   }
 }
 
@@ -951,6 +954,8 @@ function sms(d: Draft, e: SmsEvent): void {
     qty: e.qty ?? 1,
     qtyWritten: e.qty !== undefined,
     item: `sms:${e.ref}`,
+    // 닉네임으로 보이기 (D-CLAIMADD-03): 판정·순위와 상관없이 이름만 — 문자 구매자면 감사 문구·라벨 쪽이 그대로 `문자찜`으로 읽는다
+    ...(e.named === true ? { named: true } : {}),
   })
 }
 

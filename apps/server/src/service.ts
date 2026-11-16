@@ -1,4 +1,5 @@
 import { statementFile } from './statement-file.ts'
+import { groupOfBroadcast, mergeBroadcasts, readGroups, splitGroup, type BroadcastGroup, type MergeResult, type SplitResult } from './broadcast-groups.ts'
 import type { FullView as ClientFullView } from '../../web/src/api/types.ts'
 import { readQueue } from './print-store.ts'
 // 판매자 작업 (AC-S04-21·27·31·33·50~52, AC-S05-20·35·50~52·60·61·80). 판정은 모두 packages/core가 한다 — 여기서는 이벤트를 만들고 기록 경로에 넘기고 조회 함수를 부른다.
@@ -1260,12 +1261,34 @@ export class Service {
   }
 
 
+  /**
+   * 정산서 내려받기. 합친 라이브(D-MERGE-LIVE-01)면 묶음의 라이브를 모두 담고, 가게 이름은 묶음 첫 라이브(1차)의 것 —
+   * 화면 정산서와 같은 범위라 1차만 담긴 파일이 따로 나가지 않는다
+   */
   async statementFile(sellerId: string, id: string, tab: 'buyers' | 'products', format: 'csv' | 'xlsx') {
     const row = await findBroadcast(this.#options.db, sellerId, id)
     if (!row) return null
-    const [view, shop, queue] = await Promise.all([this.scopeView(sellerId, row.date, row.rehearsal), this.orderShop(sellerId, id), readQueue(this.#options.db, sellerId)])
+    const group = row.rehearsal ? null : await groupOfBroadcast(this.#options.db, sellerId, id)
+    const members = group?.broadcasts ?? [id]
+    const lead = members[0] ?? id
+    const [view, shop, queue] = await Promise.all([this.scopeView(sellerId, row.date, row.rehearsal), this.orderShop(sellerId, lead), readQueue(this.#options.db, sellerId)])
     if (!view || shop === null) return null
-    return { date: row.date, bytes: await statementFile(view as unknown as ClientFullView, id, shop, tab, format, queue?.hideNicknameSuffix === true) }
+    return { date: row.date, bytes: await statementFile(view as unknown as ClientFullView, members, shop, tab, format, queue?.hideNicknameSuffix === true) }
+  }
+
+  /** 지금 합친 라이브 묶음 (D-MERGE-LIVE-01) */
+  broadcastGroups(sellerId: string): Promise<BroadcastGroup[]> {
+    return readGroups(this.#options.db, sellerId)
+  }
+
+  /** 라이브 합치기 (D-MERGE-LIVE-01) — 같은 날 끝난 실제 라이브만, 기록은 덧붙이기만 */
+  mergeBroadcasts(sellerId: string, actor: Actor, requestId: string, broadcastIds: readonly string[]): Promise<MergeResult> {
+    return mergeBroadcasts(this.#options.db, sellerId, actor.kind === 'account' ? actor.accountId : null, requestId, broadcastIds, new Date(this.#options.clock.now()))
+  }
+
+  /** 합친 라이브 나누기 (D-MERGE-LIVE-02) */
+  splitBroadcastGroup(sellerId: string, actor: Actor, requestId: string, groupId: string): Promise<SplitResult> {
+    return splitGroup(this.#options.db, sellerId, actor.kind === 'account' ? actor.accountId : null, requestId, groupId, new Date(this.#options.clock.now()))
   }
 
   async orderShop(sellerId: string, id: string): Promise<string | null> {

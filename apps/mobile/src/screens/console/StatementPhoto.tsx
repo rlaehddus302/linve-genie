@@ -44,7 +44,9 @@ export function statementPages(rows: readonly StatementRow[], tab: StatementTab,
   let y = 0
   for (const row of rows) {
     const words = wrap(row.label, tab === 'products' ? 10 : 13)
-    const height = words.length * LINE + 2 * ROW_PAD
+    // 합친 라이브의 번호 칸은 두 줄("1차" 아래 "12") — 번호 칸이 좁다 (D-MERGE-LIVE-01)
+    const lines = Math.max(words.length, tab === 'products' && row.round ? 2 : 1)
+    const height = lines * LINE + 2 * ROW_PAD
     if (y > 0 && y + height > maxRows) {
       pages.push([])
       y = 0
@@ -105,7 +107,9 @@ export const StatementPaper = forwardRef<Svg, StatementPaperProps>(function Stat
       {ink('판매 금액', moneyX, head + 24, true, 'end', BAND_INK)}{ink('개수', qtyX, head + 24, true, 'middle', BAND_INK)}
       {page.length === 0 && only ? ink(STATEMENT_EMPTY, SIDE, top + ROW_PAD + 15, false, 'start', MUTED) : null}
       {page.map(({ row, y, words, height: rowHeight }) => <G key={row.key}>
-        {products && ink(String(row.no), SIDE, top + y + ROW_PAD + 15)}
+        {products && (row.round
+          ? <G>{ink(row.round, SIDE, top + y + ROW_PAD + 15, false, 'start', MUTED, 13)}{ink(String(row.no), SIDE, top + y + ROW_PAD + 15 + LINE)}</G>
+          : ink(String(row.no), SIDE, top + y + ROW_PAD + 15))}
         {words.map((word, i) => ink(word, nameX, top + y + ROW_PAD + 15 + i * LINE))}
         {ink(salesMoney(row.money), moneyX, top + y + ROW_PAD + 15, false, 'end')}
         {ink(String(row.qty), qtyX, top + y + ROW_PAD + 15, false, 'middle')}

@@ -23,7 +23,9 @@ import { LOW_PAPER, useLabelPaper } from '../lib/label-paper.ts'
 import { BigButton as SmallButton, Notice, Row } from '../ui/parts.tsx'
 import { useCameLate } from '../ui/late.tsx'
 import { broadcastSales } from '../lib/broadcast-sales.ts'
+import { useStatementScope } from '../lib/broadcast-groups.ts'
 import { SalesPill } from './console/SalesPill.tsx'
+import { BuyerTotalsPage, TotalsPill } from './console/BuyerTotals.tsx'
 import { BroadcastSalesList } from './console/BroadcastSales.tsx'
 import { AlertStrip } from './console/AlertStrip.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
@@ -150,7 +152,7 @@ export const SHOW_AFTER_BACK_MS = 600
 /** "그 상품 보기"로 스크롤할 때 그 줄 위에 남기는 자리 (붙는 탭 바 아래에 줄이 보이게) */
 const ROW_PEEK = 64
 
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, openStatement, openSearch, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 정산서 화면 안에 겹쳐 그린다 */ readonly openStatement?: (buyer: string) => void; /** 머리 돋보기 — 찾기를 진짜 쌓인 화면으로 연다 (D-UX4-204, 상품·찜 기록 하나로 D-UX4-205). 없으면(시험·웹) 이 화면 안에 찾기 칸을 연다 */ readonly openSearch?: () => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, openStatement, openSearch, openTotals, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 정산서 화면 안에 겹쳐 그린다 */ readonly openStatement?: (buyer: string) => void; /** 머리 돋보기 — 찾기를 진짜 쌓인 화면으로 연다 (D-UX4-204, 상품·찜 기록 하나로 D-UX4-205). 없으면(시험·웹) 이 화면 안에 찾기 칸을 연다 */ readonly openSearch?: () => void; /** 손님별 합계를 진짜 쌓인 화면으로 연다 (D-BUYERSUM-01). 없으면(시험·웹) 이 화면 안에 겹쳐 그린다 */ readonly openTotals?: () => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -298,6 +300,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
     return () => back.remove()
   }, [orderBuyer])
   const [salesPage, setSalesPage] = useState<'auto' | 'sales' | 'record'>(startPage ?? 'auto')
+  // 손님별 합계 겹친 화면 (경로가 없을 때만, D-BUYERSUM-01)
+  const [totalsOpen, setTotalsOpen] = useState(false)
   const labelsQueue = useSyncExternalStore(services.labels.subscribe, services.labels.getSnapshot)
   const paper = useLabelPaper(services.labels.paperDeviceId ?? null)
   // 자리를 비운 동안 줄의 라벨 몫: 뽑히는 대로 줄이고, 라벨 출력을 끄면 뺀다 (D-RETRO-141)
@@ -357,6 +361,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const claims = data?.claims
   const products = data?.products
   const sales = useMemo(() => claims && products ? broadcastSales(claims, products, broadcastId) : null, [claims, products, broadcastId])
+  // 정산서는 합친 라이브(D-MERGE-LIVE-01)면 묶음의 라이브를 모두 담는다 — 매출 캡슐(sales)은 이 라이브만
+  const statementScope = useStatementScope(broadcastId)
+  const statementBroadcasts = statementScope.broadcasts.join('+')
+  const statementSales = useMemo(() => claims && products ? broadcastSales(claims, products, statementBroadcasts.split('+')) : null, [claims, products, statementBroadcasts])
   const hideSuffix = labelsQueue.queue?.hideNicknameSuffix === true
   const names = useMemo(() => (buyers && claims ? new BuyerNames(buyers, claims, hideSuffix) : null), [buyers, claims, hideSuffix])
   const labelWords = useMemo(() => {
@@ -482,7 +490,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
     )
   }
   // 아직 자료가 없으면 바탕만 (D-UX4-83 — 옛: 빙글이 + "불러오는 중…"). 오래 끊긴 때의 연결 줄만 보인다
-  if (data === null || broadcast === null || names === null || sales === null) {
+  if (data === null || broadcast === null || names === null || sales === null || statementSales === null) {
     return frame(<LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />)
   }
 
@@ -503,7 +511,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const help = closed ? '끝난 라이브예요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   if (salesPage === 'sales' || (closed && salesPage === 'auto')) {
     // 머리는 정산서 화면이 그린다 — 정산 정보 화면(오른쪽에서 밀려 들어옴)이 상태 막대 자리·머리까지 덮게 (D-UX4-184, 라이브 화면 D-UX4-51과 같은 자리 칸)
-    return <BroadcastSalesList {...{ broadcastId, title, sales, inset, names, sealed, rehearsal }} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} {...(openStatement === undefined ? {} : { openBuyer: openStatement })} justEnded={seller && endedNow && focused}
+    return <BroadcastSalesList {...{ broadcastId, title, inset, names, sealed, rehearsal }} sales={statementSales} scope={statementScope} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} {...(openStatement === undefined ? {} : { openBuyer: openStatement })} justEnded={seller && endedNow && focused}
       header={<>
         <View style={{ height: pageTop }} />
         {/* 제목 "정산서" (D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔" — 옛 "정산 내역서") */}
@@ -682,7 +690,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
             </Appear>
           </View>
           {/* (+) 단추·매출 캡슐에 마지막 줄이 가리지 않게 */}
-          {shownTab === 'products' ? <View style={{ height: 72 }} /> : null}
+          {shownTab === 'products' || (shownTab === 'feed' && !closed) ? <View style={{ height: 72 }} /> : null}
           {shownTab === 'products' && searchPad ? (
             // 숫자 키에서 시작한 드래그도 목록의 네이티브 스크롤이 받도록 같은 ScrollView에 둔다.
             <Animated.View style={{ position: 'absolute', opacity: padOpacity, zIndex: 12, left: 0, right: 0, top: Math.max(0, viewportHeight - padHeight), transform: [{ translateY: scrollOffset }] }}>
@@ -697,6 +705,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         </Animated.ScrollView>
         {shownTab === 'products' && !closed && !searchPad ? <AddFab bottom={fabBottom} onPress={() => { if (openAdd === undefined) { setAddNo(null); setPage('add') } else openAdd() }} /> : null}
         {/* 매출 캡슐 (D-UX4-140): (+) 왼쪽 — 숫자판을 연 동안은 (+)처럼 숨는다 */}
+        {/* 손님별 합계 캡슐 (D-BUYERSUM-01): 라이브 중 [찜 기록] 탭 오른쪽 아래 */}
+        {shownTab === 'feed' && !closed && claimCount > 0 ? <TotalsPill bottom={fabBottom} onPress={() => (openTotals === undefined ? setTotalsOpen(true) : openTotals())} /> : null}
         {shownTab === 'products' && !searchPad ? <SalesPill closed={closed} total={sales.total} bottom={fabBottom} besideFab={!closed} onPress={startPage === 'record' ? onBack : () => setSalesPage('sales')} /> : null}
         </View>
         {/* 확인 중(임시 등록) 상품 확인 카드 (D-RETRO-90): 목록과 아래 창 사이, 한 번에 한 장 — 어느 탭에서든 같은 자리에 뜬다 */}
@@ -719,6 +729,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           <Txt step="caption" color="textSub">아직 상품이 없거나 확인 중인 번호의 찜이에요. 그 번호 상품을 올리거나 확정하면 먼저 온 순서대로 정해져요.</Txt>
           {sheet === 'pending' ? <ClaimFeed only="PENDING" /> : null}
         </BottomSheet>
+        <BuyerTotalsPage visible={totalsOpen} onClose={() => setTotalsOpen(false)} />
         <ProductAddPage
           visible={page === 'add'}
           onClose={closePage}

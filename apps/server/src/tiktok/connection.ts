@@ -5,6 +5,7 @@ import { type LogCode, type LogLevel, type LogSink, safeSink, stderrLog } from '
 import { systemTikTokClock, type TikTokClock } from './clock.ts'
 import { chatEventFields, createCommentFilter, type TikTokCommentCounts, type TikTokCommentFilter, type TikTokCommentRecord } from './comment.ts'
 import { denyAllTikTokConsent, type TikTokConsentCheck } from './consent.ts'
+import { tiktokAvatarUrl } from './avatar.ts'
 import { classifyWebcastFailure, type TikTokFailureKind, type TikTokRetryKind } from './failure.ts'
 import type { TikTokSignMeter } from './sign-usage.ts'
 import { UNLIMITED_TIKTOK_ATTEMPTS, type TikTokAttemptLimiter } from './limiter.ts'
@@ -67,6 +68,8 @@ export interface TikTokConnectionOptions {
   readonly settings?: TikTokSettings
   /** 판매자 동의 확인. 없으면 모두 거절 */
   readonly consent?: TikTokConsentCheck
+  /** 연결될 때 방 정보에서 꺼낸 방송자 프로필 사진 주소 (틱톡 이미지 서버 https만, D-TT-PHOTO-01). 오류를 던져도 연결은 계속된다 */
+  readonly onAvatar?: (url: string) => unknown
   readonly clock?: TikTokClock
   readonly log?: LogSink
   /** 서버 전체 연결 시도 한도 (서버 하나의 모든 연결 객체가 같은 것을 나눈다 — 없으면 한도 없음) */
@@ -442,7 +445,7 @@ export function createTikTokConnection(options: TikTokConnectionOptions): TikTok
       }),
     )
     pending.then(
-      guarded(() => {
+      guarded((result: unknown) => {
         if (current !== attempt || state !== 'CONNECTING') {
           // 시간이 지났거나 멈춘 뒤의 늦은 성공: 바로 닫고 쓰지 않는다
           if (attempt.client) closeClient(attempt.client)
@@ -450,6 +453,16 @@ export function createTikTokConnection(options: TikTokConnectionOptions): TikTok
           return
         }
         change(() => connected(attempt))
+        // 방 정보의 방송자 프로필 사진 주소 (D-TT-PHOTO-01) — 받는 쪽 오류는 연결에 닿지 않는다
+        const avatar = options.onAvatar === undefined ? null : tiktokAvatarUrl(result)
+        if (avatar !== null) {
+          try {
+            const reported = options.onAvatar?.(avatar)
+            if (isThenable(reported)) Promise.resolve(reported).catch(() => undefined)
+          } catch {
+            // 사진은 없어도 된다
+          }
+        }
       }),
       guarded((error: unknown) => {
         if (current !== attempt || state !== 'CONNECTING') return

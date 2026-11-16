@@ -2,6 +2,7 @@
 // 입력 = 틱톡 아이디(또는 방송 주소), 출력 = 공통 댓글 레코드(콜백). 서버 시작·API·DB에 잇는 것은 N2b-2 몫이다.
 // 계약(N2b-2에게): harness/sprints/N2b-1/dev-notes.md "N2b-2에게".
 export { systemTikTokClock, type TikTokClock } from './clock.ts'
+export { avatarDataUrl, fetchTikTokAvatar, imageType, isTikTokAvatarUrl, tiktokAvatarUrl, TIKTOK_AVATAR_MAX_BYTES, TIKTOK_AVATAR_TIMEOUT_MS, type TikTokAvatarFetch } from './avatar.ts'
 export {
   chatEventFields,
   createCommentFilter,

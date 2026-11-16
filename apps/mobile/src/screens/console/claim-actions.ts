@@ -10,6 +10,7 @@
 // - 옵션 상품·겹친 상품·판매 중이 아닌 상품·1등이 여럿인 꽉 찬 상품·차단한 손님은 하지 않는다(상품 자세히·정하기 창에서 한다).
 // D-RETRO-54 (복기 F7 "상품을 눌러 임의로 문자찜 등록"): 찜 넣기 = 문자찜(sms) 쓰기 — 음성 문자찜과 같은 길(이름은 메모, 끝 네 자리는 last4, 고른 손님은 buyer).
 //   전화번호 전체는 받지도 보내지도 않는다. 판정(찜·대기)은 서버가 받은 순서대로 한다.
+//   D-CLAIMADD-03: 고른 손님이 채팅 손님이고 [닉네임으로 보이기]를 켰으면 named — 라벨·감사 채팅 이름만 그 닉네임(엔진 sms named).
 import { useEffect, useRef } from 'react'
 import { Platform } from 'react-native'
 import type { Claim, Product, WriteResult } from '@livejjim/web/src/api/types.ts'
@@ -134,6 +135,11 @@ export interface SmsClaimInput {
   readonly buyer: string | null
   /** 끝 네 자리가 같은 손님이 있어도 새 손님으로 넣기 */
   readonly newBuyer?: boolean
+  /**
+   * 닉네임으로 보이기 (D-CLAIMADD-03): 고른 손님(buyer)이 채팅 손님일 때만 싣는다 — 라벨·감사 채팅 이름이 "문자찜" 대신 그 닉네임.
+   * 판정(찜·대기)·정산은 같다. 기본은 끔(문자찜으로 — 닉네임을 드러내지 않는다)
+   */
+  readonly named?: boolean
 }
 
 /** 끝 네 자리가 같은 손님 후보 (서버 409 BUYER_AMBIGUOUS — 손님 ID·찜한 번호만) */
@@ -146,10 +152,10 @@ export type SmsClaimOutcome =
   | { readonly kind: 'ok'; readonly result: WriteResult }
   | { readonly kind: 'ambiguous'; readonly message: string; readonly candidates: readonly SmsCandidate[] }
 
-/** 보낼 문자찜 쓰기 — 고른 손님이면 buyer만, 아니면 이름(memo)·끝 네 자리(last4). 빈 칸은 넣지 않는다 */
+/** 보낼 문자찜 쓰기 — 고른 손님이면 buyer만(닉네임으로 보이기면 named도), 아니면 이름(memo)·끝 네 자리(last4). 빈 칸은 넣지 않는다 */
 export function smsClaimEvent(product: Pick<Product, 'broadcast' | 'no'>, input: SmsClaimInput): Readonly<Record<string, unknown>> {
   const base = { type: 'sms', b: product.broadcast, no: product.no }
-  if (input.buyer !== null) return { ...base, buyer: input.buyer }
+  if (input.buyer !== null) return { ...base, buyer: input.buyer, ...(input.named === true ? { named: true } : {}) }
   const name = input.name.trim()
   return { ...base, ...(name === '' ? {} : { memo: name }), ...(input.last4 === '' ? {} : { last4: input.last4, ...(input.newBuyer === true ? { newBuyer: true } : {}) }) }
 }

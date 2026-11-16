@@ -2884,7 +2884,38 @@ export const liveCatalogDelivery = pgTable('live_catalog_delivery', {
   leaseUntil: timestamptz('lease_until'),
 }, (t) => [index('live_catalog_delivery_wait').on(t.sellerId, t.broadcastId, t.id).where(sql`not ${t.done}`)])
 
+/**
+ * 라이브 합치기 기록 (D-MERGE-LIVE-01, 판매자 요청 2026-11-17 "하루에 1차, 2차 이렇게 끊어서 방송하는 경우 … 정산할 때 정보가 파편화"):
+ * 같은 날 끝난 실제 라이브 여럿을 정산서 하나로 묶는 일과 다시 나누는 일을 덧붙이기만 하는 기록으로 둔다(고치거나 지우지 않는다, D-072와 같은 결).
+ * 지금 묶음 = 이 기록을 id 순서로 접은 것: merge는 그 묶음의 라이브 목록을 정하고(같은 묶음 ID면 바꾼다), split은 그 묶음을 없앤다.
+ * 엔진 이벤트가 아니다 — 판정·금액(찜·구매자·정산 묶음)을 바꾸지 않고 정산서 화면·내려받기가 어떤 라이브를 함께 보일지만 정한다.
+ * 방송 ID와 날짜로만 잇고 범위를 참조하지 않는다 — 백업 파일에 없고 복구·가져오기가 지우지 않는다(RESTORE_KEPT_TABLES). 날짜 봉인도 지우지 않는다
+ */
+export const broadcastGroupEvents = pgTable(
+  'broadcast_group_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 화면 요청 번호 (같은 번호로 다시 오면 처음 결과) */
+    requestId: text('request_id').notNull(),
+    /** merge(합치기·묶음 바꾸기) · split(나누기) */
+    kind: text('kind').notNull(),
+    groupId: text('group_id').notNull(),
+    /** 라이브 날짜 (KST, 묶음의 라이브는 모두 이 날짜) */
+    date: text('date').notNull(),
+    /** merge: 묶음의 라이브 ID 목록 · split: 나누기 전 목록 (JSON 배열 문자열) */
+    broadcastIds: text('broadcast_ids').notNull(),
+    /** 누가 (로그인 계정 ID) */
+    accountId: text('account_id'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('broadcast_group_events_request_uq').on(t.sellerId, t.requestId), index('broadcast_group_events_seller_idx').on(t.sellerId, t.id)],
+)
+
 export const schema = {
+  broadcastGroupEvents,
   liveCatalogBackfill,
   liveCatalogDelivery,
   voiceAliases,

@@ -144,6 +144,27 @@ describe('AC-I1-04 엔진 상태 → 라벨 데이터 (L-9)', () => {
     const text = JSON.stringify(await p.overview()) + JSON.stringify(await p.labels())
     expect(text).not.toMatch(/김영희|박 이모|5678|010|phone/)
   })
+
+  it('(바) 판매자가 채팅 손님을 골라 "닉네임으로 보이기"(named)로 넣은 문자찜은 그 채널 이름, 문자 구매자는 named여도 문자찜 (D-CLAIMADD-03)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    await register(world, seller, b.id, 15)
+    await register(world, seller, b.id, 16)
+    await register(world, seller, b.id, 17)
+    await chat(world, seller, b.id, 'UC_A', '홍길동', '예쁘네요 저요')
+    await expectOk(writeEvent(world, seller, { type: 'sms', b: b.id, no: 15, received: '12:00', buyer: 'UC_A', named: true }))
+    await expectOk(writeEvent(world, seller, { type: 'sms', b: b.id, no: 16, received: '12:00', buyer: 'UC_A' }))
+    await expectOk(writeEvent(world, seller, { type: 'sms', b: b.id, no: 17, received: '12:00', memo: '박 이모', named: true }))
+    const p = printApi(world, seller)
+    const byNo = new Map((await p.overview()).jobs.map((job) => [job.label.no, job]))
+    expect(byNo.get(15)?.label.buyer).toEqual({ kind: 'youtube', name: '홍길동' })
+    expect(byNo.get(16)?.label.buyer).toEqual({ kind: 'sms' })
+    expect(byNo.get(17)?.label.buyer).toEqual({ kind: 'sms' })
+    // 손으로 넣은 두 찜 모두 그 채팅 손님 한 사람의 찜이다(정산 합산)
+    const claims = await claimsOf(world, seller)
+    expect(claims.filter((claim) => claim.buyer === 'UC_A').map((claim) => claim.product).sort()).toEqual([`${b.id}/15`, `${b.id}/16`])
+  })
 })
 
 describe('AC-I1-03 리허설 고정 (RA-S05-002)', () => {

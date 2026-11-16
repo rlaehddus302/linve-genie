@@ -34,6 +34,8 @@ import {
   type TikTokSignMeter,
   fetchShortLinkResolver,
   type ShortLinkResolver,
+  fetchTikTokAvatar,
+  type TikTokAvatarFetch,
 } from '../tiktok/index.ts'
 import type { Draft, Rejection, ScopeWriter, TxHookContext } from '../writer.ts'
 import type { OwnThanks } from './thanks/own.ts'
@@ -78,15 +80,12 @@ export const TIKTOK_RECORD_BATCH = 200
 export const TIKTOK_COUNTER_MAX = 2_147_483_647
 export const TIKTOK_SAVE_RETRY_MS: readonly number[] = [0, 300, 1_500]
 /**
- * 틱톡이 방송 끝(STREAM_END)을 알린 뒤 회차를 저절로 끝내기 전에 기다리는 시간 (D-LIVE-AUTOEND).
- * 판매자가 틱톡 오류로 방송을 끄고 바로 새로 켜는 일이 있어 5분을 둔다 — 그 안에 다시 받는 중(CONNECTED)이 되면 끝내지 않는다
+ * 틱톡 라이브가 끝났다는 첫 신호 뒤, 끝났음을 한 번 더 확인하기까지 (D-LIVE-AUTOEND → D-TT-END-01).
+ * 첫 신호 = 방송 끝(STREAM_END) 또는 받던 라이브가 끊긴 뒤 틱톡 방 상태가 "방송 중 아님"(NOT_LIVE). 이만큼 뒤에 시작한 방 상태 확인이
+ * 다시 "방송 중 아님"이면 회차를 끝낸다. 그 사이 한 번이라도 다시 받는 중(CONNECTED)이 되면 취소한다 — 판매자가 틱톡을 껐다 바로 새로 켜는 일
+ * (2026-11-16 23:46:35 끝 → 23:47:10 새 방송, 35초)은 끝내지 않는다. 옛 5분 기다림은 판매자가 "자동으로 안 끝난다"고 느낄 만큼 길었다
  */
-export const TIKTOK_AUTO_END_GRACE_MS = 5 * 60_000
-/**
- * 방송 끝 뒤 다시 방송 중인지 확인하는 첫 시도까지 (D-LIVE-AUTOEND) — 그 뒤에는 연결 객체가 "방송 전"(NOT_LIVE)을 60초마다 스스로 다시 본다.
- * 끝 직후에는 같은(끝난) 방을 다시 받기 쉬워 곧바로 하지 않는다
- */
-export const TIKTOK_AUTO_END_RECHECK_MS = 60_000
+export const TIKTOK_AUTO_END_CONFIRM_MS = 60_000
 /** 저장하지 못한 댓글이 있을 때 함께 보일 문장 (알림 줄·"댓글 붙여넣기" 주 단추가 같이 뜬다) */
 export const tiktokSaveFailedMessage = (count: number): string => `저장하지 못한 틱톡 댓글이 ${String(count)}개 있어요. 틱톡 앱에서 확인해 댓글을 붙여 넣어 주세요.`
 
@@ -198,6 +197,10 @@ export interface TikTokLiveOptions {
    * 없으면 저절로 끝내지 않는다. 던지지 않아야 한다
    */
   readonly onLiveEnded?: (sellerId: string, broadcastId: string) => Promise<unknown>
+  /** 틱톡을 이은 뒤 같은 틱톡 라이브에 이은 다른 계정과 상품을 처음 맞춘다 (D-SYNC2-01 — 유튜브 잇기와 같은 catalog.afterLink). 없으면 하지 않는다 */
+  readonly syncCatalog?: (sellerId: string, date: string) => Promise<void>
+  /** 틱톡 프로필 사진 받기 (D-TT-PHOTO-01, 기본: 틱톡 이미지 서버에서 받음 — 시험은 가짜) */
+  readonly avatarFetch?: TikTokAvatarFetch
 }
 
 interface Entry {
@@ -211,17 +214,20 @@ interface Entry {
   draining: boolean
   /** 끊었거나 회차를 끝내 버린 연결 (남은 레코드는 기록하지 않고 센다) */
   closed: boolean
-  /** 틱톡이 방송 끝을 알려 회차를 저절로 끝내려고 기다리는 중 (D-LIVE-AUTOEND) — 없으면 null */
+  /** 틱톡이 라이브 끝을 알려 회차를 저절로 끝내려고 확인하는 중 (D-LIVE-AUTOEND·D-TT-END-01) — 없으면 null */
   autoEnd: AutoEndWait | null
+  /** 이 연결로 받는 중(CONNECTED)이 된 적이 있다 — 또는 서버가 다시 켜지기 전 이 회차에 틱톡 댓글을 기록했다. 아니면 "방송 중 아님"은 방송 전이다 */
+  wasLive: boolean
+  /** 끝 확인을 한 번 마쳤다(끝냈거나 끝내지 않기로 함) — 다시 받는 중이 될 때까지 새로 확인하지 않는다(1분마다 같은 로그·질의가 쌓이지 않게) */
+  autoEndTried: boolean
+  /** 마지막 연결 시도(CONNECTING)를 시작한 시각 — 방 상태 확인 결과가 언제 물은 것인지 */
+  attemptAt: number | null
 }
 
-/** 저절로 끝내기 기다림: 끝낼 시각·타이머 취소·다시 확인 타이머 취소 */
+/** 저절로 끝내기 확인: 첫 신호 시각·다시 확인 타이머 취소 */
 interface AutoEndWait {
-  readonly deadline: number
-  readonly cancelDeadline: () => void
-  cancelRecheck: (() => void) | null
-  /** 끝낼 시각이 지났다 — 다음에 정해진 상태(받는 중·끝남·방송 전·그 밖)가 결정한다 */
-  due: boolean
+  readonly firstAt: number
+  cancelCheck: (() => void) | null
 }
 
 const fail = (status: number, code: TikTokLinkCode | 'NOT_FOUND', message?: string): LinkOutcome => ({
@@ -526,6 +532,14 @@ export class TikTokLive {
       })
     })
     const made = created as { linkId: number; date: string; tiktokId: string; draft: boolean } | null
+    // 같은 틱톡 라이브에 먼저 이은 계정이 손으로 고친 상품을 이 계정에도 (D-SYNC2-01 — 유튜브 잇기와 같은 때). 실패해도 잇기는 그대로
+    if (made !== null && this.#options.syncCatalog !== undefined) {
+      try {
+        await this.#options.syncCatalog(sellerId, made.date)
+      } catch (error) {
+        this.#options.log({ level: 'warn', code: 'CATALOG_SYNC_FAILED', seller: sellerId, errorKind: errorKind(error) })
+      }
+    }
     // 만드는 중인 방송(방송 화면에 들어오기 전)은 잇기만 적어 두고 받기 시작하지 않는다 — 화면에 들어오면 opened()가 시작한다 (D-UX3-27)
     if (made !== null && !made.draft) {
       const entry = this.#open(sellerId, made.linkId, broadcastId, made.date, made.tiktokId)
@@ -541,7 +555,7 @@ export class TikTokLive {
   }
 
   /** 연결 객체를 만든다 (판매자마다 하나 — 앞 것이 있으면 멈추고 버린다) */
-  #open(sellerId: string, linkId: number, broadcastId: string, date: string, tiktokId: string): Entry | null {
+  #open(sellerId: string, linkId: number, broadcastId: string, date: string, tiktokId: string, wasLive = false): Entry | null {
     const checked = checkTikTokTarget(tiktokId)
     if (!checked.ok) {
       this.#options.log({ level: 'warn', code: 'TIKTOK_RESUME_FAILED', seller: sellerId })
@@ -563,6 +577,7 @@ export class TikTokLive {
         this.#publish(sellerId, broadcastId)
         if (entry !== null) this.#watchEnd(entry, status)
       },
+      onAvatar: (url) => this.#rememberAvatar(checked.target.uniqueId, url),
       settings: this.#settings,
       consent: this.consentCheck,
       clock: this.#clock,
@@ -570,7 +585,7 @@ export class TikTokLive {
       limiter: this.#limiter,
       signMeter: this.#signMeter,
     })
-    entry = { sellerId, linkId, broadcastId, date, conn, pending, draining: false, closed: false, autoEnd: null }
+    entry = { sellerId, linkId, broadcastId, date, conn, pending, draining: false, closed: false, autoEnd: null, wasLive, autoEndTried: false, attemptAt: null }
     this.#entries.set(sellerId, entry)
     return entry
   }
@@ -626,7 +641,7 @@ export class TikTokLive {
       if (link === null || link.state !== 'LINKED') return
       const existing = this.#entries.get(sellerId)
       if (existing !== undefined && existing.linkId === link.id) return
-      const entry = this.#open(sellerId, link.id, broadcastId, broadcast.date, link.tiktokId)
+      const entry = this.#open(sellerId, link.id, broadcastId, broadcast.date, link.tiktokId, await this.#recordedBefore(sellerId, broadcastId))
       entry?.conn.start()
       this.#publish(sellerId, broadcastId)
     })
@@ -642,7 +657,7 @@ export class TikTokLive {
       const now = this.#now()
       if (!(await markStarted(this.#options.db, sellerId, link.id, now, new Date(now.getTime() - TIKTOK_RECONNECT_MS)))) return fail(409, 'TOO_SOON')
       let entry = this.#entries.get(sellerId)
-      if (entry === undefined || entry.linkId !== link.id) entry = this.#open(sellerId, link.id, broadcastId, broadcast.date, link.tiktokId) ?? undefined
+      if (entry === undefined || entry.linkId !== link.id) entry = this.#open(sellerId, link.id, broadcastId, broadcast.date, link.tiktokId, await this.#recordedBefore(sellerId, broadcastId)) ?? undefined
       entry?.conn.start()
       this.#publish(sellerId, broadcastId)
       return { status: 200, body: { link: await this.#viewOf(sellerId, broadcastId, await findTiktokLink(this.#options.db, sellerId, link.id)) } }
@@ -680,74 +695,66 @@ export class TikTokLive {
     }
   }
 
-  // ── 틱톡 방송이 끝나면 회차를 저절로 끝냄 (D-LIVE-AUTOEND) ─────────────────
+  // ── 틱톡 방송이 끝나면 회차를 저절로 끝냄 (D-LIVE-AUTOEND · D-TT-END-01) ──────
 
   /**
    * 연결 상태가 바뀔 때마다 (연결 객체 안에서 부른다 — 연결 객체를 다시 부르지 않고 타이머·마이크로태스크로 미룬다).
-   * - 끝남(STREAM_END → ENDED): 기다림이 없으면 시작(끝낼 시각 = 지금 + 5분). 시간이 남았으면 1분 뒤 다시 방송 중인지 확인(resume)한다.
-   * - 받는 중(CONNECTED): 판매자가 방송을 다시 켰다 — 기다림을 취소한다.
-   * - 끝낼 시각이 지난 뒤 정해진 상태가 오면 그것으로 정한다(#autoEndDue).
-   * 끊김·오류·멈춤·막힘은 기다림을 시작하지 않는다 — 틱톡이 끝났다고 분명히 알린 때만
+   * 끝 신호 두 번(1분 넘게 떨어진)이 모두 "끝남"이어야 끝낸다 — 끊김·오류·막힘·서명 실패·멈춤은 신호가 아니다(끝내지도 취소하지도 않는다):
+   * - 첫 신호: 방송 끝(STREAM_END → ENDED), 또는 받던 라이브(wasLive)에서 방 상태 확인이 "방송 중 아님"(RETRYING/NOT_LIVE).
+   *   틱톡은 끝낼 때 끝 신호 없이 연결만 닫기도 한다(끊김 → 다시 연결 → 방송 중 아님) — 옛 판은 이 길에서 끝내지 않았다.
+   * - 확인: 첫 신호 + TIKTOK_AUTO_END_CONFIRM_MS 이후에 시작한 방 상태 확인이 "방송 중 아님"이면 끝낸다. 그때 연결이 쉬고 있으면(끝남·다시 시도 대기) 바로 확인한다.
+   * - 받는 중(CONNECTED): 판매자가 방송을 다시 켰다 — 취소한다. 판매자가 틱톡을 끔(OFF)도 취소한다.
+   * 이어 둔 뒤 아직 방송을 시작하지 않아 "방송 중 아님"인 것(wasLive가 아님)은 신호가 아니다.
    */
   #watchEnd(entry: Entry, status: TikTokConnectionStatus): void {
-    if (this.#closed || entry.closed || this.#options.onLiveEnded === undefined) return
-    const wait = entry.autoEnd
+    if (this.#closed || entry.closed) return
+    const now = this.#clock.now()
+    if (status.state === 'CONNECTING') {
+      entry.attemptAt = now
+      return
+    }
     if (status.state === 'CONNECTED') {
-      if (wait !== null) {
+      entry.wasLive = true
+      entry.autoEndTried = false
+      if (entry.autoEnd !== null) {
         this.#clearAutoEnd(entry)
         this.#options.log({ level: 'info', code: 'BROADCAST_AUTO_END_CANCELLED', seller: entry.sellerId })
       }
       return
     }
-    if (status.state === 'ENDED' && wait === null) {
-      const deadline = this.#clock.now() + TIKTOK_AUTO_END_GRACE_MS
-      const made: AutoEndWait = {
-        deadline,
-        cancelDeadline: this.#clock.setTimer(TIKTOK_AUTO_END_GRACE_MS, () => {
-          if (entry.autoEnd !== made) return
-          made.due = true
-          this.#autoEndDue(entry)
-        }),
-        cancelRecheck: null,
-        due: false,
-      }
+    if (this.#options.onLiveEnded === undefined) return
+    if (status.state === 'OFF') {
+      this.#clearAutoEnd(entry)
+      return
+    }
+    const streamEnded = status.state === 'ENDED'
+    const notLive = status.state === 'RETRYING' && status.reason === 'NOT_LIVE'
+    if (!streamEnded && !notLive) return
+    if (entry.autoEndTried || (notLive && !entry.wasLive)) return
+    // 방 상태 확인 결과는 그 확인을 시작한 때의 것이다
+    const signalAt = notLive ? (entry.attemptAt ?? now) : now
+    const wait = entry.autoEnd
+    if (wait === null) {
+      const made: AutoEndWait = { firstAt: signalAt, cancelCheck: null }
       entry.autoEnd = made
       this.#options.log({ level: 'info', code: 'BROADCAST_AUTO_END_WAITING', seller: entry.sellerId })
-    }
-    const current = entry.autoEnd
-    if (current === null) return
-    if (current.due) {
-      // 끝낼 시각이 지났다 — 연결 중이면 결과를 기다리고, 그 밖은 정한다
-      if (status.state !== 'CONNECTING' && status.state !== 'IDLE') queueMicrotask(() => this.#autoEndDue(entry))
+      made.cancelCheck = this.#clock.setTimer(Math.max(0, signalAt + TIKTOK_AUTO_END_CONFIRM_MS - now), () => {
+        made.cancelCheck = null
+        if (entry.autoEnd !== made || entry.closed || this.#closed) return
+        // 쉬고 있으면(끝남·다시 시도 대기) 지금 방 상태를 다시 묻는다. 연결 중·받는 중이면 그 결과를 기다린다. 멈춤·꺼짐은 건드리지 않는다
+        const state = entry.conn.status().state
+        if (state === 'ENDED' || state === 'RETRYING') entry.conn.resume()
+      })
       return
     }
-    // 끝남이면 다시 방송 중인지 확인하러 간다 (끝낼 시각 전에 결과가 나올 만큼 남았을 때만, 한 번에 하나)
-    if (status.state === 'ENDED' && current.cancelRecheck === null && this.#clock.now() + TIKTOK_AUTO_END_RECHECK_MS < current.deadline) {
-      current.cancelRecheck = this.#clock.setTimer(TIKTOK_AUTO_END_RECHECK_MS, () => {
-        current.cancelRecheck = null
-        if (entry.autoEnd !== current || entry.closed || this.#closed) return
-        // 끊긴 동안 받지 못했을 수 있음은 그대로 켜 둔다 (다시 켠 방송이면 그 사이 댓글을 놓쳤을 수 있다)
-        if (entry.conn.status().state === 'ENDED') entry.conn.resume()
-      })
-    }
+    if (notLive && signalAt - wait.firstAt >= TIKTOK_AUTO_END_CONFIRM_MS) queueMicrotask(() => this.#confirmEnd(entry, wait))
   }
 
-  /**
-   * 끝낼 시각이 지났다: 지금 상태가 끝남(ENDED)이거나 "방송 전"(NOT_LIVE — 틱톡이 방송 중이 아니라고 함)이면 회차를 끝낸다.
-   * 받는 중이면 취소, 연결 중이면 결과를 기다린다. 그 밖(끊김·막힘·서명 실패·멈춤·꺼짐)은 다시 켰는지 알 수 없어 끝내지 않는다(판매자가 끝낼 수 있다)
-   */
-  #autoEndDue(entry: Entry): void {
-    const wait = entry.autoEnd
-    if (wait === null || !wait.due || entry.closed || this.#closed) return
-    const status = entry.conn.status()
-    if (status.state === 'CONNECTING' || status.state === 'IDLE') return
+  /** 두 번째 "방송 중 아님" — 회차를 끝낸다(LiveAutoEnd가 리허설·다른 플랫폼 등을 다시 본다) */
+  #confirmEnd(entry: Entry, wait: AutoEndWait): void {
+    if (entry.autoEnd !== wait || entry.closed || this.#closed) return
     this.#clearAutoEnd(entry)
-    if (status.state === 'CONNECTED') return
-    const ended = status.state === 'ENDED' || (status.state === 'RETRYING' && status.reason === 'NOT_LIVE')
-    if (!ended) {
-      this.#options.log({ level: 'info', code: 'BROADCAST_AUTO_END_SKIPPED', seller: entry.sellerId, reason: 'UNSURE' })
-      return
-    }
+    entry.autoEndTried = true
     const onLiveEnded = this.#options.onLiveEnded
     if (onLiveEnded === undefined) return
     const run = onLiveEnded(entry.sellerId, entry.broadcastId).then(
@@ -762,8 +769,62 @@ export class TikTokLive {
     const wait = entry.autoEnd
     if (wait === null) return
     entry.autoEnd = null
-    wait.cancelDeadline()
-    wait.cancelRecheck?.()
+    wait.cancelCheck?.()
+  }
+
+  /** 서버가 다시 켜진 뒤 이어받는 연결: 이 회차에 틱톡 댓글을 기록한 적이 있으면 받던 라이브다 (모르면 false — 끝내지 않는 쪽) */
+  async #recordedBefore(sellerId: string, broadcastId: string): Promise<boolean> {
+    try {
+      return (await tiktokChatStats(this.#options.db, sellerId, broadcastId)).count > 0
+    } catch {
+      return false
+    }
+  }
+
+  // ── 틱톡 프로필 사진 (D-TT-PHOTO-01) ─────────────────────────────────────
+
+  /** 틱톡 아이디 → 마지막으로 받은 방 정보의 프로필 사진 주소 (서명 붙은 주소 — 바뀌면 새것으로) */
+  readonly #avatarUrls = new Map<string, string>()
+  /** 틱톡 아이디 → 받은 사진(data: 주소)과 받은 시각 (있으면 6시간, 못 받았으면 10분 동안 다시 받지 않는다) */
+  readonly #avatarPhotos = new Map<string, { readonly data: string | null; readonly at: number }>()
+  readonly #avatarLoading = new Map<string, Promise<string | null>>()
+
+  #rememberAvatar(tiktokId: string, url: string): void {
+    if (this.#avatarUrls.size > 2000) this.#avatarUrls.clear()
+    const before = this.#avatarUrls.get(tiktokId)
+    this.#avatarUrls.set(tiktokId, url)
+    // 전에 못 받았는데 새 주소가 왔으면 다음 물음에 다시 받는다
+    if (before !== url && this.#avatarPhotos.get(tiktokId)?.data === null) this.#avatarPhotos.delete(tiktokId)
+  }
+
+  /**
+   * 그 회차에 이은 틱톡 계정의 프로필 사진 (data: 주소). 이은 적이 없으면 판매자가 저장한 틱톡 아이디. 없는 회차면 undefined(404).
+   * 사진 주소는 연결할 때의 방 정보에서만 얻는다 — 아직 받는 중이 된 적이 없으면(서버가 막 켜짐·직접 연결이 막힘) null
+   */
+  async avatar(sellerId: string, broadcastId: string): Promise<string | null | undefined> {
+    if ((await findBroadcast(this.#options.db, sellerId, broadcastId)) === null) return undefined
+    const tiktokId = (await latestTiktokLink(this.#options.db, sellerId, broadcastId))?.tiktokId ?? (await findTiktokId(this.#options.db, sellerId))
+    if (tiktokId === null) return null
+    const now = this.#clock.now()
+    const cached = this.#avatarPhotos.get(tiktokId)
+    if (cached !== undefined && now - cached.at < (cached.data === null ? 10 * 60_000 : 6 * 60 * 60_000)) return cached.data
+    const url = this.#avatarUrls.get(tiktokId)
+    if (url === undefined) return cached?.data ?? null
+    let loading = this.#avatarLoading.get(tiktokId)
+    if (loading === undefined) {
+      const fetchAvatar = this.#options.avatarFetch ?? fetchTikTokAvatar()
+      loading = fetchAvatar(url)
+        .catch(() => null)
+        .then((data) => {
+          if (this.#avatarPhotos.size > 2000) this.#avatarPhotos.clear()
+          // 새로 못 받았으면 전에 받은 사진을 그대로 둔다(10분 뒤 다시)
+          this.#avatarPhotos.set(tiktokId, { data: data ?? cached?.data ?? null, at: data === null && cached?.data != null ? now - 6 * 60 * 60_000 + 10 * 60_000 : now })
+          return data ?? cached?.data ?? null
+        })
+        .finally(() => this.#avatarLoading.delete(tiktokId))
+      this.#avatarLoading.set(tiktokId, loading)
+    }
+    return loading
   }
 
   /**
@@ -905,7 +966,7 @@ export class TikTokLive {
         const broadcast = await findBroadcast(this.#options.db, link.sellerId, link.broadcastId)
         // 만드는 중인 방송은 화면에 들어올 때까지 받지 않는다 (D-UX3-27)
         if (broadcast === null || broadcast.rehearsal || broadcast.endedAt !== null || broadcast.openedAt === null) continue
-        const entry = this.#open(link.sellerId, link.id, link.broadcastId, broadcast.date, link.tiktokId)
+        const entry = this.#open(link.sellerId, link.id, link.broadcastId, broadcast.date, link.tiktokId, await this.#recordedBefore(link.sellerId, link.broadcastId))
         if (entry === null) continue
         entry.conn.resume()
         resumed += 1

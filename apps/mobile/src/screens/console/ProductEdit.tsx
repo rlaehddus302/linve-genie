@@ -20,7 +20,7 @@ import { isTentative, needsPrice, otherNames } from '../../lib/tentative.ts'
 import { localRecent, useVarietyLists, varietyChoices } from '../../lib/varieties.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { formatWon, priceWords } from '../../lib/words.ts'
-import { BigButton, BottomSheet, ErrorLine, Icon, PopupDialog, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
+import { BigButton, BottomSheet, ErrorLine, HandwritingButton, HandwritingSheet, Icon, PopupDialog, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
 import { BigNumber, NumberKeys, PRICE_LIMIT, SameNumberButtons, SameNumberLine, liveProductAt, noLimitWords, typeDigits, type SameNumber } from './ProductAdd.tsx'
@@ -150,6 +150,8 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow, focus 
   const visible = product !== undefined && product.status !== 'CLOSED'
   const [half, setHalf] = useState(false)
   const [field, setField] = useState<EditField | null>(null)
+  // 손글씨 판 (D-HANDWRITE-01) — 번호·가격 칸에서만
+  const [pen, setPen] = useState(false)
   const [original, setOriginal] = useState<Pick<Product, 'key' | 'no' | 'name' | 'price' | 'pieces'> | null>(null)
   const [draft, setDraft] = useState<EditDraft>({})
   // 개수 칸에서 고른 값 (안 건드렸으면 undefined — D-PIECES-01)
@@ -466,6 +468,8 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow, focus 
             {koreanWon(Number(draft.price))}
           </Txt>
         ) : null}
+        {/* 휴대폰을 눕혀 두고 손가락으로 숫자 쓰기 (D-HANDWRITE-01) */}
+        {field === 'no' || field === 'price' ? <HandwritingButton label={EDIT_LABEL[field]} onPress={() => setPen(true)} /> : null}
         {error !== null ? <ErrorLine large>{error}</ErrorLine> : null}
         {sameShown !== null ? <SameNumberLine product={sameShown} /> : null}
       </View>
@@ -474,6 +478,20 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow, focus 
         {sameShown !== null ? <SameNumberButtons onClose={() => setSame(null)} onShow={() => show(sameShown.key)} /> : <BigButton label={isTentative(product) ? EDIT_CONFIRM : EDIT_DONE} busy={busy} onPress={() => void apply()} />}
       </View>
       {field === 'name' ? null : <NumberKeys doubleZero={field === 'price'} onKey={type} />}
+      <HandwritingSheet
+        visible={pen && (field === 'no' || field === 'price') && !busy}
+        onClose={() => setPen(false)}
+        label={field === 'price' ? EDIT_LABEL.price : EDIT_LABEL.no}
+        unit={field === 'price' ? '원' : '번'}
+        maxLength={digitLimit(field === 'price' ? 'price' : 'no')}
+        onInsert={(digits) => {
+          if (field !== 'no' && field !== 'price') return
+          const which = field
+          setError(null)
+          setSame(null)
+          setDraft((was) => ({ ...was, [which]: digits.replace(/^0+(?=\d)/, '') }))
+        }}
+      />
     </View>
   )
 

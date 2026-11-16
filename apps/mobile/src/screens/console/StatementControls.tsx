@@ -43,8 +43,10 @@ export function InfoButton({ onPress }: { readonly onPress: () => void }) {
 }
 
 /** 화면 아래 고정 판: 왼쪽 총계 · 오른쪽 [보내기] */
-export function StatementFooter({ total, qty, buyers, bottom, onSend, onLayout }: {
+export function StatementFooter({ total, qty, buyers, bottom, onSend, onLayout, sendDisabled = false }: {
   readonly total: number | null; readonly qty: number; readonly buyers: number
+  /** [보내기]를 막는다 — 합친 라이브인지 아직 모를 때 (D-MERGE-LIVE-01) */
+  readonly sendDisabled?: boolean
   /** 판의 아래 자리 (안전 영역 포함) */
   readonly bottom: number
   readonly onSend: () => void
@@ -67,7 +69,7 @@ export function StatementFooter({ total, qty, buyers, bottom, onSend, onLayout }
       </View>
       <View style={{ minWidth: 120 }}>
         {/* 아이콘 없이 글자만 (D-UX4-185) */}
-        <BigButton label={SEND_TEXT} testID="statement-send-button" oneLine onPress={onSend} />
+        <BigButton label={SEND_TEXT} testID="statement-send-button" oneLine disabled={sendDisabled} onPress={onSend} />
       </View>
     </View>
   )

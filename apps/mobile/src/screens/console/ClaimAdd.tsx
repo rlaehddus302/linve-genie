@@ -6,6 +6,10 @@
 // - 최근 채팅 손님 (D-CLAIMADD-01, 사용자 지시 2026-11-16 "최근 채팅 친 사람 보여줘서 버튼을 눌러서 바로 등록"): 이 방송의 최근 채팅을 친 손님을
 //   새 메시지부터 캡슐로 보이고, 누르면 그 손님(지정 구매자)으로 바로 문자찜을 넣는다 — 지금 시각의 문자찜이라 먼저 찜한 손님이 있으면 대기로 간다.
 // - 아무것도 적지 않으면 오른쪽 단추가 [문자찜으로 넣기] — 이름·번호 없이 "문자찜" 손님으로 넣는다 (D-CLAIMADD-02, 같은 지시 "문자찜 버튼 눌러서 넣도록").
+// - 닉네임으로 보이기 (D-CLAIMADD-03, 사용자 지시 2026-11-17 "기본 옵션은 문자찜으로 표시(=닉네임 비공개)로 하지만, 닉네임 표시 옵션도 있으면 좋을 듯"):
+//   채팅 손님을 고를 수 있을 때(최근 채팅 손님 캡슐·이미 있는 채팅 손님 후보·고른 손님) 맨 위에 스위치 [닉네임으로 보이기](기본 꺼짐).
+//   켜고 채팅 손님으로 넣으면 그 찜의 라벨·감사 채팅 이름이 "문자찜" 대신 그 손님 닉네임(sms named). 찜·대기 판정과 정산(그 손님 한 사람으로 합산)은 같다.
+//   이름만 적어 새로 넣는 문자 손님은 늘 "문자찜"이다(스위치가 보이지 않는다). 창을 열 때마다 꺼진 채로 시작한다.
 // - 단추는 한 줄 [닫기 | 찜 넣기] (부정 왼쪽·긍정 오른쪽, D-UX4-01).
 import { useMemo, useRef, useState } from 'react'
 import { View } from 'react-native'
@@ -13,7 +17,7 @@ import type { ChatMessage, Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError, newRequestId } from '../../api/client.ts'
 import { claimsOfProduct } from '../../lib/derive.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
-import { BigButton, ButtonRow, ErrorLine, Txt } from '../../ui/kit/index.ts'
+import { BigButton, ButtonRow, ErrorLine, ToggleRow, Txt } from '../../ui/kit/index.ts'
 import { SPACE } from '../../ui/kit/tokens.ts'
 import { Field, Notice } from '../../ui/parts.tsx'
 import { ACTIVE_CLAIM, addSmsClaim, smsClaimEvent, type SmsCandidate, type SmsClaimInput } from './claim-actions.ts'
@@ -39,6 +43,9 @@ export const CLAIM_ADD_NEW_BUYER = '새 손님으로 넣기'
 export const CLAIM_ADD_REPICK = '다시 고르기'
 export const CLAIM_ADD_NO_CLAIM = '새 찜이 생기지 않았어요. 이미 찜한 손님인지 확인해 주세요.'
 export const CLAIM_ADD_FAILED = '찜을 넣지 못했어요. 다시 눌러 주세요.'
+/** 닉네임으로 보이기 스위치 (D-CLAIMADD-03) */
+export const CLAIM_ADD_NAMED = '닉네임으로 보이기'
+export const CLAIM_ADD_NAMED_HELP = '켜면 라벨과 감사 채팅에 "문자찜" 대신 손님 닉네임이 나와요'
 /** 이름 칸 길이 (문자 손님 표시 이름 "문자찜(이름)"에 들어간다) */
 const NAME_MAX = 20
 /** 고를 손님 후보 수 */
@@ -71,6 +78,12 @@ export function addSuggestions(data: ScopeData, names: ConsoleApi['names'], prod
     if (out.length >= CLAIM_ADD_SUGGESTIONS) break
   }
   return out
+}
+
+/** 채팅 손님인가 (문자 손님이 아니다) — 닉네임으로 보이기는 채팅 손님에게만 뜻이 있다 (D-CLAIMADD-03) */
+export function isChatBuyer(data: ScopeData, id: string): boolean {
+  const buyer = data.buyers.get(id)
+  return buyer !== undefined && buyer.kind !== 'sms'
 }
 
 /** 최근 채팅 손님 한 명: 지금의 손님 ID와 그 손님의 가장 최근 채팅 앞부분 */
@@ -119,6 +132,8 @@ export function ClaimAddForm({ product, onClose, onAdded }: { readonly product: 
   const [name, setName] = useState('')
   const [last4, setLast4] = useState('')
   const [buyer, setBuyer] = useState<string | null>(null)
+  // 닉네임으로 보이기 (D-CLAIMADD-03) — 기본 꺼짐(문자찜으로)
+  const [named, setNamed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ambiguous, setAmbiguous] = useState<{ readonly message: string; readonly candidates: readonly SmsCandidate[] } | null>(null)
@@ -128,10 +143,14 @@ export function ClaimAddForm({ product, onClose, onAdded }: { readonly product: 
   const { view: chat } = useMessages()
   const recent = useMemo(() => (chat === null ? [] : recentChatBuyers(api.data, chat.messages, product)), [api.data, chat, product])
   const empty = buyer === null && name.trim() === '' && last4 === ''
+  // 스위치는 채팅 손님을 고를 수 있을 때만 — 고른 손님이 있으면 그 손님이 채팅 손님일 때
+  const chatChoice = buyer !== null ? isChatBuyer(api.data, buyer) : recent.length > 0 || suggestions.some((id) => isChatBuyer(api.data, id))
   const addLabel = empty ? CLAIM_ADD_PLAIN : CLAIM_ADD
 
-  const send = async (input: SmsClaimInput) => {
+  const send = async (picked: SmsClaimInput) => {
     if (busy) return
+    // 닉네임으로 보이기는 채팅 손님을 골랐을 때만 싣는다
+    const input: SmsClaimInput = { ...picked, named: named && picked.buyer !== null && isChatBuyer(api.data, picked.buyer) }
     if (input.buyer === null && input.last4 !== '' && input.last4.length !== 4) {
       setError(CLAIM_ADD_LAST4_SHORT)
       return
@@ -170,6 +189,7 @@ export function ClaimAddForm({ product, onClose, onAdded }: { readonly product: 
   return (
     <View role="group" aria-label={CLAIM_ADD} style={{ gap: SPACE.md }}>
       <Txt step="bodyLarge" weight="bold" role="heading" aria-level={2}>{`${String(product.no)}번에 ${CLAIM_ADD}`}</Txt>
+      {chatChoice ? <ToggleRow title={CLAIM_ADD_NAMED} subtitle={CLAIM_ADD_NAMED_HELP} on={named} disabled={busy} onChange={setNamed} testID="claim-add-named" /> : null}
       {buyer !== null ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACE.sm }}>
           <Txt color="textSub">고른 손님</Txt>

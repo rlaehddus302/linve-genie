@@ -38,7 +38,8 @@ export const API_EVENTS: Readonly<Record<string, ApiEventSpec>> = {
   'product.focus': { broadcast: true, fields: BY_PRODUCT },
   // last4 (V1): 음성 문자찜의 뒤 4자리 — phone처럼 엔진 필드가 아니고 서버가 지정 구매자 또는 키·뒤 4자리로 바꾼다 (AC-V1-10)
   // newBuyer·voice (V1): "새 손님으로 넣기"(D-V1-14)·음성으로 넣는 쓰기(D-V1-13) — 엔진 필드가 아니고 서버만 읽는다
-  sms: { broadcast: true, fields: ['b', 'no', 'received', 'memo', 'phone', 'last4', 'newBuyer', 'voice', 'buyer', 'qty', ...PICK] },
+  // named (D-CLAIMADD-03): 닉네임으로 보이기 — 엔진 필드(감사 문구·상품 라벨 이름만 바꾼다)
+  sms: { broadcast: true, fields: ['b', 'no', 'received', 'memo', 'phone', 'last4', 'newBuyer', 'voice', 'buyer', 'named', 'qty', ...PICK] },
   'host.cancel': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },
   'host.reject': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },
   'host.promote': { broadcast: true, fields: [...BY_CLAIM, ...PICK] },

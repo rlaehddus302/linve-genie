@@ -239,6 +239,7 @@ function claimInfo(state: EngineState, r: Draft, claim: ClaimRecord): ClaimInfo 
     rankTime: claim.time,
     rankMinute: claim.minute,
     received: claim.received,
+    ...(claim.named === true ? { named: true as const } : {}),
     at: claim.at,
     price: claim.price,
     confirmVersion: claim.version,

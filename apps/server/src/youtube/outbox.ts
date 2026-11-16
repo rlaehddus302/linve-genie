@@ -1676,7 +1676,8 @@ export function summaryLines(state: EngineState, broadcastId: string, claimList:
     for (const claim of winners) {
       const amount = requireAmount(claim)
       const buyer = getBuyer(state, claim.buyer)
-      const sms = claim.origin === 'sms' || buyer?.kind === 'sms'
+      // 닉네임으로 보이는 문자찜(D-CLAIMADD-03)은 그 손님 닉네임
+      const sms = (claim.origin === 'sms' && claim.named !== true) || buyer?.kind === 'sms'
       lines.push({
         no: product.no,
         name: product.name,

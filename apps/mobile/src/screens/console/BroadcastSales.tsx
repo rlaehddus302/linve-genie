@@ -17,23 +17,34 @@
 //   D-UX4-198 (사용자 "화면 저렇게 넘어가면 안 된다 … 아이폰 기본적인 화면으로 해라"): 기기에서는 openBuyer로 진짜 쌓인 경로(/console/<방송>/statement)를 연다 —
 //   손으로 그린 겹친 화면이 가끔 넘김 중간에 멈췄다. 겹친 화면(SlidePage)은 경로가 없을 때(시험·웹)만. 모두에게 보내기 차례는 statement-queue로 잇는다.
 // - 모두에게 보내기(D-RETRO-64): 문자는 판매자 휴대폰의 문자 앱으로 한 명씩 보낸다(앱이 대신 보내지 않는다) — 보내면 다음 손님으로 바로 넘어가고 보낸 손님을 표시한다.
+// - 라이브 합치기 (D-MERGE-LIVE-01~04, 판매자 요청 2026-11-17 "하루에 1차, 2차 이렇게 끊어서 방송하는 경우 … 정산할 때 정보가 파편화"):
+//   합친 라이브면 묶음의 라이브를 모두 담은 정산서(부르는 쪽이 sales·scope를 준다) — 목록 위 "1차 · 2차를 합친 정산서예요" [나누기].
+//   합치지 않았는데 같은 날 끝난 라이브가 더 있으면 "같은 날 끝난 라이브가 n개 더 있어요" [합치기].
+//   보낸 손님 표시는 정산서(묶음 모습)마다 따로, 다른 정산서로 먼저 받은 손님은 모두에게 보내기 차례에서 빼고 따로 보인다(두 번 청구하지 않게).
+//   묶음을 받기 전에는 [보내기]를 막는다 — 1차만 담긴 정산서가 나가지 않게.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Animated, ScrollView, View, useWindowDimensions } from 'react-native'
-import type { ReceiptBuyers } from '@livejjim/web/src/api/types.ts'
-import { getBytes, withRetry } from '../../api/client.ts'
+import type { BroadcastItem, ReceiptBuyers } from '@livejjim/web/src/api/types.ts'
+import { getBytes, isApiError, newRequestId, post, withRetry } from '../../api/client.ts'
 import { useCachedGet, useScreenFocusCount } from '../../lib/cached-get.ts'
 import { type broadcastSales, salesMoney, statementInfoMissing, statementName, statementRows, type StatementRow } from '../../lib/broadcast-sales.ts'
+import {
+  GROUPS_CHECKING, GROUPS_FAILED, GROUPS_PATH, GROUPS_RETRY, SPLIT_BUTTON, SPLIT_DESCRIPTION, SPLIT_FAILED, SPLIT_QUESTION, MERGE_BUTTON, earlierSent, markScopeSent, mergedNote, sameDayOthers, siblingsNote,
+  statementScope, useBroadcastGroups, type StatementScope,
+} from '../../lib/broadcast-groups.ts'
 import type { BuyerNames } from '../../lib/derive.ts'
-import { markBuyerSent, markStatementInfoAsked, sentBuyers, shouldAskStatementInfo, useStatementInfo } from '../../lib/statement-info.ts'
-import { BigButton, BottomSheet, Txt, useKit } from '../../ui/kit/index.ts'
-import { GUTTER, SPACE } from '../../ui/kit/tokens.ts'
+import { markStatementInfoAsked, sentBuyers, shouldAskStatementInfo, useStatementInfo } from '../../lib/statement-info.ts'
+import { BigButton, BottomSheet, ConfirmSheet, SmallButton, Txt, useKit } from '../../ui/kit/index.ts'
+import { GUTTER, RADIUS, SPACE } from '../../ui/kit/tokens.ts'
+import { fetchCached } from '../../lib/cached-get.ts'
+import { MergeLivesSheet } from './MergeLives.tsx'
 import { Pill } from '../../ui/day-pills.tsx'
 import { EXPORT_FAILED, EXPORT_LABEL, type ExportKind } from '../order-export.tsx'
 import { MenuRow } from '../order-parts.tsx'
 import { nativeShareFile } from '../../native/index.ts'
 import { wait, SHEET_GAP_MS } from '../../lib/receipt-sms-flow.ts'
 import { StatementPhoto, statementPages } from './StatementPhoto.tsx'
-import { BuyerStatementBody, buyerPageName, BUYER_PAGE_NAME, sendAllFinished, sendAllProgress } from './BuyerStatement.tsx'
+import { BuyerStatementBody, buyerPageName, BUYER_PAGE_NAME, sendAllFinished, sendAllProgress, shopPathOf } from './BuyerStatement.tsx'
 import { clearSendQueueNote, sendQueueNote, startSendQueue, useSendQueueVersion } from './statement-queue.ts'
 import { BUYER_JOIN, productBuyers, StatementList } from './StatementList.tsx'
 import { InfoButton, StatementFooter } from './StatementControls.tsx'
@@ -66,12 +77,14 @@ export { sendAllProgress }
 
 /** 줄 이름 (화면 읽기·시험) — 구매자별은 누르면 그 손님 정산서 */
 function rowLabel(row: StatementRow, sent: boolean, buyers: readonly string[] = []): string {
-  if (row.no !== null) return `${row.no}번 ${row.label} · ${salesMoney(row.money)} · ${row.qty}개${buyers.length > 0 ? ` · 구매자 ${buyers.join(BUYER_JOIN)}` : ''}`
+  if (row.no !== null) return `${row.round ? `${row.round} ` : ''}${row.no}번 ${row.label} · ${salesMoney(row.money)} · ${row.qty}개${buyers.length > 0 ? ` · 구매자 ${buyers.join(BUYER_JOIN)}` : ''}`
   return `${row.label} 정산서 · ${salesMoney(row.money)} · ${row.qty}개${sent ? ` · ${SENT_WORD}` : ''}`
 }
 
-export function BroadcastSalesList({ broadcastId, title, date, sales, names, buyer, select, openBuyer, inset, rehearsal, sealed, justEnded = false, header }: {
+export function BroadcastSalesList({ broadcastId, title, date, sales, names, buyer, select, openBuyer, inset, rehearsal, sealed, justEnded = false, header, scope: given }: {
   broadcastId: string; title: string; date: string; sales: Sales; names: BuyerNames; buyer: string | null; select: (id: string | null) => void; inset: number; rehearsal: boolean; sealed: boolean
+  /** 정산서가 담는 라이브 (합친 라이브, D-MERGE-LIVE-01) — sales와 같은 범위여야 한다. 없으면(시험·웹) 이 라이브 하나 */
+  scope?: StatementScope & { readonly reload: () => Promise<void> }
   /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 이 화면 안에 겹쳐 그린다(buyer·select) */
   openBuyer?: (id: string) => void
   /** 화면 머리(상태 막대 자리 · 제목 · 알림) — 정산 정보 화면이 머리까지 덮도록 이 화면이 그린다 (D-UX4-184) */
@@ -80,8 +93,19 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   justEnded?: boolean
 }) {
   const { p } = useKit()
-  const path = `/api/broadcasts/${encodeURIComponent(broadcastId)}/order-shop`
+  const scope = given ?? statementScope([], broadcastId)
+  // 가게 이름은 묶음 첫 라이브(1차)의 것 — 내려받기(서버)와 같다
+  const path = shopPathOf(scope.lead)
   const { data: shop } = useCachedGet<{ name: string }>(path)
+  const { groups } = useBroadcastGroups()
+  // 같은 날 끝난 라이브 (합치기 안내) — 기억해 둔 목록을 쓴다
+  const { data: list } = useCachedGet<{ broadcasts: BroadcastItem[] }>(rehearsal ? null : '/api/broadcasts')
+  const others = useMemo(() => (list === null || rehearsal ? [] : sameDayOthers(list.broadcasts, scope, date)), [list, rehearsal, scope, date])
+  const [merging, setMerging] = useState(false)
+  const [splitAsk, setSplitAsk] = useState(false)
+  const [splitting, setSplitting] = useState(false)
+  const [groupNote, setGroupNote] = useState('')
+  const splitRequest = useRef(newRequestId())
   const statement = useStatementInfo()
   const { width: windowWidth } = useWindowDimensions()
   const tabHide = useTabBarHide()
@@ -99,12 +123,14 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   const [queue, setQueue] = useState(false)
   /** 연속 보내기 차례 — 시작할 때 번호를 아는 구매자만 (D-UX4-174) */
   const [queueKeys, setQueueKeys] = useState<readonly string[]>([])
-  const [sent, setSent] = useState<readonly string[]>(() => sentBuyers(broadcastId))
+  const [sent, setSent] = useState<readonly string[]>(() => sentBuyers(scope.key))
   const [doneNote, setDoneNote] = useState('')
   // 쌓인 정산서 화면에서 보낸 손님·모두에게 보내기 마침 한 줄 (D-UX4-198) — 돌아와 다시 보이면 다시 읽는다
   const queueVersion = useSendQueueVersion()
   const focusCount = useScreenFocusCount()
-  useEffect(() => { setSent(sentBuyers(broadcastId)) }, [broadcastId, queueVersion, focusCount])
+  useEffect(() => { setSent(sentBuyers(scope.key)) }, [scope.key, queueVersion, focusCount])
+  // 다른 정산서로 먼저 받은 손님 (합치기·나누기 전에 받은 정산서) — 보낸 표시가 바뀌면 다시 읽는다
+  const earlier = useMemo(() => earlierSent(scope), [scope, sent])
   const shownNote = doneNote || sendQueueNote(broadcastId)
   const tab = products ? 'products' : 'buyers'
   const rows = useMemo(() => statementRows(sales, tab, id => names.name(id)), [tab, sales, names])
@@ -119,9 +145,9 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   const receiptsPath = (sendAll || queue) && !rehearsal ? `/api/days/${date}/receipt-buyers` : null
   const { data: receipts, error: receiptsError } = useCachedGet<ReceiptBuyers>(receiptsPath)
   const checking = receiptsPath !== null && receipts === null && receiptsError === null
-  const groups = useMemo(() => sendGroups(buyerRows, receipts, !sealed), [buyerRows, receipts, sealed])
-  const sentCount = groups.sendable.filter(row => sent.includes(row.key)).length
-  const firstUnsent = groups.sendable.find(row => !sent.includes(row.key))
+  const sendable = useMemo(() => sendGroups(buyerRows, receipts, !sealed, earlier), [buyerRows, receipts, sealed, earlier])
+  const sentCount = sendable.sendable.filter(row => sent.includes(row.key)).length
+  const firstUnsent = sendable.sendable.find(row => !sent.includes(row.key))
 
   // 방송을 끝낸 직후: 정산 정보가 비어 있으면 한 번 묻는다 (연습 방송은 묻지 않는다)
   const { info, editable } = statement
@@ -156,6 +182,8 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   /** [보내기]: 가게 이름이 비어 있으면 막지 않고 정보 판으로 이끈다 — 이름 없는 정산서가 나가지 않게 (D-UX4-175) */
   const openSend = () => {
     setShareError('')
+    // 묶음을 받기 전에는 보내지 않는다 — 합친 라이브의 1차만 담긴 정산서가 나가지 않게
+    if (!scope.ready) return
     if (shop !== null && shop.name.trim() === '') openInfo()
     else setMenu(true)
   }
@@ -196,7 +224,7 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
     setSendAll(false)
     if (firstUnsent === undefined) return
     const first = firstUnsent.key
-    const keys = groups.sendable.map(row => row.key)
+    const keys = sendable.sendable.map(row => row.key)
     if (openBuyer !== undefined) {
       withInfo(() => { setDoneNote(''); startSendQueue(broadcastId, keys); openBuyer(first) })
       return
@@ -217,8 +245,9 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
     const inQueue = queue && at >= 0
     const lastInQueue = queueKeys.slice(at + 1).every(key => sent.includes(key))
     return <BuyerStatementBody broadcastId={broadcastId} order={order} date={date} buyerName={statementName(names.name(pageBuyer))} inset={inset} rehearsal={rehearsal} sealed={sealed}
-      onSent={() => setSent(markBuyerSent(broadcastId, pageBuyer))} onOpenInfo={openInfo}
-      queue={inQueue ? { position: at + 1, total: queueKeys.length, last: lastInQueue, next: () => nextBuyer(pageBuyer, sentBuyers(broadcastId)) } : undefined} />
+      earlier={earlier.includes(pageBuyer)} shopBroadcast={scope.lead}
+      onSent={() => setSent(markScopeSent(scope, pageBuyer))} onOpenInfo={openInfo}
+      queue={inQueue ? { position: at + 1, total: queueKeys.length, last: lastInQueue, next: () => nextBuyer(pageBuyer, sentBuyers(scope.key)) } : undefined} />
   }
   const buyerSlide = useSlideProgress(buyer !== null)
   const buyerPage = (
@@ -232,6 +261,20 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
     <Animated.View testID="buyer-page-under" style={[{ flex: 1 }, slideUnder(buyerSlide, windowWidth)]}>{header}{content}</Animated.View>
     {buyerPage}{askPage}
   </View>
+  /** 나누기: 묶음을 없애고 라이브마다 정산서로 돌아간다 (D-MERGE-LIVE-02) */
+  const split = async () => {
+    const group = scope.group
+    if (group === null || splitting) return
+    setSplitting(true)
+    try {
+      await post(`${GROUPS_PATH}/${encodeURIComponent(group.id)}/split`, { requestId: splitRequest.current })
+      await fetchCached(GROUPS_PATH, true).catch(() => undefined)
+      setSplitAsk(false)
+    } catch (e) {
+      setSplitAsk(false)
+      setGroupNote(isApiError(e) ? e.message : SPLIT_FAILED)
+    } finally { setSplitting(false) }
+  }
   const pick = (next: boolean) => {
     setProducts(next)
     // 탭을 바꾸면 탭 바는 늘 보인다 (D-UX4-155와 같다)
@@ -269,6 +312,24 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
           </View>
         </Animated.View>
       </View>
+      {scope.group !== null ? (
+        <View testID="statement-merged" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.surface }}>
+          <View style={{ flex: 1 }}><Txt weight="bold">{mergedNote(scope.group.broadcasts.length)}</Txt></View>
+          {sealed ? null : <SmallButton label={SPLIT_BUTTON} disabled={splitting} onPress={() => { splitRequest.current = newRequestId(); setGroupNote(''); setSplitAsk(true) }} />}
+        </View>
+      ) : others.length > 0 ? (
+        <View testID="statement-siblings" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.surface }}>
+          <View style={{ flex: 1 }}><Txt>{siblingsNote(others.length)}</Txt></View>
+          <SmallButton label={MERGE_BUTTON} onPress={() => { setGroupNote(''); setMerging(true) }} />
+        </View>
+      ) : null}
+      {!scope.ready ? (
+        <View testID="statement-groups-wait" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
+          <View style={{ flex: 1 }}><Txt color="textSub">{scope.failed === true ? GROUPS_FAILED : GROUPS_CHECKING}</Txt></View>
+          {scope.failed === true && given !== undefined ? <SmallButton label={GROUPS_RETRY} onPress={() => void given.reload()} /> : null}
+        </View>
+      ) : null}
+      {groupNote ? <Txt color="dangerText" role="alert">{groupNote}</Txt> : null}
       {shownNote ? <Txt color="textSub">{shownNote}</Txt> : null}
       {shareError ? <Txt color="dangerText">{shareError}</Txt> : null}
       <StatementList tab={tab} rows={rows} sent={sent} buyers={lineBuyers}
@@ -278,7 +339,7 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
         {...(products ? {} : { onRow: (key: string) => (openBuyer === undefined ? select(key) : openBuyer(key)) })} />
     </ScrollView>
     {/* 아래 고정 판: 총계 + [보내기] — 굴림과 상관없이 늘 보인다 (D-UX4-178) */}
-    <StatementFooter total={sales.total} qty={sales.qty} buyers={sales.buyers} bottom={footerBottom} onSend={openSend}
+    <StatementFooter total={sales.total} qty={sales.qty} buyers={sales.buyers} bottom={footerBottom} onSend={openSend} sendDisabled={!scope.ready}
       onLayout={event => setFooterHeight(event.nativeEvent.layout.height)} />
     <BottomSheet visible={menu} title={SEND_SHEET_TITLE} onClose={() => setMenu(false)} testID="statement-send">
       <View style={{ marginHorizontal: -SPACE.xl }}>
@@ -296,9 +357,9 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
         <BigButton label={sentCount === 0 ? '보내기 시작' : '이어서 보내기'} busy={checking} disabled={checking || firstUnsent === undefined} onPress={startSendAll} />
       </>}>
       {checking ? <Txt color="textSub">{PHONE_CHECKING}</Txt> : <>
-        <Txt weight="bold">{groups.sendable.length === 0 ? SEND_ALL_NOBODY : firstUnsent === undefined ? SEND_ALL_DONE : sendAllProgress(groups.sendable.length, sentCount)}</Txt>
-        {groups.sendable.length > 0 ? <View role="list" aria-label="보낼 손님">
-          {groups.sendable.map(row => {
+        <Txt weight="bold">{sendable.sendable.length === 0 ? SEND_ALL_NOBODY : firstUnsent === undefined ? SEND_ALL_DONE : sendAllProgress(sendable.sendable.length, sentCount)}</Txt>
+        {sendable.sendable.length > 0 ? <View role="list" aria-label="보낼 손님">
+          {sendable.sendable.map(row => {
             const done = sent.includes(row.key)
             return <View key={row.key} role="listitem" aria-label={`${row.label} ${done ? SENT_WORD : NOT_SENT_WORD}`} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.xs }}>
               <View style={{ flex: 1 }}><Txt>{row.label}</Txt></View>
@@ -307,7 +368,7 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
           })}
         </View> : null}
         {/* 못 보내는 구매자 — 까닭을 소제목으로, 이름은 한 줄에 여럿 (D-UX4-174) */}
-        {groups.blocked.map(group => (
+        {sendable.blocked.map(group => (
           <View key={group.reason} role="group" aria-label={BLOCK_TITLE[group.reason]} testID={`send-blocked-${group.reason}`} style={{ gap: SPACE.xs, paddingTop: SPACE.sm }}>
             <Txt step="body" weight="bold" color="textSub">{BLOCK_TITLE[group.reason]}</Txt>
             <Txt>{group.rows.map(row => row.label).join(NAME_JOIN)}</Txt>
@@ -316,5 +377,9 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
         {receiptsError !== null ? <Txt step="caption" color="textSub">{PHONE_CHECK_FAILED}</Txt> : null}
       </>}
     </BottomSheet>
+    {list !== null ? <MergeLivesSheet visible={merging} items={list.broadcasts.filter(item => item.date === date)} groups={groups} initial={[...scope.broadcasts, ...others.map(item => item.id)]}
+      onClose={() => setMerging(false)} onMerged={() => setMerging(false)} /> : null}
+    <ConfirmSheet visible={splitAsk} question={SPLIT_QUESTION} description={SPLIT_DESCRIPTION} cancelLabel="취소" confirmLabel={SPLIT_BUTTON} busy={splitting}
+      onCancel={() => setSplitAsk(false)} onConfirm={() => void split()} />
   </View>)
 }
