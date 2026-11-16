@@ -480,6 +480,16 @@ class CleanDictionaryTest(unittest.TestCase):
         self.assertEqual(variety.split_parts("에스피 금")[:2], ("", "SP금"))
         self.assertEqual(variety.split_parts("에스피")[:2], ("", "SP"))
         self.assertEqual(variety.split_parts("카에스피나")[0], "카에스피나")                 # 이름 가운데 든 글자는 건드리지 않는다
+        # 2026-11-16 방송: 받아쓰기가 SP를 NSP·ASP·엔스피로 적어 3·7·14·484번이 "NSP"로 등록됐다(D-RETRO16-02)
+        for read in ("NSP", "NSP 분채", "ASP", "엔스피", "nsp"):
+            self.assertEqual(variety.split_parts(read)[:2], ("", "SP"), read)
+        for keep in ("RASP", "TNSP", "카엔스피나"):                                          # 다른 말에 붙은 글자는 그대로
+            self.assertEqual(variety.split_parts(keep)[1], "", keep)
+        # 27번 "슈빌셋금 분채로 7000원" — 셋금은 색금, 분채(화분째)는 파는 꼴이라 이름에서 뗀다(D-RETRO16-01)
+        self.assertEqual(variety.split_parts("슈빌셋금분채"), ("슈빌", "색금", "분채", ""))
+        self.assertEqual(variety.split_parts("데뷔철화 분채"), ("데뷔", "철화", "분채", ""))
+        self.assertEqual(variety.tidy("선셋금"), "선셋금")                                 # 사전 품종 선셋(금)은 그대로
+        self.assertEqual(variety.tidy("썬셋금"), "썬셋금")
         self.assertEqual(variety.ask_name_of({"name": "", "pattern": "에스피", "confidence": "high"}), ("SP", "무늬"))
         for whole in ("황금사", "소금", "청수박", "녹금의 제왕", "마리아"):                    # 한 글자만 남게는 떼지 않는다 / 끝이 옵션 말이 아닌 이름
             self.assertEqual(clean_dict.split(whole)[1:], ([], [], []), whole)
