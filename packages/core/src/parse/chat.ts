@@ -12,8 +12,10 @@ export interface ChatParseResult {
 
 /** 번호의 최대 자릿수 (R-3 세부 "번호") */
 const MAX_NUMBER_DIGITS = 4
-/** 번호 목록의 구분자: 공백 , / · (R-3 문법) */
-const SEPARATORS = new Set([' ', ',', '/', '·'])
+/** 번호 목록의 구분자: 공백 , / · . & + (R-3 문법, D-CHAT-JOIN-01 — `.` `&` `+` 추가) */
+const SEPARATORS = new Set([' ', ',', '/', '·', '.', '&', '+'])
+/** 번호 사이의 이음말 (R-3 문법, D-CHAT-JOIN-01 — "418. 하고94. 번주세요"). 뒤에 번호가 이어질 때만 구분자다. 같은 자리에서 가장 긴 말을 쓴다. */
+const JOIN_WORDS = byLengthDesc(['하고', '하구', '그리고', '이랑', '랑', '와', '과', '및'])
 /** 주문 꼬리말 (R-3 문법). 같은 자리에서 가장 긴 말을 쓴다. */
 const CLAIM_WORDS = byLengthDesc(['이요', '요', '여', '찜', '찜이요', '찜할게요', '주세요', '할게요', '구매', '구매요', '구매합니다'])
 /** 패스 말 (R-3 "패스", D-RETRO-113): 손님이 자기 찜을 거두는 말. 번호와 함께면 취소 말과 같고, 혼자면 isBarePass */
@@ -147,16 +149,31 @@ interface NumberToken {
   readonly end: number
 }
 
-/** i에서 시작하는 번호: 숫자 1~4자리 [공백 하나] [번]. 숫자가 5자리 이상 이어지면 번호가 아니다. */
+/** i에서 시작하는 번호: 숫자 1~4자리 [.] [공백 하나] [번]. `.`은 뒤에 `번`이 올 때만 번호에 든다(`94. 번`, D-CHAT-JOIN-01). 숫자가 5자리 이상 이어지면 번호가 아니다. */
 function readNumber(s: string, i: number): NumberToken | undefined {
   if (!isDigitAt(s, i)) return undefined
   const digitsEnd = digitRunEnd(s, i)
   if (digitsEnd - i > MAX_NUMBER_DIGITS) return undefined
   const value = Number(s.slice(i, digitsEnd))
+  const at = s[digitsEnd] === '.' ? digitsEnd + 1 : digitsEnd
   let end = digitsEnd
-  if (s[end] === '번') end += 1
-  else if (s[end] === ' ' && s[end + 1] === '번') end += 2
+  if (s[at] === '번') end = at + 1
+  else if (s[at] === ' ' && s[at + 1] === '번') end = at + 2
   return { value, digitsEnd, end }
+}
+
+/** i부터 번호 목록의 구분자(기호·이음말, D-CHAT-JOIN-01)를 건너뛴 자리. 구분자가 없으면 i 그대로 */
+function skipSeparators(s: string, i: number): number {
+  let next = i
+  for (;;) {
+    if (next < s.length && SEPARATORS.has(s[next] as string)) {
+      next++
+      continue
+    }
+    const word = longestWordAt(s, next, JOIN_WORDS)
+    if (word === undefined) return next
+    next += word.length
+  }
 }
 
 /**
@@ -192,8 +209,7 @@ function scanClaim(s: string): { numbers: number[]; parts: PartEnd[] } {
     parts.push({ end: token.digitsEnd, count: numbers.length, endsVisibly: false })
     if (token.end !== token.digitsEnd) parts.push({ end: token.end, count: numbers.length, endsVisibly: false })
     i = token.end
-    let next = i
-    while (next < s.length && SEPARATORS.has(s[next] as string)) next++
+    const next = skipSeparators(s, i)
     if (next === i || !isDigitAt(s, next)) break
     i = next
   }

@@ -7,9 +7,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { BuyerNames } from '../src/lib/derive.ts'
 import { FEED_VIEW_DEFAULT, FEED_VIEW_KEY, getFeedView, parseFeedView, resetFeedView, setFeedView, wireFeedView } from '../src/lib/feed-view.ts'
 import { fromFull } from '../src/lib/scope-data.ts'
-import { addSuggestions, addedLine, last4Digits } from '../src/screens/console/ClaimAdd.tsx'
+import { addSuggestions, addedLine, last4Digits, recentChatBuyers } from '../src/screens/console/ClaimAdd.tsx'
 import { raisePlan, smsClaimEvent } from '../src/screens/console/claim-actions.ts'
 import { compareNames, feedClock, feedMatches, feedPickable, feedRows, filterFeed, nameCharRank, searchText } from '../src/screens/console/feed-rows.ts'
+import type { ChatMessage } from '@livejjim/web/src/api/types.ts'
 import { BROADCAST_VIEW, buyer, claim, flush, fullView, product } from './support.ts'
 
 afterEach(() => resetFeedView())
@@ -243,6 +244,40 @@ describe('찜 넣기 (D-RETRO-54)', () => {
     expect(smsClaimEvent(target, { name: '홍길동', last4: '', buyer: null })).toEqual({ type: 'sms', b: 'b1', no: 15, memo: '홍길동' })
     expect(smsClaimEvent(target, { name: '', last4: '0937', buyer: null, newBuyer: true })).toEqual({ type: 'sms', b: 'b1', no: 15, last4: '0937', newBuyer: true })
     expect(smsClaimEvent(target, { name: '홍길동', last4: '0937', buyer: 'u1', newBuyer: true })).toEqual({ type: 'sms', b: 'b1', no: 15, buyer: 'u1' })
+  })
+
+  it('아무것도 적지 않고 넣으면 이름·끝 네 자리 없는 문자찜 — "문자찜" 손님 (D-CLAIMADD-02)', () => {
+    expect(smsClaimEvent({ broadcast: 'b1', no: 15 }, { name: '  ', last4: '', buyer: null })).toEqual({ type: 'sms', b: 'b1', no: 15 })
+  })
+
+  it('최근 채팅 손님: 새 채팅부터 손님마다 하나(합쳐졌으면 지금의 손님) — 방송자·무시 메시지, 다른 방송, 차단·이미 찜한 손님은 뺀다 (D-CLAIMADD-01)', () => {
+    const { data } = world({
+      products: [product(15, { winners: ['u1'], winnerClaims: ['c1'] })],
+      claims: [claim('c1', 15, 'u1')],
+      buyers: [buyer('u1', '홍길동'), buyer('u2', '홍길순'), buyer('u3', '홍차', { blocked: true }), buyer('u4', '홍삼', { mergedInto: 'u5', current: 'u5' }), buyer('u5', '김영희'), buyer('u6', '박철수'), buyer('own', '방송자')],
+    })
+    let seq = 0
+    const message = (channel: string, text: string, patch: Partial<ChatMessage> = {}): ChatMessage => {
+      seq += 1
+      return { id: `m${String(seq)}`, broadcast: 'b1', channel, nick: channel, text, owner: false, seq, at: '', publishedAt: '', ignored: false, order: false, cancel: false, orders: [], cancels: [], mentions: [], converted: [], claims: [], failed: false, ...patch }
+    }
+    const messages = [
+      message('u6', '안녕하세요'),
+      message('u2', '예뻐요'),
+      message('u1', '15번이요'),
+      message('u3', '저요'),
+      message('own', '15번 시작합니다', { owner: true }),
+      message('u5', '처음 쓴 말'),
+      message('u4', '418. 하고94. 번주세요 정말 갖고 싶어요'),
+      message('u6', '다른 방송', { broadcast: 'b2' }),
+      message('u2', '무시', { ignored: true }),
+    ]
+    const target = data.products.get('b1/15')!
+    expect(recentChatBuyers(data, messages, target)).toEqual([
+      { buyer: 'u5', snippet: '418. 하고94.…' },
+      { buyer: 'u2', snippet: '예뻐요' },
+      { buyer: 'u6', snippet: '안녕하세요' },
+    ])
   })
 
   it('끝 네 자리 칸은 숫자 네 개까지만 받는다 (전화번호 전체를 붙여도 앞 네 개만 남는다)', () => {

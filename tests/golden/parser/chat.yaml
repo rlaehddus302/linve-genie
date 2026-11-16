@@ -112,7 +112,7 @@ cases:
   - { in: "15번 ㅠㅠ", out: { mentions: [15] } }          # ㅠ는 주문 꼬리 기호가 아니다(놓쳐서 아쉬움일 수 있음)
   - { in: "15%", out: { mentions: [15] } }                # %는 꼬리 기호가 아니다
   - { in: "15번 살게요", out: { mentions: [15] } }        # '살게요'는 꼬리말 목록에 없다
-  - { in: "15번이랑 28번이요", out: { mentions: [15, 28] } }
+  - { in: "15번이랑 28번이요", out: { claims: [15, 28] } }   # D-CHAT-JOIN-01: 이음말 "이랑"도 구분자 (옛: 언급)
   - { in: "15 1000", out: { mentions: [15] } }            # 범위 밖 번호(1000)가 섞이면 주문 아님, 언급은 범위 안만
   - { in: "15 0", out: { mentions: [15] } }
   - { in: "15번 15번 예뻐요", out: { mentions: [15] } }   # 언급도 중복 없이
@@ -342,3 +342,28 @@ suite: chat
 settings: { parseMode: STRICT, multiNumber: IGNORE, maxNumber: 999 }
 cases:
   - { in: "132 475", out: { mentions: [132, 475] } }     # 주문으로 보지 않음 → 둘 다 찜 아님(언급만)
+---
+# 번호 사이의 이음말·점 (D-CHAT-JOIN-01 — 손님 채팅 "418. 하고94. 번주세요"를 놓쳤다). STRICT, 기본 설정.
+# 구분자에 `.` `&` `+`와 이음말 하고·하구·그리고·이랑·랑·와·과·및을 더한다. 이음말은 뒤에 번호가 이어질 때만 구분자다.
+suite: chat
+settings: { parseMode: STRICT, multiNumber: ALL, maxNumber: 999 }
+cases:
+  - { in: "418. 하고94. 번주세요", out: { claims: [418, 94] } }
+  - { in: "418 하고 94번 주세요", out: { claims: [418, 94] } }
+  - { in: "15랑 28", out: { claims: [15, 28] } }
+  - { in: "15번과 28번 주세요", out: { claims: [15, 28] } }
+  - { in: "15와 16", out: { claims: [15, 16] } }
+  - { in: "15하구 28", out: { claims: [15, 28] } }
+  - { in: "15 그리고 28번이요", out: { claims: [15, 28] } }
+  - { in: "15번 및 16번", out: { claims: [15, 16] } }
+  - { in: "15+28", out: { claims: [15, 28] } }
+  - { in: "15 & 28 찜", out: { claims: [15, 28] } }
+  - { in: "15. 28.", out: { claims: [15, 28] } }
+  - { in: "94. 번이요", out: { claims: [94] } }               # 숫자 뒤 점과 공백 하나 뒤의 '번'도 번호
+  - { in: "15.28", out: {} }                                  # 숫자.숫자는 그대로 금액
+  - { in: "15하고", out: { mentions: [15] } }                 # 이음말 뒤에 번호가 없으면 구분자가 아니다
+  - { in: "15 하고 싶어요", out: { mentions: [15] } }
+  - { in: "15하고 28 중에 뭐가 나아요?", out: { mentions: [15, 28] } }
+  - { in: "15랑 28 취소", out: { mentions: [15, 28] } }       # 취소는 그대로 번호 하나만
+  - { in: "15. 번째 사진", out: { mentions: [15] } }
+  - { in: "1. 2. 3. 4. 5. 6", out: { mentions: [1, 2, 3, 4, 5, 6] } }   # 번호 개수 상한(D-034) 그대로

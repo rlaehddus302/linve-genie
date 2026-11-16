@@ -707,9 +707,9 @@ describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + 
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 44,
-      parserCases: 943,
+      parserCases: 962,
       scenarios: 180,
-      pass: 1123,
+      pass: 1142,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

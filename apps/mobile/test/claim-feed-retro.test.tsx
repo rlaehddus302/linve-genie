@@ -240,13 +240,15 @@ describe('상품 자세히 [찜 넣기] (D-RETRO-54)', () => {
     expect(within(form).getByText('15번에 찜 넣기')).toBeTruthy()
     // 칸을 연 동안 메뉴 줄(상품 삭제 등)은 숨는다
     expect(screen.queryByRole('button', { name: '상품 삭제 — 15번' })).toBeNull()
-    const buttons = () => within(form).getAllByRole('button').filter((button) => ['닫기', '15번에 찜 넣기'].includes(button.getAttribute('aria-label') ?? ''))
+    const buttons = () => within(form).getAllByRole('button').filter((button) => ['닫기', '15번에 찜 넣기', '15번에 문자찜으로 넣기'].includes(button.getAttribute('aria-label') ?? ''))
     // 부정 왼쪽 · 긍정 오른쪽, 한 줄 (D-UX4-01)
-    expect(buttons().map((button) => button.getAttribute('aria-label'))).toEqual(['닫기', '15번에 찜 넣기'])
+    // D-CLAIMADD-02 (사용자 지시 2026-11-16 "문자찜 버튼 눌러서 넣도록"): 옛 기대는 아무것도 적지 않으면 [찜 넣기]가 꺼져 있었다.
+    // 이제 아무것도 적지 않으면 오른쪽 단추가 [문자찜으로 넣기]로 켜져 있고, 적으면 [찜 넣기]
+    expect(buttons().map((button) => button.getAttribute('aria-label'))).toEqual(['닫기', '15번에 문자찜으로 넣기'])
     expect(getComputedStyle(buttons()[0]!.parentElement!.parentElement!).flexDirection).toBe('row')
-    // 아무것도 적지 않으면 넣을 수 없다
-    expect(buttons()[1]?.getAttribute('aria-disabled')).toBe('true')
+    expect(buttons()[1]?.getAttribute('aria-disabled')).not.toBe('true')
     fireEvent.change(within(form).getByLabelText('손님 이름'), { target: { value: '박하나' } })
+    expect(buttons().map((button) => button.getAttribute('aria-label'))).toEqual(['닫기', '15번에 찜 넣기'])
     // 끝 네 자리 칸은 숫자 네 개만 — 전화번호 전체를 붙여도 남지 않는다
     fireEvent.change(within(form).getByLabelText('전화번호 끝 네 자리'), { target: { value: '010-1234-5678' } })
     expect((within(form).getByLabelText('전화번호 끝 네 자리') as HTMLInputElement).value).toBe('0101')
@@ -271,6 +273,33 @@ describe('상품 자세히 [찜 넣기] (D-RETRO-54)', () => {
     expect(within(sheet).queryByRole('group', { name: '찜 넣기' })).toBeNull()
     expect(within(sheet).getByRole('button', { name: '상품 삭제 — 15번' })).toBeTruthy()
     expect(within(within(sheet).getByRole('list', { name: '15번 찜·대기' })).getByText('문자-5678')).toBeTruthy()
+  }, SLOW)
+
+  it('아무것도 적지 않고 [문자찜으로 넣기] — 이름·끝 네 자리 없는 문자찜을 보낸다 (D-CLAIMADD-02)', async () => {
+    const world = makeWorld({ products: [product(15), product(7)] })
+    await open(world, SAMPLE)
+    const form = await openAdd(world)
+    fireEvent.click(within(form).getByRole('button', { name: '15번에 문자찜으로 넣기' }))
+    await waitFor(() => expect(world.events.length).toBe(1))
+    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 15 })
+  }, SLOW)
+
+  it('최근 채팅 손님을 누르면 그 손님으로 바로 넣는다 — 이미 15번을 찜한 손님·방송자는 보이지 않는다 (D-CLAIMADD-01)', async () => {
+    const world = makeWorld({ products: [product(15), product(7)] })
+    const message = (seq: number, channel: string, text: string, owner = false) => ({
+      id: `m${String(seq)}`, broadcast: 'b1', channel, nick: channel, text, owner, seq, at: '2026-10-29T11:00:00.000Z', publishedAt: '2026-10-29T11:00:00.000Z',
+      ignored: false, order: false, cancel: false, orders: [], cancels: [], mentions: [], converted: [], claims: [], failed: false,
+    })
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({
+      body: { date: '2026-10-29', rehearsal: false, seq: 7, more: false, messages: [message(1, 'u7', '안녕하세요'), message(2, 'u1', '15번이요'), message(3, 'own', '시작할게요', true), message(4, 'u8', '418. 하고94. 번주세요')] },
+    }))
+    await open(world, { ...SAMPLE, buyers: [...SAMPLE.buyers, buyer('u7', '박하나'), buyer('u8', '이두리'), buyer('own', '방송자')] })
+    const form = await openAdd(world)
+    const recent = await within(form).findByRole('group', { name: '최근 채팅 손님' })
+    expect(within(recent).getAllByRole('button').map((button) => button.textContent)).toEqual(['이두리 · 418. 하고94.…', '박하나 · 안녕하세요'])
+    fireEvent.click(within(recent).getByRole('button', { name: '이두리 손님으로 15번에 찜 넣기' }))
+    await waitFor(() => expect(world.events.length).toBe(1))
+    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 15, buyer: 'u8' })
   }, SLOW)
 
   it('이미 있는 손님은 눌러 고른다 — 고른 손님으로만 보내고 이름은 바꾸지 않는다. [닫기]는 아무것도 보내지 않고 메뉴로 돌아간다', async () => {
