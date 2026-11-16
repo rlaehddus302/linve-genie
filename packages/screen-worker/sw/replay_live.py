@@ -15,6 +15,8 @@
 #   python -m sw.replay_live <실행 폴더>... --truth <정답 products.json> [--wrong 2,5,27] [--logic <옛 llm_live.py>] [--mode both|before|after|flow]
 #                            [--variant '이름:KEY=값,KEY=값']... [--detail <번호별 표 csv>] [--events <이벤트를 적을 폴더>]
 #   --mode flow = 지금 방식(LLM_TENTATIVE=0) 대 임시 등록 흐름. --variant 는 환경변수를 바꾼 판을 하나 더(예: '규칙 끔:LLM_TENTATIVE_RULE=0').
+#   --mode number = 지금 길(LLM_NUMBER_FIRST=0) 대 번호 먼저 올리기(=1, D-RECOG-30~). 정답은 products.json 또는 빠른 길 재현(sw.fastpath_sim)의 {"번호": {"prices", "names"}}.
+#   번호 먼저를 견주는 수치: 처음 보이기(같은 기준 — 'N번' 줄 도착과 어느 판이든 서버에 처음 보인 때 가운데 이른 것), 놓친 정답, 서버에 보인 없는 번호, 판매자 카드.
 #   실행 폴더는 방송 순서대로(이름순 정렬). 기록에는 손님 닉네임이 있으므로 저장소 안으로 복사하지 않는다(--detail·--events도 저장소 밖에) — 임시 폴더는 끝나면 지운다.
 #   --logic 을 주면 "고치기 전"을 그 파일로 돌린다(예: git show <커밋>:packages/screen-worker/sw/llm_live.py > /tmp/old.py). 안 주면 LLM_REG_SAFE=0 으로 돌린다.
 #   환경변수(LLM_PRICE_WAIT, LLM_NAME_SELLER …)를 바꿔 "고친 뒤"를 돌리면 그 값의 효과를 잴 수 있다. 6개 실행(3시간 10분)에 판마다 4분쯤 걸린다.
@@ -70,6 +72,7 @@ class Late:
 class FakeServer:
     """서버 흉내(계약서 docs/retro/tentative-contract.md 2절의 규칙만): 번호 → 상품 {no, price, name, rid, state: "임시"·"판매"}.
     같은 번호는 처음 값이 남고, 임시 등록은 확정하면 판매 중이 되고 거두면 없어진다. 판매자의 손 조작(먼저 확정·수정·지움)은 흉내 내지 않는다.
+    번호 먼저(D-RECOG-30~): 확인 중 등록만 가격을 비울 수 있고(null) 금액 고치기로 채운다. 가격이 빈 채로는 확정하지 않는다(skip NO_PRICE).
     방송 중 다시 켠 일꾼들(여러 실행)이 한 서버에 차례로 보낸다"""
 
     def __init__(self):
@@ -79,6 +82,8 @@ class FakeServer:
         """요청 하나를 넣고 서버 응답(방송 하나)을 돌려준다"""
         ps = self.products
         row = {"changed": False}
+        if kind == "send" and b.get("price") is None:
+            return {"ok": False, "error": "BAD_REQUEST", "changed": False, "broadcasts": []}   # 가격을 비울 수 있는 것은 확인 중 등록뿐이다
         if kind in ("send", "tentative"):
             if b["no"] not in ps:
                 ps[b["no"]] = {"no": b["no"], "price": b["price"], "name": b.get("name") or "", "rid": b.get("requestId"), "at": at,
@@ -98,6 +103,8 @@ class FakeServer:
                 row = {"changed": True}
             elif to is not None and to != b["no"] and to in ps:
                 row["skip"] = "TARGET_EXISTS"
+            elif b.get("price") is None and p["price"] is None:
+                row["skip"] = "NO_PRICE"                     # 가격이 빈 상품은 확정할 수 없다(계약서 2절, 번호 먼저 D-RECOG-30~)
             else:
                 p["state"] = "판매"
                 if b.get("price") is not None:
@@ -375,13 +382,38 @@ def nkey(name):
     return "".join((name or "").split()).casefold()
 
 
+def load_truth(path):
+    """정답 → [{no, price, prices, name, names, phase}]. 받는 모양: products.json({"products": [...]} 또는 [...]) ·
+    빠른 길 재현(sw.fastpath_sim)의 {"번호": {"prices": [원], "names": [품종]}}(영수증으로 만든 정답 — 맞는 값이 여럿일 수 있다)"""
+    with open(path, encoding="utf-8") as f:
+        d = json.load(f)
+    if isinstance(d, dict) and "products" in d:
+        d = d["products"]
+    if isinstance(d, dict):
+        d = [{"no": int(k), "price": (v.get("prices") or [None])[0], "prices": list(v.get("prices") or []),
+              "name": (v.get("names") or [""])[0], "names": list(v.get("names") or []), "phase": "SELLING"} for k, v in d.items() if str(k).isdigit()]
+    for p in d:
+        p.setdefault("prices", [p["price"]] if p.get("price") is not None else [])
+        p.setdefault("names", [p["name"]] if p.get("name") else [])
+    return d
+
+
+CARD_KINDS = ("LLM가격확인카드", "LLM거두기확인카드", "빠른길카드")
+
+
 def score(results, truth, wrong=()):
     """여러 실행(방송 순서)의 결과를 한 서버에 차례로 넣은 셈으로 정답과 견준다"""
-    selling = {p["no"]: p for p in truth if p.get("phase") != "CLOSED" and p["no"] not in wrong}
+    selling = {p["no"]: dict(p) for p in truth if p.get("phase") != "CLOSED" and p["no"] not in wrong}
+    for p in selling.values():
+        p.setdefault("prices", [p["price"]] if p.get("price") is not None else [])
+        p.setdefault("names", [p["name"]] if p.get("name") else [])
+    price_ok = lambda n, v: v in selling[n]["prices"]
+    name_ok = lambda n, v: any(nkey(v) == nkey(x) for x in selling[n]["names"])
     srv = FakeServer()
     server = srv.products
     first, waits = {}, []                                    # first = 판매 중이 된 순간의 값(바로 등록했거나 임시 등록을 확정한 때) — 감사 채팅·라벨이 이 값으로 나간다
     tents, shown = {}, []                                    # 임시 등록(요청 번호 → 올린 값·결과), 줄 도착 → 서버에 처음 보이기까지(임시든 바로든)
+    shown_at = {}                                            # 번호 → 판매자 화면(서버)에 처음 보인 시각(재현 시계) — 임시든 바로든
     sends = dup = dup_diff = tent_dup = 0
     for res in results:
         wait_of, tent_of = {}, {}
@@ -397,8 +429,9 @@ def score(results, truth, wrong=()):
                 sends += 1
                 if not out["changed"]:
                     dup += 1
-                    dup_diff += b["price"] != before["price"]
+                    dup_diff += before is not None and b["price"] != before["price"]
                     continue
+                shown_at.setdefault(b["no"], at)
                 rec = dict(server[b["no"]], wait=wait_of.get((b["no"], round(at, 1))))
                 first[b["no"]] = rec
                 if rec["wait"] is not None:
@@ -408,9 +441,10 @@ def score(results, truth, wrong=()):
                 if not out["changed"]:
                     tent_dup += 1
                     continue
+                shown_at.setdefault(b["no"], at)
                 e = tent_of.get(b.get("requestId")) or {}
                 tents[b.get("requestId")] = {"no": b["no"], "price": b["price"], "name": b.get("name") or "", "at": at, "wait": e.get("wait_sec"),
-                                             "rule": bool(e.get("rule")), "end": None}
+                                             "rule": bool(e.get("rule")), "fp": e.get("fp"), "end": None}
             elif kind == "confirm" and b["rid"] in tents:
                 t = tents[b["rid"]]
                 if not out["changed"]:
@@ -420,6 +454,7 @@ def score(results, truth, wrong=()):
                 t["end"] = "확정"
                 rec = dict(server[no], at=at, wait=wait_of.get((no, round(at, 1))), tent_wait=t["wait"])
                 first[no] = rec
+                shown_at.setdefault(no, t["at"])
                 if rec["wait"] is not None:
                     waits.append(rec["wait"])
                 if t["wait"] is not None:
@@ -429,8 +464,8 @@ def score(results, truth, wrong=()):
     reg = set(first)
     bad = sorted(n for n in reg if n not in selling)
     good = sorted(n for n in reg if n in selling)
-    priced = [n for n in good if selling[n].get("price") is not None]
-    named = [n for n in good if nkey(selling[n].get("name"))]
+    priced = [n for n in good if selling[n]["prices"]]
+    named = [n for n in good if any(nkey(x) for x in selling[n]["names"])]
     waits.sort()
     pct = lambda q, xs=waits: xs[min(len(xs) - 1, int(len(xs) * q))] if xs else None
     mean = lambda xs: round(sum(xs) / len(xs), 1) if xs else None
@@ -438,17 +473,25 @@ def score(results, truth, wrong=()):
     shown.sort()
     open_tents = sorted(t["no"] for t in tents.values() if t["end"] != "확정" and t["end"] != "거둠")
     tent_bad = sorted({t["no"] for t in tents.values() if t["no"] not in selling})
-    wrong_price = sum(first[n]["price"] != selling[n]["price"] for n in priced)
+    wrong_price = sum(not price_ok(n, first[n]["price"]) for n in priced)
+    ever = set(shown_at)
+    cards = {}
+    for r in results:
+        for e in r["events"]:
+            if e.get("kind") in CARD_KINDS:
+                cards.setdefault(e["no"], set()).add(e.get("why") or e["kind"])
+    left = sorted(n for n, p in server.items() if p["state"] == "임시")
     tentative = {
         "임시 등록 수(서버에 올라간 것)": len(tents),
         "그중 규칙으로 올린 수(LLM 답 전)": sum(t["rule"] for t in tents.values()),
+        "그중 가격 없이 올린 수": sum(t["price"] is None for t in tents.values()),
         "임시 등록 → 확정된 수": sum(t["end"] == "확정" for t in tents.values()),
         "임시 등록 → 거둔 수": sum(t["end"] == "거둠" for t in tents.values()),
         "끝내 확정 못 한 임시 등록 수": len(open_tents),
         "이미 있는 번호라 서버가 넘긴 임시 등록 수": tent_dup,
         "임시로 올라간 정답에 없는 번호 수": len(tent_bad),
-        "임시 금액이 정답과 달랐던 수(올릴 때)": sum(t["price"] != selling[t["no"]]["price"] for t in tents.values()
-                                         if t["no"] in selling and selling[t["no"]].get("price") is not None),
+        "임시 금액이 정답과 달랐던 수(올릴 때, 가격 없음 빼고)": sum(not price_ok(t["no"], t["price"]) for t in tents.values()
+                                                  if t["no"] in selling and selling[t["no"]]["prices"] and t["price"] is not None),
         "줄 도착→임시 등록(초) 가운데값": pct(0.5, twaits),
         "줄 도착→임시 등록(초) 90%": pct(0.9, twaits),
         "줄 도착→임시 등록(초) 평균": mean(twaits),
@@ -456,6 +499,12 @@ def score(results, truth, wrong=()):
         "줄 도착→서버에 처음 보임(초) 90%": pct(0.9, shown),
         "줄 도착→서버에 처음 보임(초) 평균": mean(shown),
         "틀린 값이 확정(판매 중)까지 간 수": f"번호 {len(bad)} · 금액 {wrong_price}",
+        "서버에 한 번이라도 보인 정답 수": f"{len(ever & set(selling))}/{len(selling)}",
+        "놓친 정답(한 번도 안 보임) 수": len(set(selling) - ever),
+        "서버에 보인 없는 번호 수(임시 포함)": len(ever - set(selling)),
+        "판매자 카드: 카드가 뜬 상품 수": len(cards),
+        "판매자 카드: 끝에 확인 중으로 남은 상품 수": len(left),
+        "판매자 카드: 둘 중 하나라도 있는 상품 수": len(set(cards) | set(left)),
     }
     return {
         "보낸 등록 수": sends,
@@ -464,12 +513,12 @@ def score(results, truth, wrong=()):
         "그중 금액이 서버 값과 달랐던 수": dup_diff,
         "정답에 없는(또는 지운) 번호로 보낸 수": len(bad),
         "정답 번호 중 등록된 수": f"{len(good)}/{len(selling)}",
-        "첫 등록 금액이 정답과 다른 수": sum(first[n]["price"] != selling[n]["price"] for n in priced),
-        "첫 등록 품종이 정답과 같은 수": f"{sum(nkey(first[n]['name']) == nkey(selling[n]['name']) for n in named)}/{len(named)}",
-        "첫 등록 품종이 정답과 다른 수(빈 이름 빼고)": sum(bool(nkey(first[n]["name"])) and nkey(first[n]["name"]) != nkey(selling[n]["name"]) for n in named),
+        "첫 등록 금액이 정답과 다른 수": wrong_price,
+        "첫 등록 품종이 정답과 같은 수": f"{sum(name_ok(n, first[n]['name']) for n in named)}/{len(named)}",
+        "첫 등록 품종이 정답과 다른 수(빈 이름 빼고)": sum(bool(nkey(first[n]["name"])) and not name_ok(n, first[n]["name"]) for n in named),
         "첫 등록 품종이 빈 수": sum(not nkey(first[n]["name"]) for n in named),
-        "방송 끝의 금액이 정답과 다른 수(일꾼이 고친 뒤)": sum(server[n]["price"] != selling[n]["price"] for n in priced if n in server),
-        "방송 끝의 품종이 정답과 같은 수(일꾼이 고친 뒤)": f"{sum(nkey(server[n]['name']) == nkey(selling[n]['name']) for n in named if n in server)}/{len(named)}",
+        "방송 끝의 금액이 정답과 다른 수(일꾼이 고친 뒤)": sum(not price_ok(n, server[n]["price"]) for n in priced if n in server),
+        "방송 끝의 품종이 정답과 같은 수(일꾼이 고친 뒤)": f"{sum(name_ok(n, server[n]['name']) for n in named if n in server)}/{len(named)}",
         "줄 도착→보냄 지연(초) 가운데값": pct(0.5),
         "줄 도착→보냄 지연(초) 90%": pct(0.9),
         "줄 도착→보냄 지연(초) 평균": round(sum(waits) / len(waits), 1) if waits else None,
@@ -483,7 +532,39 @@ def score(results, truth, wrong=()):
         "숫자 쌍으로 번호를 바꾼 수": sum(1 for r in results for e in r["events"] if e.get("kind") == "LLM번호쌍판정"),
         **tentative,
         "_bad": bad, "_first": first, "_server": server, "_selling": selling, "_tents": tents, "_open_tents": open_tents, "_tent_bad": tent_bad,
+        "_shown_at": shown_at, "_missed": sorted(set(selling) - ever), "_ghosts": sorted(ever - set(selling)), "_cards": cards, "_left": left,
     }
+
+
+def said_at(runs):
+    """번호 → 그 번호를 'N번'으로 말한 받아쓴 줄이 처음 도착한 때(재현 시계). 처음 보이기 지연을 판끼리 같은 기준으로 재는 데 쓴다"""
+    from .decide import numbers_with_beon
+    out = {}
+    for d in runs:
+        for line, seen in zip(d["tr"], d["seen"]):
+            for n in numbers_with_beon(line["text"]):
+                out[n] = min(out.get(n, seen), seen)
+    return out
+
+
+def first_shown(scores, said):
+    """처음 보이기를 판끼리 같은 기준으로: 기준 = 그 번호를 'N번'으로 말한 줄이 도착한 때와 어느 판이든 서버에 처음 보인 때 가운데 이른 것(0단계 재현과 같은 잡기).
+    → 판마다 {보인 정답 모두 | 모든 판에서 보인 정답만: {상품 수, 가운데, 90%}}"""
+    sets = {tag: s["_shown_at"] for tag, s in scores.items()}
+    selling = next(iter(scores.values()))["_selling"]
+    ref = {}
+    for n in selling:
+        xs = [v[n] for v in sets.values() if n in v] + ([said[n]] if n in said else [])
+        if xs:
+            ref[n] = min(xs)
+    both = [n for n in selling if all(n in v for v in sets.values())]
+    out = {}
+    for tag, v in sets.items():
+        for key, nos in (("보인 정답 모두", [n for n in selling if n in v]), ("모든 판에서 보인 정답만", both)):
+            d = sorted(max(0.0, v[n] - ref[n]) for n in nos)
+            pick = lambda q, d=d: round(d[min(len(d) - 1, int(len(d) * q))], 1) if d else None
+            out.setdefault(tag, {})[key] = {"상품 수": len(d), "가운데": pick(0.5), "90%": pick(0.9)}
+    return out
 
 
 def detail(path, scores, truth):
@@ -512,15 +593,15 @@ def main(argv=None):
     ap.add_argument("--truth", required=True, help="정답 상품 목록 products.json")
     ap.add_argument("--wrong", default="", help="정답 목록에 남아 있지만 틀린 번호(쉼표로)")
     ap.add_argument("--logic", help="고치기 전 판 llm_live.py 파일(없으면 LLM_REG_SAFE=0)")
-    ap.add_argument("--mode", choices=["before", "after", "both", "flow"], default="both",
-                    help="flow = 지금 방식(LLM_TENTATIVE=0) 대 임시 등록 흐름(기본값)을 견준다 — 가짜 서버가 임시 등록·확정·거두기를 받는다")
+    ap.add_argument("--mode", choices=["before", "after", "both", "flow", "number"], default="both",
+                    help="flow = 지금 방식(LLM_TENTATIVE=0) 대 임시 등록 흐름(기본값)을 견준다 — 가짜 서버가 임시 등록·확정·거두기를 받는다. "
+                         "number = 지금 길(LLM_NUMBER_FIRST=0) 대 번호 먼저 올리기(=1, D-RECOG-30~)")
     ap.add_argument("--variant", action="append", default=[], metavar="이름:KEY=값,KEY=값",
                     help="환경변수를 바꾼 판을 하나 더 돌린다(여러 번 쓸 수 있다). 예: --variant '규칙 끔:LLM_TENTATIVE_RULE=0'")
     ap.add_argument("--detail", help="번호별 첫 등록 값을 적을 CSV(저장소 밖 경로)")
     ap.add_argument("--events", help="재현에서 나온 이벤트·서버로 보낸 것을 판마다 적을 폴더(저장소 밖 경로)")
     a = ap.parse_args(argv)
-    truth = json.load(open(a.truth, encoding="utf-8"))
-    truth = truth["products"] if isinstance(truth, dict) else truth
+    truth = load_truth(a.truth)
     wrong = {int(x) for x in a.wrong.split(",") if x.strip()}
     runs = [load_run(r) for r in sorted(a.runs)]
     logics = {}
@@ -531,6 +612,9 @@ def main(argv=None):
     if a.mode == "flow":
         logics["지금 방식"] = load_logic(None, {"LLM_TENTATIVE": "0"}, "plain")
         logics["임시 등록"] = load_logic(None, {"LLM_TENTATIVE": "1"}, "tentative")
+    if a.mode == "number":
+        logics["지금 길"] = load_logic(None, {"LLM_NUMBER_FIRST": "0"}, "current")
+        logics["번호 먼저"] = load_logic(None, {"LLM_NUMBER_FIRST": "1"}, "number")
     for k, spec in enumerate(a.variant):
         tag, _, pairs = spec.partition(":")
         logics[tag] = load_logic(None, dict(x.split("=", 1) for x in pairs.split(",") if "=" in x), f"variant{k}")
@@ -554,6 +638,13 @@ def main(argv=None):
         print(f"{tag} · 정답에 없는 번호: {s['_bad']}")
         if s["_tents"]:
             print(f"{tag} · 끝내 확정 못 한 임시 등록: {s['_open_tents']} · 임시로 올라간 정답에 없는 번호: {s['_tent_bad']}")
+        print(f"{tag} · 놓친 정답: {s['_missed']} · 서버에 보인 없는 번호: {s['_ghosts']} · 끝에 확인 중: {s['_left']}")
+        print(f"{tag} · 카드: {dict(sorted((n, sorted(v)) for n, v in s['_cards'].items()))}")
+    fs = first_shown(scores, said_at(runs))
+    for tag, v in fs.items():
+        scores[tag]["_first_shown"] = v
+        print(f"{tag} · 처음 보이기(같은 기준: 'N번' 줄 도착과 어느 판이든 처음 보인 때 중 이른 것, 초): "
+              + " · ".join(f"{k} {x['상품 수']}개 가운데 {x['가운데']} / 90% {x['90%']}" for k, x in v.items()))
     if len(scores) == 2:
         b, n = scores.values()
         print(f"고친 뒤에 빠진 정답 번호: {sorted(x for x in b['_first'] if x in b['_selling'] and x not in n['_first'])}")

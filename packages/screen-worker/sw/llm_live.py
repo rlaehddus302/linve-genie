@@ -24,6 +24,8 @@
 #   두기 — 번호 근거는 섰는데 HOLD_MAX까지 못 정한 것과 방송 끝에 남은 것은 거두지 않는다(판매자가 앱에서 확정). 뒤에 근거가 모이면 일꾼이 확정한다.
 #   판매자가 먼저 확정·수정·거둔 상품은 서버가 그대로 두고(skip·kept) 일꾼도 그 칸을 더 고치지 않는다. 다시 켠 일꾼은 앞 실행의 임시 등록을 이어받는다.
 #   LLM_TENTATIVE=0 이거나 서버가 받지 않으면(옛 서버) 위 "보내기" 그대로 돈다.
+# 번호 먼저 (D-RECOG-30~, LLM_NUMBER_FIRST=1 — 기본 꺼짐): 빠른 길 규칙(sw.fastpath)으로 번호만 잡혀도 가격 없이 임시로 올리고, 들린 금액·장부 이름을 뒤에 채운다.
+#   LLM은 뒤에서 그대로 돌며 맞추는 일만 한다. 자세한 규칙은 아래 NUMBER_FIRST 옆.
 # 기록(결과 폴더): llm_live.jsonl(물을 때마다 글·답·걸린 초·까닭), llm_상품.csv(끝날 때: 보낸 값과 다수결 값), events.jsonl에 "LLM등록" 등
 import collections
 import concurrent.futures as cf
@@ -97,6 +99,15 @@ TENTATIVE = os.environ.get("LLM_TENTATIVE", "1") != "0"        # 0 = 임시 등�
 TENT_RULE = os.environ.get("LLM_TENTATIVE_RULE", "1") != "0"   # 받아쓴 한 줄에 'N번'과 단위를 말한 금액이 하나씩 있으면 LLM 답을 기다리지 않고 임시 등록(B2·L1)
 TENT_KEEP = os.environ.get("LLM_TENTATIVE_KEEP", "1") != "0"   # HOLD_MAX가 지나도 못 정한 임시 등록: 번호 근거가 선 것은 두고 판매자가 확정(0 = 모두 거둔다)
 RULE_MISS = int(os.environ.get("LLM_TENTATIVE_RULE_MISS", 2))  # 규칙 임시 등록: 그 줄을 본 LLM 답이 이만큼(번) 그 번호를 적지 않으면 거둔다
+# ---------- 번호 먼저 올리기 (D-RECOG-30~, 설계 docs/retro/2026-11-16-recognition-redesign.md 4.1·4.2·5.2·5.4·6.2절) ----------
+# 켜면(1) 빠른 길 규칙(sw.fastpath — 0단계 재현 sw.fastpath_sim과 같은 함수)이 번호만 잡혀도 가격 없이 확인 중으로 올리고(price null),
+# 들린 금액("들림")·장부 이름을 뒤에 금액·이름 고치기로 채운다. 번호 맞음 = 빠른 길(말 + 앞 딱지 같음·딱지 3번·숫자 쌍 …) 또는 지금 근거(말이 다르다고 본 번호는 빼고),
+# 가격 = LLM 답(지금 길) 또는 같은 값을 번호와 두 마디에서 들음(LLM 답이 다른 값을 적지 않았을 때). 둘 다 서야 확정한다 — 가격이 빈 상품은 확정하지 않는다.
+# 거두기 = 빠른 길의 60초(LLM 답이 그 번호를 적었으면 지금 길이 정한다). 한 줄 'N번 + 금액' 규칙(LLM_TENTATIVE_RULE)은 빠른 길이 대신한다.
+# 0(기본) = 지금 그대로. 서버가 임시 등록을 받지 않으면 켜도 지금 그대로 돈다.
+NUMBER_FIRST = os.environ.get("LLM_NUMBER_FIRST", "0") != "0"
+FP_LLM_WAIT = float(os.environ.get("LLM_FP_LLM_WAIT", 20))     # 같은 값 두 마디로 가격이 맞음이 됐는데 그 번호의 LLM 답이 없을 때: 이만큼(실제 초) 기다렸다 확정(품종을 고를 답을 기다린다)
+FP_SWEEP_LAG = 15                                             # 빠른 길 거두기의 "지금": 화면 초보다 이만큼 앞(받아쓰기가 화면보다 늦게 온다) — 마지막으로 받은 줄보다 앞으로는 가지 않는다
 TENT_FIX_MAX = 5                                               # 확정 전 금액·이름 고쳐 보내기: 칸마다 이만큼(번)까지
 TENT_FIX_BASE = 100                                            # 확정 전 고치기의 요청 번호는 여기서부터 센다(확정 뒤 고치기 1, 2, 3…과 겹치지 않게)
 # ---------- 2026-11-13 방송 복기 뒤 (D-SCR-23~28, 개선 단계표 A단계) ----------
@@ -134,6 +145,13 @@ SEG_RETAG = 300                                                      # 번호표
 CUE_WAIT, CUE_BACK = 30.0, 90.0                                    # 거둔다는 말: 이만큼(방송 초) 기다렸다가, 그 말보다 이만큼 앞까지 소개를 시작한 상품 가운데 가장 나중 것에 붙인다
 WITHDRAW_CUE = re.compile(r"번호\s?(?:떼|때|빼)")                    # 판매자가 상품을 거둔다는 말("번호 떼") — 153번
 SERVER_UNITS = {"TEN_THOUSAND": 10000, "WON": None}            # 서버 priceUnit 가운데 판매자가 분명히 고른 값만 따른다(D-SCR-21) — THOUSAND는 "고르지 않음"과 같아 따르지 않는다
+
+
+FP_NAME_WHY = "빠른 길: 장부 이름이 번호와 같은·옆 마디에서 들림"
+
+
+def won(x):
+    return "가격 없음" if x is None else f"{x:,}원"
 
 
 def unit_from_server(value, default):
@@ -365,6 +383,10 @@ class LlmRegister:
         self.noprice = {}                                    # 번호 → LLM이 가격 없이 적은 답 {t, line, calls}(D-SCR-27)
         self.tag_tried = set()                               # 번호표 규칙으로 한 번 본 번호(D-SCR-27)
         self.rule_dropped = set()                            # 규칙으로 올렸다가 LLM이 적지 않아 거둔 번호 — 같은 말이 되풀이돼도 규칙으로는 다시 올리지 않는다
+        # ---- 번호 먼저 올리기 (D-RECOG-30~) ----
+        self.fp = None                                       # 빠른 길(sw.fastpath.FastPath) — 켜져 있고 서버가 임시 등록을 받을 때 처음 쓸 때 만든다
+        self.fp_scr = None                                   # 빠른 길에 넣은 마지막 화면 초
+        self.fp_line_t = None                                # 빠른 길에 넣은 마지막 줄의 초(그 줄이 끝난 다음 초)
         if self.safe:
             events = prior_events(out, video_id) if prior is None or prior_tent is None else []
             self.adopt(prior_from_events(events) if prior is None else prior)
@@ -478,13 +500,18 @@ class LlmRegister:
             self._drain()
             self._name_asks()
         tent = self._tent_on()
+        fp_on = tent and NUMBER_FIRST
+        if fp_on:
+            self._fp_screen(cand, mains)                     # 번호 먼저(D-RECOG-30~): 화면이 받아쓰기보다 먼저 온다 — 딱지만으로도 올린다
         # 1) 새 줄에서 이벤트 찾기 — 화면 읽기가 그 줄 끝까지 왔거나 SCREEN_WAIT초 지난 줄만 본다
         while self.checked < len(tr):
             i = self.checked
             t, e, x = tr[i]
             if not final and self.screen_top < e and time.time() - self.seen.get(i, 0) < SCREEN_WAIT:
                 break
-            if tent and TENT_RULE:
+            if fp_on:
+                self._fp_line(i, cand, mains)                # 번호만 잡혀도 가격 없이 확인 중으로 올린다(한 줄 'N번 + 금액' 규칙도 이것이 대신한다)
+            elif tent and TENT_RULE:
                 self._rule(i, cand, mains)                   # 번호와 금액을 한 줄에 또렷이 말했으면 LLM 답을 기다리지 않고 임시로 올린다
             tag = main_tag(i, t, ends, mains)
             if self.safe and WITHDRAW_CUE.search(x):
@@ -507,6 +534,8 @@ class LlmRegister:
             elif why is None:
                 self.skipped.add(i)
             self.checked += 1
+        if fp_on:
+            self._fp_sweep()
         product = self.safe and TRIGGER == "product"
         if final and tr and product and self.seg is not None:
             self._seg_close(len(tr) - 1, "끝")
@@ -885,6 +914,8 @@ class LlmRegister:
                     continue
             ok, why_no = (False, f"한 자리 다른 번호표({p['pair'][1]}번)를 더 봐야 함") if p["pair"] else R.number_evidence(
                 no, p["spoken"], secs, cand, band, TAG_FRAMES, OUT_FRAMES)
+            if p.get("fp") and self.fp is not None:
+                ok, why_no = self._fp_number(p, ok, why_no)
             p["ok_no"] = ok
             votes = {price: len(calls) for price, calls in p["votes"].items()}
             price, why_price, blocked = R.price_choice(votes, p["explicit"], p["short"], self.sent_prices, PRICE_AGREE)
@@ -894,6 +925,12 @@ class LlmRegister:
                     why_price = f"열 배·백 배 다른 금액 {other:,}원이 같이 들림"
                     blocked = {**blocked, price: why_price}
                     price = None
+            fp_price = p.get("fp_price")
+            if price is None and fp_price is not None and not any(x is not None and x != fp_price for x in votes) and fp_price not in blocked \
+                    and (p["rows"] or final or now - p.get("fp_price_at", now) >= FP_LLM_WAIT):
+                # 같은 값을 그 번호와 함께 서로 다른 두 마디에서 들었다(설계 5.3 — LLM 없이 맞음이 되는 길). LLM 답이 다른 값을 적었으면 쓰지 않는다.
+                # LLM 답이 아직 없으면 FP_LLM_WAIT초 기다린다 — 확정하는 순간 라벨이 나가므로 품종을 고를 답을 먼저 받는다(LLM이 멈췄을 때의 안전망)
+                price, why_price = fp_price, "같은 값을 번호와 함께 두 마디에서 들음(빠른 길)"
             t = p.get("tent")
             if ok and price is not None:
                 twin = self._screen_twin(p, cand, mains) if tent_on else None
@@ -910,7 +947,8 @@ class LlmRegister:
                 continue
             if t is None:
                 # 번호 근거가 섰거나(가격만 못 정함) 숫자 쌍을 기다리는 중이면 먼저 임시로 올린다. 이미 보낸 번호(다시 내놓은 상품)는 올리지 않는다
-                if tent_on and (ok or p["pair"]) and no not in self.sent and no not in self.tents:
+                # 번호 먼저(D-RECOG-30~): 빠른 길이 올린 번호는 번호 근거·가격을 기다리지 않고 바로 올린다(가격 없이도)
+                if tent_on and (ok or p["pair"] or p.get("fp")) and no not in self.sent and no not in self.tents:
                     self._tent_send(p, ok, why_no, price, votes, blocked, band, secs, cand)
             elif t["state"] == "up":
                 if t.get("rule") and not p.get("keep") and not p["votes"] and not p["agree"] and p["miss"] >= RULE_MISS:
@@ -1042,6 +1080,130 @@ class LlmRegister:
         p["explicit"], p["short"] = self._said_amounts(r, i, cand)
         p["explicit"].add(price)
 
+    # ---------- 번호 먼저 올리기 (D-RECOG-30~) ----------
+    def _fp_engine(self):
+        if self.fp is None:
+            from . import fastpath
+            state = fastpath.new_state()
+            # 다시 켠 일꾼: 앞선 실행이 보낸 번호로 번호대를 먼저 잡는다(재현은 실행을 넘어 번호대를 이어 간다 — 없으면 다시 켠 직후 번호대 밖 말도 올린다)
+            state["confirmed"] = list(self.order)
+            state["band"] = R.band_of(state["confirmed"])
+            self.fp = fastpath.FastPath(self.tr, self.unit, state)   # self.tr은 _load가 늘려 가는 같은 목록이다
+        self.fp.unit = self.unit
+        return self.fp
+
+    def _fp_screen(self, cand, mains):
+        """새로 읽힌 화면 초를 빠른 길에 넣는다(딱지만으로 올리기·딱지 3번으로 번호 맞음)"""
+        if not cand:
+            return
+        fp = self._fp_engine()
+        start = self.fp_scr + 1 if self.fp_scr is not None else min(cand)
+        for t in range(int(start), int(self.screen_top) + 1):
+            fp.screen(t, cand, mains)
+            self.fp_scr = t
+        self._fp_apply()
+
+    def _fp_line(self, i, cand, mains):
+        """받아쓴 줄 하나를 빠른 길에 넣는다(그 줄이 끝난 다음 초에 들어온 것으로 — 재현과 같은 기준)"""
+        fp = self._fp_engine()
+        t = int(self.tr[i][1]) + 1
+        fp.line(t, i, cand, mains)
+        self.fp_line_t = max(t, self.fp_line_t or t)
+        for p in self.pend.values():
+            if p.get("fp") and not p["rows"] and p["line"] == i - 1:
+                p["dirty"] = True                            # 번호를 말한 다음 줄이 왔다 — 옆 마디의 장부 이름을 다시 본다
+        self._fp_apply()
+
+    def _fp_sweep(self):
+        """60초 안에 둘째 근거가 없는 확인 중 번호를 거둔다. 받아쓰기가 화면보다 늦게 오므로 화면 초에서 FP_SWEEP_LAG만큼 앞을 "지금"으로 본다"""
+        if self.fp is None or self.fp_scr is None:
+            return
+        now = self.fp_scr - FP_SWEEP_LAG
+        if self.fp_line_t is not None:
+            now = max(now, min(self.fp_line_t, self.fp_scr))
+        self.fp.sweep(now)
+        self._fp_apply()
+
+    def _fp_apply(self):
+        """빠른 길에서 바뀐 번호를 일꾼의 모음(self.pend)·임시 등록에 옮긴다. 서버로 보내기는 이번 돌기의 _settle이 한다"""
+        touched = []
+        for kind, no, extra in self.fp.take():
+            if kind == "card":
+                self._fp_card(no, extra)
+            elif no not in touched:
+                touched.append(no)
+        for no in touched:
+            self._fp_sync(no)
+
+    def _fp_card(self, no, why):
+        if ("fp", no, why) in self.cards:
+            return
+        self.cards.add(("fp", no, why))
+        self.emit({"kind": "빠른길카드", "no": no, "why": why})
+        print(f"           확인 카드 {no}번 ({why})", flush=True)
+
+    def _fp_sync(self, no):
+        r = self.fp.recs.get(no)
+        if r is None:
+            return
+        p = self.pend.get(no)
+        if r["state"] == "거둠":
+            if p is not None and p.get("fp") and not p["votes"] and p.get("tent") is not None:
+                del self.pend[no]                            # LLM 답이 그 번호를 적었으면 지금 길이 정한다(거두지 않는다)
+                self._withdraw(p["tent"], "빠른 길: 60초 안에 둘째 근거가 없음")
+            return
+        if no in self.sent:
+            return                                           # 이미 보낸 번호(다시 내놓은 상품)는 올리지 않는다 — 금액·이름 고치기 투표로만
+        if p is None:
+            if (no in self.tents and no not in self.left) or not self.tr:
+                return                                       # 다른 모음이 쓰는 임시 등록(숫자 쌍으로 옮긴 것)
+            line = min(max(0, r["line0"]), len(self.tr) - 1)
+            tag_only = r["src"] == "딱지만"
+            p = self._pend_new(no, {"t": r["t"] if tag_only else self.tr[line][0], "line": line})
+            p["rule"], p["keep"] = True, "빠른 길"            # LLM 답이 그 번호를 적지 않아도 LLM 때문에 거두지 않는다 — 빠른 길의 60초가 거둔다
+            p["spoken"] = not tag_only and no in R.spoken_numbers(self.tr[j][2] for j in range(max(0, line - 1), min(len(self.tr), line + 2)))
+        p["fp"] = p.get("fp") or r["src"]
+        p["last"], p["dirty"] = time.time(), True
+        if r["price"] is not None:
+            p["rule_price"] = r["price"]                     # 들린 값 — 확인 중 상품의 가격 칸을 채운다(_tent_follow)
+        if r["price_state"] == "맞음":
+            p["fp_price"] = r["price"]
+            p.setdefault("fp_price_at", time.time())
+        else:
+            p.pop("fp_price", None)
+
+    def _fp_number(self, p, ok, why_no):
+        """번호 먼저에서 번호가 맞음인가: 빠른 길이 맞음으로 본 번호이거나, 지금 근거가 섰고 빠른 길이 말과 앞 딱지가 다르다고 보지 않은 번호.
+        딱지만으로 올린 번호는 LLM이 그 딱지 동안의 금액을 이 번호 것으로 적었을 때만(설계 4.2)"""
+        r = self.fp.recs.get(p["no"])
+        if r is None:
+            return ok, why_no                                # 숫자 쌍으로 옮긴 번호 — 지금 근거로
+        if r["state"] == "판매 중":
+            return True, "빠른 길: " + r["why_ok"]
+        if r.get("mismatch") is not None:
+            return False, f"말한 번호와 앞 번호표({r['mismatch']}번)가 다름"
+        if r["src"] == "딱지만" and r["state"] == "확인 중" and not p["votes"]:
+            return False, "번호표만 보임 — 말이나 LLM 답을 기다림"
+        return ok, why_no
+
+    def _fp_name(self, p):
+        """빠른 길의 품종: 가게 장부 이름이 번호와 같은·옆 마디에서 들렸으면 그 이름("들림"). 장부에 없는 이름을 자리로 찾아 넣지는 않는다(0단계)"""
+        r = self.fp.recs.get(p["no"]) if self.fp is not None else None
+        ledger = self._ledger()
+        if r is None or not ledger or not self.tr:
+            return None
+        from . import fastpath
+        i0 = min(max(0, r["line0"]), len(self.tr) - 1)
+        near = [(s, x) for s, _, x in self.tr[max(0, i0 - 1):i0 + 2]]
+        return fastpath.ledger_pick(near, ledger, self._all_nicks(), p["no"])[0]
+
+    def _pick_name(self, no, p):
+        """보낼 품종: 빠른 길이 올리고 아직 LLM 답이 없는 상품은 빠른 길 이름, 그 밖에는 지금 고르기(_name)"""
+        if p.get("fp") and not p["rows"] and self.fp is not None:
+            name = self._fp_name(p)
+            return (name, FP_NAME_WHY, False) if name else (None, "빠른 길: 장부 이름이 들리지 않음", False)
+        return self._name(no, p)
+
     def _rule_seen(self, L, named):
         """LLM 답 하나가 왔다: 규칙만으로 올린 상품의 줄을 그 답이 봤는데 그 번호를 적지 않았으면 센다(RULE_MISS번이면 거둔다)"""
         lines = {i for i, _, _ in L}
@@ -1092,9 +1254,9 @@ class LlmRegister:
         from . import post
         no, now = p["no"], time.time()
         shown = price if price is not None else self._tent_price(p, votes, blocked)
-        if shown is None:
-            return
-        name, why_name, _ = self._name(no, p)
+        if shown is None and not (NUMBER_FIRST and p.get("fp")):
+            return                                           # 번호 먼저(D-RECOG-30~)만 가격 없이 올린다(서버는 확인 중 등록에만 price null을 받는다)
+        name, why_name, _ = self._pick_name(no, p)
         said = p["explicit"] | p["short"]
         reasons, nos = [], [no]
         if p["pair"]:
@@ -1109,16 +1271,18 @@ class LlmRegister:
                 reasons.append("NUMBER_SINGLE_SOURCE")
         if not R.in_band(no, band):
             reasons.append("NUMBER_OUT_OF_RANGE")
-        if price is None:
+        if shown is None:
+            reasons.append("PRICE_MISSING")                  # 가격을 아직 못 들음(번호 먼저) — 화면은 모르는 낱말을 "확인이 필요해요"로 보인다(계약서 1절)
+        elif price is None:
             if any(x not in p["explicit"] and R.out_of_range(x, self.sent_prices) for x in votes):
                 reasons.append("PRICE_OUT_OF_RANGE")
             if len(votes) > 1 or any(R.magnitude_conflict(x, said) is not None for x in votes):
                 reasons.append("PRICE_DISAGREE")
             elif "PRICE_OUT_OF_RANGE" not in reasons:
                 reasons.append("PRICE_SINGLE_SOURCE")
-        if not name:
+        if not name or why_name == FP_NAME_WHY:              # 빠른 길 이름은 "들림"까지만 — 판매자에게 확인을 받는다
             reasons.append("NAME_UNSURE")
-        prices = [shown] + sorted(votes, key=lambda x: votes[x], reverse=True) + sorted(said)
+        prices = [shown] + sorted((x for x in votes if x is not None), key=lambda x: votes[x], reverse=True) + sorted(said)
         tentative = post.make_tentative(reasons or ["NUMBER_SINGLE_SOURCE"], nos, prices, self._name_candidates(no, p, name))
         line = p["line"]
         lines = [f["line"] for f in self.found if f["no"] == no and abs(f["t"] - p["t"]) <= WINDOW and not f.get("leftover")] or [line]
@@ -1126,10 +1290,12 @@ class LlmRegister:
         ruled = shown in said
         first = next((r for r in p["rows"] if r["price"] == shown), None)
         conf = 0.9 if ruled and not rule else CONF.get(str((first or {}).get("confidence")).lower(), 0.6 if rule else 0.7)
-        body = post.make_body(self.video_id, no, shown, name or "", self._heard(lines), conf, tentative=tentative,
+        body = post.make_body(self.video_id, no, 0 if shown is None else shown, name or "", self._heard(lines), conf, tentative=tentative,
                               pieces=(self.name_info.get(no) or {}).get("qty") if name else None)   # 품종에서 떼어 낸 개수(D-PIECES-01)
-        if body is None:
+        if body is None or tentative is None:
             return
+        if shown is None:
+            body["price"] = None                             # 가격 없는 확인 중 등록 — 들리면 금액 고치기로 채운다
         seen = self.seen.get(line, now)
         observed = int(seen * 1000)
         while f"screen-{post.rid_key(self.video_id)}-{no}-{observed}" in self.tent_rids:
@@ -1145,8 +1311,9 @@ class LlmRegister:
         self.emit({"kind": "LLM임시등록", "no": no, "start_sec": p["t"], "start_hms": B.hms(p["t"]), "price": shown, "name": name, "rid": rid,
                    "reasons": tentative["reasons"], "candidates": tentative["candidates"], "line": line, "line_seen_wall": round(seen, 2), "sent_wall": round(now, 2),
                    "wait_sec": round(now - seen, 1), "ok_no": bool(ok), "why_no": why_no, "why_name": why_name, "pair": list(p["pair"]) if p["pair"] else None,
-                   "rule": rule, "answers": sum(votes.values()), "sent": True})
-        print(f"           임시 등록 {no:>4}번  {shown:,}원  {name or '품종 모름'}  (줄을 읽고 {round(now - seen, 1)}초, {'규칙' if rule else 'LLM'}: {', '.join(tentative['reasons'])})", flush=True)
+                   "rule": rule, "answers": sum(votes.values()), "sent": True, **({"fp": p["fp"]} if p.get("fp") else {})})
+        print(f"           임시 등록 {no:>4}번  {won(shown)}  {name or '품종 모름'}  (줄을 읽고 {round(now - seen, 1)}초, "
+              f"{('빠른 길 ' + p['fp']) if p.get('fp') and rule else '규칙' if rule else 'LLM'}: {', '.join(tentative['reasons'])})", flush=True)
         self.waiting += 1
         self.poster.send(body, on_result=lambda res, t=t: self.inbox.append(("임시", t, res)))
 
@@ -1159,11 +1326,11 @@ class LlmRegister:
             t["nprice"] += 1
             old, t["price"] = t["price"], best
             self.emit({"kind": "LLM임시고치기", "no": t["no"], "rid": t["rid"], "field": "price", "from": old, "to": best, "n": TENT_FIX_BASE + t["nprice"]})
-            print(f"           임시 등록 금액 고치기 {t['no']}번 {old:,}원 → {best:,}원", flush=True)
+            print(f"           임시 등록 금액 {'채우기' if old is None else '고치기'} {t['no']}번 {won(old)} → {won(best)}", flush=True)
             self.poster.reprice(self.video_id, t["no"], best, TENT_FIX_BASE + t["nprice"])
         if p.get("dirty"):
             p["dirty"] = False
-            name = self._name(no, p)[0]
+            name = self._pick_name(no, p)[0]
             if name and name != t["name"] and t["nname"] < TENT_FIX_MAX:
                 t["nname"] += 1
                 old, t["name"] = t["name"], name
@@ -1375,8 +1542,9 @@ class LlmRegister:
     def _send_pending(self, p, price, why_no, why_price, tent=None):
         """번호 근거와 가격이 정해진 상품을 보낸다. tent = 그 상품의 임시 등록(서버에 올라가 있음) — 새로 등록하지 않고 확정한다"""
         no = p["no"]
-        first = next(r for r in p["rows"] if r["price"] == price)
-        name, why_name, locked = self._name(no, p)
+        # 가격이 LLM 답이 아니라 빠른 길(같은 값 두 마디)에서 왔으면 그 값을 적은 답이 없다
+        first = next((r for r in p["rows"] if r["price"] == price), None) or {"t": p["t"], "line": p["line"], "no": no, "price": price, "variety": None, "confidence": None}
+        name, why_name, locked = self._pick_name(no, p)
         ruled = price in p["explicit"] or price in p["short"]
         conf = 0.9 if ruled else CONF.get(str(first.get("confidence")).lower(), 0.7)
         r = dict(first, no=no, t=p["t"], line=p["line"], variety=name)
