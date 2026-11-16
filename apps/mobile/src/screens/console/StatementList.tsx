@@ -6,8 +6,13 @@
 // - 구매자별 줄을 누르면 그 손님 정산서가 열린다(옛 표의 투명한 누름 자리와 같은 이름). 상품별 줄은 누르지 않는다.
 // - 상품별 줄에는 그 상품을 산 구매자 이름을 모두 " · "로 잇는다 — 줄이지 않고 길면 다음 줄로 (D-UX4-179, 사용자 "상품별 목록에서 각 상품의 구매자가 안 적혀 있어").
 // - 손님 닉네임은 글자(Txt)로만 그린다 — 꺾쇠·기호도 그대로 글자다.
+// D-UX4-182 (사용자 지시 2026-11-16 "상품명, 개수, 구매자 닉네임이 한줄씩 있어서 공간을 너무 많이 차지해 … 구매자별 정산서에서도 닉네임을 금색 캡슐말고 버튼 모양으로 감싸고,
+//   개수는 아래줄에 넣지 말고 금액 왼쪽에"):
+// - 상품별 줄: 첫 줄 "상품명 · n개", 그 아래 산 구매자를 라이브 화면 찜 꼬리표처럼 금색 캡슐로 하나씩(넘치면 다음 줄로, 줄이지 않는다). 옛: 이름 · 개수 · 구매자 " · " 글이 세 줄.
+// - 구매자별 줄: 닉네임을 회색 둥근 네모(작은 단추 모양)로 감싸고, 개수는 금액 왼쪽에 한 줄로. 옛: 닉네임 글자 아래 줄에 개수.
 import { View } from 'react-native'
 import { salesMoney, type BuyerOrder, type StatementRow, type StatementTab } from '../../lib/broadcast-sales.ts'
+import { TAG_GAP, TAG_PAD_X } from '../../lib/product-tags.ts'
 import { Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../../ui/kit/tokens.ts'
 import { STATEMENT_EMPTY } from './StatementPhoto.tsx'
@@ -46,20 +51,36 @@ function Money({ amount }: { readonly amount: number | null }) {
 
 function Row({ row, tab, sent, buyers, label, onPress }: { readonly row: StatementRow; readonly tab: StatementTab; readonly sent: boolean; readonly buyers: readonly string[]; readonly label: string; readonly onPress?: (() => void) | undefined }) {
   const { p } = useKit()
-  const body = <>
-    {tab === 'products' && row.no !== null ? (
+  const body = tab === 'products' ? <>
+    {row.no !== null ? (
       <View aria-hidden style={{ minWidth: 40, height: 28, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start', marginTop: 1 }}>
         <Txt step="caption" weight="medium" color="textSub">{`${row.no}번`}</Txt>
       </View>
     ) : null}
-    <View style={{ flex: 1, gap: 2 }}>
-      <Txt step="bodyLarge" weight="medium" numberOfLines={2}>{row.label}</Txt>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
-        <Txt step="caption" color="textSub">{`${row.qty}개`}</Txt>
-        {sent ? <View style={{ paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.secondary }}><Txt step="note" weight="medium" color="onSecondary">보냄</Txt></View> : null}
-      </View>
-      {buyers.length > 0 ? <Txt step="caption" color="textSub" testID="product-buyers">{buyers.join(BUYER_JOIN)}</Txt> : null}
+    <View style={{ flex: 1, gap: SPACE.sm }}>
+      {/* 상품명 · 개수 한 줄 (D-UX4-182) */}
+      <Txt step="bodyLarge" weight="medium" numberOfLines={2}>{row.label}<Txt step="bodyLarge" color="textSub">{`${BUYER_JOIN}${row.qty}개`}</Txt></Txt>
+      {/* 산 구매자 — 라이브 화면 찜 꼬리표와 같은 금색 캡슐 (D-UX4-182) */}
+      {buyers.length > 0 ? (
+        <View role="list" aria-label="산 구매자" testID="product-buyers" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: TAG_GAP }}>
+          {buyers.map(name => (
+            <View key={name} role="listitem" style={{ paddingHorizontal: TAG_PAD_X, paddingVertical: 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.goldBg, maxWidth: '100%' }}>
+              <Txt step="note" weight="bold" ink={p.goldText} numberOfLines={1}>{name}</Txt>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
+    <Money amount={row.money} />
+  </> : <>
+    {/* 닉네임은 작은 단추 모양 회색 둥근 네모 · 보냄 꼬리표 · 오른쪽에 개수와 금액 (D-UX4-182) */}
+    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+      <View testID="buyer-name" style={{ flexShrink: 1, minHeight: 32, paddingHorizontal: SPACE.md, justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: p.surfaceAlt }}>
+        <Txt step="body" weight="bold" numberOfLines={1}>{row.label}</Txt>
+      </View>
+      {sent ? <View style={{ paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.secondary }}><Txt step="note" weight="medium" color="onSecondary">보냄</Txt></View> : null}
+    </View>
+    <Txt step="body" color="textSub" testID="buyer-qty">{`${row.qty}개`}</Txt>
     <Money amount={row.money} />
   </>
   const frame = { minHeight: TOUCH.min + SPACE.md, paddingVertical: SPACE.md, paddingHorizontal: SPACE.xl, flexDirection: 'row' as const, alignItems: 'center' as const, gap: SPACE.md }

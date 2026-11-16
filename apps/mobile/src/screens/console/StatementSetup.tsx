@@ -4,13 +4,17 @@
 // - 단추는 좌우 한 줄: 왼쪽 [나중에] · 오른쪽 [저장] (절대 규칙 8).
 // - 가게 이름은 바뀐 때만 저장한다(PUT /api/broadcasts/:id/order-shop). 정산 정보는 서버가 받는 때만 칸을 보이고 저장한다.
 // - 계좌번호·전화번호는 기록(로그)에 남기지 않는다.
+// - D-UX4-184 (사용자 지시 2026-11-16 "정산 정보를 알려주세요 화면을 따로 만들어서 뒤로가기 스와이프 동작하게 만들어. 지금은 아래팝업처럼 밑에서 올라오고 있다"):
+//   옛: 아래에서 올라오는 전체 판(FullSheet). 이제 정산서 화면 위로 오른쪽에서 밀려 들어오는 다음 화면(SlidePage) — 왼쪽 가장자리에서 밀면 [나중에]처럼 닫힌다.
+//   정산서 화면 전체(머리 포함)를 덮도록 정산서 화면 맨 바깥에 그린다(BroadcastSalesList).
 import { useEffect, useState } from 'react'
 import { View } from 'react-native'
 import { isApiError, put } from '../../api/client.ts'
 import { rememberCached } from '../../lib/cached-get.ts'
 import type { StatementInfo } from '../../lib/broadcast-sales.ts'
-import { BigButton, FullSheet, GroupLabel, TextField } from '../../ui/kit/index.ts'
-import { SPACE } from '../../ui/kit/tokens.ts'
+import { BigButton, ButtonRow, GroupLabel, TextField, Txt, useKeyboardShown } from '../../ui/kit/index.ts'
+import { PAGE, SPACE } from '../../ui/kit/tokens.ts'
+import { SlidePage, useFooterInset } from './parts.tsx'
 import { ASK_AFTER_END_TITLE, ASK_BODY, LATER_LABEL, SAVE_LABEL, STATEMENT_INFO_TITLE, useStatementInfoForm } from '../StatementInfo.tsx'
 
 export const SHOP_NAME_LABEL = '가게 이름'
@@ -23,7 +27,7 @@ export const SHOP_NAME_FAILED = '가게 이름을 저장하지 못했어요.'
  * shopPath: 이 방송의 정산서 가게 이름 주소 · shopName: 받은 이름(아직이면 null) ·
  * info: 고칠 수 있는 정산 정보(서버가 모르면 null — 가게 이름만 묻는다)
  */
-export function StatementSetupSheet({ visible, shopPath, shopName, info, onLater, onSaved }: {
+export function StatementSetupPage({ visible, shopPath, shopName, info, onLater, onSaved }: {
   readonly visible: boolean; readonly shopPath: string; readonly shopName: string | null; readonly info: StatementInfo | null
   readonly onLater: () => void; readonly onSaved: () => void
 }) {
@@ -56,19 +60,31 @@ export function StatementSetupSheet({ visible, shopPath, shopName, info, onLater
     if (info !== null) form.save()
     else onSaved()
   }
+  const bottom = useFooterInset()
+  const keyboard = useKeyboardShown()
   return (
-    <FullSheet visible={visible} onClose={onLater} name={STATEMENT_INFO_TITLE} title={ASK_AFTER_END_TITLE} description={ASK_BODY} testID="statement-info-sheet"
-      actions={<>
-        <BigButton kind="outline" label={LATER_LABEL} disabled={busy} onPress={onLater} />
-        <BigButton label={SAVE_LABEL} busy={busy} disabled={info !== null && !form.ready} onPress={() => void save()} />
-      </>}>
-      <View style={{ gap: SPACE.xl }}>
+    // 다음 화면처럼 오른쪽에서 밀려 들어오고, 왼쪽 가장자리에서 밀면 닫힌다(= 나중에) (D-UX4-184)
+    <SlidePage visible={visible} onClose={onLater} name={STATEMENT_INFO_TITLE} testID="statement-info-sheet"
+      footer={
+        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: keyboard ? SPACE.md : bottom + SPACE.xs }}>
+          <ButtonRow>
+            <BigButton kind="outline" label={LATER_LABEL} disabled={busy} onPress={onLater} />
+            <BigButton label={SAVE_LABEL} busy={busy} disabled={info !== null && !form.ready} onPress={() => void save()} />
+          </ButtonRow>
+        </View>
+      }>
+      <View style={{ gap: SPACE.xl, paddingHorizontal: PAGE.side - SPACE.lg }}>
+        {/* 쌓인 입력 화면(FormPage)과 같은 큰 제목과 설명 */}
+        <View style={{ gap: SPACE.sm, paddingTop: SPACE.md }}>
+          <Txt step="headline" weight="bold" role="heading" aria-level={1}>{ASK_AFTER_END_TITLE}</Txt>
+          <Txt step="body" color="textSub">{ASK_BODY}</Txt>
+        </View>
         <View role="group" aria-label={SHOP_GROUP} style={{ gap: SPACE.md }}>
           <GroupLabel>{SHOP_GROUP}</GroupLabel>
           <TextField label={SHOP_NAME_LABEL} value={name} placeholder="초록다육" maxLength={40} help="정산서 맨 위에 찍혀요." onChangeText={(text) => { setName(text); setNameError('') }} error={nameError || null} />
         </View>
         {info !== null ? form.fields : null}
       </View>
-    </FullSheet>
+    </SlidePage>
   )
 }

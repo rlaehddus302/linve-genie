@@ -6,11 +6,12 @@
 // - 탭 바는 머리 바로 아래 붙고, 손으로 내리면 숨고 올리면 보인다 — 라이브 화면과 같은 tabHide·붙는 머리(D-UX4-155) (171).
 // - [가게 이름]·[정산 정보] 단추를 합쳐 한 판으로 — 정보가 빠졌을 때만 단추가 보인다 (172). 단추는 탭 바 같은 줄 맨 오른쪽 옅은 초록 알약 "정산 정보를 알려주세요 ›" (177 — 옛: 탭 바 아래 연한 빨강 경고 캡슐).
 // - [내보내기]·[모두에게 보내기]를 합쳐 [보내기] 하나 → "정산서 보내기" 아래 창: 문자 · 사진 · 엑셀 · CSV (173). [보내기]는 총계와 한 판으로 화면 아래에 고정된 초록 큰 단추 (178 — 옛: 흰 캡슐·목록 끝 총계 카드).
-// - 상품별 줄마다 산 구매자 이름 (179).
+// - 상품별 줄마다 산 구매자 이름 (179) — 금색 캡슐로 (182).
+// - 정산 정보 화면은 아래에서 올라오는 판이 아니라 오른쪽에서 밀려 들어오는 다음 화면, 밀면 뒤로 (184). 머리까지 덮도록 이 화면 맨 바깥에 그린다 — 머리(header)도 여기서 그린다.
 // - 문자로 보내기 판은 못 보내는 구매자를 까닭별 소제목 아래 " · "로 잇고, [보내기 시작]은 번호를 아는 구매자만 차례로 (174).
 // - 정산 정보(계좌·전화번호·배송비)를 한 번도 정하지 않았으면 방송을 끝낸 직후와 정산서를 처음 만들 때 한 번 묻는다. 건너뛸 수 있다 (D-RETRO-60).
 // - 모두에게 보내기(D-RETRO-64): 문자는 판매자 휴대폰의 문자 앱으로 한 명씩 보낸다(앱이 대신 보내지 않는다) — 보내면 다음 손님으로 바로 넘어가고 보낸 손님을 표시한다.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Animated, ScrollView, View, useWindowDimensions } from 'react-native'
 import type { ReceiptBuyers } from '@livejjim/web/src/api/types.ts'
 import { getBytes, withRetry } from '../../api/client.ts'
@@ -30,7 +31,7 @@ import { StatementPhoto, statementPages } from './StatementPhoto.tsx'
 import { BuyerOrderPaper } from './BuyerOrderPaper.tsx'
 import { BUYER_JOIN, productBuyers, StatementList } from './StatementList.tsx'
 import { InfoButton, StatementFooter } from './StatementControls.tsx'
-import { StatementSetupSheet } from './StatementSetup.tsx'
+import { StatementSetupPage } from './StatementSetup.tsx'
 import { BLOCK_TITLE, NAME_JOIN, sendGroups } from './statement-send.ts'
 import { useTabBarHide } from './tab-hide.ts'
 
@@ -62,8 +63,10 @@ function rowLabel(row: StatementRow, sent: boolean, buyers: readonly string[] = 
   return `${row.label} 정산서 · ${salesMoney(row.money)} · ${row.qty}개${sent ? ` · ${SENT_WORD}` : ''}`
 }
 
-export function BroadcastSalesList({ broadcastId, title, date, sales, names, buyer, select, inset, rehearsal, sealed, justEnded = false }: {
+export function BroadcastSalesList({ broadcastId, title, date, sales, names, buyer, select, inset, rehearsal, sealed, justEnded = false, header }: {
   broadcastId: string; title: string; date: string; sales: Sales; names: BuyerNames; buyer: string | null; select: (id: string | null) => void; inset: number; rehearsal: boolean; sealed: boolean
+  /** 화면 머리(상태 막대 자리 · 제목 · 알림) — 정산 정보 화면이 머리까지 덮도록 이 화면이 그린다 (D-UX4-184) */
+  header?: ReactNode
   /** 이 화면을 보는 동안 방송이 끝났다 — 정산 정보가 비어 있으면 한 번 묻는다 */
   justEnded?: boolean
 }) {
@@ -183,29 +186,30 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
     const keys = groups.sendable.map(row => row.key)
     withInfo(() => { setDoneNote(''); setQueueKeys(keys); setQueue(true); select(first) })
   }
-  const askSheet = <StatementSetupSheet visible={asking} shopPath={path} shopName={shop?.name ?? null} info={editable ? info : null} onLater={closeAsk} onSaved={closeAsk} />
+  // 정산 정보 화면 — 머리까지 덮는 다음 화면 (D-UX4-184)
+  const askPage = <StatementSetupPage visible={asking} shopPath={path} shopName={shop?.name ?? null} info={editable ? info : null} onLater={closeAsk} onSaved={closeAsk} />
+  /** 머리 · 내용 · 그 위를 덮는 정산 정보 화면 */
+  const frame = (content: ReactNode) => <View style={{ flex: 1, backgroundColor: p.background }}>{header}{content}{askPage}</View>
 
   if (buyer !== null) {
-    if (!order) return <Txt>현재 확정된 주문이 없어요.</Txt>
+    if (!order) return frame(<Txt>현재 확정된 주문이 없어요.</Txt>)
     if (!shop?.name) {
-      return <View style={{ padding: GUTTER, gap: SPACE.md }}>
+      return frame(<View style={{ padding: GUTTER, gap: SPACE.md }}>
         {shop !== null
           ? <InfoButton onPress={openInfo} />
           : <><Txt>정산서의 가게 이름을 불러오는 중이에요.</Txt><SmallButton label="다시 불러오기" onPress={() => void reload()} /></>}
-        {askSheet}
-      </View>
+      </View>)
     }
     // 정산 정보를 모르면 만들지 않는다 — 받지 않기로 한 배송비가 붙은 정산서가 손님에게 나가지 않게
-    if (info === null) return <View style={{ padding: GUTTER, gap: SPACE.md }}><Txt>{statement.failed ? LOAD_FAILED : '정산 정보를 불러오는 중이에요.'}</Txt><SmallButton label="다시 불러오기" onPress={statement.reload} /></View>
+    if (info === null) return frame(<View style={{ padding: GUTTER, gap: SPACE.md }}><Txt>{statement.failed ? LOAD_FAILED : '정산 정보를 불러오는 중이에요.'}</Txt><SmallButton label="다시 불러오기" onPress={statement.reload} /></View>)
     const at = queueKeys.indexOf(order.id)
     const inQueue = queue && at >= 0
     const lastInQueue = queueKeys.slice(at + 1).every(key => sent.includes(key))
-    return <>
+    return frame(<>
       <BuyerOrderPaper key={order.id} {...{ order, date, shop: shop.name, buyerName: statementName(names.name(buyer)), inset, rehearsal, sealed, info }}
         onSent={() => setSent(markBuyerSent(broadcastId, order.id))}
         queue={inQueue ? { position: at + 1, total: queueKeys.length, last: lastInQueue, next: () => nextBuyer(order.id, sentBuyers(broadcastId)) } : undefined} />
-      {askSheet}
-    </>
+    </>)
   }
   const pick = (next: boolean) => {
     setProducts(next)
@@ -214,7 +218,7 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   }
   /** 아래 고정 판의 아래 자리 — 아이폰 홈 막대(안전 영역) 위, 안전 영역이 없으면 12 */
   const footerBottom = Math.max(inset, SPACE.md)
-  return <View style={{ flex: 1 }}>
+  return frame(<View style={{ flex: 1 }}>
     <ScrollView style={{ flex: 1 }} testID="statement-scroll"
       // 탭 바 반고정 (D-UX4-171 — 라이브 화면 D-UX4-155와 같은 방식): 첫째 자식(탭 바)이 휴대폰 붙는 머리로 맨 위에 붙고, 손으로 내리면 숨고 올리면 보인다
       stickyHeaderIndices={STATEMENT_STICKY}
@@ -289,6 +293,5 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
         {receiptsError !== null ? <Txt step="caption" color="textSub">{PHONE_CHECK_FAILED}</Txt> : null}
       </>}
     </BottomSheet>
-    {askSheet}
-  </View>
+  </View>)
 }

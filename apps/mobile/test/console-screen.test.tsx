@@ -709,7 +709,8 @@ describe('ConsoleScreen', () => {
     // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
     expect(await screen.findByText('정산서')).toBeTruthy()
     expect(screen.getByText('판매가 확정된 상품이 없어요.')).toBeTruthy()
-    expect(screen.getByText('총계')).toBeTruthy()
+    // 옛 기대: '총계'. 새 기대(D-UX4-181, 사용자 "총계는 총액으로 이름 바꿔"): '총액'
+    expect(screen.getByText('총액')).toBeTruthy()
     expect(screen.getByText('0원')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '라이브 기록' }))
     expect(screen.getByText('끝난 라이브')).toBeTruthy()

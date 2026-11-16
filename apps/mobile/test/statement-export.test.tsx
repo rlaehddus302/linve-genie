@@ -107,7 +107,8 @@ it('줄이 많아도 화면은 한 목록으로 잇고, 사진만 A4 장으로 �
   const list = await screen.findByRole('list', { name: '구매자별 정산' })
   expect(within(list).getAllByRole('listitem')).toHaveLength(45)
   for (const name of ['손님01', '손님45']) expect(within(list).getByText(name)).toBeTruthy()
-  expect(screen.getAllByText('총계')).toHaveLength(1)
+  // 옛 기대: 화면 글 '총계'. 새 기대(D-UX4-181, 사용자 "총계는 총액으로 이름 바꿔"): 아래 고정 판 '총액' 한 번 (사진의 '총계' 띠는 그대로)
+  expect(screen.getAllByText('총액')).toHaveLength(1)
   expect(screen.getByTestId('statement-total').textContent).toContain('450,000원')
   expect(screen.getByTestId('statement-total').textContent).toContain('구매자 45명 · 45개')
   expect(papersOf()).toHaveLength(0)
@@ -156,7 +157,8 @@ it('아래 고정 판: 왼쪽 총계(금액 · 구매자 수 · 개수), 오른�
   expect(getComputedStyle(footer).position).toBe('absolute')
   expect(getComputedStyle(footer).bottom).toBe('34px')
   const total = screen.getByTestId('statement-total')
-  expect(total.textContent).toContain('총계')
+  // 옛 기대: '총계'. 새 기대(D-UX4-181): '총액'
+  expect(total.textContent).toContain('총액')
   expect(total.textContent).toContain('금액 확인 필요')
   expect(total.textContent).toContain('구매자 2명 · 3개')
   const send = screen.getByRole('button', { name: SEND_TEXT })
@@ -181,8 +183,9 @@ it('상품별 줄마다 산 구매자 이름을 모두 " · "로 잇는다 — �
   expect(map.get('k2')).toEqual(['다솜'])
   const world = makeWorld()
   render(world.wrap(<StatementList tab="products" rows={[{ key: 'k1', no: 1, label: '색금', money: 40000, qty: 4 }, { key: 'k2', no: 2, label: '창금', money: 20000, qty: 1 }]} sent={[]} buyers={map} rowLabel={row => row.label} />))
-  const shown = screen.getAllByTestId('product-buyers').map(node => node.textContent)
-  expect(shown).toEqual([map.get('k1')!.join(' · '), '다솜'])
+  // 옛 기대(D-UX4-179): 줄마다 이름을 " · "로 이은 글 한 줄. 새 기대(D-UX4-182, 사용자 "그 아래에 닉네임을 라이브 화면처럼 금색 캡슐로 감싸"): 이름마다 금색 캡슐 하나
+  const shown = screen.getAllByTestId('product-buyers').map(node => within(node).getAllByRole('listitem').map(item => item.textContent))
+  expect(shown).toEqual([map.get('k1'), ['다솜']])
   // 닉네임은 글자 그대로
   expect(shown[0]).toContain('<나무>')
 })
@@ -200,6 +203,8 @@ it('화면의 상품별 목록에도 구매자 이름이 보인다 (D-UX4-179)',
   expect(screen.queryAllByTestId('product-buyers')).toHaveLength(0)
   fireEvent.click(screen.getByRole('button', { name: '상품별' }))
   const list = screen.getByRole('list', { name: '상품별 정산' })
-  expect(within(list).getAllByTestId('product-buyers').map(node => node.textContent)).toEqual(['가람', '나무 · 다솜'])
-  expect(within(list).getAllByRole('listitem')[1]!.querySelector('[aria-label]')?.getAttribute('aria-label')).toBe('302번 창금 · 40,000원 · 2개 · 구매자 나무 · 다솜')
+  // 새 기대(D-UX4-182): 이름마다 캡슐
+  expect(within(list).getAllByTestId('product-buyers').map(node => within(node).getAllByRole('listitem').map(item => item.textContent))).toEqual([['가람'], ['나무', '다솜']])
+  // 줄 이름은 그대로 (D-UX4-182: 캡슐도 목록 칸이라 몇째 칸 대신 이름으로 찾는다)
+  expect(within(list).getByLabelText('302번 창금 · 40,000원 · 2개 · 구매자 나무 · 다솜')).toBeTruthy()
 })
