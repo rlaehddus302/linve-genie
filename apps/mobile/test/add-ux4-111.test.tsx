@@ -11,6 +11,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { describe, expect, it } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { ASK_ADD, ASK_NO, ASK_PRICE, CONFIRM_ABOVE, CONFIRM_BELOW, CONFIRM_GAP, previousStep } from '../src/screens/console/ProductAdd.tsx'
+import { NO_CLAIMS, NO_NAME } from '../src/screens/console/ProductBoard.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { flush, product } from './support.ts'
 
@@ -127,8 +128,11 @@ describe('상품 추가 (D-UX4-111)', () => {
       await flush()
     })
     const row = within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 12번' })
-    // D-UX4-201로 바뀐 기대 (사용자 "맨 왼쪽에 '번' 없이 번호만"; 옛 D-UX4-197: "12번" 표, D-UX4-148: "12 · 1,200원"): 왼쪽 번호 "12" · 오른쪽 가격만 — 품종 칸은 비고 "-"도 나눔도 없다
-    expect(row.textContent).toBe('121,200원')
+    // D-UX4-206로 바뀐 기대 (사용자 "상품명 없으면 기본으로 빨간 글씨로 '상품명을 인식하지 못했어요' 넣고, 찜이 없으면 기존 회색 글씨로 '아직 찜이 없어요'";
+    // 옛 D-UX4-201: 품종 칸을 비웠다): "-"는 여전히 쓰지 않고, 품종 자리에 빨간 알림 · 아래 회색 "아직 찜이 없어요"
+    expect(row.textContent).toBe(`12${NO_NAME}1,200원${NO_CLAIMS}`)
     expect(within(row).queryByTestId('product-row-name')).toBeNull()
+    expect(getComputedStyle(within(row).getByTestId('product-row-no-name')).color).toBe('rgb(221, 24, 36)')
+    expect(getComputedStyle(within(row).getByTestId('product-row-empty')).color).toBe('rgb(139, 149, 161)')
   })
 })

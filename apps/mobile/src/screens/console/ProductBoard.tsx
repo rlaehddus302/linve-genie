@@ -14,7 +14,7 @@
 // 목록 위 도구 줄(ProductToolbar — 번호 검색칸 / [찜 된 것만] 걸러 보기 칩 · [목록 순서])은 따로 꺼내 쓸 수 있다(D-UX4-150): ProductList toolbar={false}면 목록만 그린다.
 // D-RETRO-54 (복기 F7): 메뉴 줄 [찜 넣기] — 누르면 메뉴 자리에 손님 이름·전화번호 끝 네 자리 칸이 나오고 [닫기 | 찜 넣기]로 그 상품에 문자찜을 넣는다(ClaimAdd). 옵션 상품·끝난 라이브는 없다.
 import { displayNickname, productTitle } from '@livejjim/core/format'
-import { Fragment, memo, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
 import { Animated, Keyboard, LayoutAnimation, Platform, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
@@ -22,13 +22,13 @@ import { ProductLabelAction, QueueLabelButton } from '../ProductLabelAction.tsx'
 import { SearchField } from '../customer-parts.tsx'
 import { isApiError } from '../../api/client.ts'
 import { boardProducts, claimsOfProduct, productSlots, type BuyerNames } from '../../lib/derive.ts'
-import { buyerTagText, type ProductTag } from '../../lib/product-tags.ts'
+import { TAG_GAP, TAG_PAD_X, buyerTagText, fitTags, type ProductTag } from '../../lib/product-tags.ts'
 import { isTentative, tentativeAttention, waitingAt } from '../../lib/tentative.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { DEFAULT_PRODUCT_SORT, PRODUCT_SORTS, SORT_TITLE, sortProducts, sortWord, type ProductSort } from '../../lib/product-sort.ts'
 import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, priceWords } from '../../lib/words.ts'
 import { BottomSheet, EmptyFill, ErrorLine, PopupDialog, SheetChoices, Txt, useKit, Tap } from '../../ui/kit/index.ts'
-import { GUTTER, RADIUS, SPACE, TOUCH, pressedFill } from '../../ui/kit/tokens.ts'
+import { GUTTER, MAX_FONT_SCALE, RADIUS, SPACE, TOUCH, TYPE, pressedFill } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
 import { ACTIVE_CLAIM, deleteClaim, deleteProduct } from './claim-actions.ts'
 import { CLAIM_ADD, ClaimAddForm, type ClaimAdded } from './ClaimAdd.tsx'
@@ -36,7 +36,7 @@ import { feedBuyerName } from './feed-rows.ts'
 import { useConsoleApi } from './context.ts'
 import { IconMenuRow, NamePill, TRASH_TINT, type PillTone } from './parts.tsx'
 import { TentativePanel } from './TentativeCard.tsx'
-import { OutsideWait, outsideBuyers, soldOutClaims } from './OutsideWait.tsx'
+import { OUTSIDE_DIM, OutsideWait, outsideBuyers, soldOutClaims } from './OutsideWait.tsx'
 
 /**
  * 방금 올라온 상품을 연한 초록으로 두는 시간, 흰색으로 돌아오는 시간 (D-UX4-29).
@@ -136,10 +136,13 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
   readonly buyers: ScopeData['buyers']
   readonly names: BuyerNames
 }) {
-  const { p } = useKit()
+  const { p, fontScale } = useKit()
+  const [width, setWidth] = useState(0)
   // 확인 중 상품은 주황 줄 "확인 중 · 기다리는 찜 n건 · 눌러서 확정하기" (D-RETRO-90)
   const attention = tentativeAttention(product, waiting) ?? rowAttention(product, conflicts)
-  const { tags } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id), undefined, outside)
+  const { tags, keep } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id), undefined, outside)
+  // 손님 캡슐은 한 줄에 들어가는 만큼만, 나머지는 [+N] — 줄을 넘기지 않는다 (D-UX4-206)
+  const fit = fitTags(tags, width, TYPE.meta * Math.min(fontScale, MAX_FONT_SCALE), keep)
   const glow = useRef(new Animated.Value(0)).current
   useEffect(() => {
     const left = freshAt === 0 ? 0 : FRESH_HOLD_MS - (Date.now() - freshAt)
@@ -158,7 +161,6 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
   }, [freshAt, glow])
   const bg = attention !== null ? p.warnBg : glow.interpolate({ inputRange: [0, 1], outputRange: [p.surface, p.freshBg] })
   const name = rowName(product)
-  const who = rowBuyerParts(tags)
   return (
     // 꾹 누르면 줄이 통째로 들어간다 (D-UX4-105, 사용자 지시 2026-11-10 "흰색 영역이 통째로 버튼 영역이어야") — 누르는 틀(Tap)이 바깥, 줄 바탕은 그 안.
     // 줄은 흰 화면에 바로 놓인다 — 카드·줄 사이 선 없음 (D-UX4-201). 누름·초록·주황 바탕이 화면 끝까지 닿게 목록 여백만큼 바깥으로 편다
@@ -181,9 +183,9 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
           </View>
           <View testID="product-row-main" style={{ flex: 1, minWidth: 0 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
-              {/* 품종이 비면 칸만 비운다 — "-"를 쓰지 않는다 (D-UX4-111) */}
+              {/* 품종이 비면 "-" 대신 빨간 글로 알린다 (D-UX4-206 — 옛 D-UX4-111: 칸만 비웠다) */}
               <View {...(name === '' ? {} : { testID: 'product-row-name' })} style={{ flex: 1, minWidth: 0 }}>
-                {name === '' ? null : <Txt step="nav" weight="book">{name}</Txt>}
+                {name === '' ? <Txt step="nav" weight="book" ink={p.dangerText} numberOfLines={1} testID="product-row-no-name">{NO_NAME}</Txt> : <Txt step="nav" weight="book">{name}</Txt>}
               </View>
               <View testID="product-row-price" style={{ flexShrink: 0 }}>
                 {/* 가격이 빈 확인 중 상품은 "가격 듣는 중"을 흐리게 (D-RECOG-22) */}
@@ -191,7 +193,7 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
               </View>
             </View>
             {/* 아랫줄은 토스처럼 윗줄에 바짝 붙는다 (D-UX4-203) */}
-            <View style={{ marginTop: SUB_PULL }}>
+            <View style={{ marginVertical: SUB_PULL }}>
             {attention !== null ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs }}>
                 <Txt step="meta" weight="bold" ink={p.warnText}>
@@ -201,16 +203,26 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
                   {attention.what}
                 </Txt>
               </View>
-            ) : who.length === 0 ? null : (
-              // 찜한 손님 — 회색 글 한 줄(토스 줄의 "내 KB국민은행 계좌" 자리). 1등 · 대기 · 대기 밖(더 옅게) 차례, 길면 두 줄까지
-              <Txt step="meta" ink={p.placeholder} numberOfLines={2} role="list" aria-label={`${String(product.no)}번 찜한 손님`} testID="product-row-buyers">
-                {who.map((part) => (
-                  <Fragment key={part.key}>
-                    {part.lead}
-                    <Txt step="meta" ink={part.kind === 'out' ? p.iconPressed : p.placeholder} role="listitem" {...(part.kind === 'out' ? { 'aria-label': `${part.name} 대기 밖` } : {})}>{part.name}</Txt>
-                  </Fragment>
+            ) : tags.length === 0 ? (
+              // 찜이 없으면 회색 글 (D-UX4-206)
+              <Txt step="meta" ink={p.placeholder} numberOfLines={1} testID="product-row-empty">{NO_CLAIMS}</Txt>
+            ) : (
+              // 찜한 손님 캡슐 — 1등 금색 · 대기 회색 · 대기 밖 흐린 회색 (D-UX4-206, D-UX4-197 꼴로 되돌림). 한 줄만: 들어가는 만큼 놓고 나머지는 [+N],
+              // 어림이 틀려도 줄을 넘기지 않고 캡슐 글이 … 로 줄어든다
+              <View role="list" aria-label={`${String(product.no)}번 찜한 손님`} testID="product-row-buyers" onLayout={(event) => setWidth(Math.floor(event.nativeEvent.layout.width))} style={{ flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', gap: TAG_GAP, overflow: 'hidden', marginVertical: SPACE.xs }}>
+                {fit.shown.map((tag, index) => (
+                  <View key={`${tag.kind}-${String(index)}`} role="listitem" {...(tag.kind === 'out' ? { 'aria-label': `${tag.text} 대기 밖` } : {})} style={[tagStyle(tag.kind === 'win' ? p.goldBg : p.soft), { flexShrink: 1, minWidth: 0 }, tag.kind === 'out' ? { opacity: OUTSIDE_DIM } : null]}>
+                    <Txt step="meta" weight={tag.kind === 'win' ? 'bold' : 'medium'} ink={tag.kind === 'win' ? p.goldText : p.textSub} numberOfLines={1}>
+                      {tag.text}
+                    </Txt>
+                  </View>
                 ))}
-              </Txt>
+                {fit.more > 0 ? (
+                  <View role="listitem" aria-label={`${String(fit.more)}명 더`} style={[tagStyle(p.soft), { flexShrink: 0 }]}>
+                    <Txt step="meta" weight="bold" ink={p.textSub} numberOfLines={1}>{`+${String(fit.more)}`}</Txt>
+                  </View>
+                ) : null}
+              </View>
             )}
             {/* 채팅 의심 표시 (D-V3-129): 자동으로 고치지 않고 판매자가 확인한다 */}
             {doubt === undefined ? null : <Txt step="meta" weight="bold" ink={p.warnText} role="note" aria-label={`번호 확인 — ${String(product.no)}번`}>{doubt}</Txt>}
@@ -234,36 +246,16 @@ const ROW_LEFT = 10
 const ROW_RIGHT = 12
 /** 줄 위아래 — 줄 간격 63쯤 (토스 62.6) */
 const ROW_PAD_Y = 10
-/** 아랫줄을 윗줄 쪽으로 당김 — 윗글 머리에서 아랫글 머리까지 20쯤 (토스 20.4) */
+/** 손님 캡슐 높이 (D-UX4-197과 같다) */
+const CHIP_HEIGHT = 24
+/** 손님 캡슐 모양 */
+const tagStyle = (fill: string) => ({ height: CHIP_HEIGHT, justifyContent: 'center' as const, paddingHorizontal: TAG_PAD_X + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous' as const, backgroundColor: fill })
+/** 품종을 못 알아들은 상품 (D-UX4-206) */
+export const NO_NAME = '상품명을 인식하지 못했어요'
+/** 찜이 아직 없는 상품 (D-UX4-206) */
+export const NO_CLAIMS = '아직 찜이 없어요'
+/** 아랫줄을 윗줄 쪽으로 당김 — 윗글 머리에서 아랫글 머리까지 20쯤 (토스 20.4). 위아래 같게 당겨 글이 줄 가운데에 남는다 */
 const SUB_PULL = -2
-
-/** 찜 손님 한 줄의 조각: 앞 글(이음표·"대기 "·"대기 밖 ") + 이름 */
-export interface BuyerPart {
-  readonly key: string
-  readonly lead: string
-  readonly name: string
-  readonly kind: ProductTag['kind']
-}
-
-/**
- * 찜 손님 한 줄 (D-UX4-201 — 옛 꼬리표 D-UX3-78·D-UX4-197): "가람 · 나무 · 대기 다솜, 라온 · 대기 밖 보람" — 서버 순서 그대로, 줄이지 않는다.
- * 1등(과 손님 꼬리표)은 " · "로, 대기는 "대기 " 뒤에 ", "로, 대기 밖은 "대기 밖 " 뒤에 ", "로 잇는다
- */
-export function rowBuyerParts(tags: readonly ProductTag[]): BuyerPart[] {
-  const parts: BuyerPart[] = []
-  let last: ProductTag['kind'] | null = null
-  tags.forEach((tag, index) => {
-    const group = tag.kind === 'badge' ? 'win' : tag.kind
-    const head = group === 'wait' ? '대기 ' : group === 'out' ? '대기 밖 ' : ''
-    const lead = last === null ? head : last === group ? (group === 'win' ? ROW_JOIN : ', ') : `${ROW_JOIN}${head}`
-    parts.push({ key: `${tag.kind}-${String(index)}`, lead, name: tag.text, kind: tag.kind })
-    last = group
-  })
-  return parts
-}
-
-/** 찜 손님 한 줄 글 (읽기·시험) */
-export const rowBuyersText = (tags: readonly ProductTag[]): string => rowBuyerParts(tags).map((part) => part.lead + part.name).join('')
 
 /** 상품 줄이 놓인 화면 요소 (자리를 재는 데 쓴다) */
 export type RowNode = ComponentRef<typeof View>

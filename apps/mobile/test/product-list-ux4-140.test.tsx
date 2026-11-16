@@ -6,8 +6,9 @@ import type { FullView } from '@livejjim/web/src/api/types.ts'
 import { describe, expect, it } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { CLAIMED_ONLY, NO_CLAIMED_YET } from '../src/screens/console/ProductBoard.tsx'
-import { OUTSIDE_NOTE, outsideBuyers, outsideTitle } from '../src/screens/console/OutsideWait.tsx'
+import { OUTSIDE_DIM, OUTSIDE_NOTE, outsideBuyers, outsideTitle } from '../src/screens/console/OutsideWait.tsx'
 import { fromFull } from '../src/lib/scope-data.ts'
+import { fitTags } from '../src/lib/product-tags.ts'
 import { makeWorld, openSearchField } from './screen-support.tsx'
 import { buyer, changes, claim, flush, fullView, product } from './support.ts'
 
@@ -124,9 +125,9 @@ describe('대기 밖 찜 (D-UX4-142, 218번 찜 9개인데 6개만 보임)', () 
     expect(tags.map((tag) => tag.textContent)).toEqual(NAMES)
     const outside = tags.filter((tag) => tag.getAttribute('aria-label')?.endsWith('대기 밖'))
     expect(outside.map((tag) => tag.textContent)).toEqual(['돌틈새싹', '물방울집', '구름화분'])
-    // D-UX4-201로 바뀐 기대 (사용자 "포인트 컬러는 없이" — 꼬리표 대신 회색 글 한 줄; 옛: 흐린(투명도) 꼬리표): 대기 밖 이름은 다른 이름보다 옅은 회색 글
-    for (const tag of outside) expect(getComputedStyle(tag).color).toBe('rgb(176, 184, 193)')
-    expect(getComputedStyle(tags[1]!).color).toBe('rgb(139, 149, 161)')
+    // D-UX4-206로 바뀐 기대 (사용자 "찜 들어오면 예전처럼 닉네임에 금색 배경이나 회색 배경 넣어" — 꼬리표로 되돌림; D-UX4-201은 회색 글 한 줄이었다): 대기 밖은 흐린(투명도) 꼬리표
+    for (const tag of outside) expect(getComputedStyle(tag).opacity).toBe(String(OUTSIDE_DIM))
+    expect(['', '1']).toContain(getComputedStyle(tags[1]!).opacity)
   })
 
   it('상품 자세히: 1등·대기 알약은 그대로 6개, "대기 밖 3명 ›"을 누르면 흐린 이름 3개가 펼쳐진다 — 판정 요청은 보내지 않는다', async () => {
@@ -161,5 +162,28 @@ describe('대기 밖 찜 (D-UX4-142, 218번 찜 9개인데 6개만 보임)', () 
     fireEvent.click(screen.getByRole('button', { name: '상품 자세히 — 15번' }))
     const detail = await screen.findByRole('group', { name: '상품 자세히' })
     expect(within(detail).queryByRole('button', { name: /대기 밖/ })).toBeNull()
+  })
+})
+
+// D-UX4-206 (사용자 "찜 들어오면 예전처럼 닉네임에 금색 배경이나 회색 배경 넣어. 줄 넘어가지 않게 +2 이런 식으로 표시하고"):
+// 1등은 금색 캡슐, 대기는 회색 캡슐 — 한 줄만(넘치는 손님은 [+N], 어림이 틀려도 줄바꿈 없이 캡슐 글이 줄어든다)
+describe('상품 줄 손님 캡슐 (D-UX4-206)', () => {
+  it('1등 금색 · 대기 회색 캡슐, 줄을 넘기지 않는 한 줄', async () => {
+    await open(worldWith(VIEW))
+    const list = screen.getByRole('list', { name: '218번 찜한 손님' })
+    const tags = within(list).getAllByRole('listitem')
+    expect(getComputedStyle(tags[0]!).backgroundColor).toBe('rgb(248, 227, 163)')
+    const waiting = tags.find((tag) => !(tag.getAttribute('aria-label') ?? '').endsWith('대기 밖') && getComputedStyle(tag).backgroundColor !== 'rgb(248, 227, 163)')
+    expect(waiting === undefined ? '' : getComputedStyle(waiting).backgroundColor).toBe('rgb(229, 232, 235)')
+    expect(getComputedStyle(list).flexWrap).toBe('nowrap')
+    expect([getComputedStyle(list).overflowX, getComputedStyle(list).overflowY]).toEqual(['hidden', 'hidden'])
+  })
+
+  it('한 줄에 다 안 들어가면 들어가는 만큼만 놓고 [+N]', () => {
+    const tags = Array.from({ length: 9 }, (_, index) => ({ kind: index < 1 ? 'win' as const : 'wait' as const, text: `손님이름${String(index)}` }))
+    const fit = fitTags(tags, 200, 14)
+    expect(fit.shown.length).toBeGreaterThan(0)
+    expect(fit.shown.length + fit.more).toBe(9)
+    expect(fit.more).toBeGreaterThan(0)
   })
 })
