@@ -63,7 +63,8 @@ export function registerSocialRoutes(api: Hono<Env>, social: SocialLogin, addres
   const body = (c: Context<Env>) => c.get('body') ?? {}
   const info = (c: Context<Env>): SessionInfo => {
     const session = c.get('session')
-    return { sellerId: session.sellerId, accountId: session.accountId, tokenHash: session.tokenHash, loginId: session.loginId }
+    // 로그인·계정 일은 원래 판매자로 (같이 보는 라이브에 들어가 있어도 — D-SHARE-LIVE-01)
+    return { sellerId: session.homeSellerId, accountId: session.accountId, tokenHash: session.tokenHash, loginId: session.loginId }
   }
   const onlyProvider = (input: Record<string, unknown>): Response | null => {
     const extra = ownKeys(input).filter((key) => key !== 'provider')

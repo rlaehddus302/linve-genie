@@ -292,11 +292,52 @@ export type LiveLinkRequest =
   | { readonly platform: 'tiktok'; readonly body: { readonly requestId: string; readonly url: string; readonly move?: true } }
   | { readonly platform: 'band'; readonly body: { readonly requestId: string; readonly bandKey: string; readonly postKey: string } }
 
-/** 잇기 요청 보내기 — 유튜브면 받은 연결 보기, 틱톡·밴드는 null */
+/** 같이 보는 라이브에 들어감 (D-SHARE-LIVE-01): 다른 계정이 이미 이어 둔 라이브라 새로 잇지 않고 그 방송에 들어갔다 */
+export interface JoinedLiveView {
+  readonly broadcastId: string
+  readonly shopName: string
+}
+
+/** 잇기 대신 같이 보는 라이브에 들어갔다 — 화면 옮기기는 앱 뿌리가 했다. 잇는 화면은 오류 없이 멈춘다 */
+export class JoinedLive extends Error {
+  readonly joined: JoinedLiveView
+  constructor(joined: JoinedLiveView) {
+    super('같이 보는 라이브에 들어갔어요')
+    this.name = 'JoinedLive'
+    this.joined = joined
+  }
+}
+
+let joinedHandler: ((joined: JoinedLiveView) => Promise<void>) | null = null
+/** 앱 뿌리가 한 번 정한다: 내 정보를 다시 읽고 그 방송 화면으로 옮긴다 */
+export function setJoinedLiveHandler(handler: ((joined: JoinedLiveView) => Promise<void>) | null): void {
+  joinedHandler = handler
+}
+
+function joinedOf(body: unknown): JoinedLiveView | null {
+  if (typeof body !== 'object' || body === null) return null
+  const joined = (body as { joined?: unknown }).joined
+  if (typeof joined !== 'object' || joined === null) return null
+  const { broadcastId, shopName } = joined as { broadcastId?: unknown; shopName?: unknown }
+  return typeof broadcastId === 'string' && broadcastId !== '' ? { broadcastId, shopName: typeof shopName === 'string' ? shopName : '' } : null
+}
+
+async function tookJoin(body: unknown): Promise<void> {
+  const joined = joinedOf(body)
+  if (joined === null) return
+  await joinedHandler?.(joined)
+  throw new JoinedLive(joined)
+}
+
+/** 잇기 요청 보내기 — 유튜브면 받은 연결 보기, 틱톡·밴드는 null. 다른 계정이 이어 둔 라이브면 그 방송에 들어가고 JoinedLive를 던진다 (D-SHARE-LIVE-01) */
 export async function sendLiveLink(broadcastId: string, request: LiveLinkRequest): Promise<LinkView | null> {
   const base = `/api/broadcasts/${encodeURIComponent(broadcastId)}`
-  if (request.platform === 'youtube') return withRetry(() => post<LinkView>(`${base}/youtube`, request.body))
-  await withRetry(() => post(request.platform === 'tiktok' ? `${base}/tiktok/link-url` : `${base}/band/link`, request.body))
+  if (request.platform === 'youtube') {
+    const view = await withRetry(() => post<LinkView>(`${base}/youtube`, request.body))
+    await tookJoin(view)
+    return view
+  }
+  await tookJoin(await withRetry(() => post<unknown>(request.platform === 'tiktok' ? `${base}/tiktok/link-url` : `${base}/band/link`, request.body)))
   // 틱톡·밴드로 이었으면 이 방송 화면이 연결 화면을 다시 저절로 열지 않는다 (D-LINK-TT-01 — 방송 목록이 아직 옛 값이어도)
   markLinkAsked(broadcastId)
   return null
@@ -646,6 +687,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
       other.current = null
       setStep('none')
     } catch (caught) {
+      // 같이 보는 라이브에 들어갔다 — 앱 뿌리가 그 방송 화면으로 옮겼다 (D-SHARE-LIVE-01)
+      if (caught instanceof JoinedLive) { other.current = null; setStep('none'); return }
       if (!isApiError(caught)) throw caught
       if (!caught.retryable) other.current = null
       if (caught.code === 'NO_CONSENT') setStep('tiktokConsent')
@@ -724,6 +767,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
       await submit({ platform: 'youtube', body })
       pending.current = null
     } catch (caught) {
+      // 같이 보는 라이브에 들어갔다 — 앱 뿌리가 그 방송 화면으로 옮겼다 (D-SHARE-LIVE-01)
+      if (caught instanceof JoinedLive) { pending.current = null; setAsk(null); return }
       if (!isApiError(caught)) throw caught
       if (!caught.retryable) pending.current = null
       if (!confirmed && caught.code === INVITED_CONFIRM_CODE) {

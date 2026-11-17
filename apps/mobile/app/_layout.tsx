@@ -6,7 +6,7 @@ import { configureVoiceStorage } from '../src/lib/voice-preferences.ts'
 import { fetch as expoFetch } from 'expo/fetch'
 import { getStringAsync, setStringAsync } from 'expo-clipboard'
 import { CryptoDigestAlgorithm, CryptoEncoding, digestStringAsync, getRandomBytes, randomUUID } from 'expo-crypto'
-import { Stack } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { openAuthSessionAsync } from 'expo-web-browser'
 import { useEffect, useState } from 'react'
@@ -20,7 +20,8 @@ import { LiveBrowserWebView } from '../src/native/live-browser-view.tsx'
 import { setClipboardReader, setClipboardWriter } from '../src/lib/clipboard.ts'
 import { setSocialNative, toBase64Url } from '../src/lib/social-auth.ts'
 import { loadPrintMemory } from '../src/lib/printer-memory.ts'
-import { makeDeviceId, createServices, ServicesProvider, SessionProvider, useServices, useSession } from '../src/services.tsx'
+import { makeDeviceId, createServices, recheckSession, ServicesProvider, SessionProvider, useServices, useSession } from '../src/services.tsx'
+import { setJoinedLiveHandler } from '../src/screens/console/YoutubeSection.tsx'
 import { KeptStreamAudio } from '../src/screens/console/StreamAudio.tsx'
 import { TAB_SCREENS } from '../src/lib/tab-routes.ts'
 import { RouteSwipeProvider } from '../src/ui/kit/route-swipe.tsx'
@@ -79,6 +80,23 @@ function StreamKeeper() {
   return <KeptStreamAudio session={services.voice} keep={services.streamKeep} signedIn={session.state === 'in'} />
 }
 
+/**
+ * 같이 보는 라이브에 들어감 (D-SHARE-LIVE-01): 다른 계정이 이미 이어 둔 라이브를 이으면 서버가 그 방송에 넣는다 —
+ * 내 정보를 다시 읽어(가게가 바뀌어 기억해 둔 자료를 지우고 실시간 연결을 다시 잇는다) 홈 위에 그 방송 화면을 연다
+ */
+function JoinedLiveWatch() {
+  const router = useRouter()
+  useEffect(() => {
+    setJoinedLiveHandler(async (joined) => {
+      await recheckSession()
+      router.dismissTo('/')
+      router.push({ pathname: '/console/[id]', params: { id: joined.broadcastId } })
+    })
+    return () => setJoinedLiveHandler(null)
+  }, [router])
+  return null
+}
+
 const readyServices = loadPrintMemory(AsyncStorage, makeDeviceId).then(createServices)
 
 export default function RootLayout() {
@@ -98,6 +116,7 @@ export default function RootLayout() {
           <PrintBackground />
           <StreamKeeper />
           <TryLogin />
+          <JoinedLiveWatch />
           <UpdateWatch />
           {/* 뒤로 가기는 왼쪽 가장자리에서 밀 때만 (D-UX3-24): iOS 26부터 기본이 '화면 어디서 밀어도 뒤로'라 라벨 끌기·가로 밀기까지 뒤로 갔다 */}
           {/* 쌓인 화면에서 돌아와 다시 보이면 그 화면의 서버 자료를 뒤에서 조용히 다시 받는다 (D-UX4-77) */}

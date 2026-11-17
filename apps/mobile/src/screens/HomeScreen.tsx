@@ -10,7 +10,8 @@ import type { BroadcastItem, PackingEntry, PackingList, ReceiptBuyers, WizardSta
 import type { ParcelDay } from '@livejjim/web/src/api/parcel-types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
 import { APP_NO_PASS_MESSAGE } from '@livejjim/web/src/lib/app-tab.ts'
-import { get, type ApiError } from '../api/client.ts'
+import { get, isApiError, post, type ApiError } from '../api/client.ts'
+import { recheckSession, useSessionIfAny } from '../services.tsx'
 import { peekCached, rememberCached, useCachedGet } from '../lib/cached-get.ts'
 import { inFilter } from '../lib/packing.ts'
 import { openWeb } from '../lib/open-web.ts'
@@ -234,6 +235,41 @@ function LiveEntry({ live, channel, onOpen, onConnect }: { readonly live: Broadc
   )
 }
 
+/** 같이 보는 라이브 줄 문구 (D-SHARE-LIVE-01) */
+export const JOINED_LIVE_LINE = (shop: string) => (shop === '' ? '다른 계정의 라이브를 같이 보고 있어요.' : `${shop} 라이브를 같이 보고 있어요.`)
+export const JOINED_LIVE_HINT = '상품·찜·채팅이 모두 같이 보여요. 나가면 내 가게로 돌아와요.'
+export const JOINED_LIVE_LEAVE = '나가기'
+
+/** 같이 보는 라이브에서 나가기 — 나가면 내 정보를 다시 읽어 내 가게 자료로 돌아온다 */
+function JoinedLiveRow() {
+  const session = useSessionIfAny()?.session ?? null
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const live = session?.state === 'in' ? (session.me.live ?? null) : null
+  if (live === null) return null
+  const leave = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await post('/api/live-join/leave', {})
+      await recheckSession()
+    } catch (caught) {
+      setError(isApiError(caught) ? caught.message : '나가지 못했어요. 다시 눌러 주세요.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <View style={{ gap: SPACE.sm }} testID="joined-live">
+      <Notice tone="info">{JOINED_LIVE_LINE(live.shopName)}</Notice>
+      <Txt step="caption" color="textSub">{JOINED_LIVE_HINT}</Txt>
+      <BigButton label={JOINED_LIVE_LEAVE} kind="outline" busy={busy} onPress={() => void leave()} />
+      {error !== null ? <Notice tone="danger">{error}</Notice> : null}
+    </View>
+  )
+}
+
 export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation; readonly sellerName?: string; readonly refresh?: number }) {
   const { p } = useKit()
   const room = useTabBarRoom()
@@ -291,6 +327,9 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
 
         {/* 받아 둔 새 화면이 있으면 맨 위에 [나중에] [지금 바꾸기] (D-OTA-01) */}
         <UpdateReady />
+
+        {/* 다른 계정의 라이브를 같이 보는 중이면 그 가게 이름과 [나가기] (D-SHARE-LIVE-01) */}
+        <JoinedLiveRow />
 
         {/* 서버에서 받은 뒤에야 생기는 묶음은 부드럽게 나타난다 — 기억해 둔 자료로 처음부터 그린 것은 바로 (D-UX4-112) */}
         <Late>

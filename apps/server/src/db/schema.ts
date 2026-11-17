@@ -3047,3 +3047,31 @@ export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean)
 /** 판매자 입금 처리 직렬화용 어드바이저리 락 키 (입금 저장·번호 붙이기 — 여러 인스턴스에서도 번호가 겹치지 않게, DP-7) */
 export const depositLockKey = (sellerId: string) => sql`hashtextextended(${`${sellerId}/deposits`}, 0)`
 
+
+/**
+ * 같이 보는 라이브 (D-SHARE-LIVE-01, 사용자 지시 2026-11-17 "라이브와 앱 계정은 1:N"): 다른 판매자 계정이 이미 이어 둔 라이브를 이으면
+ * 새 방송을 만들지 않고 먼저 이은 방송에 들어간다. 들어간 동안 그 계정의 요청은 방송 주인 판매자의 것으로 처리된다(상품·찜·채팅·주문 모두 같은 기록).
+ * 계정마다 한 줄 — 다시 들어가면 고쳐 쓴다. 나가면 left_at. 방송이 끝나고 12시간이 지나면 저절로 나간 것으로 본다
+ */
+export const liveJoins = pgTable(
+  'live_joins',
+  {
+    accountId: text('account_id')
+      .primaryKey()
+      .references(() => accounts.id),
+    /** 그 계정의 원래 판매자 */
+    homeSellerId: text('home_seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 방송 주인 판매자 (먼저 이은 계정의 판매자) */
+    ownerSellerId: text('owner_seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    broadcastId: text('broadcast_id')
+      .notNull()
+      .references(() => broadcasts.id),
+    joinedAt: timestamptz('joined_at').notNull(),
+    leftAt: timestamptz('left_at'),
+  },
+  (t) => [index('live_joins_broadcast_idx').on(t.broadcastId)],
+)

@@ -125,6 +125,11 @@ export interface ServerOptions {
   readonly transcribeWorkerToken?: string
   /** 화면 일꾼 토큰 (LIVEJJIM_SCREEN_WORKER_TOKEN, 32자 이상 — 없으면 /internal/screen/register는 404, D-SCR-01) */
   readonly screenWorkerToken?: string
+  /**
+   * 같이 보는 라이브 (D-SHARE-LIVE-01, 기본 켬): 다른 계정이 이어 둔 라이브를 이으면 그 방송에 들어간다.
+   * false는 시험용 옛 방식 — 계정마다 따로 방송을 잇고 상품만 서로 맞춘다(이미 그렇게 이어진 옛 기록의 동기화 시험)
+   */
+  readonly sharedLive?: boolean
   /** 시험용: 판매 종료한 번호를 일꾼이 다시 열 수 있는 유예(D-SCR-11, 기본 60초) */
   readonly screenReopenGraceMs?: number
   /**
@@ -901,6 +906,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       voiceAliases,
       voiceVarieties,
       voiceDoubts: { db, clock },
+      ...(options.sharedLive === false ? {} : { liveJoin: { db, clock } }),
       voiceHeard: { db },
       streamAudio: { db, service: streamAudio, heard: serverReading },
       billing,

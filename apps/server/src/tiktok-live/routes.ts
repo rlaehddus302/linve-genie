@@ -10,6 +10,9 @@ import { unknownFieldProblems } from '../messages.ts'
 import type { TikTokLive } from './live.ts'
 import type { PasteService } from './paste-service.ts'
 import { PASTE_LINES_MAX } from './paste.ts'
+import type { Db } from '../db/database.ts'
+import { joinIfShared } from '../live-join.ts'
+import type { Clock } from '../time.ts'
 
 type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
 
@@ -21,7 +24,7 @@ export function outcomeResponse(outcome: LinkOutcome): Response {
   return new Response(JSON.stringify(outcome.body), { status: outcome.status, headers: { 'Content-Type': JSON_CONTENT_TYPE, 'Cache-Control': 'no-store' } })
 }
 
-export function registerTiktokRoutes(api: Hono<Env>, tiktok: TikTokLive, paste: PasteService): void {
+export function registerTiktokRoutes(api: Hono<Env>, tiktok: TikTokLive, paste: PasteService, liveJoin?: { readonly db: Db; readonly clock: Clock }): void {
   const body = (c: Context<Env>) => c.get('body') ?? {}
   const session = (c: Context<Env>) => c.get('session')
   const onlyKeys = (value: Record<string, unknown>, allowed: readonly string[]): Response | null => {
@@ -81,7 +84,12 @@ export function registerTiktokRoutes(api: Hono<Env>, tiktok: TikTokLive, paste: 
     if (requestId === null) return invalidRequestId()
     const extra = onlyKeys(input, ['requestId', 'url', 'move'])
     if (extra !== null) return extra
-    return outcomeResponse(await tiktok.linkByUrl(session(c).sellerId, session(c).accountId, requestId, c.req.param('id'), own(input, 'url'), own(input, 'move') === true))
+    // 다른 계정이 이미 이어 둔 틱톡 라이브면 새로 잇지 않고 그 방송에 들어간다 (D-SHARE-LIVE-01) — 화면은 그 방송으로 옮긴다
+    const shared = liveJoin === undefined ? undefined : async (tiktokId: string): Promise<LinkOutcome | null> => {
+      const joined = await joinIfShared(liveJoin.db, session(c), { platform: 'tiktok', tiktokId }, new Date(liveJoin.clock.now()))
+      return joined === null ? null : { status: 200, body: { joined } }
+    }
+    return outcomeResponse(await tiktok.linkByUrl(session(c).sellerId, session(c).accountId, requestId, c.req.param('id'), own(input, 'url'), own(input, 'move') === true, shared))
   })
 
   // ── 저장 실패 확인 (AC-N2b-2-74, D-N2b-2-16) — 판매자만(보조자 허용 목록 밖 → 403) ─────────

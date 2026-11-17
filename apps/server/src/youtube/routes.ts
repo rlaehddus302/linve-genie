@@ -16,6 +16,9 @@ import type { Sealer } from './seal.ts'
 import { FIRST_CHANNEL_CONFIRM_MESSAGE, LINK_MESSAGES, type LinkOutcome, type YoutubeSystem } from './system.ts'
 import { parseVideoId } from './texts.ts'
 import { SERVICE_NAME } from '../brand.ts'
+import type { Db } from '../db/database.ts'
+import { joinIfShared } from '../live-join.ts'
+import type { Clock } from '../time.ts'
 
 export const CALLBACK_PATH = '/api/youtube/oauth/callback'
 
@@ -26,6 +29,8 @@ export interface YoutubeRouteDeps {
   readonly auth: Auth
   readonly youtube: YoutubeSystem | null
   readonly sealer: Sealer | null
+  /** 같이 보는 라이브 (D-SHARE-LIVE-01) — 없으면 계정마다 따로 잇는다 */
+  readonly liveJoin?: { readonly db: Db; readonly clock: Clock }
 }
 
 const NOT_CONFIGURED_MESSAGE = '유튜브 연동을 준비하지 않은 서버예요.'
@@ -172,6 +177,12 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     const raw = own(input, 'video')
     // 잇기는 회차부터 본다(다른 판매자의 회차가 있는지 알리지 않는다) — 주소가 글자가 아니면 빈 주소로 넘겨 그다음에 거른다
     const video = typeof raw === 'string' && raw.length <= 2048 ? raw : ''
+    // 다른 계정이 이미 이어 둔 라이브면 새로 잇지 않고 그 방송에 들어간다 (D-SHARE-LIVE-01) — 화면은 그 방송으로 옮긴다
+    const videoId = parseVideoId(video)
+    if (deps.liveJoin !== undefined && videoId !== null) {
+      const joined = await joinIfShared(deps.liveJoin.db, session(c), { platform: 'youtube', videoId }, new Date(deps.liveJoin.clock.now()))
+      if (joined !== null) return c.json({ joined })
+    }
     return linkResponse(c, await youtube.link(info(c), c.req.param('id'), video, requestId, confirm === true))
   })
   // 잇기 전 미리 보기 (D-UX4-08): { video } → { title, channelTitle }. 아무것도 넣지 않는다. 서버 읽기가 아니면 404 PREVIEW_UNAVAILABLE(화면은 옛 흐름)

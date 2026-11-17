@@ -1,6 +1,7 @@
 // 얇은 네이티브 전송: PCM과 전체 서버 상태만 전달하며 상품·주문을 해석하지 않는다.
 import { AUDIO_HALT_MESSAGES, createRelayConnect, type AudioCapture, type RelayConnection, type WebSocketFactory } from '@livejjim/mobile-audio'
 import { markMicStarting, micStartWasCut } from '../lib/voice-preferences.ts'
+import { VOICE_OTHER_DEVICE } from '../lib/words.ts'
 import type { AudioResult, AudioState, NativeAudio, StartListeningInput } from './audio.ts'
 
 export class LiveNativeAudio implements NativeAudio {
@@ -102,7 +103,7 @@ export class LiveNativeAudio implements NativeAudio {
           } else if (message.type === 'closing') {
             if (message.reason === 'ENDED') void this.stopListening()
             else if (message.reason === 'AUTH') void this.#halt('로그인이 끝나 음성 인식을 멈췄어요. 다시 로그인해 주세요.')
-            else if (message.reason === 'OTHER_DEVICE') void this.#halt('음성 인식은 다른 기기에서 하는 중이에요.')
+            else if (message.reason === 'OTHER_DEVICE') void this.#halt(VOICE_OTHER_DEVICE)
             else if (!this.#everReady && message.reason === 'BUSY') void this.#halt('지금 받아쓰기가 바빠요. 상품은 빠른 입력으로 넣어 주세요.')
             else if (!this.#everReady && message.reason === 'NO_WORKER') void this.#halt('받아쓰기 서버가 꺼져 있어요. 상품은 빠른 입력으로 넣어 주세요.')
             else reconnect()

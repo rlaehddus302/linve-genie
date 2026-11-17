@@ -421,6 +421,13 @@
       "when": 1794960000033,
       "tag": "0059_broadcast_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794960000034,
+      "tag": "0060_live_joins",
+      "breakpoints": true
     }
   ]
 }

@@ -53,6 +53,8 @@ export interface Me {
   readonly phone?: string | null
   /** 번호를 먼저 확인해야 한다 (문자 인증이 켜진 서버의 번호 없는 판매자 계정) */
   readonly phoneRequired?: boolean
+  /** 같이 보는 라이브에 들어가 있으면 그 방송과 방송 주인 가게 이름 (D-SHARE-LIVE-01) — seller.name도 그 가게 이름 */
+  readonly live?: { readonly broadcastId: string; readonly shopName: string }
 }
 
 /** 범위 목록 한 줄 (GET /api/days) — 봉인 예정 시각(유튜브 채팅이 있는 실제 범위만)·봉인 여부 (Y1 계약 5) */

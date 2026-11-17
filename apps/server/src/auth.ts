@@ -24,6 +24,7 @@ import {
   type SessionRow,
 } from './store.ts'
 import type { Clock } from './time.ts'
+import { activeJoin, type ActiveJoin } from './live-join.ts'
 
 export const SESSION_COOKIE = 'lj_session'
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -65,6 +66,10 @@ export interface AuthOptions {
 export interface SessionContext extends SessionRow {
   /** 쿠키를 다시 보내야 하면(만료 시각을 늘림) 새 쿠키 값 */
   readonly refreshedCookie: string | null
+  /** 이 계정의 원래 판매자 (같이 보는 라이브에 들어가 있으면 sellerId는 방송 주인 판매자다 — D-SHARE-LIVE-01). 로그인·계정 일은 이 값으로 */
+  readonly homeSellerId: string
+  /** 같이 보는 라이브에 들어가 있으면 그 방송 (D-SHARE-LIVE-01) */
+  readonly joined: ActiveJoin | null
 }
 
 export function sessionCookie(token: string): string {
@@ -180,10 +185,13 @@ export class Auth {
     const now = clock.now()
     const row = await findSession(db, tokenHash(token), new Date(now))
     if (row === null) return null
-    if (now - row.extendedAt.getTime() < SESSION_EXTEND_AFTER_MS) return { ...row, refreshedCookie: null }
+    // 같이 보는 라이브 (D-SHARE-LIVE-01): 들어가 있으면 이 요청은 방송 주인 판매자의 것으로 처리한다
+    const joined = await activeJoin(db, row.accountId, new Date(now))
+    const shared = joined === null ? { homeSellerId: row.sellerId, joined: null } : { sellerId: joined.ownerSellerId, sellerName: joined.ownerName, homeSellerId: row.sellerId, joined }
+    if (now - row.extendedAt.getTime() < SESSION_EXTEND_AFTER_MS) return { ...row, ...shared, refreshedCookie: null }
     const expiresAt = new Date(now + SESSION_TTL_MS)
     await extendSession(db, row, new Date(now), expiresAt)
-    return { ...row, expiresAt, extendedAt: new Date(now), refreshedCookie: sessionCookie(token) }
+    return { ...row, ...shared, expiresAt, extendedAt: new Date(now), refreshedCookie: sessionCookie(token) }
   }
 
   /** 세션 해시가 아직 유효한지 (실시간 연결 하트비트) */
@@ -196,8 +204,8 @@ export class Auth {
     return () => { this.#sessionEnd.delete(listener) }
   }
 
-  async logout(session: Pick<SessionRow, 'tokenHash' | 'sellerId'>): Promise<void> {
-    await deleteSession(this.#options.db, session)
+  async logout(session: Pick<SessionContext, 'tokenHash' | 'homeSellerId'>): Promise<void> {
+    await deleteSession(this.#options.db, { tokenHash: session.tokenHash, sellerId: session.homeSellerId })
     for (const listener of this.#sessionEnd) listener(session.tokenHash)
   }
 

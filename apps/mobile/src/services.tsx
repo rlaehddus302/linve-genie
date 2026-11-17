@@ -1,6 +1,6 @@
 // 앱 전체에 하나인 것들 (로그인한 동안 모든 화면이 같은 것을 본다): 실시간 연결·라벨 대기열·음성 세션·자리를 비운 동안 셈·기기 ID.
 // 화면은 useServices()로 받는다. 시험은 가짜 모듈·가짜 서버로 만든 묶음을 Provider에 넣는다.
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Me, WriteResult } from '@livejjim/web/src/api/types.ts'
 import { get, isApiError, newRequestId, onUnauthorized, post, withRetry, type ApiError } from './api/client.ts'
 import { AwayTracker } from './lib/away.ts'
@@ -127,15 +127,43 @@ export interface SessionApi {
 
 const SessionContext = createContext<SessionApi | null>(null)
 
+/**
+ * 기억해 둔 화면 자료의 주인 열쇠: 아이디 + 같이 보는 라이브 (D-SHARE-LIVE-01) — 다른 계정의 라이브에 들어가거나 나오면 가게가 바뀌므로
+ * 기억해 둔 자료를 지우고 새로 받는다
+ */
+export function cacheKeyOf(me: Me): string {
+  return me.live === undefined ? me.loginId : `${me.loginId}#${me.live.broadcastId}`
+}
+
+let recheckNow: (() => Promise<void>) | null = null
+/** 서버에서 내 정보를 다시 읽는다 — 같이 보는 라이브에 들어가거나 나온 뒤 (D-SHARE-LIVE-01) */
+export function recheckSession(): Promise<void> {
+  return recheckNow?.() ?? Promise.resolve()
+}
+
 export function SessionProvider({ children, services }: { readonly children: ReactNode; readonly services: Services }) {
   const [session, setSession] = useState<Session>({ state: 'checking' })
+  /** 지금 화면 자료의 주인 열쇠 (cacheKeyOf) */
+  const shownKey = useRef<string | null>(null)
+  /** 들어온 계정·가게를 정한다. 같은 아이디라도 같이 보는 라이브가 바뀌면 실시간 연결을 새 가게로 다시 잇고 이 기기 마이크는 끈다 (D-SHARE-LIVE-01) */
+  const settle = (me: Me) => {
+    const key = cacheKeyOf(me)
+    const switched = shownKey.current !== null && shownKey.current !== key && shownKey.current.split('#')[0] === me.loginId
+    shownKey.current = key
+    setVoiceAccount(me.loginId)
+    // 다른 계정(가게)이면 기억해 둔 화면 자료를 지운다 (D-UX4-77)
+    setCachedAccount(key)
+    if (switched) {
+      services.streamKeep.release()
+      void services.voice.shutdown()
+      services.stream.resume()
+    }
+  }
 
   const recheck = async () => {
     try {
       const me = await get<Me>('/api/me')
-      setVoiceAccount(me.loginId)
-      // 다른 계정이면 기억해 둔 화면 자료를 지운다 (D-UX4-77)
-      setCachedAccount(me.loginId)
+      settle(me)
       setSession({ state: 'in', me })
     } catch (error) {
       setSession((current) => sessionAfterCheckError(error, current))
@@ -144,6 +172,7 @@ export function SessionProvider({ children, services }: { readonly children: Rea
 
   useEffect(() => {
     void recheck()
+    recheckNow = recheck
     onUnauthorized(() => {
       services.streamKeep.release()
       void services.voice.shutdown()
@@ -151,9 +180,10 @@ export function SessionProvider({ children, services }: { readonly children: Rea
       services.stream.shutdown()
       // 로그인이 풀리면 기억해 둔 화면 자료도 지운다 — 다음에 들어오는 계정에 보이지 않게 (D-UX4-77)
       setCachedAccount(null)
+      shownKey.current = null
       setSession({ state: 'out', expired: true })
     })
-    return () => onUnauthorized(null)
+    return () => { onUnauthorized(null); recheckNow = null }
     // eslint 주석 없이: 처음 한 번만
   }, [])
 
@@ -184,8 +214,8 @@ export function SessionProvider({ children, services }: { readonly children: Rea
       recheck,
       login: async (loginId, password) => {
         const me = await post<Me>('/api/login', { loginId, password })
-        setVoiceAccount(me.loginId)
-        setCachedAccount(me.loginId)
+        shownKey.current = null
+        settle(me)
         setSession({ state: 'in', me })
       },
       logout: async () => {
@@ -199,12 +229,18 @@ export function SessionProvider({ children, services }: { readonly children: Rea
         }
         services.stream.shutdown()
         setCachedAccount(null)
+        shownKey.current = null
         setSession({ state: 'out', expired: false })
       },
     }),
     [session, services],
   )
   return <SessionContext.Provider value={api}>{children}</SessionContext.Provider>
+}
+
+/** 세션 밖(화면 하나만 그리는 시험 등)에서도 쓰는 곳 — 없으면 null */
+export function useSessionIfAny(): SessionApi | null {
+  return useContext(SessionContext)
 }
 
 export function useSession(): SessionApi {

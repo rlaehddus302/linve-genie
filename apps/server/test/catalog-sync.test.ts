@@ -21,7 +21,9 @@ interface Shop {
 }
 
 /** 운영과 같은 기본값(감사 채팅 끔) — 기준 계정이 없는 상태에서 시작한다 */
-const newWorld = (overrides: Partial<ServerOptions> = {}) => youtubeWorld({ overrides: { screenWorkerToken: TOKEN, sellerDefaults: SELLER_DEFAULTS, ...overrides } })
+// 계정마다 따로 이은 옛 방식(sharedLive: false)의 동기화 — D-SHARE-LIVE-01부터 새로 잇는 다른 계정은 같은 방송에 들어가 동기화가 필요 없다.
+// 이미 따로 이어진 옛 기록·화면 일꾼 여러 방송 등록을 위해 동기화는 남아 있어 그대로 시험한다
+const newWorld = (overrides: Partial<ServerOptions> = {}) => youtubeWorld({ overrides: { screenWorkerToken: TOKEN, sellerDefaults: SELLER_DEFAULTS, sharedLive: false, ...overrides } })
 
 /** 첫 계정: 라이브를 만들고 잇는다 */
 async function host(world: YoutubeWorld): Promise<{ shop: Shop; videoId: string }> {

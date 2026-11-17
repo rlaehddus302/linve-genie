@@ -469,7 +469,8 @@ export class TikTokLive {
    * 같은 요청 번호는 처음 응답 그대로. 동의·운영자 스위치·회차 검사는 link()와 같다(NO_CONSENT면 화면이 안내를 보이고 동의를 받는다).
    * 다른 방송에 틱톡이 이어져 있으면 TIKTOK_ELSEWHERE — 판매자가 [옮기기]로 move를 보내면 그 연결을 끊고 여기 잇는다 (D-UX3-17)
    */
-  async linkByUrl(sellerId: string, accountId: string, requestId: string, broadcastId: string, url: unknown, move = false): Promise<LinkOutcome> {
+  /** beforeLink: 아이디를 읽은 뒤 잇기 전에 부른다 — 답이 있으면 잇지 않고 그 답 (같이 보는 라이브에 들어감, D-SHARE-LIVE-01) */
+  async linkByUrl(sellerId: string, accountId: string, requestId: string, broadcastId: string, url: unknown, move = false, beforeLink?: (tiktokId: string) => Promise<LinkOutcome | null>): Promise<LinkOutcome> {
     const prior = await this.#prior(sellerId, requestId)
     if (prior !== null) return prior
     if ((await findBroadcast(this.#options.db, sellerId, broadcastId)) === null) return notFound
@@ -481,6 +482,8 @@ export class TikTokLive {
       parsed = checkTikTokTarget(opened)
     }
     if (!parsed.ok) return invalid
+    const instead = await beforeLink?.(parsed.target.uniqueId)
+    if (instead !== undefined && instead !== null) return instead
     const open = await sellerOpenTiktokLink(this.#options.db, sellerId)
     if (open !== null && open.broadcastId !== broadcastId) {
       if (!move) return fail(409, 'TIKTOK_ELSEWHERE')

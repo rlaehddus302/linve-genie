@@ -116,7 +116,8 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
   })
 
   it('D-SCR-04 같은 영상에 이어진 방송이 여럿이면 모두에 등록하고, 같은 요청을 다시 보내도 방송마다 한 번', async () => {
-    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN, sharedLive: false } })
+    // 계정마다 따로 이은 옛 방식 (D-SHARE-LIVE-01부터 새로 잇는 다른 계정은 같은 방송에 들어간다 — 아래 '같이 보는 라이브' 시험)
     const one = await connectSeller(world)
     const { b: b1, live } = await linkedBroadcast(world, one)
     // 다른 판매자가 같은 라이브를 잇는다(D-LV1-15)
@@ -141,7 +142,8 @@ describe('D-SCR-01 화면 일꾼 입구', () => {
   })
 
   it('같은 영상에 연결된 두 계정은 377번의 수정·삭제를 양방향으로 받고 주문은 따로 둔다', async () => {
-    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN } })
+    const world = await youtubeWorld({ overrides: { screenWorkerToken: TOKEN, sharedLive: false } })
+    // 계정마다 따로 이은 옛 방식 (D-SHARE-LIVE-01부터 새로 잇는 다른 계정은 같은 방송에 들어간다 — 아래 '같이 보는 라이브' 시험)
     const one = await connectSeller(world)
     const { b: b1, live } = await linkedBroadcast(world, one)
     // 다른 판매자가 같은 라이브를 잇는다(D-LV1-15)

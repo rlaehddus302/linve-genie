@@ -43,6 +43,7 @@ import type { ReceiptSmsService } from './receipt-sms.ts'
 import type { TikTokLive } from './tiktok-live/live.ts'
 import type { PasteService } from './tiktok-live/paste-service.ts'
 import { registerTiktokRoutes } from './tiktok-live/routes.ts'
+import { leaveLive } from './live-join.ts'
 import type { BandService } from './band/service.ts'
 import { isBandPublicPath, registerBandRoutes } from './band-routes.ts'
 import type { Db } from './db/database.ts'
@@ -99,6 +100,8 @@ export interface ApiDeps {
   readonly voiceVarieties?: VoiceVarieties
   /** D-V3-129 채팅 의심 표시. 없으면 /api/broadcasts/:id/voice-doubts 경로가 없다 */
   readonly voiceDoubts?: { readonly db: Db; readonly clock: Clock }
+  /** 같이 보는 라이브 (D-SHARE-LIVE-01): 다른 판매자 계정이 이어 둔 라이브를 이으면 그 방송에 들어간다. 없으면 예전처럼 계정마다 따로 */
+  readonly liveJoin?: { readonly db: Db; readonly clock: Clock }
   /** D-UX4-156 음성 인식 기록 읽기. 없으면 /api/broadcasts/:id/heard 경로가 없다 */
   readonly voiceHeard?: { readonly db: Db }
   readonly streamAudio?: { readonly db: Db; readonly service: StreamAudioService; readonly heard?: HeadlessVoice }
@@ -411,7 +414,16 @@ export function createApi(deps: ApiDeps): Hono<Env> {
       phone: session.phoneLabel,
       phoneRequired,
       ...(deps.screenProducts ? { screenProducts: true } : {}),
+      // 같이 보는 라이브에 들어가 있으면 그 방송 (D-SHARE-LIVE-01) — seller.name은 방송 주인 가게 이름
+      ...(session.joined === null ? {} : { live: { broadcastId: session.joined.broadcastId, shopName: session.joined.ownerName } }),
     })
+  })
+  // 같이 보는 라이브에서 나가기 (D-SHARE-LIVE-01): 다음 요청부터 이 계정의 원래 가게로 돌아온다. 들어가 있지 않으면 그대로 ok
+  api.post('/live-join/leave', async (c) => {
+    const extra = onlyKeys(body(c), [])
+    if (extra !== null) return extra
+    if (deps.liveJoin !== undefined) await leaveLive(deps.liveJoin.db, c.get('session').accountId, new Date(deps.liveJoin.clock.now()))
+    return c.json({ ok: true })
   })
 
   // ── 가게 (I3 AC-I3-47 가게 이름 · I2 AC-I2-01 가게 설정) ──────────────────
@@ -573,6 +585,13 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (extra !== null) return extra
     const parsed = Service.broadcastInput(input)
     if (!parsed.ok) return apiError(parsed.rejection.status, parsed.rejection.code, parsed.rejection.message, parsed.rejection.problems)
+    // 같이 보는 라이브에 들어가 있던 계정이 새 라이브를 만들면 먼저 나가고 원래 가게에 만든다 (D-SHARE-LIVE-01 — 남의 가게에 라이브가 생기지 않게)
+    const session = c.get('session')
+    if (session.joined !== null && deps.liveJoin !== undefined) {
+      await leaveLive(deps.liveJoin.db, session.accountId, new Date(deps.liveJoin.clock.now()))
+      const created = await service.createBroadcast(session.homeSellerId, actorOf(c), requestId, parsed)
+      return outcomeResponse(c, created, { left: true })
+    }
     const created = await service.createBroadcast(sellerOf(c), actorOf(c), requestId, parsed)
     return outcomeResponse(c, created, created.kind === 'ok' ? await billingOf(c, created.result) : {})
   })
@@ -1091,7 +1110,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   })
 
   // ── 유튜브 (Y1) ──────────────────────────────────────────────────────
-  registerYoutubeRoutes(api, { service, auth, youtube: deps.youtube ?? null, sealer: deps.sealer ?? null })
+  registerYoutubeRoutes(api, { service, auth, youtube: deps.youtube ?? null, sealer: deps.sealer ?? null, ...(deps.liveJoin === undefined ? {} : { liveJoin: deps.liveJoin }) })
   if (deps.assist !== undefined) registerAssistRoutes(api, deps.assist)
   // ── 손님 기록 (CRM1 — 판매자 계정만: 보조자 허용 목록 밖이라 403) ──
   // KP1 손님 장부 (/customers.xlsx가 /customers/:id보다 먼저 — 경로는 겹치지 않는다)
@@ -1118,7 +1137,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // 틱톡(N2b-2): 설정·연결 보기·다시 연결·붙여넣기. 잇기·끊기는 플랫폼 공통 경로(/broadcasts/:id/live/link·unlink, platform TIKTOK)
   if (deps.instagram !== undefined && deps.tiktok !== undefined) {
     registerLiveRoutes(api, deps.instagram, auth, { db: deps.tiktok.db, tiktok: deps.tiktok.live, youtubeReady: deps.youtube !== undefined && deps.youtube !== null, ...(deps.band === undefined ? {} : { band: deps.band }) })
-    registerTiktokRoutes(api, deps.tiktok.live, deps.tiktok.paste)
+    registerTiktokRoutes(api, deps.tiktok.live, deps.tiktok.paste, deps.liveJoin)
     if (deps.band !== undefined) registerBandRoutes(api, deps.band, auth)
   }
   // ── 요금 (N5, BILLING_RULES) — 켜져 있을 때만 ───────────────────────────

@@ -120,7 +120,9 @@ export function listenNow(source: ListenSource | null, mic: ListenMic, status: S
   const more = { ...base, canMic: wantsMic }
   switch (status.phase) {
     case 'mic':
-      return { ...more, hearing: 'otherMic', text: LISTEN_OTHER_MIC, tone: 'ok' }
+      // 다른 기기의 마이크가 듣는 중 — 마이크는 먼저 켠 기기 하나만이라 이 기기의 [휴대폰 마이크 켜기]는 보이지 않는다 (D-SHARE-LIVE-01).
+      // 그 기기가 라이브 소리로 바꾸면 이 기기에서 휴대폰 마이크를 고를 수 있다
+      return { ...more, canMic: false, hearing: 'otherMic', text: LISTEN_OTHER_MIC, tone: 'ok' }
     case 'listening': {
       const late = (status.lagMs ?? 0) > STREAM_AUDIO_LATE_MS
       return { ...more, hearing: 'stream', text: `${why}${LISTEN_STREAM_ON}`, tone: wantsMic ? 'warn' : 'ok', late: late ? STREAM_AUDIO_LATE : null }

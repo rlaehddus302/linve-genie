@@ -12,7 +12,7 @@ import type { AudioResult, AudioState, NativeAudio, VoiceReading } from '../nati
 import { newRequestId } from '../api/client.ts'
 import { fetchVoiceTicket, VoiceRefused } from '../api/voice.ts'
 import { realTimer, type Timer } from './live.ts'
-import { MIC_START_CUT_MESSAGE, SERVICE_NAME, VOICE_STOPPED_BODY } from './words.ts'
+import { MIC_START_CUT_MESSAGE, SERVICE_NAME, VOICE_OTHER_DEVICE, VOICE_STOPPED_BODY } from './words.ts'
 
 /** 말 끝에서 이보다 늦게 처리하는 글은 카드로만 (D-APP-12) */
 export const LATE_MS = 10_000
@@ -21,6 +21,8 @@ export const UNDO_MS = 5000
 /** 60초 안에 이 횟수째 끊김이면 멈춤 (D-APP-05) */
 export const STOP_AFTER_DISCONNECTS = 6
 export const DISCONNECT_WINDOW_MS = 60_000
+/** 다른 기기가 음성 연결을 쥐고 있을 때 라이브 소리 받아 보기 연결을 다시 해 보는 간격 (D-SHARE-LIVE-01 — 3초마다 두드리지 않게) */
+export const OTHER_DEVICE_RETRY_MS = 30_000
 /** 화면에 남겨 두는 받아쓴 글 줄 수 — 지우지 않고 방송 내내 남긴다 (D-UX4-53, 사용자 지시 2026-11-09 "이전 문장 다 기록해두란 말임. 지우지 말고"). 휴대폰 메모리를 지키는 끝만 둔다(긴 방송 몇 시간 분량) */
 export const TRANSCRIPT_LINES = 3000
 
@@ -288,14 +290,17 @@ export class VoiceSession {
 
   #onState(state: AudioState): void {
     if (state.kind !== 'listening') this.#readyForCommands = false
+    // 다른 기기가 이 라이브의 음성 연결을 쥐고 있다 (D-SHARE-LIVE-01 — 마이크는 먼저 켠 기기 하나만): 빨간 멈춤이 아니라 조용히 끈다
+    const otherDevice = state.kind === 'stopped' && state.message === VOICE_OTHER_DEVICE
     if (this.#controlOnly) {
       if (state.kind === 'stopped') {
-        this.#controlOnly = false; this.#commandQueue = []; clearInterval(this.#contextTimer); this.#set({ problem: state.message })
+        this.#controlOnly = false; this.#commandQueue = []; clearInterval(this.#contextTimer)
+        if (!otherDevice) this.#set({ problem: state.message })
         clearTimeout(this.#streamRetry)
         if (this.#streamHold !== null) this.#streamRetry = setTimeout(() => {
           const hold = this.#streamHold
           if (hold !== null && !this.#view.on && !this.#controlOnly) void this.#start(hold.broadcastId, hold.title, true)
-        }, 3000)
+        }, otherDevice ? OTHER_DEVICE_RETRY_MS : 3000)
       }
       return
     }
@@ -315,6 +320,8 @@ export class VoiceSession {
     }
     if (state.kind === 'stopped') {
       clearInterval(this.#contextTimer)
+      // 다른 기기의 마이크가 듣는 중: 이 기기 마이크는 꺼진 것으로 — 화면은 "다른 기기의 마이크로 듣고 있어요" (D-SHARE-LIVE-01)
+      if (otherDevice) { this.#set({ on: false, state: OFF, problem: null }); this.#log(VOICE_OTHER_DEVICE); return }
       this.#set({ on: false, state })
       return
     }

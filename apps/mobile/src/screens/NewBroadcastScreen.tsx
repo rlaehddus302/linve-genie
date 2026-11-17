@@ -10,6 +10,7 @@ import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 import type { WriteResult, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { kstToday } from '@livejjim/web/src/lib/kst.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../api/client.ts'
+import { recheckSession } from '../services.tsx'
 import { LIVE_PLATFORMS, type PlatformTarget } from '../lib/open-app.ts'
 import { browserStart, type BrowserHints } from '../lib/live-browser.ts'
 import { readModeOf } from '../lib/youtube.ts'
@@ -73,8 +74,10 @@ function useMakeBroadcast() {
     setError(null)
     setBusy(true)
     try {
-      const result = await withRetry(() => post<WriteResult>('/api/broadcasts', { requestId, title, draft: true }))
+      const result = await withRetry(() => post<WriteResult & { left?: boolean }>('/api/broadcasts', { requestId, title, draft: true }))
       pending.current = null
+      // 같이 보던 다른 계정의 라이브에서 나와 내 가게에 만들었다 — 내 정보를 다시 읽어 내 가게 자료로 돌아온다 (D-SHARE-LIVE-01)
+      if (result.left === true) await recheckSession()
       return result.broadcast?.id ?? null
     } catch (caught) {
       if (!isApiError(caught)) throw caught
