@@ -53,6 +53,9 @@ class PickTest(unittest.TestCase):
         self.assertEqual(pick(["몰디브 생금"])[0], "몰디브 색금")                         # 생금·설금 → 색금(D-RECOG-45)
         self.assertEqual(pick(["소믈리에 설금 무지"])[0], "소믈리에 색금 무지")
         self.assertEqual(pick(["실생금"])[0], "실생 금")                                  # 실생 뒤는 그대로
+        for real in ("세설금", "환생금", "담설금", "왕비세설금"):                          # "생·설"까지가 품종인 진짜 이름은 그대로
+            self.assertNotIn("색금", pick([real])[0], real)
+        self.assertEqual(M.fix_typo("세설 금", self.dic), "세설 금")
 
     def test_split_can_be_turned_off(self):
         old = M.SPLIT

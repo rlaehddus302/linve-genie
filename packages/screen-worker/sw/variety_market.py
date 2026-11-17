@@ -22,8 +22,9 @@ SPLIT = os.environ.get("LLM_NAME_SPLIT", "1") != "0"                     # 품�
 FRONT = ("SP", "종자", "창", "찐")                                         # 품종 이름 앞에 붙여 적는 말("SP몰디브", "창몰디브")
 _CHANG = re.compile(r"창\s?(?:독|록|노|농)\s?(색금|금)")                    # 창독색금·창록금 → 창녹색금·창녹금(무늬 자리에서만)
 _PAT_CHANG = re.compile(r"(녹색금|색금|녹금|금)창")                        # "색금창" → "창색금"
-# 받아쓰기·LLM이 이름 뒤 '색금'을 생금·설금으로 적는다(9방송 sol 답: 마테 생금·몰디브 생금·소믈리에 설금 무지, D-RECOG-45) — 이름 뒤에서만, 실생금은 그대로
-_OPT_TYPO = re.compile(r"(?<=[가-힣A-Za-z])(?<!실)(?<!실\s)\s?(?:생|설|섹|쌕)\s?금(?=$|\s)")
+# 받아쓰기·LLM이 이름 뒤 '색금'을 생금·설금으로 적는다(9방송 sol 답: 마테 생금·몰디브 생금·소믈리에 설금 무지, D-RECOG-45) — 이름 뒤에서만.
+#   "생·설"까지가 사전 품종이거나 통째로 사전에 있으면 그대로(세설금 = 세설 + 금, 환생금·담설금·왕비세설금, 실생금 = 실생 + 금)
+_OPT_TYPO = re.compile(r"([가-힣A-Za-z]+)\s?(생|설|섹|쌕)\s?금(?=$|\s)")
 CUT = 88                                                                    # 사전 이름으로 볼 자모 비율(canon)
 nz0 = lambda s: re.sub(r"[^가-힣A-Za-z0-9]", "", s or "")
 
@@ -154,11 +155,21 @@ def _exact(k, dic):
     return len(k) >= 2 and (nz0(k) in dic.names or V.norm(k) in dic.names)
 
 
+def fix_typo(t, dic):
+    """이름 뒤 생금·설금 → 색금. "생·설"까지가 사전 품종(세설·환생·담설)이거나 통째로 사전에 있거나(세설금) 실생이면 그대로"""
+    def one(m):
+        head = m.group(1) + m.group(2)
+        if head.endswith("실생") or _exact(head, dic) or _exact(m.group(0), dic):
+            return m.group(0)
+        return m.group(1) + " 색금"
+    return _OPT_TYPO.sub(one, t or "")
+
+
 def parts(name, dic):
     """LLM 이름 하나 → (품종 열쇠, 보일 품종, 사전에 있나, [앞 옵션], [옵션]). 품종이 없으면 열쇠 ""(옵션만).
     "먼로 철화" → (먼로, 먼로, True, [], [철화]), "SP몰디브색금" → (몰디브, 몰디브, True, [], [SP, 색금]), "창록금" → ("", "", False, [], [창, 녹금])"""
     t = _CHANG.sub(lambda m: "창녹" + m.group(1), name)
-    t = _OPT_TYPO.sub(" 색금", t)
+    t = fix_typo(t, dic)
     m = _PAT_CHANG.fullmatch(V.norm(t))
     if m:
         t = "창" + m.group(1)
