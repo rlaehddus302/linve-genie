@@ -455,6 +455,8 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow, focus 
           <View style={{ gap: SPACE.sm }}>
             {/* 품종 후보 한 줄 (가로로 민다) · 개수 칸 (D-VARIETY-01·D-PIECES-01) */}
             <VarietyChips choices={chips} selected={draft.name ?? before.name} disabled={busy} inset={SPACE.xl} onPick={pickName} />
+            {/* 휴대폰을 눕혀 두고 손가락으로 품종 쓰기 (D-HANDWRITE-02) — 숫자(번호·가격)는 숫자판 */}
+            {busy ? null : <HandwritingButton label={EDIT_LABEL.name} onPress={() => setPen(true)} />}
             <PiecesStepper pieces={pieces ?? before.pieces ?? 1} disabled={busy} onChange={(next) => { setError(null); setPieces(next) }} />
             {(pieces ?? before.pieces ?? 1) > 1 ? (
               <Txt step="caption" color="textSub" testID="pieces-preview">
@@ -468,8 +470,6 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow, focus 
             {koreanWon(Number(draft.price))}
           </Txt>
         ) : null}
-        {/* 휴대폰을 눕혀 두고 손가락으로 숫자 쓰기 (D-HANDWRITE-01) */}
-        {field === 'no' || field === 'price' ? <HandwritingButton label={EDIT_LABEL[field]} onPress={() => setPen(true)} /> : null}
         {error !== null ? <ErrorLine large>{error}</ErrorLine> : null}
         {sameShown !== null ? <SameNumberLine product={sameShown} /> : null}
       </View>
@@ -479,17 +479,14 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow, focus 
       </View>
       {field === 'name' ? null : <NumberKeys doubleZero={field === 'price'} onKey={type} />}
       <HandwritingSheet
-        visible={pen && (field === 'no' || field === 'price') && !busy}
+        visible={pen && field === 'name' && !busy}
         onClose={() => setPen(false)}
-        label={field === 'price' ? EDIT_LABEL.price : EDIT_LABEL.no}
-        unit={field === 'price' ? '원' : '번'}
-        maxLength={digitLimit(field === 'price' ? 'price' : 'no')}
-        onInsert={(digits) => {
-          if (field !== 'no' && field !== 'price') return
-          const which = field
+        label={EDIT_LABEL.name}
+        maxLength={NAME_MAX}
+        hints={[...chips, ...lists.recent, ...lists.frequent]}
+        onInsert={(text) => {
           setError(null)
-          setSame(null)
-          setDraft((was) => ({ ...was, [which]: digits.replace(/^0+(?=\d)/, '') }))
+          setDraft((was) => ({ ...was, name: text }))
         }}
       />
     </View>

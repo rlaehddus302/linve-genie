@@ -864,7 +864,11 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
                 style={{ fontSize: BIG, paddingVertical: 0, color: p.text, ...font(WEIGHT.bold) }}
               />
               {/* 토스 "잔액 · 159,952원 입력" 같은 회색 칩 — 꾸욱 눌린다 (D-UX4-43) */}
-              {name.trim() === '' ? <SoftChip label="품종 없이 넘어가기" onPress={() => setStep('confirm')} /> : null}
+              {/* 휴대폰을 눕혀 두고 손가락으로 품종 쓰기 (D-HANDWRITE-02) — 숫자(번호·가격)는 숫자판 */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap' }}>
+                {name.trim() === '' ? <SoftChip label="품종 없이 넘어가기" onPress={() => setStep('confirm')} /> : null}
+                <HandwritingButton label="품종" onPress={() => setPen(true)} />
+              </View>
               {/* 품종 후보 한 줄(가로로 민다) · 개수 칸 (D-VARIETY-01·D-PIECES-01) */}
               <VarietyChips choices={chips} selected={split.name} inset={SPACE.xxl} onPick={(value) => setName(value)} />
               <PiecesStepper pieces={count} onChange={setPieces} />
@@ -875,8 +879,6 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
               <BigNumber key={step} label={step === 'no' ? '번호' : '가격'} question={step === 'no' ? ASK_NO : ASK_PRICE} digits={active} format={step === 'no' ? (value) => value : (value) => Number(value).toLocaleString('ko-KR')} suffix={step === 'no' ? '번' : '원'} />
             </Animated.View>
           )}
-          {/* 휴대폰을 눕혀 두고 손가락으로 숫자 쓰기 (D-HANDWRITE-01) — 같은 번호 묻기 카드가 떠 있는 동안은 숫자판처럼 숨긴다 (D-DUPNO-01) */}
-          {step === 'name' || dupShown !== null ? null : <HandwritingButton label={step === 'no' ? '번호' : '가격'} onPress={() => setPen(true)} />}
           {/* 만 원 아래는 한글 읽기가 위 금액과 같아 그리지 않는다 */}
           {step === 'price' && Number(price) >= 10_000 ? (
             <Txt step="body" color="textSub">
@@ -908,16 +910,12 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
         </View>
       )}
       <HandwritingSheet
-        visible={pen && step !== 'name' && dupShown === null}
+        visible={pen && step === 'name'}
         onClose={() => setPen(false)}
-        label={step === 'no' ? '번호' : '가격'}
-        unit={step === 'no' ? '번' : '원'}
-        maxLength={digitLimit(step)}
-        onInsert={(digits) => {
-          clearProblem()
-          const field = step === 'no' ? 'no' : 'price'
-          setTyped((now) => ({ ...now, [field]: digits.replace(/^0+(?=\d)/, '') }))
-        }}
+        label="품종"
+        maxLength={40}
+        hints={[...chips, ...lists.recent, ...lists.frequent]}
+        onInsert={(text) => setName(text)}
       />
     </Animated.View>
   )

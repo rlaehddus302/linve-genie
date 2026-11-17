@@ -6,6 +6,7 @@ import { LINE, RADIUS, SPACE, TOUCH, TYPE, WEIGHT } from './tokens.ts'
 import { Txt, useKit } from './theme.tsx'
 import { font } from './font.ts'
 import { Tap } from './press.tsx'
+import { useInkReader } from '../../lib/ink-reader.ts'
 import { HandwritingButton, HandwritingSheet } from './handwriting.tsx'
 import { ARRIVAL_FALLBACK_MS, useDeferredAutoFocus } from './arrival.tsx'
 
@@ -73,13 +74,15 @@ export interface UnderlineFieldProps extends Omit<TextInputProps, 'style' | 'ari
   /** 칸이 비었을 때 오른쪽에 붙는 조각 ([붙여넣기] 등) — 값이 있으면 [지우기]가 그 자리 */
   readonly trailing?: ReactNode
   /**
-   * 오른쪽 [손글씨] 단추 (D-HANDWRITE-01): 누르면 손가락으로 숫자를 쓰는 판이 열리고, [넣기]로 칸 값을 바꾼다.
-   * 기본: 숫자 칸(keyboardType number-pad·numeric·decimal-pad·phone-pad 또는 inputMode numeric·decimal·tel)이면 켜짐. false로 끈다.
+   * 오른쪽 [손글씨] 단추 (D-HANDWRITE-02): 누르면 손가락으로 글자를 쓰는 판이 열리고, [넣기]로 칸 값을 바꾼다.
+   * 품종처럼 글자 칸에만 켠다(기본 꺼짐). 숫자 칸·비밀 칸에는 켜도 붙지 않는다 — 숫자는 숫자판이 빠르고 틀리지 않는다.
    */
   readonly handwriting?: boolean
+  /** 손글씨 판이 참고할 자주 쓰는 말(품종 이름) */
+  readonly handwritingHints?: readonly string[]
 }
 
-/** 숫자 칸인가 — 손글씨 단추를 기본으로 붙인다 (D-HANDWRITE-01) */
+/** 숫자 칸인가 — 손글씨 단추를 붙이지 않는다 (D-HANDWRITE-02) */
 export function isDigitField(input: Pick<TextInputProps, 'keyboardType' | 'inputMode' | 'secureTextEntry'>): boolean {
   if (input.secureTextEntry === true) return false
   return ['number-pad', 'numeric', 'decimal-pad', 'phone-pad'].includes(input.keyboardType ?? '') || ['numeric', 'decimal', 'tel'].includes(input.inputMode ?? '')
@@ -92,7 +95,7 @@ export function isDigitField(input: Pick<TextInputProps, 'keyboardType' | 'input
  * - 예시 글(placeholder)이 있는 칸은 라벨을 늘 위에 두고 칸 안에 예시를 보인다(예: 빠른 입력 "예: 15 핑크프릴 10").
  * - 밑줄 하나(초점이면 초록, 잘못이면 빨강). 값이 있고 고칠 수 있으면 오른쪽에 동그란 [지우기] — 줄 안에 겹쳐 놓는다.
  */
-export function UnderlineField({ label, help, error, again, unit, trailing, handwriting, onFocus, onBlur, placeholder, autoFocus, ...input }: UnderlineFieldProps) {
+export function UnderlineField({ label, help, error, again, unit, trailing, handwriting, handwritingHints, onFocus, onBlur, placeholder, autoFocus, ...input }: UnderlineFieldProps) {
   const { p, fontScale, forced } = useKit()
   const inputRef = useRef<TextInputInstance>(null)
   const focusNow = useDeferredAutoFocus(inputRef, autoFocus === true)
@@ -118,8 +121,9 @@ export function UnderlineField({ label, help, error, again, unit, trailing, hand
     Animated.timing(motion, { toValue: resting ? 0 : 1, duration: FIELD_LABEL_MS, easing: Easing.out(Easing.cubic), useNativeDriver: Platform.OS !== 'web' }).start()
   }, [resting, motion])
   const clearable = !empty && input.onChangeText !== undefined && input.editable !== false
-  // 손글씨 단추 (D-HANDWRITE-01) — 고칠 수 있는 숫자 칸만. 단추 폭을 재어 [지우기]를 그 왼쪽에 둔다
-  const pen = (handwriting ?? isDigitField(input)) && input.onChangeText !== undefined && input.editable !== false
+  // 손글씨 단추 (D-HANDWRITE-02) — 켠 글자 칸만(숫자·비밀 칸 빼고), 손글씨 읽기가 있는 앱에서만. 단추 폭을 재어 [지우기]를 그 왼쪽에 둔다
+  const canInk = useInkReader()
+  const pen = handwriting === true && canInk && !isDigitField(input) && input.secureTextEntry !== true && input.onChangeText !== undefined && input.editable !== false
   const [penOpen, setPenOpen] = useState(false)
   const [penWidth, setPenWidth] = useState(0)
   const penRoom = pen ? penWidth + SPACE.sm : 0
@@ -199,7 +203,7 @@ export function UnderlineField({ label, help, error, again, unit, trailing, hand
           label={label}
           onInsert={(text) => input.onChangeText?.(text)}
           {...(input.maxLength === undefined ? {} : { maxLength: input.maxLength })}
-          {...(unit === undefined ? {} : { unit })}
+          {...(handwritingHints === undefined ? {} : { hints: handwritingHints })}
         />
       ) : null}
     </Animated.View>
