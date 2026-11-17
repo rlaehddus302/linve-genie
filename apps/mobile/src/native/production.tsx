@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { labelPaper } from '../lib/label-paper.ts'
 import { wireDockChoice } from '../lib/dock-choice.ts'
 import { wireFeedView } from '../lib/feed-view.ts'
+import { wireRecentSearches } from '../lib/recent-searches.ts'
 import { getInk } from '@livejjim/mobile-ink/native'
 import { wireInkReader } from '../lib/ink-reader.ts'
 import { AppState, Modal, PermissionsAndroid, Platform, ScrollView } from 'react-native'
@@ -123,6 +124,8 @@ export function installProductionNative(): void {
   void wireDockChoice(AsyncStorage)
   // 찜 기록 정렬·글자 크기 (D-RETRO-51·52, 번호별 보기는 D-UX4-151로 걷음) — 이 휴대폰에만
   void wireFeedView(AsyncStorage)
+  // 라이브 찾기 최근 검색어 (D-SEARCH-RECENT-01) — 이 휴대폰에만
+  void wireRecentSearches(AsyncStorage)
   // 품종 손글씨 읽기 (D-HANDWRITE-02) — 휴대폰 안에서만 읽는다. 모듈이 없는 옛 빌드는 null: [손글씨] 단추를 숨긴다
   wireInkReader(getInk())
   setNativeModules({ audio: new LiveNativeAudio(getAudioCapture), ble: printer })

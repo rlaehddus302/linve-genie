@@ -7,7 +7,8 @@ import { useCallback, useMemo, useState } from 'react'
 import { Keyboard, ScrollView, View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import Svg, { Circle, Path } from 'react-native-svg'
-import { StackPage, Txt, useKit } from '../../ui/kit/index.ts'
+import { addRecentSearch, clearRecentSearches, useRecentSearches } from '../../lib/recent-searches.ts'
+import { RADIUS, StackPage, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { GUTTER, SPACE } from '../../ui/kit/tokens.ts'
 import { Loading } from '../../ui/parts.tsx'
 import { SearchField } from '../customer-parts.tsx'
@@ -28,6 +29,9 @@ export const SEARCH_EMPTY = '상품 번호·품명이나\n닉네임을 검색해
  * 토스 사진에서 찾기 칸 밑에서 그림 위까지 ≈ 165 — 찾기 칸 아래 여백(12)을 뺀 값. 가운데 맞춤이 아니라 키보드가 떠도 움직이지 않는다.
  */
 export const SEARCH_HINT_TOP = 152
+/** 최근 검색어 (D-SEARCH-RECENT-01, 토스 검색 사진) */
+export const RECENT_TITLE = '최근 검색어'
+export const RECENT_CLEAR = '전체 삭제'
 export const SEARCH_NO_MATCH = '찾는 결과가 없어요'
 export const SEARCH_NO_MATCH_BODY = '번호, 품종, 닉네임을 다시 확인해 주세요'
 
@@ -44,7 +48,10 @@ function SearchPage({ broadcastId, onBack }: { readonly broadcastId: string; rea
   const api = useConsoleApi()
   const [query, setQuery] = useState('')
   /** 결과를 누르면 라이브 화면으로 돌아가 그 상품을 연다 */
+  const recent = useRecentSearches()
   const pick = (key: string) => {
+    // 결과를 눌러 열면 그 검색어를 남긴다 (D-SEARCH-RECENT-01)
+    addRecentSearch(query)
     Keyboard.dismiss()
     signalConsole(broadcastId, { kind: 'show', key })
     onBack()
@@ -63,11 +70,11 @@ function SearchPage({ broadcastId, onBack }: { readonly broadcastId: string; rea
     <StackPage name={SEARCH_PAGE_NAME} title={SEARCH_PAGE_NAME} onBack={onBack} scroll={false} testID="console-search-page">
       {/* 토스 검색 화면처럼 화면 끝에서 16 안쪽에 회색 찾기 칸 */}
       <View style={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.xs, paddingBottom: SPACE.md }}>
-        <SearchField label={SEARCH_LABEL} value={query} fill={p.surfaceAlt} autoFocus onChangeText={setQuery} />
+        <SearchField label={SEARCH_LABEL} value={query} fill={p.surfaceAlt} autoFocus onChangeText={setQuery} onSubmit={() => addRecentSearch(query)} />
       </View>
       {/* 목록을 끌기 시작하면 키보드를 내린다 (D-UX4-200과 같음) */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: SPACE.xxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onScrollBeginDrag={() => Keyboard.dismiss()}>
-        {blank ? <SearchHint /> : productCount === 0 && feedCount === 0 ? <NoMatch /> : (
+        {blank ? (recent.length > 0 ? <RecentSearches list={recent} onPick={setQuery} /> : <SearchHint />) : productCount === 0 && feedCount === 0 ? <NoMatch /> : (
           <>
             {productCount === 0 ? null : (
               <View testID="search-products">
@@ -85,6 +92,37 @@ function SearchPage({ broadcastId, onBack }: { readonly broadcastId: string; rea
         )}
       </ScrollView>
     </StackPage>
+  )
+}
+
+/**
+ * 최근 검색어 (D-SEARCH-RECENT-01, 토스 검색 사진을 재어): 왼쪽 "최근 검색어" · 오른쪽 회색 [전체 삭제], 그 아래 옅은 회색 둥근 네모 검색어 한 줄(옆으로 밀어 더 보기).
+ * 누르면 그 글로 바로 찾는다. 빈 칸일 때만 — 글을 쓰면 결과가 그 자리에 나온다.
+ */
+function RecentSearches({ list, onPick }: { readonly list: readonly string[]; readonly onPick: (text: string) => void }) {
+  const { p } = useKit()
+  return (
+    <View role="group" aria-label={RECENT_TITLE} testID="recent-searches" style={{ paddingTop: SPACE.lg + 2, gap: SPACE.sm + 2, marginHorizontal: -GUTTER }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: SPACE.xl, paddingRight: SPACE.sm }}>
+        <Txt step="bodyLarge" weight="medium" role="heading" aria-level={2}>
+          {RECENT_TITLE}
+        </Txt>
+        <Tap role="button" aria-label={`${RECENT_TITLE} ${RECENT_CLEAR}`} onPress={clearRecentSearches} hitSlop={4} style={({ pressed }) => ({ minHeight: 40, justifyContent: 'center', paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+          <Txt step="meta" weight="book" ink={p.borderStrong}>
+            {RECENT_CLEAR}
+          </Txt>
+        </Tap>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: SPACE.xl, gap: SPACE.sm }}>
+        {list.map((text) => (
+          <Tap key={text} role="button" aria-label={`최근 검색어 ${text}`} testID="recent-search" onPress={() => onPick(text)} style={({ pressed }) => ({ minWidth: 58, maxWidth: 220, height: 34, justifyContent: 'center', alignItems: 'center', paddingHorizontal: SPACE.lg, borderRadius: RADIUS.sm, borderCurve: 'continuous', borderWidth: 1, borderColor: p.line, backgroundColor: pressed ? p.pressed : p.surfaceAlt })}>
+            <Txt step="bodyLarge" weight="book" color="textSub" numberOfLines={1}>
+              {text}
+            </Txt>
+          </Tap>
+        ))}
+      </ScrollView>
+    </View>
   )
 }
 

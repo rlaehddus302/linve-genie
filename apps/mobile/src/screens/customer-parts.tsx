@@ -24,8 +24,8 @@ function SearchGlyph({ color }: { readonly color: string }) {
  * numberSearch(상품 번호 검색): 앱 숫자판으로 치고 칠 때마다 바로 걸러진다. 오른쪽은 다른 찾기 칸과 같은 동그란 지우기 —
  * D-UX4-143(사용자 메모 11-13 "검색 버튼 없애고 원래대로 x 버튼으로")이 2026-11-12 [검색] 단추(87df35a9)를 되돌렸다. 숫자판은 칸·숫자판 밖을 누르거나 목록을 밀면 닫힌다.
  */
-/** fill: 칸 바탕 (기본 흰색 — 흰 화면 위에서는 회색으로, D-UX4-201) · autoFocus: 나타나자마자 쓸 수 있게 · onBlur: 칸을 떠날 때 */
-export function SearchField({ label, value, onChangeText, placeholder, keyboardType, numberSearch, fill, autoFocus, onBlur }: { readonly label: string; readonly value: string; readonly onChangeText: (text: string) => void; readonly placeholder?: string; readonly keyboardType?: TextInputProps['keyboardType']; readonly numberSearch?: { open: () => void; submit: () => void }; readonly fill?: string; readonly autoFocus?: boolean; readonly onBlur?: () => void }) {
+/** fill: 칸 바탕 (기본 흰색 — 흰 화면 위에서는 회색으로, D-UX4-201) · autoFocus: 나타나자마자 쓸 수 있게 · onBlur: 칸을 떠날 때 · onSubmit: 키보드 [검색] */
+export function SearchField({ label, value, onChangeText, placeholder, keyboardType, numberSearch, fill, autoFocus, onBlur, onSubmit }: { readonly label: string; readonly value: string; readonly onChangeText: (text: string) => void; readonly placeholder?: string; readonly keyboardType?: TextInputProps['keyboardType']; readonly numberSearch?: { open: () => void; submit: () => void }; readonly fill?: string; readonly autoFocus?: boolean; readonly onBlur?: () => void; readonly onSubmit?: () => void }) {
   const { p, fontScale, forced } = useKit()
   const size = TYPE.bodyLarge * (forced ? fontScale : 1)
   return (
@@ -42,6 +42,7 @@ export function SearchField({ label, value, onChangeText, placeholder, keyboardT
         keyboardType={keyboardType}
         {...(autoFocus === true ? { autoFocus: true } : {})}
         {...(onBlur === undefined ? {} : { onBlur })}
+        {...(onSubmit === undefined ? {} : { onSubmitEditing: onSubmit })}
         {...(numberSearch ? {
           inputMode: 'none' as const, showSoftInputOnFocus: false,
           onFocus: numberSearch.open, onPressIn: numberSearch.open, onSubmitEditing: numberSearch.submit,

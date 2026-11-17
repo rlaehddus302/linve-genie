@@ -5,13 +5,16 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
-import { ConsoleSearchScreen, SEARCH_EMPTY, SEARCH_LABEL, SEARCH_NO_MATCH, SEARCH_PAGE_NAME } from '../src/screens/console/ConsoleSearch.tsx'
+import { ConsoleSearchScreen, RECENT_CLEAR, RECENT_TITLE, SEARCH_EMPTY, SEARCH_LABEL, SEARCH_NO_MATCH, SEARCH_PAGE_NAME } from '../src/screens/console/ConsoleSearch.tsx'
+import { addRecentSearch, getRecentSearches, parseRecentSearches, resetRecentSearches, RECENT_SEARCHES_KEY, RECENT_SEARCHES_MAX, wireRecentSearches, withRecentSearch } from '../src/lib/recent-searches.ts'
 import { feedRowMatches, productMatches } from '../src/screens/console/console-search.ts'
 import { useConsoleSignals, type ConsoleSignal } from '../src/screens/console/scope.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { buyer, claim, fullView, product } from './support.ts'
+
+afterEach(() => resetRecentSearches())
 
 function Listen({ onSignal }: { readonly onSignal: (signal: ConsoleSignal) => void }) {
   useConsoleSignals('b1', onSignal)
@@ -121,5 +124,53 @@ describe('찾기 화면 (D-UX4-204·205)', () => {
       expect(readFileSync(join(process.cwd(), file), 'utf8')).toContain("openSearch={() => router.push({ pathname: '/console/[id]/search', params: { id } })}")
     }
     expect(readFileSync(join(process.cwd(), 'app/console/[id]/search.tsx'), 'utf8')).toContain('ConsoleSearchScreen')
+  })
+})
+
+describe('최근 검색어 (D-SEARCH-RECENT-01)', () => {
+  it('맨 앞에 더하고 같은 글은 앞으로, 빈칸은 하나로, 많아야 10개 · 깨진 저장 값은 버린다', () => {
+    expect(withRecentSearch(['창금', '12'], '  12 ')).toEqual(['12', '창금'])
+    expect(withRecentSearch(['창금'], '가을  여행')).toEqual(['가을 여행', '창금'])
+    expect(withRecentSearch(['창금'], '   ')).toEqual(['창금'])
+    const many = Array.from({ length: 12 }, (_, index) => String(index)).reduce<readonly string[]>((list, text) => withRecentSearch(list, text), [])
+    expect(many).toHaveLength(RECENT_SEARCHES_MAX)
+    expect(many[0]).toBe('11')
+    expect(parseRecentSearches('{깨짐')).toEqual([])
+    expect(parseRecentSearches(JSON.stringify(['창금', 3, '창금', ' 12 ']))).toEqual(['창금', '12'])
+  })
+
+  it('앱 저장소에서 되살리고, 남길 때마다 쓴다', async () => {
+    const saved = new Map<string, string>([[RECENT_SEARCHES_KEY, JSON.stringify(['창금'])]])
+    await wireRecentSearches({ getItem: async (key) => saved.get(key) ?? null, setItem: async (key, value) => { saved.set(key, value) } })
+    expect(getRecentSearches()).toEqual(['창금'])
+    addRecentSearch('가을')
+    expect(JSON.parse(saved.get(RECENT_SEARCHES_KEY) ?? '[]')).toEqual(['가을', '창금'])
+  })
+
+  it('결과를 눌러 열거나 [검색]을 누르면 남고, 빈 칸이면 안내 대신 최근 검색어 — 누르면 그 글로 찾는다', async () => {
+    const first = await openPage(searchWorld())
+    expect(first.page.queryByTestId('recent-searches')).toBeNull()
+    first.type('가을')
+    await waitFor(() => expect(productButtons(first.page)).toEqual(['상품 자세히 — 12번']))
+    fireEvent.click(first.page.getByRole('button', { name: '상품 자세히 — 12번' }))
+    expect(getRecentSearches()).toEqual(['가을'])
+    first.type('색금')
+    fireEvent.keyDown(screen.getByLabelText(SEARCH_LABEL), { key: 'Enter', code: 'Enter', keyCode: 13 })
+    expect(getRecentSearches()).toEqual(['색금', '가을'])
+    first.type('')
+    const recent = within(first.page.getByRole('group', { name: RECENT_TITLE }))
+    expect(first.page.queryByTestId('search-hint')).toBeNull()
+    expect(recent.getAllByTestId('recent-search').map((node) => node.textContent)).toEqual(['색금', '가을'])
+    fireEvent.click(recent.getByRole('button', { name: '최근 검색어 가을' }))
+    await waitFor(() => expect(productButtons(first.page)).toEqual(['상품 자세히 — 12번']))
+    expect((screen.getByLabelText(SEARCH_LABEL) as HTMLInputElement).value).toBe('가을')
+  })
+
+  it('[전체 삭제]를 누르면 모두 지우고 다시 안내', async () => {
+    addRecentSearch('창금')
+    const { page } = await openPage(searchWorld())
+    fireEvent.click(page.getByRole('button', { name: `${RECENT_TITLE} ${RECENT_CLEAR}` }))
+    expect(getRecentSearches()).toEqual([])
+    expect(page.getByTestId('search-hint').textContent).toBe(SEARCH_EMPTY)
   })
 })
