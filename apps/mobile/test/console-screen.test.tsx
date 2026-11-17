@@ -8,7 +8,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { SessionProvider } from '../src/services.tsx'
-import { AWAY_LABELS_GO, ConsoleScreen, LINK_TITLE, THANKS_TITLE } from '../src/screens/ConsoleScreen.tsx'
+import { ConsoleScreen, LINK_TITLE, THANKS_TITLE } from '../src/screens/ConsoleScreen.tsx'
 import { END_LINK_LABEL } from '../src/screens/console/EndBroadcast.tsx'
 import { ASK_ADD, ASK_NAME, ASK_NO, ASK_PIECES, ASK_PRICE } from '../src/screens/console/ProductAdd.tsx'
 import { DOCK_STATE } from '../src/screens/console/StreamAudio.tsx'
@@ -527,19 +527,11 @@ describe('ConsoleScreen', () => {
     return world
   }
 
-  // D-RETRO-141 (사용자 메모 11-13 "[자리를 비운 동안 라벨 2개] 알려주는 거 누르면 넘어가든 해야 할 듯")
-  it('"자리를 비운 동안 라벨 n장" 줄을 누르면 대기 라벨 뽑기가 있는 라이브 관리로 간다', async () => {
+  // D-PRINTALL-01 (사용자 지시 2026-11-17 "'자리를 비운 동안 라벨 57장' 알림 … 존재 가치 없으면 지우고"): 옛 D-RETRO-141(라벨 n장을 보이고 누르면 라이브 관리로) 시험을 바꿈
+  it('대기 라벨이 남아 있어도 자리를 비운 동안 줄에는 라벨 장 수가 없고 누를 것도 없다', async () => {
     await awayWithLabels(true)
-    const go = await screen.findByRole('button', { name: AWAY_LABELS_GO })
-    expect(within(go).getByRole('status', { name: '자리를 비운 동안' }).textContent).toBe('자리를 비운 동안 라벨 2장·찜 2건 ›')
-    fireEvent.click(go)
-    expect(await screen.findByRole('dialog', { name: '라이브 관리' })).toBeTruthy()
-  })
-
-  it('라벨 출력이 꺼져 있으면 장 수를 보이지 않고 줄도 누를 것이 없다 (D-RETRO-141)', async () => {
-    await awayWithLabels(false)
     await waitFor(() => expect(screen.getByRole('status', { name: '자리를 비운 동안' }).textContent).toBe('자리를 비운 동안 찜 2건'))
-    expect(screen.queryByRole('button', { name: AWAY_LABELS_GO })).toBeNull()
+    expect(screen.queryByTestId('away-labels')).toBeNull()
   })
 
   it('듣기 시작 → 안내 창 → 듣는 중 → 서버가 읽은 결과가 바로 등록되고 되돌리기가 보인다 (APP-02·APP-05)', async () => {
@@ -605,8 +597,9 @@ describe('ConsoleScreen', () => {
     // 보낸 조치는 응답 seq까지 따라잡는다 — 따라잡기 응답은 바뀐 것 없이 seq만
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=(\d+)/, (call) => ({ body: changes(Number(/since=(\d+)/.exec(call.path)?.[1] ?? 5), world.seq, {}) }))
     await open(world)
-    // D-LIVETEST-07: 정하기 단추 대신 경고 칸(취소 요청·승계 결정 필요)을 누르면 정하기 창이 열린다 — D-ALERTFLOAT-01로 오른쪽 아래 빨간 알림 "취소 요청 1건"·"1등을 정해 주세요"
-    fireEvent.click(await screen.findByRole('button', { name: /^취소 요청 1/ }))
+    // D-LIVETEST-07: 정하기 단추 대신 경고 칸(취소 요청·승계 결정 필요)을 누르면 정하기 창이 열린다 — D-ALERTFLOAT-01로 아래 빨간 알림,
+    // D-PRINTOFF-01(사용자 지시 2026-11-17 "문구를 다음 6가지 빼고는 다 지워")로 문구 "찜 취소 요청 1건"(옛 "취소 요청 1건")
+    fireEvent.click(await screen.findByRole('button', { name: '찜 취소 요청 1건' }))
     const cancel = await screen.findByRole('group', { name: '취소 요청 — 5번' })
     expect(cancel.textContent).toContain('요청한 사람: 꽃집언니')
     expect(cancel.textContent).toContain('승인하면 1등 자리가 비고 다시 판매 중이 돼요.')
@@ -616,8 +609,9 @@ describe('ConsoleScreen', () => {
     fireEvent.click(within(cancel).getByRole('button', { name: '취소 승인' }))
     await waitFor(() => expect(world.events.some((call) => call.body?.type === 'host.approveCancel')).toBe(true))
     expect(world.events.find((call) => call.body?.type === 'host.approveCancel')?.body).toMatchObject({ b: 'b1', no: 5, buyer: 'u1' })
-    // D-ALERTFLOAT-01: 충돌·승계 알림은 "1등을 정해 주세요" 한 줄 (옛 "승계 결정 필요 1")
-    fireEvent.click(screen.getByRole('button', { name: '1등을 정해 주세요' }))
+    // D-PRINTOFF-01: "1등을 정해 주세요" 알림을 없앴다(옛 D-ALERTFLOAT-01) — 남은 승계는 상품 자세히 "누가 살지 정하기"로 연다
+    fireEvent.click(within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 6번' }))
+    fireEvent.click(within(await screen.findByRole('group', { name: '상품 자세히' })).getByRole('button', { name: '누가 살지 정하기' }))
     const succession = await screen.findByRole('group', { name: '승계 결정 — 6번' })
     fireEvent.click(within(succession).getByRole('button', { name: '초록손 1등으로' }))
     expect(order(succession, ['안 바꾸기', '1등으로 올리기'])).toEqual(['안 바꾸기', '1등으로 올리기'])

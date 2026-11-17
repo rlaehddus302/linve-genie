@@ -7,7 +7,7 @@
 import type { LabelBitmap } from '@livejjim/label'
 import type { ReconnectingAdapter } from '@livejjim/mobile-ble'
 import type { AdapterProfile, ConnectionMethod, ConnectionState, PrintOptions, PrinterResult, RememberedPrinter } from '@livejjim/printer'
-import type { LinkFacts } from '../lib/print-cause.ts'
+import type { LinkFacts, LinkRadio } from '../lib/print-cause.ts'
 import type { AutoReconnectState, NativeBlePrinter, PrinterTarget } from './ble.ts'
 
 export interface AppPrinterOptions {
@@ -17,6 +17,8 @@ export interface AppPrinterOptions {
   readonly createTest: () => ReconnectingAdapter
   /** 블루투스 프린터의 연결 사실 (블루투스 상태·앱 앞/뒤·마지막 끊김 — 실패 까닭 기록, F2-2). 없으면 모름 */
   readonly facts?: () => Promise<LinkFacts>
+  /** 휴대폰 블루투스 상태 읽기·바뀜 알림 (D-PRINTOFF-01). 없으면 모름 */
+  readonly radio?: { readonly read: () => Promise<LinkRadio>; readonly on: (listener: (state: LinkRadio) => void) => () => void }
 }
 
 export class AppPrinter implements NativeBlePrinter {
@@ -27,6 +29,7 @@ export class AppPrinter implements NativeBlePrinter {
   #allowed = false
   #keep = false
   readonly #facts: (() => Promise<LinkFacts>) | undefined
+  #radio: LinkRadio = 'unknown'
   readonly #stateListeners = new Set<(state: ConnectionState) => void>()
   readonly #rememberListeners = new Set<(value: RememberedPrinter | null) => void>()
   readonly #changeListeners = new Set<() => void>()
@@ -37,6 +40,20 @@ export class AppPrinter implements NativeBlePrinter {
     this.#facts = options.facts
     this.#device.setAllowed(false)
     this.#wire(this.#device, 'bluetooth')
+    if (options.radio !== undefined) {
+      const set = (state: LinkRadio) => {
+        if (state === this.#radio) return
+        this.#radio = state
+        this.#emit()
+      }
+      options.radio.on(set)
+      void options.radio.read().then(set, () => undefined)
+    }
+  }
+
+  /** 이 휴대폰 블루투스 상태 — 시험용 프린터는 블루투스를 쓰지 않으니 켜짐으로 본다 */
+  get radio(): LinkRadio {
+    return this.#target === 'bluetooth' ? this.#radio : 'on'
   }
 
   #wire(adapter: ReconnectingAdapter, target: PrinterTarget): void {

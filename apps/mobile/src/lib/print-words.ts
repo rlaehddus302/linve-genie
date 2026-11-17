@@ -1,17 +1,16 @@
-// 라벨 뽑기 고침의 화면 문구 (11월 12일 라이브 복기 F1·F2·F3, D-RETRO-40~44). 쉬운 한국어만 — 개발 용어·영어 상태값을 보이지 않는다.
+// 라벨 출력 고침의 화면 문구 (11월 12일 라이브 복기 F1·F2·F3, D-RETRO-40~44). 쉬운 한국어만 — 개발 용어·영어 상태값을 보이지 않는다.
 import type { PrintWaitingOutcome } from './label-queue.ts'
 
-// ── F1 대기 라벨 뽑기 ──
-/** 라이브 관리 "라벨·프린터" 줄: 대기 중인 라벨 수와 뽑기 */
-export const waitingRowTitle = (count: number): string => `대기 ${String(count)}장 지금 뽑기`
-export const WAITING_BUSY = '확인하는 중'
+// ── F1 대기 라벨 출력 ──
+/** 라벨 탭 목록 위 단추 (D-PRINTALL-01 — 옛 라이브 관리 "대기 n장 지금 뽑기" 줄) */
+export const PRINT_ALL_WAITING = '대기 중인 라벨 모두 출력하기'
 /** 프린터가 이어져 있지 않을 때 — 아래에 [다시 연결] */
 export const WAITING_NEED_PRINTER = '프린터가 연결되어 있지 않아요. 먼저 다시 연결해 주세요.'
 export const WAITING_RECONNECT = '다시 연결'
 export const WAITING_RECONNECT_FAILED = '프린터에 연결하지 못했어요. 프린터 전원을 확인하고 다시 눌러 주세요.'
 export const WAITING_FAILED = '라벨을 뽑지 못했어요. 다시 눌러 주세요.'
 
-/** "지금 뽑기"를 누른 뒤 한 줄 (프린터 연결이 필요하면 따로 그린다 — null) */
+/** [대기 중인 라벨 모두 출력하기]를 누른 뒤 한 줄 (프린터 연결이 필요하면 따로 그린다 — null) */
 export function waitingResult(outcome: PrintWaitingOutcome): { readonly tone: 'success' | 'info' | 'danger'; readonly text: string } | null {
   switch (outcome.kind) {
     case 'started':
@@ -19,7 +18,7 @@ export function waitingResult(outcome: PrintWaitingOutcome): { readonly tone: 's
     case 'empty':
       return { tone: 'info', text: '뽑을 라벨이 없어요.' }
     case 'off':
-      return { tone: 'info', text: '라벨 뽑기가 꺼져 있어요. 먼저 켜 주세요.' }
+      return { tone: 'info', text: '라벨 출력이 꺼져 있어요. 먼저 켜 주세요.' }
     case 'other':
       return outcome.printing
         ? { tone: 'success', text: `출력 기기('${outcome.name}')에서 차례로 뽑아요.` }
@@ -32,7 +31,7 @@ export function waitingResult(outcome: PrintWaitingOutcome): { readonly tone: 's
 }
 
 // ── F1-2 라벨 없는 판매 ──
-/** 라벨 뽑기를 꺼 둔 동안 확정돼 라벨이 없는 판매 */
+/** 라벨 출력을 꺼 둔 동안 확정돼 라벨이 없는 판매 */
 export const missingRowTitle = (count: number): string => `라벨 없는 판매 ${String(count)}건 뽑기`
 export const MISSING_BUSY = '넣는 중'
 export const missingQueued = (count: number): string => (count > 0 ? `라벨 ${String(count)}장을 출력 대기열에 넣었어요.` : '새로 넣을 라벨이 없어요. 이미 다 넣었어요.')
@@ -66,9 +65,9 @@ export const FIX_AMOUNT_KEPT = '이 찜의 정산 금액은 그대로예요. 이
 export const FIX_PRODUCT_FAILED = '상품을 고치지 못했어요. 다시 눌러 주세요.'
 
 // ── 프린터 없이도 라벨 (D-LBL-NOPRN-01, 사용자 지시 2026-11-16 "라벨 프린터 연결 안 되어 있더라도 기능 보이게 활성화 … 프린터 없으면 일단 큐에 넣어라") ──
-/** 상품 자세히: 라벨 뽑기가 꺼져 있을 때 한 줄과 켜는 줄 */
-export const LABELS_OFF_LINE = '라벨 뽑기가 꺼져 있어요.'
-export const LABELS_TURN_ON = '라벨 뽑기 켜기'
-export const LABELS_TURN_ON_FAILED = '라벨 뽑기를 켜지 못했어요. 다시 눌러 주세요.'
+/** 상품 자세히: 라벨 출력이 꺼져 있을 때 한 줄과 켜는 줄 */
+export const LABELS_OFF_LINE = '라벨 출력이 꺼져 있어요.'
+export const LABELS_TURN_ON = '라벨 출력 켜기'
+export const LABELS_TURN_ON_FAILED = '라벨 출력을 켜지 못했어요. 다시 눌러 주세요.'
 /** 상품 자세히: 라벨은 켜져 있는데 이어진 프린터가 없을 때 */
 export const LABELS_NO_PRINTER = '프린터가 없어도 라벨은 대기열에 쌓여요. 프린터를 이으면 차례로 뽑을 수 있어요.'

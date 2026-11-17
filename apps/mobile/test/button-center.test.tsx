@@ -320,7 +320,7 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
         <TextAction label="주소 고치기" onPress={none} />
         <RowAction label="복사" onPress={none} />
         <PasteButton onPaste={none} />
-        <AlertFloat items={[{ key: 'decide', text: '1등을 정해 주세요', action: 'decide' }, { key: 'unlisted', text: '등록 안 된 번호에 찜 2건', action: 'unlisted' }]} bottom={0} onAction={none} /> {/* 옛 AlertStrip (D-ALERTFLOAT-01) */}
+        <AlertFloat items={[{ key: 'cancel', text: '찜 취소 요청 1건', action: 'decide' }, { key: 'unlisted', text: '등록 안 된 번호에 찜 2건', action: 'unlisted' }]} bottom={0} right={20} onAction={none} /> {/* 옛 AlertStrip (D-ALERTFLOAT-01) */}
         <NumberPad value="12" onChange={none} />
         <TabBar active="home" onSelect={none} />
       </>,

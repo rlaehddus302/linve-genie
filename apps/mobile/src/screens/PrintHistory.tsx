@@ -130,7 +130,7 @@ export function PrintHistory({ id, date, sealed, direct = false, onBack }: { id:
   const editing = entry !== undefined && queue?.labelsEnabled === true
   return <StackPage name="출력 내역" title={editing ? '라벨 다시 인쇄' : '출력 내역'} onBack={editing ? () => { select(null); setFixed(null) } : onBack} scroll={editing}>
     {error ? <View><ErrorLine>{error}</ErrorLine><BigButton label="다시 불러오기" onPress={() => setRetry((v) => v + 1)} /></View> : null}
-    {queue === null ? <Loading /> : !queue.labelsEnabled ? <Txt>라벨 뽑기를 켜 주세요.</Txt> : editing ? (
+    {queue === null ? <Loading /> : !queue.labelsEnabled ? <Txt>라벨 출력을 켜 주세요.</Txt> : editing ? (
       <View style={{ padding: 20, gap: 16 }}>
         {entry.data ? <Txt color="textSub">{`출력한 내용 · ${entry.data.no}번 ${entry.data.name} · ${formatWon(entry.data.price)} · ${buyer(entry.data)}`}</Txt> : null}
         {fixed !== null && fixed.jobId === selected ? (

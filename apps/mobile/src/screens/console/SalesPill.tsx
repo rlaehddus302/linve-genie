@@ -30,8 +30,8 @@ export function SalesPill({ closed, total, bottom, onPress }: {
       pressScale={0.96}
       style={({ pressed }) => ({
         position: 'absolute',
-        // (+) 단추는 왼쪽 아래로 옮겼다 — 캡슐은 늘 오른쪽 끝 (D-FLOATLEFT-01, 옛: (+) 왼쪽)
-        right: SPACE.xl,
+        // (+) 단추는 오른쪽 아래 — 캡슐은 늘 왼쪽 끝 (D-PRINTOFF-01, 옛 D-FLOATLEFT-01: 오른쪽 끝)
+        left: SPACE.xl,
         bottom: pillBottom(bottom),
         maxWidth: '70%',
         minHeight: SALES_PILL_HEIGHT,
@@ -49,7 +49,7 @@ export function SalesPill({ closed, total, bottom, onPress }: {
         elevation: 4,
       })}
     >
-      <Txt step="bodyLarge" weight="bold" numberOfLines={1}>{text}</Txt>
+      <Txt step="body" weight="bold" numberOfLines={1}>{text}</Txt>
     </Tap>
   )
 }

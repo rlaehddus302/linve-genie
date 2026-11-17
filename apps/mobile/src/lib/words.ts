@@ -176,9 +176,8 @@ export const LISTEN_OFF_HELP = '음성 인식을 켜면 말로 상품을 올릴 
 export const LISTEN_STATE = { on: '인식 중', starting: '켜는 중', reconnecting: '다시 연결하는 중', stopped: '인식 멈춤', off: '인식 꺼짐' } as const
 
 /** 자리를 비운 동안 (APP-04) */
-export function awayLine(counts: { readonly labels: number; readonly claims: number; readonly voice: number }): string | null {
+export function awayLine(counts: { readonly claims: number; readonly voice: number }): string | null {
   const parts: string[] = []
-  if (counts.labels > 0) parts.push(`라벨 ${String(counts.labels)}장`)
   if (counts.claims > 0) parts.push(`찜 ${String(counts.claims)}건`)
   if (counts.voice > 0) parts.push(`음성 ${String(counts.voice)}개`)
   return parts.length === 0 ? null : `자리를 비운 동안 ${parts.join('·')}`

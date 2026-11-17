@@ -32,7 +32,7 @@ import type { EventSourceLike, SseMessage } from '../api/sse.ts'
 import type { AutoReconnectState, ConnectionState, NativeBlePrinter, PrinterError, PrinterTarget } from '../native/ble.ts'
 import { labelPaper } from './label-paper.ts'
 import { realTimer, type Timer } from './live.ts'
-import { printCause, type PrintCause } from './print-cause.ts'
+import { printCause, type LinkRadio, type PrintCause } from './print-cause.ts'
 import { APP_PRINTER_UNSUPPORTED } from './words.ts'
 
 export interface LabelQueueSnapshot {
@@ -72,6 +72,8 @@ export interface LabelQueueSnapshot {
   readonly testSize?: string | null
   /** 지금 열려 있는 실제 방송이 있다 (서버가 알린 값 — 방송 중에는 프린터를 그치지 않고 다시 잇는다, F2). 모르면 없다 */
   readonly live?: boolean
+  /** 이 휴대폰 블루투스 상태 (D-PRINTOFF-01 — 라이브 화면 "블루투스가 꺼져 있어요"). 모르면 unknown */
+  readonly radio?: LinkRadio
 }
 
 /** "대기 n장 지금 뽑기"의 결과 (F1, D-RETRO-40) */
@@ -166,6 +168,7 @@ export class LabelQueue {
       testPrinted: false,
       testConfirmed: false,
       testing: false,
+      radio: ble.radio ?? 'unknown',
     }
   }
 
@@ -238,6 +241,7 @@ export class LabelQueue {
     this.#linkedId = id
     this.#set({
       printer: ble.state,
+      radio: ble.radio ?? 'unknown',
       target: ble.target,
       hasRemembered: ble.hasRemembered,
       autoReconnect: ble.autoReconnect,
@@ -522,11 +526,6 @@ export class LabelQueue {
   async release(): Promise<void> {
     await post('/api/print/device/release', {})
     this.#set({ mine: false })
-    await this.reload()
-  }
-
-  async pause(): Promise<void> {
-    await post('/api/print/pause', {})
     await this.reload()
   }
 

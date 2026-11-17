@@ -222,7 +222,7 @@ export function PrintFab({ onPress, bottom }: { readonly onPress: () => void; re
       testID="print-fab"
       onPress={onPress}
       pressScale={0.94}
-      style={({ pressed }) => ({ position: 'absolute', left: SPACE.xl /* 왼쪽 아래 (D-FLOATLEFT-01, 옛 right) */, bottom, width: 58, height: 58, borderRadius: 29, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.primaryPressed : p.primary, shadowColor: '#000000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 })}
+      style={({ pressed }) => ({ position: 'absolute', right: SPACE.xl /* 오른쪽 아래 (D-PRINTOFF-01 — D-FLOATLEFT-01의 왼쪽을 되돌림) */, bottom, width: 58, height: 58, borderRadius: 29, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.primaryPressed : p.primary, shadowColor: '#000000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 })}
     >
       <View aria-hidden>
         <TabIcon name="printer" color={p.onPrimary} cut={p.primary} size={28} />

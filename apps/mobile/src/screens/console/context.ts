@@ -27,7 +27,7 @@ export interface ConsoleApi {
   readonly productLabels?: readonly LabelView[]
   /** 라벨은 켜져 있는데 이어진 프린터가 없다 — 라벨은 대기열에 쌓인다 (D-LBL-NOPRN-01) */
   readonly printerMissing?: boolean
-  /** 라벨 뽑기를 켠다 (상품 자세히의 [라벨 뽑기 켜기] — D-LBL-NOPRN-01). 판매자만 */
+  /** 라벨 출력을 켠다 (상품 자세히의 [라벨 출력 켜기] — D-LBL-NOPRN-01). 판매자만 */
   readonly turnLabelsOn?: () => Promise<void>
   readonly labelWords: ReadonlyMap<string, string>
 }

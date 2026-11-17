@@ -28,7 +28,8 @@ describe('LabelsScreen', () => {
     await waitFor(() => expect(screen.getByText('이 기기가 출력 기기예요 · 사장님 폰')).toBeTruthy())
     expect(world.server.callsTo('POST', /\/api\/print\/device$/)[0]?.body).toEqual({ deviceId: 'app-test', name: '사장님 폰' })
     expect(screen.getByText('대기 3장 · 출력 중 0장 · 버릴 라벨 1장 · 이 앱에서 찍은 0장')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '출력 멈추기' })).toBeTruthy()
+    // D-PRINTOFF-01 (사용자 지시 2026-11-17): [출력 멈추기]를 없앴다 — 옛 기대: 단추가 있다
+    expect(screen.queryByRole('button', { name: '출력 멈추기' })).toBeNull()
     // 테스트 인쇄도 서버가 렌더한 그림을 받는다.
     world.server.on('GET', /^\/api\/print\/test-bitmap\?size=50x30$/, () => ({ body: { width: 8, height: 2, data: '/4E=' } }))
     fireEvent.click(screen.getByRole('button', { name: '테스트 인쇄' }))

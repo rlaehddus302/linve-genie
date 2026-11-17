@@ -637,7 +637,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
         <ClaimAddForm product={product} onClose={() => setAdding(false)} onAdded={(line) => { animateNextLayout(); setAdded(line); setAdding(false) }} />
       ) : (
       <View role="group" aria-label="상품 메뉴" style={{ gap: SPACE.xs }}>
-        {/* 라벨 뽑기가 꺼져 있으면 여기서 바로 켠다 — 프린터가 없어도 켜 두면 라벨이 대기열에 쌓인다 (D-LBL-NOPRN-01, 옛: "관리에서 ‘라벨 뽑기’를 켜 주세요" 글만) */}
+        {/* 라벨 출력이 꺼져 있으면 여기서 바로 켠다 — 프린터가 없어도 켜 두면 라벨이 대기열에 쌓인다 (D-LBL-NOPRN-01, 옛: "관리에서 ‘라벨 출력’을 켜 주세요" 글만) */}
         {api.labelsOff ? <Txt color="textSub">{LABELS_OFF_LINE}</Txt> : null}
         {api.labelsOff && api.turnLabelsOn !== undefined ? (
           <IconMenuRow emoji="🏷️" tint="#EAF1F7" title={LABELS_TURN_ON} testID="labels-turn-on" onPress={() => { const on = api.turnLabelsOn; if (on !== undefined) void run(on, LABELS_TURN_ON_FAILED) }} />

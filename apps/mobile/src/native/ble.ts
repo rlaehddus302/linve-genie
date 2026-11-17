@@ -4,7 +4,7 @@
 // 앱은 그림을 다시 그리지 않는다 — 서버가 만든 1비트 그림(LabelBitmap)을 그대로 넘긴다(APP-03 AC3).
 import type { LabelBitmap } from '@livejjim/label'
 import type { AutoReconnectState } from '@livejjim/mobile-ble'
-import type { LinkFacts } from '../lib/print-cause.ts'
+import type { LinkFacts, LinkRadio } from '../lib/print-cause.ts'
 import type { AdapterProfile, ConnectionMethod, ConnectionState, PrinterError, PrinterResult, RememberedPrinter, RememberingPrinterAdapter } from '@livejjim/printer'
 
 export type { AutoReconnectState, ConnectionMethod, ConnectionState, PrinterError, PrinterResult, RememberedPrinter }
@@ -29,6 +29,8 @@ export interface NativeBlePrinter extends RememberingPrinterAdapter {
   setKeepReconnecting(keep: boolean): void
   /** 연결 사실 (블루투스 상태·앱 앞/뒤·마지막 끊김 — 실패 까닭 기록, F2-2). 모르면 null */
   linkFacts(): Promise<LinkFacts | null>
+  /** 이 휴대폰 블루투스 상태 (D-PRINTOFF-01 — 라벨 출력을 켰는데 꺼져 있으면 알린다). 바뀌면 onChange. 모르면 없다 */
+  readonly radio?: LinkRadio
   /** 상태·기억·저절로 다시 잇기·연결 방법이 바뀔 때마다 (기억을 저장소에서 되살렸을 때도) */
   onChange(listener: () => void): () => void
 }

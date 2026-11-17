@@ -16,7 +16,7 @@ import type { ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderIconButton, HeaderTextButton, LINE_TABS_TOP, LineTab, LineTabs, Tap, Txt, useBottomInset, useKit, usePageTop, useWhiteTop } from '../ui/kit/index.ts'
+import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderIconButton, HeaderTextButton, LINE_TABS_TOP, LineTab, LineTabs, Txt, useBottomInset, useKit, usePageTop, useWhiteTop } from '../ui/kit/index.ts'
 import { useHoldRouteSwipe } from '../ui/kit/route-swipe.tsx'
 import { GUTTER, SHADOW, SPACE } from '../ui/kit/tokens.ts'
 import { LOW_PAPER, useLabelPaper } from '../lib/label-paper.ts'
@@ -28,7 +28,7 @@ import { SalesPill } from './console/SalesPill.tsx'
 import { BuyerTotalsPage, TotalsPill } from './console/BuyerTotals.tsx'
 import { BroadcastSalesList } from './console/BroadcastSales.tsx'
 import { AlertFloat, FLOAT_ALERT_GAP, FLOAT_ALERT_HEIGHT, floatAlerts, type FloatAction } from './console/AlertFloat.tsx'
-import { FLOAT_PILL_GAP, FLOAT_PILL_HEIGHT, pillBottom } from './console/float-layout.ts'
+import { FAB_SIZE, FLOAT_PILL_GAP, FLOAT_PILL_HEIGHT, pillBottom } from './console/float-layout.ts'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
 import { ConsoleManage, MANAGE_LABEL } from './console/Manage.tsx'
@@ -48,6 +48,7 @@ import { HEARD_TAB, HeardTab, ListenLine, useKeptStream } from './console/Stream
 import { useTabBarHide } from './console/tab-hide.ts'
 import { ListenSourceChip, ListenSourceSheet } from './console/ListenSource.tsx'
 import { ClaimFeed, ClaimFeedToolbar, useClaimFeedState } from './console/ClaimFeed.tsx'
+import { PrintAllWaiting } from './LabelBacklog.tsx'
 import { DirectPrintSheet, LABEL_TAB, LabelList, LabelToolbar, PrintFab, labelRows, type DirectPrefill, type LabelRow } from './console/LabelBoard.tsx'
 import { LiveTalk, TALK_TAB, TalkDock } from './console/LiveTalk.tsx'
 import { EndBroadcastRow } from './console/EndBroadcast.tsx'
@@ -106,33 +107,17 @@ export function LiveNotice({ snapshot, onRetry }: { readonly snapshot: ScopeSnap
   )
 }
 
-/** "자리를 비운 동안 라벨 n장…" 줄을 누르면 가는 곳 (D-RETRO-141) — 화면 읽기 이름 */
-export const AWAY_LABELS_GO = '대기 라벨 뽑기로 가기'
-
-/**
- * 자리를 비운 동안 한 줄 (APP-04). 라벨 몫이 있으면 줄을 누를 수 있다 — 누르면 대기 라벨 뽑기(라이브 관리의 "대기 n장 지금 뽑기", D-RETRO-40)로 간다 (D-RETRO-141).
- * 라벨 몫은 남은 장 수대로 줄고, 다 뽑거나 라벨 출력을 끄면 빠진다(그때 10초가 지났으면 줄이 사라진다).
- */
-function AwayLine({ onLabels }: { readonly onLabels: () => void }) {
+/** 자리를 비운 동안 한 줄 (APP-04) — 찜·음성 수만 (라벨 장 수는 뺐다, D-PRINTALL-01) */
+function AwayLine() {
   const { away } = useServices()
   const view = useSyncExternalStore(away.subscribe, away.getSnapshot)
   useEffect(() => {
-    if (view.line === null || view.labels > 0) return
+    if (view.line === null) return
     const handle = setTimeout(() => away.tick(Date.now()), Math.max(0, view.until - Date.now()))
     return () => clearTimeout(handle)
   }, [away, view])
   if (view.line === null) return null
-  const notice = (
-    <Notice tone="info" label="자리를 비운 동안">
-      {view.labels > 0 ? `${view.line} ›` : view.line}
-    </Notice>
-  )
-  if (view.labels === 0) return notice
-  return (
-    <Tap role="button" aria-label={AWAY_LABELS_GO} testID="away-labels" onPress={onLabels} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
-      {notice}
-    </Tap>
-  )
+  return <Notice tone="info" label="자리를 비운 동안">{view.line}</Notice>
 }
 
 /**
@@ -308,11 +293,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const [totalsOpen, setTotalsOpen] = useState(false)
   const labelsQueue = useSyncExternalStore(services.labels.subscribe, services.labels.getSnapshot)
   const paper = useLabelPaper(services.labels.paperDeviceId ?? null)
-  // 자리를 비운 동안 줄의 라벨 몫: 뽑히는 대로 줄이고, 라벨 출력을 끄면 뺀다 (D-RETRO-141)
-  const labelsLeft = labelsQueue.queue === null ? null : labelsQueue.queue.labelsEnabled ? labelsQueue.queue.waiting + labelsQueue.queue.printing : 0
-  useEffect(() => {
-    if (labelsLeft !== null) services.away.labelsNow(labelsLeft, Date.now())
-  }, [labelsLeft, services])
   const data = snapshot.data
   const broadcast = snapshot.broadcast
   const returning = useRef<{ at: number } | null>(null)
@@ -323,8 +303,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const finishReturn = useCallback(() => {
     if (returning.current === null) return
     returning.current = null
-    // 라벨 출력이 꺼져 있으면 장 수를 보이지 않는다 (D-RETRO-141)
-    services.away.back(store.getSnapshot().data?.claims.keys() ?? [], services.labels.getSnapshot().queue?.labelsEnabled === true ? services.labels.backlog : 0, Date.now())
+    services.away.back(store.getSnapshot().data?.claims.keys() ?? [], Date.now())
   }, [services, store])
   useAppForeground({
     onBackground: () => services.away.leave(store.getSnapshot().data?.claims.keys() ?? [], Date.now()),
@@ -553,24 +532,30 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const productCountNow = shownProducts(data, broadcastId).length
   // 떠 있는 오류 알림 (D-ALERTFLOAT-01): 프린터 → 라벨·프린터 화면, 1등 정하기·취소 요청 → 정하기 판, 등록 안 된 번호 → 번호가 하나면 바로 상품 추가, 여럿이면 번호 판
   const unlistedClaims = unlisted.reduce((sum, item) => sum + item.count, 0)
-  const alerts = floatAlerts({ counts: alertCounts(data), queue: labelsQueue.queue, rehearsal: broadcast.rehearsal, ended, unlisted: unlistedClaims })
+  const alerts = floatAlerts({ cancelRequests: alertCounts(data).cancelRequest, queue: labelsQueue.queue, here: { mine: labelsQueue.mine, printer: labelsQueue.printer, radio: labelsQueue.radio ?? 'unknown' }, rehearsal: broadcast.rehearsal, ended, unlisted: unlistedClaims })
   const onAlert = (action: FloatAction) => {
     if (action === 'unlisted') {
       const only = unlisted.length === 1 ? unlisted[0] : undefined
       if (only !== undefined) addAt(only.no)
       else setSheet('pending')
     } else if (action === 'decide') { setDecideFor(null); setSheet('decide') }
+    else if (action === 'manage') { if (openManage === undefined) setPage('settings'); else openManage() }
     else openLabels?.()
   }
 
   const padInset = docked ? SPACE.sm : Math.max(inset, SPACE.sm)
   /** (+) 단추·매출 캡슐의 아래 자리 */
   const fabBottom = (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md
-  /** 오른쪽 맨 아래 캡슐(매출·합계)이 있으면 오류 알림은 그 위에 같은 크기로 쌓인다 — (+)·인쇄 단추는 왼쪽 아래 (D-FLOATLEFT-01) */
-  // 아래 줄에 무엇이든(매출·합계 캡슐, (+)·인쇄 단추) 있으면 그 줄 위에 — 긴 알림이 왼쪽 단추에 닿지 않게
-  const bottomRow = (shownTab === 'products' && !searchPad) || shownTab === 'labels' || (shownTab === 'feed' && !closed && claimCount > 0)
-  const floatBottom = pillBottom(fabBottom) + (bottomRow ? FLOAT_PILL_HEIGHT + FLOAT_PILL_GAP : 0)
+  // 아래 떠 있는 것들 (D-PRINTOFF-01 — D-FLOATLEFT-01에서 자리를 바꿈): (+)·인쇄 둥근 단추는 오른쪽 아래, 캡슐(매출·합계·오류 알림)은 왼쪽에 같은 크기로 쌓인다.
+  // 맨 아래 캡슐(매출·합계)이 있으면 오류 알림은 그 위, 없으면(라벨 탭 등) 둥근 단추 옆 같은 줄 — 오른쪽은 둥근 단추 자리를 비운다
+  const fabShown = (shownTab === 'products' && !closed && !searchPad) || shownTab === 'labels'
+  const bottomPill = (shownTab === 'products' && !searchPad) || (shownTab === 'feed' && !closed && claimCount > 0)
+  const floatBottom = pillBottom(fabBottom) + (bottomPill ? FLOAT_PILL_HEIGHT + FLOAT_PILL_GAP : 0)
+  const floatRight = SPACE.xl + (fabShown ? FAB_SIZE + SPACE.sm : 0)
   const alertsShown = alerts.length > 0 && !searchPad
+  /** 목록 끝에 더 비울 줄 수 — 아래 72(둥근 단추·캡슐 줄)가 있으면 그 줄에 서는 알림은 빼고 센다 */
+  const baseRoom = shownTab === 'products' || shownTab === 'labels' || (shownTab === 'feed' && !closed)
+  const alertRows = !alertsShown ? 0 : baseRoom && !bottomPill ? alerts.length - 1 : alerts.length
   const padHeight = DIGIT_PAD_HEIGHT + padInset + 1
   /** 탭을 바꾸면 찾기 칸을 접는다(찾는 글은 탭마다 남는다) */
   const pickTab = (next: typeof tab) => {
@@ -707,7 +692,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           {/* 알림이 하나도 없으면 줄 사이(gap)를 위로 지운다 — 탭 바와 목록 사이가 옛과 같게 */}
           <View testID="console-notices" onLayout={(event) => { const shown = event.nativeEvent.layout.height > 0; setNoticesShown((was) => (was === shown ? was : shown)) }} style={{ gap: SPACE.sm, marginTop: noticesShown ? 0 : -SPACE.sm }}>
             {help !== null ? <Txt step="caption" color="textSub">{help}</Txt> : null}
-            <AwayLine onLabels={() => (openManage === undefined ? setPage('settings') : openManage())} />
+            <AwayLine />
+            {/* 라벨 탭: [대기 중인 라벨 모두 출력하기] (D-PRINTALL-01 — 옛 라이브 관리 "대기 n장 지금 뽑기") */}
+            {shownTab === 'labels' ? <PrintAllWaiting /> : null}
             <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
             {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
             {labelsQueue.mine && labelsQueue.queue?.labelsEnabled && paper !== null && paper <= LOW_PAPER ? <Notice tone="warning" alert>{`라벨 용지가 약 ${paper}장 남았어요. 새 롤을 준비해 주세요.`}</Notice> : null}
@@ -726,7 +713,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           {/* (+) 단추·매출 캡슐에 마지막 줄이 가리지 않게 */}
           {shownTab === 'products' || shownTab === 'labels' || (shownTab === 'feed' && !closed) ? <View style={{ height: 72 }} /> : null}
           {/* 떠 있는 오류 알림(D-ALERTFLOAT-01)에도 가리지 않게 */}
-          {alertsShown ? <View style={{ height: alerts.length * (FLOAT_ALERT_HEIGHT + FLOAT_ALERT_GAP) }} /> : null}
+          {alertRows > 0 ? <View style={{ height: alertRows * (FLOAT_ALERT_HEIGHT + FLOAT_ALERT_GAP) }} /> : null}
           {shownTab === 'products' && searchPad ? (
             // 숫자 키에서 시작한 드래그도 목록의 네이티브 스크롤이 받도록 같은 ScrollView에 둔다.
             <Animated.View style={{ position: 'absolute', opacity: padOpacity, zIndex: 12, left: 0, right: 0, top: Math.max(0, viewportHeight - padHeight), transform: [{ translateY: scrollOffset }] }}>
@@ -747,7 +734,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         {shownTab === 'feed' && !closed && claimCount > 0 ? <TotalsPill bottom={fabBottom} onPress={() => (openTotals === undefined ? setTotalsOpen(true) : openTotals())} /> : null}
         {shownTab === 'products' && !searchPad ? <SalesPill closed={closed} total={sales.total} bottom={fabBottom} onPress={startPage === 'record' ? onBack : () => setSalesPage('sales')} /> : null}
         {/* 오류 알림 (D-ALERTFLOAT-01): 오른쪽 아래 빨간 캡슐 — 아래 단추(+·인쇄·매출·합계)가 있는 탭은 그 위에. 숫자판을 연 동안은 숨는다 */}
-        {alertsShown ? <AlertFloat items={alerts} bottom={floatBottom} onAction={onAlert} /> : null}
+        {alertsShown ? <AlertFloat items={alerts} bottom={floatBottom} right={floatRight} onAction={onAlert} /> : null}
         </View>
         {/* 확인 중(임시 등록) 상품 확인 카드 (D-RETRO-90): 목록과 아래 창 사이, 한 번에 한 장 — 어느 탭에서든 같은 자리에 뜬다 */}
         {/* 확인 중 상품 카드는 띄우지 않는다 (D-UX4-209, 사용자 "저렇게 확인 중 뜨는 팝업 지워.") — 상품 줄을 눌러 자세히에서 확정·거둔다 */}

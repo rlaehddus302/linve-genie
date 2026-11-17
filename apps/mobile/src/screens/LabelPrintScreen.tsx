@@ -1,6 +1,6 @@
 // 라벨 프린트 (D-UX4-80, 사용자 지시 2026-11-10 "프린터라벨 → 그냥 라벨 프린트 … 누르면 안에 또다른 화면에서 프린터 연결, 라벨 꾸미기 같은 메뉴를 토스 '비밀번호 · 보안'처럼.
 // 방송 처음 연결할 때 라벨 연결 안 했더라도 이 설정 들어와서 다시 연결할 수 있게 … 설정 화면도 그때 화면을 그대로"):
-// 흰 화면 큰 제목 + 줄들 — 라벨 뽑기(켜고 끄기) · 프린터 연결(지금 프린터) › · 라벨 꾸미기 › · 테스트 인쇄 › · 출력 상태·농도 ›.
+// 흰 화면 큰 제목 + 줄들 — 라벨 출력(켜고 끄기) · 프린터 연결(지금 프린터) › · 라벨 꾸미기 › · 테스트 인쇄 › · 출력 상태·농도 ›.
 // 프린터 연결·라벨 디자인·테스트 인쇄는 방송 시작 라벨 단계(LabelSetupScreen)의 그 화면 하나를 그대로 연다.
 // D-UX4-130 (사용자 지시 2026-11-12 "라벨 프린트 화면도 마찬가지로 밖으로 빼. 라벨 꾸미기 네이밍도 라벨 디자인으로"): 라이브 관리가 이 줄들(LabelPrintRows)을
 // 흰 화면 줄 모양으로 바로 그린다 — 한 단계 덜 들어간다. 이 화면(/label-print)은 옛 주소로 들어올 때만 남는다.
@@ -16,9 +16,9 @@ import { LabelBacklog } from './LabelBacklog.tsx'
 import type { LabelSetupStep } from './LabelSetupScreen.tsx'
 
 export const LABEL_PRINT_TITLE = '라벨 프린트'
-export const LABEL_PRINT_ROWS = { on: '라벨 뽑기', connect: '프린터 연결', design: '라벨 디자인', test: '테스트 인쇄', status: '출력 상태·농도' } as const
-/** 라벨 뽑기 ? 설명 (흰 화면 줄에는 아래 설명 줄이 없어 ?로 — 자동 감사 채팅과 같다) */
-export const LABEL_ON_HELP_TITLE = '라벨 뽑기란?'
+export const LABEL_PRINT_ROWS = { on: '라벨 출력', connect: '프린터 연결', design: '라벨 디자인', test: '테스트 인쇄', status: '출력 상태·농도' } as const
+/** 라벨 출력 ? 설명 (흰 화면 줄에는 아래 설명 줄이 없어 ?로 — 자동 감사 채팅과 같다) */
+export const LABEL_ON_HELP_TITLE = '라벨 출력이란?'
 export const LABEL_ON_HELP_BODY = '찜이 확정되면 라벨을 바로 뽑아요.\n끄면 찜은 그대로 받고 라벨만 뽑지 않아요.'
 
 /** 라벨 프린트 줄이 여는 곳 (한 단계는 /label-setup?step=, 출력 상태·농도는 /labels) */
@@ -54,9 +54,9 @@ function useLabelPrint() {
 }
 
 /**
- * 라이브 관리 안의 라벨 줄들 (D-UX4-130): 라벨 뽑기(켜고 끄기) · 프린터 연결(지금 프린터) › · 라벨 디자인 › · 테스트 인쇄 › · 출력 상태·농도 ›.
+ * 라이브 관리 안의 라벨 줄들 (D-UX4-130): 라벨 출력(켜고 끄기) · 프린터 연결(지금 프린터) › · 라벨 디자인 › · 테스트 인쇄 › · 출력 상태·농도 ›.
  * 흰 화면 줄 모양(PlainRow — 토스 "비밀번호 · 보안"). 부모는 화면 끝까지 넓어야 한다.
- * 쌓인 라벨이 있으면 라벨 뽑기 줄 바로 아래에 "대기 n장 지금 뽑기"·"라벨 없는 판매 n건 뽑기" 줄이 생긴다(LabelBacklog — F1, D-RETRO-40·41).
+ * 라벨 없는 판매가 있으면 라벨 출력 줄 바로 아래에 "라벨 없는 판매 n건 뽑기" 줄이 생긴다(LabelBacklog — F1-2, D-RETRO-41). 대기 라벨 뽑기는 라벨 탭으로 옮겼다(D-PRINTALL-01).
  */
 export function LabelPrintRows({ openStep, openStatus, openHistory, openDirect }: LabelPrintNav) {
   const { snapshot, busy, error, printerName, enabled, switchLabels } = useLabelPrint()

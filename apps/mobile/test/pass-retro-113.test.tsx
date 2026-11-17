@@ -72,7 +72,8 @@ describe('정하기: 패스 한 장', () => {
   it('"한강님이 패스라고 썼어요"와 두 찜 — 고른 찜만 취소 승인, 나머지는 요청 무시. 고르기 전에는 취소 단추가 잠겨 있다', async () => {
     const world = passWorld()
     await openWith(world)
-    fireEvent.click(await screen.findByRole('button', { name: /^취소 요청 2/ }))
+    // D-PRINTOFF-01: 알림 문구 "찜 취소 요청 n건"(옛 "취소 요청 n건")
+    fireEvent.click(await screen.findByRole('button', { name: '찜 취소 요청 2건' }))
     const card = await screen.findByRole('group', { name: '패스 — 한강' })
     expect(card.textContent).toContain(passWords('한강'))
     // 단추는 좌우: 부정(취소하지 않기) 왼쪽 · 긍정(고른 찜 취소) 오른쪽
@@ -89,7 +90,8 @@ describe('정하기: 패스 한 장', () => {
   it('[취소하지 않기]는 두 요청을 모두 무시한다 — 찜은 그대로', async () => {
     const world = passWorld()
     await openWith(world)
-    fireEvent.click(await screen.findByRole('button', { name: /^취소 요청 2/ }))
+    // D-PRINTOFF-01: 알림 문구 "찜 취소 요청 n건"(옛 "취소 요청 n건")
+    fireEvent.click(await screen.findByRole('button', { name: '찜 취소 요청 2건' }))
     const card = await screen.findByRole('group', { name: '패스 — 한강' })
     fireEvent.click(within(card).getByRole('button', { name: PASS_KEEP }))
     await waitFor(() => expect(world.events.filter((call) => call.body?.type === 'host.dismissCancel')).toHaveLength(2))

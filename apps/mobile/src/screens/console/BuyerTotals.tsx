@@ -186,7 +186,7 @@ export function TotalsPill({ bottom, onPress }: { readonly bottom: number; reado
       pressScale={0.96}
       style={({ pressed }) => ({
         position: 'absolute',
-        right: SPACE.xl,
+        left: SPACE.xl, // 왼쪽 아래 — 매출 캡슐과 같은 자리 (D-PRINTOFF-01)
         bottom: pillBottom(bottom),
         minHeight: FLOAT_PILL_HEIGHT, // 떠 있는 캡슐 모두 같은 크기 (D-FLOATLEFT-01)
         paddingHorizontal: SPACE.lg,
@@ -203,7 +203,7 @@ export function TotalsPill({ bottom, onPress }: { readonly bottom: number; reado
         elevation: 4,
       })}
     >
-      <Txt step="bodyLarge" weight="bold" numberOfLines={1}>{TOTALS_PILL}</Txt>
+      <Txt step="body" weight="bold" numberOfLines={1}>{TOTALS_PILL}</Txt>
     </Tap>
   )
 }

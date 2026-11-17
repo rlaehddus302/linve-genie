@@ -117,6 +117,7 @@ export function installProductionNative(): void {
     device,
     createTest: () => createReconnectingAdapter(createFakePrinter({ methods: ['bluetooth'] }), AUTO_RECONNECT_POLICY),
     facts: async () => linkFacts(await transport.state()),
+    radio: { read: () => transport.state(), on: (listener) => transport.onStateChange(listener) },
   })
   labelPaper.storage = AsyncStorage
   void wirePrinterMemory(device, (value) => printer.restoreDeviceMemory(value), AsyncStorage)

@@ -1,5 +1,5 @@
 // 라벨·프린터 (LBL-06·LBL-10, LABEL_RULES L-7·L-11, 웹 LabelsPage와 같은 낱말): 프린터 연결(판매자가 누를 때만) → "이 기기에서 출력" → 대기열 요약 →
-// 출력 멈추기/다시 시작 → 테스트 인쇄 → 인쇄 농도. 아이폰 앱도 BLE로 바로 연결한다(APP-03 — UNSUPPORTED가 아니다).
+// (멈췄으면) 다시 시작 → 테스트 인쇄 → 인쇄 농도. 아이폰 앱도 BLE로 바로 연결한다(APP-03 — UNSUPPORTED가 아니다).
 // - "다시 연결"은 기억한 프린터로(앱을 다시 켠 뒤에도 고르기 창 없이), "블루투스로 연결"은 늘 고르기 창(다른 프린터로 바꾸는 길) — L-7.
 // - 서버가 시험 모드일 때만 "시험용 프린터 — 실제로 출력되지 않아요"(L-11 15).
 // - 저절로 다시 잇는 동안·그친 뒤 한 줄(웹과 같은 문장, L-11 8). 인쇄 농도 칸은 연결한 프린터의 범위(B1 1~5 · YXQ 1~3), 농도가 없는 프린터면 숨긴다.
@@ -259,9 +259,12 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
                   {`출력 멈춤 · ${queue.pause.message}`}
                 </Notice>
               ) : null}
-              <ButtonRow>
-                {queue.pause === null ? <BigButton kind="outline" label={PRINT_ACTION.pause} disabled={busy} onPress={() => void run(() => labels.pause())} /> : <BigButton kind="primary" label={PRINT_ACTION.restart} disabled={busy} onPress={() => void run(() => labels.restart())} />}
-              </ButtonRow>
+              {/* [출력 멈추기]는 없앴다 — 라벨 출력 켜고 끄기로 대신한다 (D-PRINTOFF-01). 멈춰 있으면(실패·옛 멈춤) [다시 시작]만 */}
+              {queue.pause === null ? null : (
+                <ButtonRow>
+                  <BigButton kind="primary" label={PRINT_ACTION.restart} disabled={busy} onPress={() => void run(() => labels.restart())} />
+                </ButtonRow>
+              )}
             </>
           )}
         </Card>

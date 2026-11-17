@@ -1,4 +1,4 @@
-// 라벨 프린터 화면 (D-UX3-39): 탭이 아니라 뒤로 가기가 있는 화면 — 전체 탭·홈 "라벨 뽑기"·방송 화면·시작 안내에서 연다. 전에는 아래 탭 "라벨"이었다(D-UX3-01).
+// 라벨 프린터 화면 (D-UX3-39): 탭이 아니라 뒤로 가기가 있는 화면 — 전체 탭·홈 "라벨 출력"·방송 화면·시작 안내에서 연다. 전에는 아래 탭 "라벨"이었다(D-UX3-01).
 import { Redirect, useRouter } from 'expo-router'
 import { LabelsScreen } from '../src/screens/LabelsScreen.tsx'
 import { useSession } from '../src/services.tsx'
