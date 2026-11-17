@@ -25,7 +25,7 @@
 // 가입 중(가입 표)과 로그인한 계정(번호 등록)이 같이 쓴다. 왼쪽 위 ‹는 ①에서 처음으로·로그아웃, ②에서 번호 다시 넣기.
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import Svg, { Path } from 'react-native-svg'
-import { Animated, Easing, Keyboard, KeyboardAvoidingView, Platform, TextInput, View, type TextInputInstance } from 'react-native'
+import { Animated, Easing, Keyboard, KeyboardAvoidingView, Platform, View, type TextInputInstance } from 'react-native'
 import {
   CODE_ASK_TITLE,
   CODE_FIELD,
@@ -54,7 +54,7 @@ import {
 } from '@livejjim/web/src/lib/social-login.ts'
 import { isApiError } from '../api/client.ts'
 import { APP_LOGIN_FAILED } from '../lib/social-auth.ts'
-import { BigButton, NAV, NavBar, ErrorLine, KEYBOARD_AVOID, PopupDialog, SoftChip, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
+import { FocusInput, BigButton, NAV, NavBar, ErrorLine, KEYBOARD_AVOID, PopupDialog, SoftChip, TONES, Txt, UnderlineField, useBottomInset, useKeyboardShown, useKit, useTopInset, useWhiteTop, useWrongShake } from '../ui/kit/index.ts'
 import { NumberKeys } from './console/ProductAdd.tsx'
 import { SHEET_OUT_MS } from '../ui/kit/sheets.tsx'
 import { EdgeSwipeBack, SlideSwitch } from '../ui/kit/slide.tsx'
@@ -791,7 +791,7 @@ function CodeBoxes({
           ))}
         </Animated.View>
         {passed ? <WinMark width={Math.max(WIN_DOT, rowWidth - 2 * FRAME_SIDE)} height={CELL_HEIGHT} /> : null}
-        <TextInput
+        <FocusInput
           ref={inputRef}
           value={value}
           onChangeText={onChange}

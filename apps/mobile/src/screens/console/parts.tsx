@@ -2,7 +2,7 @@
 // 설정 묶음 카드(굵은 묶음 이름), 이름 알약(위 탭 알약과 같은 크기).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AccessibilityInfo, Animated, BackHandler, Easing, KeyboardAvoidingView, Platform, ScrollView, View, useWindowDimensions } from 'react-native'
-import { Icon, KEYBOARD_AVOID, NavBar, Txt, useWhiteTop, useBottomInset, useEdgeSwipeBack, useHoldRouteSwipe, useKit, usePageTop, useTopInset, Tap } from '../../ui/kit/index.ts'
+import { ArrivalProvider, Icon, KEYBOARD_AVOID, NavBar, Txt, useWhiteTop, useBottomInset, useEdgeSwipeBack, useHoldRouteSwipe, useKit, usePageTop, useTopInset, Tap } from '../../ui/kit/index.ts'
 import { RADIUS, GUTTER, SPACE, TOUCH, pressedFill } from '../../ui/kit/tokens.ts'
 
 /** 밀려 들어오는 시간 (쌓인 화면과 비슷하게) */
@@ -45,6 +45,8 @@ export function SlidePage({ visible, onClose, title, name, children, gray = fals
   const { width } = useWindowDimensions()
   const instant = Platform.OS === 'web'
   const [mounted, setMounted] = useState(visible)
+  // 다 밀려 들어왔는지 — 그 뒤에 안의 칸이 초점을 받는다 (D-FOCUS-01)
+  const [arrived, setArrived] = useState(visible || instant)
   const own = useSlideProgress(visible)
   const progress = shared ?? own
   useEffect(() => {
@@ -55,10 +57,13 @@ export function SlidePage({ visible, onClose, title, name, children, gray = fals
     }
     let alive = true
     if (visible) setMounted(true)
+    if (visible) setArrived(false)
     const go = (reduce: boolean) => {
       if (!alive) return
       Animated.timing(progress, { toValue: visible ? 1 : 0, duration: reduce ? 0 : visible ? SLIDE_IN_MS : SLIDE_OUT_MS, easing: visible ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic), useNativeDriver: true }).start(({ finished }) => {
-        if (alive && finished && !visible) setMounted(false)
+        if (!alive) return
+        if (visible) setArrived(true)
+        else if (finished) setMounted(false)
       })
     }
     AccessibilityInfo.isReduceMotionEnabled().then(go, () => go(false))
@@ -99,8 +104,10 @@ export function SlidePage({ visible, onClose, title, name, children, gray = fals
         <KeyboardAvoidingView behavior={KEYBOARD_AVOID} keyboardVerticalOffset={parentTop} style={{ flex: 1 }}>
           {/* 모든 쌓인 화면과 같은 머리 (D-UX4-40) */}
           <NavBar onBack={onClose} {...(title === undefined ? {} : { title })} />
-          {body}
-          {footer}
+          <ArrivalProvider arrived={arrived}>
+            {body}
+            {footer}
+          </ArrivalProvider>
         </KeyboardAvoidingView>
       </Animated.View>
     </>

@@ -19,7 +19,7 @@
 //   "이미 있어요. 다른 번호를 적어 주세요." [닫기 | 그 상품 보기] (D-RETRO-22).
 import { productTitle, splitPieces } from '@livejjim/core/format'
 import { useEffect, useRef, useState } from 'react'
-import { Animated, BackHandler, Easing, PanResponder, Platform, TextInput, View, useWindowDimensions, type GestureResponderEvent } from 'react-native'
+import { Animated, BackHandler, Easing, PanResponder, Platform, View, useWindowDimensions, type GestureResponderEvent } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
@@ -30,7 +30,7 @@ import { feedBuyerName } from './feed-rows.ts'
 import { localRecent, useVarietyLists, varietyChoices } from '../../lib/varieties.ts'
 import { formatWon } from '../../lib/words.ts'
 import { tapHaptic } from '../../native/haptics.ts'
-import { BigButton, ButtonRow, ErrorLine, HandwritingButton, HandwritingSheet, PRESS_EASING, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
+import { FocusInput, BigButton, ButtonRow, ErrorLine, HandwritingButton, HandwritingSheet, PRESS_EASING, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { edgeStartTracker, edgeSwipeCloses, startsEdgeSwipe, useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
 import { useConsoleApi } from './context.ts'
@@ -851,7 +851,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
         <View style={{ gap: SPACE.sm }}>
           {step === 'name' ? (
             <>
-              <TextInput
+              <FocusInput
                 aria-label={ASK_NAME}
                 autoFocus
                 value={name}

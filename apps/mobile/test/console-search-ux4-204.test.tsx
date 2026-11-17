@@ -74,7 +74,10 @@ describe('찾기 화면 (D-UX4-204·205)', () => {
     const { page } = await openPage(searchWorld())
     expect(page.getByText(SEARCH_PAGE_NAME)).toBeTruthy()
     expect(page.queryByRole('group', { name: '숫자판' })).toBeNull()
-    expect(page.getByText(SEARCH_EMPTY)).toBeTruthy()
+    // 빈 칸 안내는 토스 그림 + 두 줄, 찾기 칸 아래 고정 자리 (D-SEARCH-EMPTY-01)
+    expect(page.getByTestId('search-hint').textContent).toBe(SEARCH_EMPTY)
+    expect(page.getByTestId('search-hint-glyph')).toBeTruthy()
+    expect(SEARCH_EMPTY).toBe('상품 번호·품명이나\n닉네임을 검색해보세요.')
     expect(productButtons(page)).toEqual([])
   })
 

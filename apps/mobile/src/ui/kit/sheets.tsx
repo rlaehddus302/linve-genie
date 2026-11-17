@@ -15,6 +15,7 @@ import { PageTopProvider, Txt, useBottomInset, useKit, usePageTop, useTopInset, 
 import { font } from './font.ts'
 import { NAV, NavBar } from './app.tsx'
 import { Tap, usePressMotion } from './press.tsx'
+import { ARRIVAL_FALLBACK_MS, ArrivalProvider } from './arrival.tsx'
 
 export interface BottomSheetProps {
   readonly visible: boolean
@@ -81,9 +82,11 @@ export function useHeldWhileClosing<T>(visible: boolean, value: T): T {
 }
 
 /** 열고 닫는 움직임: 0 = 닫힘, 1 = 열림. 닫히는 움직임이 끝나야 판을 내린다. 웹(시험)·움직임 줄이기는 바로 */
-export function useSheetMotion(visible: boolean): { readonly mounted: boolean; readonly progress: Animated.Value } {
+export function useSheetMotion(visible: boolean): { readonly mounted: boolean; readonly progress: Animated.Value; readonly arrived: boolean } {
   const instant = Platform.OS === 'web'
   const [mounted, setMounted] = useState(visible)
+  // 다 올라왔는지 — 그 뒤에 안의 칸이 초점을 받는다 (D-FOCUS-01)
+  const [arrived, setArrived] = useState(visible || instant)
   const progress = useRef(new Animated.Value(visible ? 1 : 0)).current
   useEffect(() => {
     if (instant) {
@@ -101,10 +104,14 @@ export function useSheetMotion(visible: boolean): { readonly mounted: boolean; r
       active = false
       clearTimeout(deadline)
       if (!finished) progress.setValue(target)
-      if (!visible) setMounted(false)
+      if (visible) setArrived(true)
+      else setMounted(false)
     }
     const deadline = setTimeout(() => settle(false), duration + 100)
-    if (visible) setMounted(true)
+    if (visible) {
+      setMounted(true)
+      setArrived(false)
+    }
     function go(reduce: boolean) {
       if (!active) return
       animation = Animated.timing(progress, {
@@ -122,7 +129,7 @@ export function useSheetMotion(visible: boolean): { readonly mounted: boolean; r
       animation?.stop()
     }
   }, [visible, instant, progress])
-  return { mounted: instant ? visible : mounted, progress }
+  return { mounted: instant ? visible : mounted, progress, arrived: instant || arrived }
 }
 
 interface SheetGesture {
@@ -222,7 +229,7 @@ export function BottomSheet({ visible, onClose, testID, ...look }: BottomSheetPr
   const top = useTopInset()
   const keyboard = useKeyboardShown()
   const { height } = useWindowDimensions()
-  const { mounted, progress } = useSheetMotion(visible)
+  const { mounted, progress, arrived } = useSheetMotion(visible)
   const gesture = useSheetGesture(visible, onClose)
   // 닫히는 동안은 열려 있던 마지막 모습 그대로 (D-UX4-103)
   const { title, description, children, actions, half = false, bodyPadding = true } = useHeldWhileClosing(visible, look)
@@ -321,7 +328,7 @@ export function BottomSheet({ visible, onClose, testID, ...look }: BottomSheetPr
                 measure()
               }}
             >
-              {children}
+              <ArrivalProvider arrived={arrived}>{children}</ArrivalProvider>
             </ScrollView>
           ) : null}
           {footed ? (
@@ -451,13 +458,26 @@ export function FullSheet({ visible, onClose, testID, ...look }: FullSheetProps)
   const top = useTopInset()
   // 아이폰은 판이 미끄러져 내려가는 동안에도 안을 그린다 — 닫히는 동안은 열려 있던 마지막 모습 그대로 (D-UX4-103)
   const { title, description, headerAction, name, children, actions, closeLabel = '닫기', cards, overlay } = useHeldWhileClosing(visible, look)
+  // 판이 다 올라온 뒤(onShow — 소식이 늦으면 기다림이 다할 때) 안의 칸이 초점을 받는다 (D-FOCUS-01)
+  const [arrived, setArrived] = useState(Platform.OS === 'web')
+  useEffect(() => {
+    if (Platform.OS === 'web') return
+    if (!visible) {
+      setArrived(false)
+      return
+    }
+    const fallback = setTimeout(() => setArrived(true), ARRIVAL_FALLBACK_MS)
+    return () => clearTimeout(fallback)
+  }, [visible])
   return (
-    <Modal visible={visible} animationType={Platform.OS === 'web' ? 'none' : 'slide'} onRequestClose={onClose} statusBarTranslucent presentationStyle="fullScreen">
+    <Modal visible={visible} animationType={Platform.OS === 'web' ? 'none' : 'slide'} onRequestClose={onClose} onShow={() => setArrived(true)} statusBarTranslucent presentationStyle="fullScreen">
       {/* 판은 화면 맨 위(상태 막대 자리)부터 그린다 — 기기 값만큼 띄운다 (D-UX4-41) */}
       <PageTopProvider value={top}>
-        <FormPage title={title} {...(description === undefined ? {} : { description })} headerAction={headerAction} name={name} onBack={onClose} backLabel={closeLabel} actions={actions} cards={cards} overlay={overlay} testID={testID}>
-          {children}
-        </FormPage>
+        <ArrivalProvider arrived={arrived}>
+          <FormPage title={title} {...(description === undefined ? {} : { description })} headerAction={headerAction} name={name} onBack={onClose} backLabel={closeLabel} actions={actions} cards={cards} overlay={overlay} testID={testID}>
+            {children}
+          </FormPage>
+        </ArrivalProvider>
       </PageTopProvider>
     </Modal>
   )

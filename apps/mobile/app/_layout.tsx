@@ -25,6 +25,7 @@ import { setJoinedLiveHandler } from '../src/screens/console/YoutubeSection.tsx'
 import { KeptStreamAudio } from '../src/screens/console/StreamAudio.tsx'
 import { TAB_SCREENS } from '../src/lib/tab-routes.ts'
 import { RouteSwipeProvider } from '../src/ui/kit/route-swipe.tsx'
+import { ScreenArrivalProvider } from '../src/ui/kit/arrival.tsx'
 import { TRY_LOGIN_ON, parseTryLogin } from '../src/lib/try-login.ts'
 import { ScreenFocusProvider } from '../src/lib/cached-get.ts'
 import { installAppUpdates } from '../src/native/updates.ts'
@@ -120,8 +121,9 @@ export default function RootLayout() {
           <UpdateWatch />
           {/* 뒤로 가기는 왼쪽 가장자리에서 밀 때만 (D-UX3-24): iOS 26부터 기본이 '화면 어디서 밀어도 뒤로'라 라벨 끌기·가로 밀기까지 뒤로 갔다 */}
           {/* 쌓인 화면에서 돌아와 다시 보이면 그 화면의 서버 자료를 뒤에서 조용히 다시 받는다 (D-UX4-77) */}
+          {/* 스스로 초점을 받는 칸은 화면이 다 넘어온 뒤에 초점 — 넘어오는 동안 키보드가 같이 오르지 않는다 (D-FOCUS-01) */}
           {/* 경로 안에 겹쳐 그린 화면이 열려 있으면 그 경로의 밀어 뒤로 가기를 끈다 — 겹친 화면이 스스로 밀려 닫힌다 (D-UX4-50) */}
-          <Stack screenOptions={{ headerShown: false, fullScreenGestureEnabled: false }} screenLayout={({ navigation, children }) => <RouteSwipeProvider setEnabled={(enabled) => navigation.setOptions({ gestureEnabled: enabled })}><ScreenFocusProvider navigation={navigation}>{children}</ScreenFocusProvider></RouteSwipeProvider>}>
+          <Stack screenOptions={{ headerShown: false, fullScreenGestureEnabled: false }} screenLayout={({ navigation, children }) => <RouteSwipeProvider setEnabled={(enabled) => navigation.setOptions({ gestureEnabled: enabled })}><ScreenFocusProvider navigation={navigation}><ScreenArrivalProvider navigation={navigation}>{children}</ScreenArrivalProvider></ScreenFocusProvider></RouteSwipeProvider>}>
             {/* 탭 화면끼리는 화면 전환 없이 바꿔 끼운다 — 짧은 좌우 밀림은 TabFrame이 낸다 (D-UX3-01) */}
             {TAB_SCREENS.map((name) => (
               <Stack.Screen key={name} name={name} options={{ animation: 'none' }} />

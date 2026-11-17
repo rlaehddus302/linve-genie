@@ -7,7 +7,7 @@
 // 저장은 배송지 쓰기(PUT /api/parcels/days/:date/address, 요청 번호로 한 번만)라 택배 배송지와 같은 곳에 남는다. 연락처는 본문으로만 보내고 로그에 넣지 않는다.
 // 택배를 접수한 묶음·보관 기간이 지난 날짜는 고칠 수 없어 안내만 보인다.
 import { useEffect, useRef, useState } from 'react'
-import { Animated, TextInput, View } from 'react-native'
+import { Animated, View } from 'react-native'
 import type { OrderDetailView, OrderInfoField } from '@livejjim/web/src/api/order-types.ts'
 import type { AddressFields, BundleView } from '@livejjim/web/src/api/parcel-types.ts'
 import { ADDRESS_EXPIRED, LOCKED_ADDRESS } from '@livejjim/web/src/lib/parcel-words.ts'
@@ -16,7 +16,7 @@ import { useCachedGet } from '../lib/cached-get.ts'
 import { ORDERS_TOPIC, orderPath, phoneDashes } from '../lib/orders.ts'
 import { signalScreens } from '../lib/screen-signals.ts'
 import { RETRY_NOW } from '../lib/words.ts'
-import { BigButton, ErrorLine, SoftChip, StackPage, Txt, font, useKit, useWrongShake } from '../ui/kit/index.ts'
+import { FocusInput, BigButton, ErrorLine, SoftChip, StackPage, Txt, font, useKit, useWrongShake } from '../ui/kit/index.ts'
 import { SPACE, WEIGHT } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { BIG, BigNumber, CONFIRM_ABOVE, CONFIRM_BELOW, CONFIRM_GAP, DoneLine, NextButton, NumberKeys, useStepBack, type StepBack } from './console/ProductAdd.tsx'
@@ -302,7 +302,7 @@ function InfoSteps({ date, buyer, field, initial, onSaved, onConflict, stepBack 
             </Animated.View>
           ) : (
             <>
-              <TextInput
+              <FocusInput
                 key={step}
                 aria-label={ASK_INFO[step]}
                 autoFocus

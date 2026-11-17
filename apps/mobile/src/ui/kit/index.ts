@@ -16,3 +16,4 @@ export { PRESS_EASING, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Tap, TAP
 export { EDGE_SWIPE_START, RouteSwipeProvider, edgeStartTracker, edgeSwipeCloses, startsEdgeSwipe, useEdgeSwipeBack, useHoldRouteSwipe } from './route-swipe.tsx'
 export { StackPage } from './stack-page.tsx'
 export { LINE_TAB_EDGE, LINE_TAB_PAD, LINE_TABS_TOP, LineTab, LineTabs } from './line-tabs.tsx'
+export { ARRIVAL_FALLBACK_MS, ArrivalProvider, FocusInput, ScreenArrivalProvider, useDeferredAutoFocus, useScreenArrived, type ArrivalNavigation } from './arrival.tsx'

@@ -11,7 +11,7 @@
 // - 개수 (D-PIECES-01, 사용자 메모 "66 채홍 3개"): 품종 칸 아래 [−] n개 [+]. 품종 칸에 "채홍 3개"라고 적어도 개수로 나눈다. 가격은 묶음 하나의 값 그대로.
 import { productTitle, splitPieces } from '@livejjim/core/format'
 import { useEffect, useRef, useState } from 'react'
-import { Animated, Keyboard, TextInput, View } from 'react-native'
+import { Animated, Keyboard, View } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
@@ -20,7 +20,7 @@ import { isTentative, needsPrice, otherNames } from '../../lib/tentative.ts'
 import { localRecent, useVarietyLists, varietyChoices } from '../../lib/varieties.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { formatWon, priceWords } from '../../lib/words.ts'
-import { BigButton, BottomSheet, ErrorLine, HandwritingButton, HandwritingSheet, Icon, PopupDialog, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
+import { FocusInput, BigButton, BottomSheet, ErrorLine, HandwritingButton, HandwritingSheet, Icon, PopupDialog, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
 import { BigNumber, NumberKeys, PRICE_LIMIT, SameNumberButtons, SameNumberLine, liveProductAt, noLimitWords, typeDigits, type SameNumber } from './ProductAdd.tsx'
@@ -421,7 +421,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow, focus 
       <View style={{ paddingHorizontal: SPACE.xl, gap: SPACE.sm }}>
         <Animated.View style={{ transform: [{ translateX: shake }] }}>
           {field === 'name' ? (
-            <TextInput
+            <FocusInput
               aria-label={EDIT_LABEL.name}
               autoFocus
               value={draft.name ?? before.name}

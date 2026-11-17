@@ -7,6 +7,7 @@ import { Txt, useKit } from './theme.tsx'
 import { font } from './font.ts'
 import { Tap } from './press.tsx'
 import { HandwritingButton, HandwritingSheet } from './handwriting.tsx'
+import { ARRIVAL_FALLBACK_MS, useDeferredAutoFocus } from './arrival.tsx'
 
 export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'aria-label' | 'accessibilityLabel'> {
   /** 칸 위의 큰 라벨 — 무엇을 적는지 */
@@ -22,21 +23,12 @@ export interface TextFieldProps extends Omit<TextInputProps, 'style' | 'aria-lab
 /**
  * 화면이 넘어오는 동안에는 칸을 누르지(초점) 않는다 (D-UX4-112, 사용자 제보 2026-11-10 "새로 넘어오는 화면의 위치가 10 9 8 7 6 '8' 5 4 … 갑자기 튀는 현상"):
  * 쌓인 화면이 밀려 들어오는 동안 칸이 스스로 초점을 받으면 키보드가 같이 올라오고, 키보드를 피하는 틀(KeyboardAvoidingView)이 앱 전체 다음 그리기에
- * 배치 움직임(LayoutAnimation update)을 건다 — 넘어오던 화면 틀까지 그 움직임에 걸려 한 번 뒤로 튀었다. 그래서 휴대폰에서는 넘김이 끝난 뒤(이 시간 뒤)에 초점을 준다.
- * 웹(시험)은 넘김이 없어 바로.
+ * 배치 움직임(LayoutAnimation update)을 건다 — 넘어오던 화면 틀까지 그 움직임에 걸려 한 번 뒤로 튀었다.
+ * 이제는 시간이 아니라 "다 넘어왔다" 소식을 기다린다 (D-FOCUS-01, ./arrival.tsx) — 이 시간은 소식이 오지 않을 때의 가장 긴 기다림.
  */
-export const FOCUS_AFTER_PUSH_MS = 550
+export const FOCUS_AFTER_PUSH_MS = ARRIVAL_FALLBACK_MS
 
-/** autoFocus 대신: 화면 넘김이 끝난 뒤 초점 (웹은 바로 — 그때는 autoFocus를 그대로 넘긴다) */
-export function useDeferredAutoFocus(ref: { readonly current: { focus: () => void } | null }, on: boolean): boolean {
-  const native = Platform.OS !== 'web'
-  useEffect(() => {
-    if (!on || !native) return
-    const handle = setTimeout(() => ref.current?.focus(), FOCUS_AFTER_PUSH_MS)
-    return () => clearTimeout(handle)
-  }, [on, native, ref])
-  return on && !native
-}
+export { useDeferredAutoFocus }
 
 /** 입력 칸 한 줄 높이 (값 줄) — 비었을 때·넣었을 때·초점일 때 모두 같다 (D-UX3-08). 토스 칸을 재어 40 (D-UX3-51 — 옛 52) */
 export const FIELD_ROW = 40

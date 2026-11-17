@@ -2,9 +2,9 @@
 // 흰 찾기 칸(돋보기·지우기), 글자만 있는 작은 단추, 이름 첫 글자 동그라미, 작은 꼬리표, 왼쪽 이름·오른쪽 값 줄, 흰 정보 카드, 글자 고르기(정렬).
 // 공통 키트(src/ui/kit)는 다른 탭과 같이 쓰므로 건드리지 않고 이 탭에만 둔다.
 import type { ReactNode } from 'react'
-import { ActivityIndicator, TextInput, View, type TextInputProps } from 'react-native'
+import { ActivityIndicator, View, type TextInputProps } from 'react-native'
 import Svg, { Circle, Path } from 'react-native-svg'
-import { ClearButton, font, Icon, RADIUS, SPACE, TOUCH, TYPE, Txt, useKit, WEIGHT, type Tone, Tap } from '../ui/kit/index.ts'
+import { FocusInput, ClearButton, font, Icon, RADIUS, SPACE, TOUCH, TYPE, Txt, useKit, WEIGHT, type Tone, Tap } from '../ui/kit/index.ts'
 import type { TxtColor } from '../ui/kit/theme.tsx'
 
 /** 돋보기 (장식 — 칸 이름은 aria-label) */
@@ -31,7 +31,7 @@ export function SearchField({ label, value, onChangeText, placeholder, keyboardT
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: TOUCH.min + 2, paddingLeft: SPACE.lg, paddingRight: SPACE.xs, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: fill ?? p.surface }}>
       <SearchGlyph color={p.placeholder} />
-      <TextInput
+      <FocusInput
         aria-label={label}
         value={value}
         onChangeText={onChangeText}
