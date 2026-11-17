@@ -1,8 +1,8 @@
-// 포장 탭 (D-UX3-60, 사용자 지시 2026-11-07 "포장, 택배 한 탭으로 합치자"): 위에 [포장 · 택배] 큰 글자 나누기(토스 "시장 뉴스"처럼),
-// 고른 쪽은 진한 글자, 다른 쪽은 회색. 포장 화면 [택배 접수로]·홈 "택배 접수"는 택배 쪽을 그 날짜로 연다.
+// 포장 탭 (D-UX3-60, 사용자 지시 2026-11-07 "포장, 택배 한 탭으로 합치자"): 머리 밑에 [포장 · 택배] 밑줄 글자 탭(D-TABS-01 — 라이브 화면 탭과 같은 모양,
+// 옛: 큰 제목 자리 나누기). 포장 화면 [택배 접수로]·홈 "택배 접수"는 택배 쪽을 그 날짜로 연다.
 import { useState } from 'react'
 import { View } from 'react-native'
-import { AppHeader, NAV, SPACE, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { AppHeader, GUTTER, LINE_TABS_TOP, LineTab, LineTabs, SPACE, useKit } from '../ui/kit/index.ts'
 import { PackingScreen } from './PackingScreen.tsx'
 import { ParcelsScreen, type ParcelsNavigation } from './ParcelsScreen.tsx'
 
@@ -18,21 +18,15 @@ export function PackingTab({ initialSide = 'packing', initialDate, nav }: { read
   const [parcelDate, setParcelDate] = useState(initialDate)
   return (
     <View style={{ flex: 1, backgroundColor: p.background }}>
-      {/* 모든 화면과 같은 머리 줄 (D-UX4-59): 큰 제목 자리에 [포장 · 택배] 나누기 */}
-      <AppHeader title="포장 · 택배" left={
-      <View role="tablist" aria-label="포장 · 택배" style={{ flexDirection: 'row', gap: SPACE.lg, transform: [{ translateY: NAV.titleLift }] }}>
-        {SIDES.map((item) => {
-          const on = item.key === side
-          return (
-            <Tap key={item.key} role="tab" aria-label={item.word} aria-selected={on} hitSlop={8} onPress={() => setSide(item.key)}>
-              <Txt step="title" weight="heavy" ink={on ? p.text : p.segmentOff}>
-                {item.word}
-              </Txt>
-            </Tap>
-          )
-        })}
+      {/* 모든 화면과 같은 머리 줄 (D-UX4-59) + 바로 밑에 붙는 밑줄 글자 탭 [포장 · 택배] (D-TABS-01 — 라이브 화면 탭과 같은 모양. 옛: 큰 제목 자리 나누기 D-UX3-60) */}
+      <AppHeader title="택배" />
+      <View style={{ paddingHorizontal: GUTTER, paddingTop: LINE_TABS_TOP }}>
+        <LineTabs label="포장 · 택배" bleed={GUTTER}>
+          {SIDES.map((item) => (
+            <LineTab key={item.key} label={item.word} on={item.key === side} onPress={() => setSide(item.key)} />
+          ))}
+        </LineTabs>
       </View>
-      } />
       {side === 'packing' ? (
         <PackingScreen
           topGap={SPACE.sm}

@@ -145,19 +145,20 @@ export async function openLinksForVideo(db: Db, sellerId: string, videoIds: read
  * 판매자가 실제 회차에 이은 적 있는 방송 채널, 최근 이은 순서 (YT-11 서버 잇기 — 확인한 채널·최근 채널 찾기, D-YT-SRV-03).
  * 끊은 연결도 센다(이은 적이 있다). 리허설에는 잇지 않으므로 모든 연결이 실제 회차다. 이름은 그 채널을 가장 최근에 이을 때 본 것
  */
-export async function linkedChannels(db: Db, sellerId: string, limit?: number): Promise<{ id: string; title: string | null }[]> {
+export async function linkedChannels(db: Db, sellerId: string, limit?: number): Promise<{ id: string; title: string | null; linkedAt: Date }[]> {
   const channel = sql<string>`coalesce(${youtubeLinks.broadcastChannelId}, ${youtubeLinks.channelId})`
   const rows = await db
     .select({ id: channel, title: youtubeLinks.broadcastChannelTitle, linkedAt: youtubeLinks.linkedAt })
     .from(youtubeLinks)
     .where(eq(youtubeLinks.sellerId, sellerId))
     .orderBy(desc(youtubeLinks.linkedAt))
-  const out: { id: string; title: string | null }[] = []
+  const out: { id: string; title: string | null; linkedAt: Date }[] = []
   const seen = new Set<string>()
   for (const row of rows) {
     if (row.id === '' || seen.has(row.id)) continue
     seen.add(row.id)
-    out.push({ id: row.id, title: row.title })
+    // linkedAt: 그 채널을 가장 최근에 이은 때 — 최근 연결한 틱톡 계정과 섞어 차례를 정한다 (D-RECENT-TT-01)
+    out.push({ id: row.id, title: row.title, linkedAt: row.linkedAt })
     if (limit !== undefined && out.length >= limit) break
   }
   return out

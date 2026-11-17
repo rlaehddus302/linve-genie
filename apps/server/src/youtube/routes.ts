@@ -132,8 +132,9 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     if (youtube === null) return notConfigured()
     const result = await youtube.liveBroadcasts(sellerOf(c))
     if (result.kind === 'rejected') return apiError(result.status, result.code as ErrorCode, LINK_MESSAGES[result.code])
-    // channels: 최근 연결한 채널 (서버 웹 읽기만, D-UX4-187) — 옛 앱은 broadcasts만 본다
-    return c.json(result.channels === undefined ? { broadcasts: result.broadcasts } : { broadcasts: result.broadcasts, channels: result.channels })
+    // channels: 최근 연결한 채널 (서버 웹 읽기만, D-UX4-187) — 옛 앱은 broadcasts만 본다. tiktok: 최근 연결한 틱톡 계정 (D-RECENT-TT-01 — 따로 된 칸이라 옛 앱은 보지 않는다)
+    if (result.channels === undefined) return c.json({ broadcasts: result.broadcasts })
+    return c.json(result.tiktok === undefined ? { broadcasts: result.broadcasts, channels: result.channels } : { broadcasts: result.broadcasts, channels: result.channels, tiktok: result.tiktok })
   })
   // 채널 프로필 사진 주소 (홈 맨 위 라이브 표시, D-UX3-85) — 모르면 null
   api.get('/youtube/channels/:channel/avatar', async (c) => {

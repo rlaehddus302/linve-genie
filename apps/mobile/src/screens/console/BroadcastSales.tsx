@@ -34,11 +34,10 @@ import {
 } from '../../lib/broadcast-groups.ts'
 import type { BuyerNames } from '../../lib/derive.ts'
 import { markStatementInfoAsked, sentBuyers, shouldAskStatementInfo, useStatementInfo } from '../../lib/statement-info.ts'
-import { BigButton, BottomSheet, ConfirmSheet, SmallButton, Txt, useKit } from '../../ui/kit/index.ts'
+import { BigButton, BottomSheet, ConfirmSheet, LINE_TABS_TOP, LineTab, LineTabs, SmallButton, Txt, useKit } from '../../ui/kit/index.ts'
 import { GUTTER, RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { fetchCached } from '../../lib/cached-get.ts'
 import { MergeLivesSheet } from './MergeLives.tsx'
-import { Pill } from '../../ui/day-pills.tsx'
 import { EXPORT_FAILED, EXPORT_LABEL, type ExportKind } from '../order-export.tsx'
 import { MenuRow } from '../order-parts.tsx'
 import { nativeShareFile } from '../../native/index.ts'
@@ -301,15 +300,12 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
       <View testID="statement-tabs-slot" collapsable={false} pointerEvents="box-none"
         onLayout={tabHide.onLayout}
         style={{ marginHorizontal: -GUTTER, pointerEvents: 'box-none' }}>
-        <Animated.View testID="statement-tabs" style={{ paddingHorizontal: GUTTER, paddingTop: SPACE.sm, paddingBottom: SPACE.sm, backgroundColor: p.background, transform: [{ translateY: tabHide.offset }] }}>
-          {/* 탭 알약 둘 · 맨 오른쪽 정보 단추(정보가 빠졌을 때만, D-UX4-177) — 글자를 키워 한 줄에 안 들어가면 단추가 다음 줄 오른쪽으로 */}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm }}>
-            <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.sm }}>
-              <Pill label="구매자별" ariaLabel="구매자별" on={!products} onPress={() => pick(false)} />
-              <Pill label="상품별" ariaLabel="상품별" on={products} onPress={() => pick(true)} />
-            </View>
-            {needInfo ? <InfoButton onPress={openInfo} /> : null}
-          </View>
+        <Animated.View testID="statement-tabs" style={{ paddingHorizontal: GUTTER, paddingTop: LINE_TABS_TOP, paddingBottom: SPACE.xs, backgroundColor: p.background, transform: [{ translateY: tabHide.offset }] }}>
+          {/* 라이브 화면과 같은 밑줄 글자 탭 (D-TABS-01 — 옛 알약 둘) · 맨 오른쪽 정보 단추(정보가 빠졌을 때만, D-UX4-177) — 탭 줄과 같은 줄 */}
+          <LineTabs label="보기" bleed={GUTTER} right={needInfo ? <InfoButton onPress={openInfo} /> : null}>
+            <LineTab role="button" label="구매자별" on={!products} onPress={() => pick(false)} />
+            <LineTab role="button" label="상품별" on={products} onPress={() => pick(true)} />
+          </LineTabs>
         </Animated.View>
       </View>
       {scope.group !== null ? (

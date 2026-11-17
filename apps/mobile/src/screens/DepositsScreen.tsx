@@ -14,8 +14,7 @@ import { useCachedGet } from '../lib/cached-get.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
 import { SourcesTab } from './DepositSources.tsx'
 import { useServices } from '../services.tsx'
-import { Pill } from '../ui/day-pills.tsx'
-import { Appear, EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, Icon, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { Appear, EmptyFill, AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, Icon, LINE_TABS_TOP, LineTab, LineTabs, TextField, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { Late, useCameLate } from '../ui/late.tsx'
@@ -91,14 +90,15 @@ export function DepositsScreen({ onBack }: { readonly onBack: () => void }) {
   return (
     <View style={{ flex: 1, backgroundColor: p.background }} testID="deposits-screen">
       <AppHeader title="입금 확인" onBack={onBack} />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE_SIDE, paddingTop: SPACE.sm, paddingBottom: SPACE.xxxl, gap: CARD_GAP }} keyboardShouldPersistTaps="handled">
-        <View role="tablist" aria-label="입금 확인 목록" style={{ marginHorizontal: -PAGE_SIDE }}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm, paddingHorizontal: PAGE_SIDE, paddingVertical: SPACE.xs }}>
-            {TABS.map((item) => (
-              <Pill key={item.key} on={tab === item.key} label={`${item.word}${item.key === 'review' && review !== null && review > 0 ? ` ${String(review)}` : ''}`} ariaLabel={item.word} onPress={() => { setNotice(null); setTab(item.key) }} />
-            ))}
-          </ScrollView>
-        </View>
+      {/* 탭 바는 머리 바로 밑에 붙는다 — 라이브 화면과 같은 밑줄 글자 탭 (D-TABS-01·02, 옛: 목록 안 알약 줄) */}
+      <View style={{ paddingHorizontal: PAGE_SIDE, paddingTop: LINE_TABS_TOP }}>
+        <LineTabs label="입금 확인 목록" bleed={PAGE_SIDE}>
+          {TABS.map((item) => (
+            <LineTab key={item.key} role="button" on={tab === item.key} label={`${item.word}${item.key === 'review' && review !== null && review > 0 ? ` ${String(review)}` : ''}`} ariaLabel={item.word} onPress={() => { setNotice(null); setTab(item.key) }} />
+          ))}
+        </LineTabs>
+      </View>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: PAGE_SIDE, paddingTop: SPACE.lg, paddingBottom: SPACE.xxxl, gap: CARD_GAP }} keyboardShouldPersistTaps="handled">
         {notice !== null ? <Notice tone={notice.tone}>{notice.text}</Notice> : null}
         {tab === 'paste' ? <PasteTab onNotice={setNotice} /> : tab === 'sources' ? <SourcesTab /> : <DepositTab key={tab} tab={tab} tick={tick} onNotice={setNotice} />}
       </ScrollView>

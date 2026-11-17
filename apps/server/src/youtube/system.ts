@@ -36,6 +36,8 @@ import {
   type LinkRow,
 } from './store.ts'
 import { parseVideoId } from './texts.ts'
+import { recentTiktokAccounts } from '../tiktok-live/store.ts'
+import { checkTikTokTarget } from '../tiktok/target.ts'
 import type { Timer } from './timer.ts'
 import { webCollectorCounts } from '../ops-store.ts'
 import { isLocalHttp } from '../config.ts'
@@ -163,6 +165,23 @@ export interface RecentChannel {
   readonly channelId: string
   readonly channelTitle: string | null
   readonly videoId: string | null
+  /** 그 채널을 가장 최근에 이은 때 (ISO) — 화면이 최근 틱톡 계정과 섞어 차례를 정한다 (D-RECENT-TT-01, 옛 앱은 보지 않는다) */
+  readonly linkedAt: string
+}
+
+/**
+ * 최근 연결한 틱톡 계정 한 곳 (D-RECENT-TT-01): 최근 연결한 것이 먼저, 아이디마다 한 줄. 라이브인지는 모른다(틱톡에 묻지 않는다) —
+ * 화면은 [연결]로 그 계정의 라이브 주소를 틱톡 링크 잇기 길로 보낸다. 응답의 따로 된 칸(tiktok)이라 옛 앱은 보지 않는다
+ */
+export interface RecentTiktok {
+  /** 틱톡 아이디 (@ 없이, [a-z0-9._] — 해석을 거친 것만) */
+  readonly tiktokId: string
+  /** 그 아이디를 가장 최근에 이은 때 (ISO) */
+  readonly linkedAt: string
+  /** 지금 그 아이디로 이어진 회차 (없으면 null) */
+  readonly linkedBroadcast: string | null
+  /** 프로필 사진을 물을 회차 (GET /api/broadcasts/:id/tiktok/avatar — 그 회차의 마지막 틱톡 연결이 이 아이디). 없으면 null(틱톡 그림) */
+  readonly photoBroadcast: string | null
 }
 
 /** 처음 잇는 채널 확인 줄 (YT-11 서버 잇기, D-YT-SRV-03 — 코드·확인 방식은 INV1 그대로) */
@@ -457,7 +476,7 @@ export class YoutubeSystem {
 
   // ── 내 라이브 목록 (AC-Y1-10) ─────────────────────────────────────────
 
-  async liveBroadcasts(sellerId: string): Promise<{ kind: 'ok'; broadcasts: LiveBroadcastItem[]; channels?: RecentChannel[] } | { kind: 'rejected'; status: number; code: LinkCode }> {
+  async liveBroadcasts(sellerId: string): Promise<{ kind: 'ok'; broadcasts: LiveBroadcastItem[]; channels?: RecentChannel[]; tiktok?: RecentTiktok[] } | { kind: 'rejected'; status: number; code: LinkCode }> {
     if (this.web !== null) return this.#recentBroadcasts(sellerId, this.web)
     const view = await this.connections.status(sellerId)
     if (view.status === 'NOT_CONNECTED') return { kind: 'rejected', status: 409, code: 'YOUTUBE_NOT_CONNECTED' }
@@ -768,7 +787,7 @@ export class YoutubeSystem {
    * 최근 채널 찾기 (YT-11 AC2, D-YT-SRV-03 목록 ②): 최근 이은 채널 3개의 공개 채널 라이브 주소에서 지금·예정 공개 방송을 찾는다(채널마다 한 번, 하나씩).
    * 부를 때만 찾는다(되풀이하지 않음). 막히거나 못 읽은 채널은 건너뛴다. 운영자가 끄면 거절
    */
-  async #recentBroadcasts(sellerId: string, web: WebChatSource): Promise<{ kind: 'ok'; broadcasts: LiveBroadcastItem[]; channels: RecentChannel[] } | { kind: 'rejected'; status: number; code: LinkCode }> {
+  async #recentBroadcasts(sellerId: string, web: WebChatSource): Promise<{ kind: 'ok'; broadcasts: LiveBroadcastItem[]; channels: RecentChannel[]; tiktok: RecentTiktok[] } | { kind: 'rejected'; status: number; code: LinkCode }> {
     if (web.off) return { kind: 'rejected', status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
     const list: Omit<LiveBroadcastItem, 'linkedBroadcast'>[] = []
     // 라이브가 없는 채널도 최근 순서 그대로 알린다 (D-UX4-187). 채널은 한 곳씩 차례로 본다 — 한꺼번에 여러 번 부르면 유튜브가 막을 수 있다
@@ -780,14 +799,14 @@ export class YoutubeSystem {
       } catch (error) {
         if (error instanceof WebChatError && error.kind === 'OFF') return { kind: 'rejected', status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
         if (error instanceof WebChatError && error.kind === 'BLOCKED') this.#options.log({ level: 'warn', code: 'YT_CHAT_BLOCKED' })
-        channels.push({ channelId: channel.id, channelTitle: channel.title, videoId: null })
+        channels.push({ channelId: channel.id, channelTitle: channel.title, videoId: null, linkedAt: channel.linkedAt.toISOString() })
         continue
       }
       if ((page.state !== 'LIVE' && page.state !== 'UPCOMING') || page.videoId === null || page.channelId !== channel.id) {
-        channels.push({ channelId: channel.id, channelTitle: page.channelId === channel.id ? (page.channelTitle ?? channel.title) : channel.title, videoId: null })
+        channels.push({ channelId: channel.id, channelTitle: page.channelId === channel.id ? (page.channelTitle ?? channel.title) : channel.title, videoId: null, linkedAt: channel.linkedAt.toISOString() })
         continue
       }
-      channels.push({ channelId: channel.id, channelTitle: page.channelTitle ?? channel.title, videoId: page.videoId })
+      channels.push({ channelId: channel.id, channelTitle: page.channelTitle ?? channel.title, videoId: page.videoId, linkedAt: channel.linkedAt.toISOString() })
       const at = page.startedAt === null ? null : new Date(page.startedAt).toISOString()
       list.push({
         videoId: page.videoId,
@@ -801,7 +820,11 @@ export class YoutubeSystem {
     }
     const linked = await openLinksForVideo(this.#options.db, sellerId, list.map((item) => item.videoId))
     const byVideo = new Map(linked.map((row) => [row.videoId, row.broadcastId]))
-    return { kind: 'ok', broadcasts: list.map((item) => ({ ...item, linkedBroadcast: byVideo.get(item.videoId) ?? null })), channels }
+    // 최근 연결한 틱톡 계정 (D-RECENT-TT-01): 우리 기록만 읽는다 — 틱톡에 묻지 않는다. 화면이 유튜브 채널과 이은 때 차례로 섞어 5곳까지 보인다
+    const tiktok: RecentTiktok[] = (await recentTiktokAccounts(this.#options.db, sellerId, RECENT_CHANNELS_MAX))
+      .filter((row) => checkTikTokTarget(row.tiktokId).ok)
+      .map((row) => ({ tiktokId: row.tiktokId, linkedAt: row.linkedAt.toISOString(), linkedBroadcast: row.linkedBroadcast, photoBroadcast: row.photoBroadcast }))
+    return { kind: 'ok', broadcasts: list.map((item) => ({ ...item, linkedBroadcast: byVideo.get(item.videoId) ?? null })), channels, tiktok }
   }
 
   /** 끊기 (AC-Y1-13): 수집기가 멈추고, 그 방송의 기다리던 실시간 채팅 감사는 보내지 못함(NO_LINK) */

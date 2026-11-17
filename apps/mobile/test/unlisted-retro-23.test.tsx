@@ -55,7 +55,8 @@ describe('등록 안 된 번호의 찜 알림 (D-RETRO-23, 개선 계획표 A8)'
     expect(unlistedNumbers(fromFull(fullView({ products: [product(15)] })), 'b1')).toEqual([])
   })
 
-  it('방송 화면 탭 바 위에 "등록 안 된 번호에 찜 3건"과 번호 알약이 보이고, 닉네임은 그리지 않는다', async () => {
+  // D-TABS-02 (사용자 지시 2026-11-17 "탭 바 위에는 아무것도 안 뜨게"): 알림은 탭 바 밑으로 — 옛 기대: 탭 바 위(첫째 묶음 안)
+  it('방송 화면 탭 바 밑에 "등록 안 된 번호에 찜 3건"과 번호 알약이 보이고, 닉네임은 그리지 않는다', async () => {
     await open(worldWith(VIEW))
     const strip = screen.getByRole('region', { name: UNLISTED_LABEL })
     expect(unlistedTitle(3)).toBe('등록 안 된 번호에 찜 3건')
@@ -64,8 +65,9 @@ describe('등록 안 된 번호의 찜 알림 (D-RETRO-23, 개선 계획표 A8)'
     expect(within(strip).getByRole('button', { name: unlistedPillLabel(313) }).textContent).toBe('313번 2건 ›')
     expect(within(strip).getByRole('button', { name: unlistedPillLabel(397) }).textContent).toBe('397번 ›')
     expect(strip.textContent).not.toContain('박철수')
-    // 탭 바보다 위 (첫째 묶음 안)
-    expect(strip.compareDocumentPosition(screen.getByTestId('console-tabs')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // 탭 바보다 밑 (탭 바 밑 알림 묶음 안)
+    expect(screen.getByTestId('console-tabs').compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(screen.getByTestId('console-notices')).getByRole('region', { name: UNLISTED_LABEL })).toBe(strip)
   })
 
   it('기다리는 찜이 없으면 아무것도 그리지 않는다', async () => {

@@ -151,7 +151,9 @@ describe('탭 바 반고정 (D-UX4-93 → D-UX4-98 → D-UX4-104 → D-UX4-109)'
   // D-UX4-104가 "숨지 않고 늘 붙어 있다"로 바꿨다가 D-UX4-109(사용자 "올릴 때 탭 바 안 숨는데?")로 D-UX4-98 기대(올리면 숨고 내리면 붙는다)를 되살렸다
   // D-UX4-155 (사용자 "채팅·문자 탭을 누르면 탭 바가 사라진다"): 숨기기를 휴대폰 것(stickyHeaderHiddenOnScroll — 앱이 맨 아래로 굴린 것까지 세서 탭에 들어가자마자 숨었다)에서
   // 손으로 굴린 거리만 세는 tabHide로 바꿨다. 붙는 머리는 그대로 — 옛 기대: 소스에 stickyHeaderHiddenOnScroll 줄이 있다
-  it('탭 바는 목록의 둘째 자식 붙는 머리 — 올리면 숨고 내리면 붙는다(손으로 굴린 거리만 세는 tabHide), 손으로 만든 붙는 탭 바는 없다', async () => {
+  // D-TABS-02 (사용자 지시 2026-11-17 "탭 바 위에 뜨는 모든 버튼, 알림 다 다른 곳으로 옮겨라 … 화면 상단 영역과 탭 바는 무조건 서로 붙어 있어야"):
+  // 탭 바 위 알림 묶음(옛 첫째 자식)을 탭 바 밑으로 옮겨 탭 바가 첫째 자식이 됐다 — 옛 기대: STICKY_TABS [1](둘째 자식)
+  it('탭 바는 목록의 첫째 자식 붙는 머리 — 올리면 숨고 내리면 붙는다(손으로 굴린 거리만 세는 tabHide), 손으로 만든 붙는 탭 바는 없다', async () => {
     const { readFileSync } = await import('node:fs')
     const { join } = await import('node:path')
     const source = readFileSync(join(import.meta.dirname, '../src/screens/ConsoleScreen.tsx'), 'utf8')
@@ -162,7 +164,7 @@ describe('탭 바 반고정 (D-UX4-93 → D-UX4-98 → D-UX4-104 → D-UX4-109)'
     expect(source).toContain('bounces={false}')
     expect(source).toContain('overScrollMode="never"')
     const { STICKY_TABS } = await import('../src/screens/ConsoleScreen.tsx')
-    expect(STICKY_TABS).toEqual([1])
+    expect(STICKY_TABS).toEqual([0])
     const world = makeWorld({ products: [] })
     await open(world)
     expect(screen.queryByTestId('floating-tabs')).toBeNull()
@@ -180,8 +182,14 @@ describe('탭 바 반고정 (D-UX4-93 → D-UX4-98 → D-UX4-104 → D-UX4-109)'
     // D-UX4-155: 붙는 머리 칸(console-tabs-slot)이 위 margin을, 그 안에서 숨으며 밀리는 탭 바(console-tabs)가 안 여백을 갖는다 (옛 기대: 둘 다 console-tabs 한 칸에)
     const slot = getComputedStyle(screen.getByTestId('console-tabs-slot'))
     const tabs = getComputedStyle(screen.getByTestId('console-tabs'))
-    expect(slot.marginTop).toBe(`-${String(SPACE.sm)}px`)
+    // D-TABS-02: 탭 바가 첫째 자식이라 위에 지울 줄 사이가 없다 — 옛 기대: 위 margin -SPACE.sm(앞 알림 묶음과의 줄 사이를 지웠다)
+    expect(['', '0', '0px']).toContain(slot.marginTop)
     expect(tabs.paddingTop).toBe(`${String(TABS_TOP)}px`)
+    expect(TABS_TOP).toBe(SPACE.sm)
+    // 알림 묶음은 탭 바 밑 — 머리와 탭 바 사이에는 아무것도 없다 (D-TABS-02)
+    const tabSlot = screen.getByTestId('console-tabs-slot')
+    expect(tabSlot.compareDocumentPosition(screen.getByTestId('console-notices')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(tabSlot.previousElementSibling).toBeNull()
     // 목록 묶음의 줄 사이가 SPACE.sm이라 위 margin이 그 줄 사이를 정확히 지운다
     const { readFileSync } = await import('node:fs')
     const { join } = await import('node:path')

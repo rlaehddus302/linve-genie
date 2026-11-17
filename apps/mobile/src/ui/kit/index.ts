@@ -13,5 +13,6 @@ export { AlertMark, applyPadKey, ClearButton, ErrorLine, FIELD_LABEL_MS, FIELD_R
 export { HANDWRITING_WORDS, HandwritingButton, HandwritingPad, HandwritingSheet, padHeightFor, tooLongWords, type HandwritingPadProps, type HandwritingSheetProps } from './handwriting.tsx'
 export { AppHeader, BACK_ICON, BackButton, HEADER_BUTTON, HeaderTextButton, NAV, NavBar, CountBadge, DotStatus, GroupLabel, HeaderIconButton, HeroButton, Icon, RowDivider, RowGroup, setTabBarBackdrop, TAB_CELL, TabBar, tabBarBottom, TABS, tabIndex, TodoRow, type BadgeTone, type IconName, type TabKey } from './app.tsx'
 export { PRESS_EASING, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Tap, TAP_SCALE, usePressMotion, type TapProps } from './press.tsx'
-export { EDGE_SWIPE_START, RouteSwipeProvider, edgeSwipeCloses, startsEdgeSwipe, useEdgeSwipeBack, useHoldRouteSwipe } from './route-swipe.tsx'
+export { EDGE_SWIPE_START, RouteSwipeProvider, edgeStartTracker, edgeSwipeCloses, startsEdgeSwipe, useEdgeSwipeBack, useHoldRouteSwipe } from './route-swipe.tsx'
 export { StackPage } from './stack-page.tsx'
+export { LINE_TAB_EDGE, LINE_TAB_PAD, LINE_TABS_TOP, LineTab, LineTabs } from './line-tabs.tsx'

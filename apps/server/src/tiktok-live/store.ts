@@ -145,6 +145,51 @@ export async function tiktokEverLinked(db: Db, sellerId: string, broadcastId: st
   return rows.length > 0
 }
 
+/** 최근 연결한 틱톡 계정 한 곳 (D-RECENT-TT-01) */
+export interface RecentTiktokRow {
+  /** 틱톡 아이디 (@ 없이, 해석을 거친 것 — [a-z0-9._]) */
+  readonly tiktokId: string
+  /** 그 아이디를 가장 최근에 이은 때 */
+  readonly linkedAt: Date
+  /** 지금 그 아이디로 이어진(LINKED) 회차 — 없으면 null (판매자마다 많아야 하나) */
+  readonly linkedBroadcast: string | null
+  /** 프로필 사진을 물을 회차 (그 회차의 마지막 틱톡 연결이 이 아이디인 것 중 가장 최근) — 없으면 null */
+  readonly photoBroadcast: string | null
+}
+
+/**
+ * 판매자가 실제 회차에 이은 적 있는 틱톡 아이디, 최근 이은 순서 (D-RECENT-TT-01 — 유튜브 linkedChannels와 같은 셈: 끊은·끝난 연결도 센다).
+ * 리허설에는 잇지 않으므로 모든 연결이 실제 회차다. 바깥에 묻지 않는다(라이브인지는 모른다)
+ */
+export async function recentTiktokAccounts(db: Db, sellerId: string, limit: number): Promise<RecentTiktokRow[]> {
+  const rows = await db
+    .select({ id: tiktokLinks.id, broadcastId: tiktokLinks.broadcastId, tiktokId: tiktokLinks.tiktokId, state: tiktokLinks.state, linkedAt: tiktokLinks.linkedAt })
+    .from(tiktokLinks)
+    .where(eq(tiktokLinks.sellerId, sellerId))
+    .orderBy(desc(tiktokLinks.linkedAt), desc(tiktokLinks.id))
+  // 회차마다 마지막 연결의 아이디 (회차의 틱톡 사진 경로가 보는 것 — latestTiktokLink와 같은 차례)
+  const lastOfBroadcast = new Map<string, { id: number; tiktokId: string }>()
+  for (const row of rows) {
+    const before = lastOfBroadcast.get(row.broadcastId)
+    if (before === undefined || row.id > before.id) lastOfBroadcast.set(row.broadcastId, { id: row.id, tiktokId: row.tiktokId })
+  }
+  const out: RecentTiktokRow[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    if (row.tiktokId === '' || seen.has(row.tiktokId)) continue
+    seen.add(row.tiktokId)
+    const mine = rows.filter((other) => other.tiktokId === row.tiktokId)
+    out.push({
+      tiktokId: row.tiktokId,
+      linkedAt: row.linkedAt,
+      linkedBroadcast: mine.find((other) => other.state === 'LINKED')?.broadcastId ?? null,
+      photoBroadcast: mine.find((other) => lastOfBroadcast.get(other.broadcastId)?.tiktokId === row.tiktokId)?.broadcastId ?? null,
+    })
+    if (out.length >= limit) break
+  }
+  return out
+}
+
 export async function insertTiktokLink(
   db: Db,
   row: { sellerId: string; broadcastId: string; scopeId: string; tiktokId: string; actorAccountId: string; now: Date },

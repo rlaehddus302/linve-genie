@@ -8,7 +8,7 @@
 // - 앱이 뒤로 갔다 돌아오면(APP-04) 실시간을 다시 잇고 쌓인 라벨을 이어 찍고 "자리를 비운 동안 라벨 n장·찜 n건·음성 n개"를 10초 보인다.
 // - 라벨 상태 낱말(라벨 대기·출력됨·재출력 필요)은 서버 출력 기록(GET /api/print/labels?date=)에서 — 리허설은 없다.
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Animated, BackHandler, Keyboard, Platform, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
+import { Animated, BackHandler, Keyboard, Platform, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import { get, put, withQuery } from '../api/client.ts'
 import { BuyerNames, alertCounts, boardProducts } from '../lib/derive.ts'
@@ -16,9 +16,9 @@ import type { ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
 import { LIVE_RECONNECTING, LIVE_STALE, RETRY_NOW, VOICE_SELLER_ONLY } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderIconButton, HeaderTextButton, Tap, Txt, useBottomInset, useKit, usePageTop, useWhiteTop } from '../ui/kit/index.ts'
+import { AppHeader, Appear, BigButton, BottomSheet, FullSheet, HeaderIconButton, HeaderTextButton, LINE_TABS_TOP, LineTab, LineTabs, Tap, Txt, useBottomInset, useKit, usePageTop, useWhiteTop } from '../ui/kit/index.ts'
 import { useHoldRouteSwipe } from '../ui/kit/route-swipe.tsx'
-import { GUTTER, SHADOW, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { GUTTER, SHADOW, SPACE } from '../ui/kit/tokens.ts'
 import { LOW_PAPER, useLabelPaper } from '../lib/label-paper.ts'
 import { BigButton as SmallButton, Notice, Row } from '../ui/parts.tsx'
 import { useCameLate } from '../ui/late.tsx'
@@ -142,10 +142,10 @@ function AwayLine({ onLabels }: { readonly onLabels: () => void }) {
  * openAdd·openManage (D-UX4-57): 상품 추가·방송 관리를 진짜 쌓인 화면으로 연다 — 없으면(시험·웹) 이 화면 안에 겹쳐 그린다.
  * refresh: 바뀌면 유튜브 잇기 상태를 다시 받는다(방송 연결 화면에서 돌아올 때 경로가 올린다).
  */
-/** 붙는 머리 = 라이브 화면 목록의 둘째 자식(탭 바) (D-UX4-98) */
-export const STICKY_TABS = [1]
+/** 붙는 머리 = 라이브 화면 목록의 첫째 자식(탭 바) (D-UX4-98 → D-TABS-02: 탭 바 위 알림 묶음을 탭 바 밑으로 옮겨 옛 둘째 자식이 첫째가 됐다) */
+export const STICKY_TABS = [0]
 /** 탭 바 알약 위 여백 — 맨 위에 있을 때도, 올리다 위에 붙었을 때도 머리 아래 이만큼 (D-UX4-110, 사용자 지시 2026-11-10 "중간에 올릴 때 탭바와 상단영역 사이 여백과 끝까지 올렸을 때 여백이 달라") */
-export const TABS_TOP = SPACE.sm
+export const TABS_TOP = LINE_TABS_TOP
 
 /** 쌓인 상품 추가 화면이 닫힌 뒤 그 상품 자세히(아래 판)를 열기까지 — 화면 넘김이 끝난 뒤에 연다 (D-RETRO-22). 웹(시험)은 바로 */
 export const SHOW_AFTER_BACK_MS = 600
@@ -153,6 +153,8 @@ export const SHOW_AFTER_BACK_MS = 600
 const ROW_PEEK = 64
 
 export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, openStatement, openSearch, openTotals, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 정산서 화면 안에 겹쳐 그린다 */ readonly openStatement?: (buyer: string) => void; /** 머리 돋보기 — 찾기를 진짜 쌓인 화면으로 연다 (D-UX4-204, 상품·찜 기록 하나로 D-UX4-205). 없으면(시험·웹) 이 화면 안에 찾기 칸을 연다 */ readonly openSearch?: () => void; /** 손님별 합계를 진짜 쌓인 화면으로 연다 (D-BUYERSUM-01). 없으면(시험·웹) 이 화면 안에 겹쳐 그린다 */ readonly openTotals?: () => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
+  // 탭 바 밑 알림 묶음에 보이는 것이 있는지 (D-TABS-02)
+  const [noticesShown, setNoticesShown] = useState(false)
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
   const { p } = useKit()
@@ -558,10 +560,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   }
   const tabPills = (
     <>
-      <LineTab on={shownTab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => pickTab('products')} />
-      <LineTab on={shownTab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => pickTab('feed')} />
-      {showTalkTab ? <LineTab on={shownTab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => pickTab('talk')} /> : null}
-      {showHeardTab ? <LineTab on={shownTab === 'heard'} label={HEARD_TAB} ariaLabel={HEARD_TAB} onPress={() => pickTab('heard')} /> : null}
+      <LineTab role="button" on={shownTab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => pickTab('products')} />
+      <LineTab role="button" on={shownTab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => pickTab('feed')} />
+      {showTalkTab ? <LineTab role="button" on={shownTab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => pickTab('talk')} /> : null}
+      {showHeardTab ? <LineTab role="button" on={shownTab === 'heard'} label={HEARD_TAB} ariaLabel={HEARD_TAB} onPress={() => pickTab('heard')} /> : null}
     </>
   )
   // 돋보기: 상품 탭은 번호 숫자판, 찜 기록 탭은 닉네임 키보드 (D-UX4-201)
@@ -596,13 +598,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
             <HeaderIconButton icon="more" label={MANAGE_LABEL} testID="console-more" onPress={() => (openManage === undefined ? setPage('settings') : openManage())} />
           </>}
         />
-        {help !== null ? (
-          <View style={{ paddingHorizontal: SPACE.xl, paddingBottom: SPACE.sm }}>
-            <Txt step="caption" color="textSub">
-              {help}
-            </Txt>
-          </View>
-        ) : null}
         {/* 목록 자리 — (+) 단추는 이 자리 오른쪽 아래(들린 말 창 위)에 뜬다 */}
         <View style={{ flex: 1 }}>
         <Animated.ScrollView
@@ -646,31 +641,16 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           bounces={false}
           overScrollMode="never"
           style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.xl + (searchPad ? padHeight : 0), gap: SPACE.sm }} keyboardShouldPersistTaps={searchPad ? 'always' : 'handled'}>
-          {/* 첫째 자식: 탭 바 위 알림들 (한 묶음 — 붙는 머리 자리가 늘 둘째가 되게) */}
-          <View style={{ gap: SPACE.sm }}>
-            <AwayLine onLabels={() => (openManage === undefined ? setPage('settings') : openManage())} />
-            <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
-            {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
-            {labelsQueue.mine && labelsQueue.queue?.labelsEnabled && paper !== null && paper <= LOW_PAPER ? <Notice tone="warning" alert>{`라벨 용지가 약 ${paper}장 남았어요. 새 롤을 준비해 주세요.`}</Notice> : null}
-            {/* 매출은 이 줄에서 빼 화면 아래 (+) 왼쪽 캡슐로 (D-UX4-140) — 알림이 없으면 이 자리는 비운다 */}
-            <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} onAction={onAlert} />
-            <UnlistedClaims numbers={unlisted} onAdd={addAt} />
-            {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
-            <YoutubeWarning yt={yt} closed={closed} />
-            <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} listen={services.streamKeep.listen} />
-          </View>
-          {/* 둘째 자식: 탭 바 — 위에 붙을 때 밑 목록이 비치지 않게 바탕을 칠하고 화면 끝까지 */}
+          {/* 첫째 자식: 탭 바 — 머리 바로 밑에 붙고(D-TABS-02), 위에 붙을 때 밑 목록이 비치지 않게 바탕을 칠하고 화면 끝까지 */}
           {/* 위 여백은 탭 바 안에(TABS_TOP) — 목록 줄 사이(gap)를 위로 지워, 맨 위에 있을 때와 올리다 붙었을 때 머리↔알약 여백이 같다 (D-UX4-110) */}
           {/* 붙는 머리 칸(자리·여백)과 그 안에서 위로 밀려 숨는 탭 바(바탕·안 여백) — 칸 스타일은 휴대폰 붙는 머리가 가져가 숨김 이동을 따로 둔다 (D-UX4-155) */}
           {/* 칸은 누름을 받지 않는다(box-none, 붙는 머리 겉 칸도 같은 스타일) — 탭 바가 숨은 자리 밑의 목록 줄이 눌린다 */}
-          <View testID="console-tabs-slot" collapsable={false} pointerEvents="box-none" onLayout={(event) => { tabHide.onLayout(event); tabsHeight.current = event.nativeEvent.layout.height }} style={{ marginHorizontal: -GUTTER, marginTop: -SPACE.sm, marginBottom: -SPACE.xs, pointerEvents: 'box-none' }}>
+          <View testID="console-tabs-slot" collapsable={false} pointerEvents="box-none" onLayout={(event) => { tabHide.onLayout(event); tabsHeight.current = event.nativeEvent.layout.height }} style={{ marginHorizontal: -GUTTER, marginBottom: -SPACE.xs, pointerEvents: 'box-none' }}>
             <Animated.View testID="console-tabs" style={{ paddingHorizontal: GUTTER, paddingTop: TABS_TOP, paddingBottom: SPACE.xs, backgroundColor: p.surface, transform: [{ translateY: tabHide.offset }] }}>
               {/* 밑줄 글자 탭 (D-UX4-201, 사용자 "탭도 사진1 스타일로" — 토스 거래 내역 [전체 카드 입·출금…]): 화면 끝까지 옅은 선, 고른 탭은 굵은 검정 글·검정 밑줄. 넘치면 옆으로 민다 */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -GUTTER, borderBottomWidth: 1, borderBottomColor: p.border }} contentContainerStyle={{ paddingHorizontal: LINE_TAB_EDGE }}>
-                <View role="tablist" aria-label="보기" style={{ flexDirection: 'row', gap: SPACE.md }}>
-                  {tabPills}
-                </View>
-              </ScrollView>
+              <LineTabs label="보기" bleed={GUTTER}>
+                {tabPills}
+              </LineTabs>
               {/* 지금 탭의 도구 줄 — 탭 바와 한 칸이라 손으로 내리면 같이 숨고 올리면 같이 나온다 (D-UX4-159, 사용자 "둘 다 같은 영역에 넣어서 스크롤 올리면 같이 보이게 해") */}
               {shownTab === 'products' && (searchDigits !== '' || shownProducts(data, broadcastId).length > 0) ? (
                 <View testID="console-toolbar" style={{ paddingTop: SPACE.md }}>
@@ -682,6 +662,22 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
                 </View>
               ) : null}
             </Animated.View>
+          </View>
+          {/* 탭 바 밑 알림들 (D-TABS-02, 사용자 지시 2026-11-17 "탭 바 위에 뜨는 모든 버튼, 알림 다 다른 곳으로 옮겨라 … 화면 상단 영역과 탭 바는 무조건 서로 붙어 있어야"):
+              옛: 머리와 탭 바 사이(목록 첫째 자식). 이제 탭 바(와 도구 줄) 바로 밑, 목록 위 — 탭 바는 늘 머리에 붙는다. 끝난 라이브·음성 안내 한 줄도 여기로 */}
+          {/* 알림이 하나도 없으면 줄 사이(gap)를 위로 지운다 — 탭 바와 목록 사이가 옛과 같게 */}
+          <View testID="console-notices" onLayout={(event) => { const shown = event.nativeEvent.layout.height > 0; setNoticesShown((was) => (was === shown ? was : shown)) }} style={{ gap: SPACE.sm, marginTop: noticesShown ? 0 : -SPACE.sm }}>
+            {help !== null ? <Txt step="caption" color="textSub">{help}</Txt> : null}
+            <AwayLine onLabels={() => (openManage === undefined ? setPage('settings') : openManage())} />
+            <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
+            {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
+            {labelsQueue.mine && labelsQueue.queue?.labelsEnabled && paper !== null && paper <= LOW_PAPER ? <Notice tone="warning" alert>{`라벨 용지가 약 ${paper}장 남았어요. 새 롤을 준비해 주세요.`}</Notice> : null}
+            {/* 매출은 이 줄에서 빼 화면 아래 (+) 왼쪽 캡슐로 (D-UX4-140) — 알림이 없으면 이 자리는 비운다 */}
+            <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} onAction={onAlert} />
+            <UnlistedClaims numbers={unlisted} onAdd={addAt} />
+            {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
+            <YoutubeWarning yt={yt} closed={closed} />
+            <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} listen={services.streamKeep.listen} />
           </View>
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
           <View testID="console-list" ref={listNode} collapsable={false} onLayout={(event) => { listTop.current = event.nativeEvent.layout.y }} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
@@ -795,23 +791,3 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   )
 }
 
-/** 밑줄 글자 탭 안쪽 양옆 여백 — 밑줄이 글보다 양옆으로 12씩 길다 (토스 거래 내역 탭 재기, D-UX4-203) */
-const LINE_TAB_PAD = SPACE.md
-/** 첫 탭 밑줄이 화면 끝에서 22 — 상품 줄 번호 네모와 같은 세로 줄 (D-UX4-203) */
-const LINE_TAB_EDGE = 22
-
-/**
- * 라이브 화면 탭 하나 (D-UX4-201 — 옛 알약 Pill): 토스 거래 내역 탭처럼 글자만(16, D-UX4-203), 고르면 굵은 검정 글과 탭 폭만큼 검정 밑줄(글 양옆 12씩 더 길게, 탭 줄 아래 옅은 선 위에 겹친다),
- * 안 고르면 회색 글. 포인트 색은 쓰지 않는다
- */
-function LineTab({ on, label, ariaLabel, onPress }: { readonly on: boolean; readonly label: string; readonly ariaLabel: string; readonly onPress: () => void }) {
-  const { p } = useKit()
-  return (
-    <Tap role="button" aria-label={ariaLabel} aria-selected={on} onPress={onPress} pressScale={1} style={({ pressed }) => ({ minHeight: TOUCH.min, paddingHorizontal: LINE_TAB_PAD, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
-      <Txt step="bodyLarge" weight={on ? 'bold' : 'medium'} ink={on ? p.text : p.borderStrong} numberOfLines={1}>
-        {label}
-      </Txt>
-      {on ? <View aria-hidden testID="line-tab-bar" style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 3, borderRadius: 2, borderCurve: 'continuous', backgroundColor: p.text }} /> : null}
-    </Tap>
-  )
-}

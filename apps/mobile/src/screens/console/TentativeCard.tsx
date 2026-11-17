@@ -20,6 +20,7 @@ import { TENTATIVE_TAG, confirmEvent, isTentative, needsPrice, otherNames, other
 import { formatWon, priceWords } from '../../lib/words.ts'
 import { BigButton, ButtonRow, ErrorLine, PopupDialog, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
+import { useSheetHandoff } from './claim-actions.ts'
 import { useConsoleApi } from './context.ts'
 import { VarietyChips } from './VarietyChips.tsx'
 
@@ -83,6 +84,7 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
   const [pickedName, setPickedName] = useState<string | null>(null)
   const sending = useRef(false)
   const shownAt = useRef(Date.now())
+  const handoff = useSheetHandoff()
   const tentative = product.tentative
   if (tentative === undefined) return null
 
@@ -224,7 +226,16 @@ export function TentativePanel({ product, values = true, more = 0, guardMs = 0, 
         confirmLabel={WITHDRAW}
         busy={busy}
         onCancel={() => setAsking(false)}
-        onConfirm={() => void send(withdrawEvent(product), WITHDRAW_FAILED)}
+        // 팝업을 먼저 닫고 다 내려간 뒤 보낸다 (D-DEL-FREEZE-01): 거두면 상품 자세히 아래 창이 내려가는데, 팝업이 열린 채 바깥 창이 내려가면 아이폰 화면이 멈췄다
+        onConfirm={() => {
+          if (busy) return
+          setAsking(false)
+          setBusy(true)
+          handoff(() => {
+            setBusy(false)
+            void send(withdrawEvent(product), WITHDRAW_FAILED)
+          })
+        }}
       />
     </View>
   )

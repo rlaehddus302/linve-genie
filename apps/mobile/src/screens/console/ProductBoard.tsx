@@ -33,7 +33,7 @@ import { LABELS_NO_PRINTER, LABELS_OFF_LINE, LABELS_TURN_ON, LABELS_TURN_ON_FAIL
 import { BottomSheet, EmptyFill, ErrorLine, PopupDialog, SheetChoices, Txt, useKit, Tap } from '../../ui/kit/index.ts'
 import { GUTTER, MAX_FONT_SCALE, RADIUS, SPACE, TOUCH, TYPE, pressedFill } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
-import { ACTIVE_CLAIM, SELL_FEWER, SELL_MORE, deleteClaim, deleteProduct, sellFewer, sellFewerStock, sellMore, sellMoreDescription, sellMorePlan, stockWords } from './claim-actions.ts'
+import { ACTIVE_CLAIM, PRODUCT_DELETING, SELL_FEWER, SELL_MORE, deleteClaim, deleteProduct, sellFewer, sellFewerStock, sellMore, sellMoreDescription, sellMorePlan, stockWords, useSheetHandoff } from './claim-actions.ts'
 import { CLAIM_ADD, ClaimAddForm, type ClaimAdded } from './ClaimAdd.tsx'
 import { feedBuyerName } from './feed-rows.ts'
 import { useConsoleApi } from './context.ts'
@@ -568,19 +568,29 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
     setBusy(false)
     setAskClaim(null)
   }
-  const removeProduct = async () => {
-    setBusy(true)
-    let ok = false
-    await run(async () => {
-      await deleteProduct(api, product)
-      ok = true
-    }, '상품을 지우지 못했어요. 다시 눌러 주세요.')
-    setBusy(false)
+  // 상품 삭제 (D-DEL-FREEZE-01, 사용자 "상품 삭제하면 화면 멈추는 치명적인 버그"): 지우면 상품이 판매 종료(CLOSED)가 되어 이 아래 창이 내려간다.
+  // 옛: "삭제할까요?" 팝업을 연 채로 지워 — 팝업(Modal)이 열린 채 바깥 아래 창(Modal)이 내려가면 아이폰은 보이지 않는 판이 남아 화면이 눌리지 않았다.
+  // 이제 팝업을 먼저 닫고 다 내려간 뒤(useSheetHandoff) 지운다. 지우는 동안은 메뉴 줄 자리에 "지우는 중" 한 줄 — 두 번 지우지 않게
+  const handoff = useSheetHandoff()
+  const [deleting, setDeleting] = useState(false)
+  const removeProduct = () => {
+    if (deleting) return
     setAskProduct(false)
-    if (ok) {
-      animateNextLayout()
-      onDone?.()
-    }
+    setDeleting(true)
+    handoff(() => {
+      void (async () => {
+        let ok = false
+        await run(async () => {
+          await deleteProduct(api, product)
+          ok = true
+        }, '상품을 지우지 못했어요. 다시 눌러 주세요.')
+        setDeleting(false)
+        if (ok) {
+          animateNextLayout()
+          onDone?.()
+        }
+      })()
+    })
   }
   const moreNow = closed ? null : sellMorePlan(product)
   const fewerNow = closed ? null : sellFewerStock(product)
@@ -652,7 +662,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
         {fewerNow !== null ? <IconMenuRow emoji="➖" tint="#EEF0EC" title={SELL_FEWER} ariaLabel={`${SELL_FEWER} — ${String(product.no)}번`} testID="sell-fewer" onPress={() => void sellFewerNow()} /> : null}
         {undecided(product) && onDecide !== undefined ? <IconMenuRow emoji="🙋" tint="#FFF4E5" title="누가 살지 정하기" onPress={onDecide} /> : null}
         {/* 확인 중 상품은 삭제(판매 종료 — 기다리던 찜이 "판매 중 아님"으로 끝난다) 대신 위 [거두기](찜은 그대로 남는다) */}
-        {!closed && !tentative ? <IconMenuRow emoji="🗑️" tint={TRASH_TINT} title="상품 삭제" ariaLabel={`상품 삭제 — ${String(product.no)}번`} onPress={() => setAskProduct(true)} /> : null}
+        {!closed && !tentative ? (deleting ? <Txt color="textSub" role="status" testID="product-deleting">{PRODUCT_DELETING}</Txt> : <IconMenuRow emoji="🗑️" tint={TRASH_TINT} title="상품 삭제" ariaLabel={`상품 삭제 — ${String(product.no)}번`} onPress={() => setAskProduct(true)} />) : null}
       </View>
       )}
       <PopupDialog
@@ -681,9 +691,9 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
         description={claims.length === 0 ? productLine : `${productLine}\n찜 ${String(claims.length)}건도 함께 지워져요.`}
         cancelLabel="닫기"
         confirmLabel="삭제"
-        busy={busy}
+        busy={deleting}
         onCancel={() => setAskProduct(false)}
-        onConfirm={() => void removeProduct()}
+        onConfirm={removeProduct}
       />
     </View>
   )

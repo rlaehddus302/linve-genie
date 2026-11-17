@@ -24,7 +24,7 @@ import { cancelPrinterPick, pickPrinter, useInlinePrinterPick } from '../native/
 import { sizeWordMm, testHelp } from '../lib/test-help.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { BigButton, BottomCTA, BottomSheet, FormPage, HeaderTextButton, NavBar, SheetChoices, usePageTop, useWhiteTop, Icon, ListRow, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { BigButton, BottomCTA, BottomSheet, FormPage, HeaderTextButton, LineTab, LineTabs, NavBar, SheetChoices, usePageTop, useWhiteTop, Icon, ListRow, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { LabelPrintArt, PrinterConnectArt } from '../ui/LabelArt.tsx'
 import { Notice } from '../ui/parts.tsx'
@@ -436,13 +436,12 @@ function DesignStep({ queue, profileId, saveLabel, onBack, onSaved }: { readonly
       {error !== null && draft === null ? <SmallButton label={RETRY_NOW} onPress={load} /> : null}
       {draft !== null && dots !== null && activeItem !== undefined ? (
         <View pointerEvents={changingLayout || saving ? 'none' : 'auto'} style={{ flexGrow: 1, paddingHorizontal: SPACE.lg, paddingBottom: SPACE.sm }}>
-          <View role="tablist" aria-label="라벨 설정" style={{ flexDirection: 'row', borderBottomWidth: 1, borderColor: p.line }}>
+          {/* 라이브 화면과 같은 밑줄 글자 탭 (D-TABS-01 — 옛: 칸을 나눠 채운 초록 밑줄 탭) */}
+          <LineTabs label="라벨 설정" bleed={SPACE.lg}>
             {DESIGN_TABS.map((name) => (
-              <Tap key={name} role="tab" aria-label={name} aria-selected={tab === name} onPress={() => pickTab(name)} style={({ pressed }) => ({ flex: 1, minHeight: TOUCH.min, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.surfaceAlt : p.surface, borderBottomWidth: 2, borderBottomColor: tab === name ? p.primary : 'transparent' })}>
-                <Txt weight={tab === name ? 'bold' : 'medium'} color={tab === name ? 'primaryText' : 'textSub'}>{name}</Txt>
-              </Tap>
+              <LineTab key={name} label={name} on={tab === name} onPress={() => pickTab(name)} />
             ))}
-          </View>
+          </LineTabs>
           <View role="tabpanel" aria-label={tab} style={{ gap: SPACE.sm, paddingTop: SPACE.md, minHeight: Math.min(218, screenHeight * 0.3) }}>
             {tab === '용지' ? (
               <>

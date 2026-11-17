@@ -506,6 +506,21 @@ export interface RecentChannel {
   readonly channelId: string
   readonly channelTitle: string | null
   readonly videoId: string | null
+  /** 그 채널을 가장 최근에 이은 때 (ISO, D-RECENT-TT-01) — 옛 서버는 없음 */
+  readonly linkedAt?: string
+}
+
+/**
+ * 최근 연결한 틱톡 계정 한 곳 (D-RECENT-TT-01, GET /api/youtube/live-broadcasts의 tiktok — 옛 서버는 없음): 최근 연결한 것이 먼저.
+ * 라이브인지는 모른다 — [연결]은 그 계정의 라이브 주소를 틱톡 링크 잇기로 보낸다. 아이디는 바깥 글(글자로만)
+ */
+export interface RecentTiktok {
+  readonly tiktokId: string
+  readonly linkedAt: string
+  /** 지금 그 아이디로 이어진 회차 (없으면 null) */
+  readonly linkedBroadcast: string | null
+  /** 프로필 사진을 물을 회차 (없으면 null — 틱톡 그림) */
+  readonly photoBroadcast: string | null
 }
 
 export type CollectorStatus = 'STARTING' | 'LIVE' | 'RETRYING' | 'STOPPED' | 'FINISHED' | 'CHAT_ENDED'

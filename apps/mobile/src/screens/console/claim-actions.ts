@@ -23,6 +23,8 @@ import type { ConsoleApi } from './context.ts'
 export const CLAIM_DELETE_REASON = '판매자가 찜을 삭제했어요'
 export const PROMOTE_AFTER_DELETE_REASON = '찜 삭제 뒤 다음 대기 손님'
 export const PRODUCT_DELETE_REASON = '판매자가 상품을 삭제했어요'
+/** 상품 삭제 팝업을 닫고 지우는 동안 메뉴 줄 자리 (D-DEL-FREEZE-01) */
+export const PRODUCT_DELETING = '상품을 지우고 있어요'
 /** 새 찜이 들어와 판매 종료가 되지 않았을 때 */
 export const PRODUCT_DELETE_RACE = '그사이 새 찜이 들어와 지우지 못했어요. 다시 눌러 주세요.'
 

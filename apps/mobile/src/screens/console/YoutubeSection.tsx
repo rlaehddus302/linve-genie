@@ -6,7 +6,7 @@
 // - 방송 시작의 "주소 붙여넣기" 단계 (D-UX2-07): 클립보드에 유튜브 주소가 있으면 [붙여 넣기] 하나로 잇는다(앱으로 돌아올 때 다시 본다).
 //   옛 공식 읽기 서버(구글 연결로 읽음)도 앱에서 잇는다 — 연결돼 있으면 같은 잇기 칸, 아니면 "먼저 연결" 안내와 연결 화면(웹으로 열기)·[다시 확인].
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { CollectorView, ConnectionStatus, LinkView, LiveBroadcastItem, RecentChannel, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
+import type { CollectorView, ConnectionStatus, LinkView, LiveBroadcastItem, RecentChannel, RecentTiktok, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../../api/client.ts'
 import { clipboardHasText } from '../../lib/clipboard.ts'
 import { liveLinkOf } from '../../lib/live-link.ts'
@@ -14,9 +14,9 @@ import { BandPostPicker, TiktokConsentCard } from './OtherLinks.tsx'
 import { PasteButton } from '../../native/paste.tsx'
 import { Appear, FormPage, PopNote, PopupDialog, RADIUS, SoftChip, SPACE, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { PlatformIcon } from '../../ui/PlatformIcon.tsx'
-import { ChannelPhoto } from '../../ui/ChannelPhoto.tsx'
+import { ChannelPhoto, useChannelAvatar } from '../../ui/ChannelPhoto.tsx'
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
-import { BackHandler, Platform, View } from 'react-native'
+import { BackHandler, Image, Platform, View } from 'react-native'
 import { useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
 import { EdgeSwipeBack, SlideSwitch } from '../../ui/kit/slide.tsx'
 import { openWeb } from '../../lib/open-web.ts'
@@ -415,6 +415,55 @@ export const RECENT_CHANNELS_TITLE = '최근 연결한 채널'
 export const NO_LIVE_NOW = '지금 라이브가 없어요'
 /** 최근 라이브 줄의 플랫폼 그림 크기 (토스 계좌 줄의 은행 그림처럼 두 줄 높이) */
 const RECENT_ICON = 40
+/** 최근 연결한 채널 줄 수 — 유튜브 채널과 틱톡 계정을 합쳐서 (D-UX4-187 5곳, D-RECENT-TT-01) */
+export const RECENT_ROWS_MAX = 5
+/** 최근 연결한 틱톡 계정 줄의 회색 글 (D-RECENT-TT-01 — 라이브인지는 모른다, [연결]하면 서버가 확인한다) */
+export const RECENT_TIKTOK_SUB = '틱톡'
+/** 틱톡 아이디 (서버 해석과 같은 글자 — 이것만 주소로 만든다) */
+const TIKTOK_ID_RE = /^[a-z0-9._]{2,24}$/
+
+/** 틱톡 계정의 라이브 주소 (D-RECENT-TT-01 — 붙여 넣은 틱톡 링크와 같은 길로 잇는다) */
+export function tiktokLiveUrl(tiktokId: string): string {
+  return `https://www.tiktok.com/@${tiktokId}/live`
+}
+
+/**
+ * 최근 연결한 유튜브 채널·틱톡 계정을 이은 때 차례로 섞는다 (D-RECENT-TT-01): 둘 다 서버가 최근 것부터 준 차례를 지키고,
+ * 틱톡이 더 나중에 이은 것일 때만 앞에 둔다(유튜브 이은 때를 모르는 옛 모양이면 유튜브가 먼저). 합쳐 5줄까지
+ */
+export function mergeRecent<C extends { readonly linkedAt?: string }, T extends { readonly linkedAt: string }>(channels: readonly C[], tiktok: readonly T[], max = RECENT_ROWS_MAX): ({ readonly kind: 'channel'; readonly value: C } | { readonly kind: 'tiktok'; readonly value: T })[] {
+  const out: ({ readonly kind: 'channel'; readonly value: C } | { readonly kind: 'tiktok'; readonly value: T })[] = []
+  let i = 0
+  let j = 0
+  while (out.length < max && (i < channels.length || j < tiktok.length)) {
+    const channel = channels[i]
+    const account = tiktok[j]
+    const channelAt = channel?.linkedAt === undefined ? Number.NaN : Date.parse(channel.linkedAt)
+    const tiktokFirst = account !== undefined && (channel === undefined || (!Number.isNaN(channelAt) && Date.parse(account.linkedAt) > channelAt))
+    if (tiktokFirst) {
+      out.push({ kind: 'tiktok', value: account })
+      j += 1
+    } else if (channel !== undefined) {
+      out.push({ kind: 'channel', value: channel })
+      i += 1
+    }
+  }
+  return out
+}
+
+/** 틱톡 계정 사진 (D-RECENT-TT-01): 서버가 받아 둔 프로필 사진(D-TT-PHOTO-01 같은 경로), 모르면 틱톡 앱 그림 */
+function TiktokPhoto({ broadcastId, size }: { readonly broadcastId: string | null; readonly size: number }) {
+  const avatar = useChannelAvatar(null, broadcastId)
+  return (
+    <View testID="recent-live-avatar" aria-hidden>
+      {avatar !== null ? (
+        <Image testID="recent-tiktok-photo" source={{ uri: avatar }} style={{ width: size, height: size, borderRadius: size / 2, borderCurve: 'continuous' }} />
+      ) : (
+        <PlatformIcon platform="tiktok" size={size} />
+      )}
+    </View>
+  )
+}
 /** 한 줄 글 끝이 흐려지는 폭 */
 const FADE_WIDTH = 36
 
@@ -516,6 +565,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
   /** 최근 연결한 채널 (최근 것이 먼저, D-UX4-187) — 옛 서버면 null(라이브 줄만) */
   const [channels, setChannels] = useState<readonly RecentChannel[] | null>(null)
+  /** 최근 연결한 틱톡 계정 (최근 것이 먼저, D-RECENT-TT-01) — 옛 서버면 빈 목록 */
+  const [tiktok, setTiktok] = useState<readonly RecentTiktok[]>([])
   const [address, setAddress] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -550,10 +601,13 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
     if (!enabled) return
     setRecent(null)
     setChannels(null)
+    setTiktok([])
     try {
-      const { broadcasts, channels: found } = await get<{ broadcasts: LiveBroadcastItem[]; channels?: RecentChannel[] }>('/api/youtube/live-broadcasts')
+      const { broadcasts, channels: found, tiktok: accounts } = await get<{ broadcasts: LiveBroadcastItem[]; channels?: RecentChannel[]; tiktok?: RecentTiktok[] }>('/api/youtube/live-broadcasts')
       setRecent(broadcasts)
       setChannels(Array.isArray(found) ? found : null)
+      // 옛 서버(칸 없음)는 틱톡 줄 없이. 주소로 만들 수 있는 아이디만 (D-RECENT-TT-01)
+      setTiktok(Array.isArray(accounts) ? accounts.filter((row) => typeof row?.tiktokId === 'string' && TIKTOK_ID_RE.test(row.tiktokId) && typeof row.linkedAt === 'string') : [])
     } catch {
       setRecent([])
     }
@@ -689,13 +743,22 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
   const recentTitle = webChat === null ? MY_CHANNEL_TITLE : channels !== null ? RECENT_CHANNELS_TITLE : RECENT_LIVE_TITLE
   // 줄 차례 (D-UX4-187, 사용자 "최근 5군데 채널 다 보여주도록 해. 맨위가 젤 최근으로"): 서버가 준 최근 채널 차례대로 — 라이브·예정이 있으면 그 라이브 줄,
   // 없으면 [연결] 없이 "지금 라이브가 없어요". 옛 서버(채널 목록 없음)면 라이브 줄만
-  const recentRows: readonly ({ readonly kind: 'live'; readonly item: LiveBroadcastItem } | { readonly kind: 'quiet'; readonly channel: RecentChannel })[] =
+  // 최근 연결한 틱톡 계정도 이은 때 차례로 섞는다 (D-RECENT-TT-01, 판매자 "최근 연결한 채널에 틱톡은 없음") — 합쳐 5줄
+  const recentRows: readonly ({ readonly kind: 'live'; readonly item: LiveBroadcastItem } | { readonly kind: 'quiet'; readonly channel: RecentChannel } | { readonly kind: 'tiktok'; readonly account: RecentTiktok })[] =
     channels === null
       ? (recent ?? []).map((item) => ({ kind: 'live' as const, item }))
-      : channels.map((channel) => {
-          const item = channel.videoId === null ? undefined : (recent ?? []).find((row) => row.videoId === channel.videoId)
+      : mergeRecent(channels, tiktok).map((row) => {
+          if (row.kind === 'tiktok') return { kind: 'tiktok' as const, account: row.value }
+          const channel = row.value
+          const item = channel.videoId === null ? undefined : (recent ?? []).find((found) => found.videoId === channel.videoId)
           return item === undefined ? { kind: 'quiet' as const, channel } : { kind: 'live' as const, item }
         })
+  /** 틱톡 줄 [연결]: 그 계정의 라이브 주소를 칸에 넣고 [다음]을 누른 것과 같다 — 동의 안내·옮기기 묻기·못 이은 까닭도 붙여 넣은 링크 그대로 (D-RECENT-TT-01) */
+  const linkTiktok = (tiktokId: string) => {
+    const url = tiktokLiveUrl(tiktokId)
+    edit(url)
+    confirm(url)
+  }
   // [붙여넣기]: 클립보드에 글이 있고 칸이 비었을 때만 (D-UX4-113 — 칸 바로 아래 왼쪽)
   const pasteButton = canPaste && address === '' ? <PasteButton onPaste={paste} /> : null
   const off = busy || disabled === true
@@ -731,6 +794,26 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
               {recentTitle}
             </Txt>
             {recentRows.map((row) => {
+              if (row.kind === 'tiktok') {
+                const account = row.account
+                const tiktokName = `@${account.tiktokId}`
+                const here = account.linkedBroadcast !== null && account.linkedBroadcast === broadcastId
+                const elsewhere = account.linkedBroadcast !== null && !here
+                const tiktokSub = here ? `${RECENT_TIKTOK_SUB} · 이 라이브에 연결돼 있어요` : elsewhere ? `${RECENT_TIKTOK_SUB} · 다른 라이브에 연결돼 있어요` : RECENT_TIKTOK_SUB
+                return (
+                  <View key={`tiktok-${account.tiktokId}`} testID="recent-live" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
+                    <TiktokPhoto broadcastId={account.photoBroadcast} size={RECENT_ICON} />
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <FadeLine text={tiktokName} testID="recent-live-channel" step="bodyLarge" />
+                      <Txt step="body" color="textSub" numberOfLines={1} testID="recent-live-sub">
+                        {tiktokSub}
+                      </Txt>
+                    </View>
+                    {/* 다른 라이브에 이어져 있으면 눌러서 옮길지 묻는다(TIKTOK_ELSEWHERE) — 이 라이브에 이미 이어져 있으면 누를 수 없다 */}
+                    <ConnectButton label={`${tiktokName} 연결`} disabled={off || here} onPress={() => linkTiktok(account.tiktokId)} />
+                  </View>
+                )
+              }
               if (row.kind === 'quiet') {
                 const quietName = channelName(row.channel.channelTitle)
                 return (
