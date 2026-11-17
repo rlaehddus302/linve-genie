@@ -1,4 +1,4 @@
-# OCR 최대 성능 시험(비용 무시): 번호표 탐지(YOLO) → 번호표마다 넉넉히 잘라 크게 키움 → 0°·±15°·±30° 돌려 각각 읽기 → 가장 확신 높은 숫자.
+# OCR 최대 성능 시험(비용 무시): 번호표 찾기(sw/tagbox.Finder, RF-DETR) → 번호표마다 넉넉히 잘라 크게 키움 → 0°·±15°·±30° 돌려 각각 읽기 → 가장 확신 높은 숫자.
 # 기울어진 번호표(보스다육 311을 322·312로 읽음)와 작은 번호표를 겨냥. 기존 화면 읽기(전체 + 가운데 2배)에 더해 쓴다.
 # 결과: <결과 폴더>/screen_max.jsonl — screen.jsonl과 같은 모양 {sec, t:[[번호, x, y, w, h], …]} (기존 읽기 + 번호표 읽기)
 # 사용: python -m sw.ocr_max <결과 폴더(frames/·screen.jsonl)> [가중치]
@@ -32,7 +32,8 @@ def work(args):
     img = Image.open(path).convert("RGB")
     W, H = img.size
     out = []
-    for x1, y1, x2, y2 in boxes:
+    for b in boxes:
+        x1, y1, x2, y2 = b[0] * W, b[1] * H, b[2] * W, b[3] * H
         bw, bh = x2 - x1, y2 - y1
         box = (max(0, int(x1 - bw * .2)), max(0, int(y1 - bh * .2)), min(W, int(x2 + bw * .2)), min(H, int(y2 + bh * .2)))
         crop = img.crop(box)
@@ -47,19 +48,16 @@ def work(args):
 
 def main():
     run = sys.argv[1]
-    w8 = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(__file__), "..", "models", "tag_yolo11n_r2.pt")
-    from ultralytics import YOLO
-    model = YOLO(w8)
+    from . import tagbox
+    finder = tagbox.Finder(sys.argv[2] if len(sys.argv) > 2 else tagbox.MODEL)
     fdir = os.path.join(run, "frames")
     old = {d["sec"]: d["t"] for d in map(json.loads, open(os.path.join(run, "screen.jsonl"), encoding="utf-8"))}
     fs = sorted(f for f in os.listdir(fdir) if f.endswith(".jpg"))
     jobs = []
-    for k in range(0, len(fs), 32):
-        batch = fs[k:k + 32]
-        for f, r in zip(batch, model.predict([os.path.join(fdir, f) for f in batch], imgsz=960, conf=0.25, verbose=False)):
-            jobs.append((os.path.join(fdir, f), r.boxes.xyxy.tolist() if len(r.boxes) else []))
+    for k, f in enumerate(fs):
+        jobs.append((os.path.join(fdir, f), finder.boxes(os.path.join(fdir, f))))
         if k % 1600 == 0:
-            print("탐지", k, "/", len(fs), flush=True)
+            print("찾기", k, "/", len(fs), flush=True)
     with Pool(8) as p, open(os.path.join(run, "screen_max.jsonl"), "w", encoding="utf-8") as o:
         for (path, _), extra in zip(jobs, p.imap(work, jobs, chunksize=8)):
             sec = int(os.path.basename(path)[:6])

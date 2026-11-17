@@ -103,9 +103,6 @@ typer==0.28.0
 typing-extensions==4.16.0
 typing-inspection==0.4.5
 tzdata==2026.6
-ultralytics==8.4.208
-ultralytics-platform==0.1.107
-ultralytics-thop==2.2.5
 urllib3==2.8.0
 uvicorn==0.54.0
 websockets==17.4

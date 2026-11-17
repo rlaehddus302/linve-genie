@@ -41,6 +41,19 @@ def test_margin_covers_digit_at_box_edge():
 
 
 def test_default_model_is_shipped():
-    # 일꾼은 저장소의 r3 가중치를 바로 쓴다(맥 미니 작업 폴더는 git pull로만 바뀜)
+    # 일꾼은 저장소의 RF-DETR(ONNX) 가중치를 바로 쓴다(맥 미니 작업 폴더는 git pull로만 바뀜). YOLO(AGPL) 가중치는 저장소에 없다 (D-SCR-TAG-02)
     import os
-    assert T.MODEL.endswith("tag_yolo11n_r3.pt") and os.path.getsize(T.MODEL) > 1_000_000
+    assert T.MODEL.endswith("tag_rfdetr_nano.onnx") and os.path.getsize(T.MODEL) > 1_000_000
+    models = os.path.dirname(T.MODEL)
+    assert not [f for f in os.listdir(models) if "yolo" in f.lower()]
+
+
+def test_decode_rfdetr_output():
+    import numpy as np
+    dets = np.array([[0.5, 0.5, 0.2, 0.1], [0.1, 0.9, 0.3, 0.3], [0.7, 0.2, 0.1, 0.1]], dtype=np.float32)   # 가운데 x·y, 너비·높이
+    logits = np.array([[-5.0, 2.0], [-5.0, -3.0], [1.0, -6.0]], dtype=np.float32)                         # 갈래마다 따로 sigmoid
+    out = T.decode(dets, logits, conf=0.3)
+    assert [b[:4] for b in out] == [[0.4, 0.45, 0.6, 0.55], [0.65, 0.15, 0.75, 0.25]]                   # 확신 큰 것부터, 0.3 이하 버림
+    assert out[0][4] > out[1][4] > 0.3
+    edge = T.decode(np.array([[0.05, 0.98, 0.2, 0.1]], dtype=np.float32), np.array([[3.0, 0.0]], dtype=np.float32))
+    assert edge[0][:4] == [0.0, 0.93, 0.15, 1.0]                                                            # 화면 밖은 0~1로 자름

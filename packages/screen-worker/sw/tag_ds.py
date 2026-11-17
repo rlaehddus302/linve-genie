@@ -1,26 +1,29 @@
-# 번호표 찾기 모델 미세조정 자료(YOLO 형식, D-SCR-TAG-01). 사람이 붙인 정답이 없어 일꾼 기록으로 근사 정답을 만든다.
+# 번호표 찾기 모델 미세조정 자료(RF-DETR이 읽는 COCO 형식, D-SCR-TAG-01·02). 사람이 붙인 정답이 없어 일꾼 기록으로 근사 정답을 만든다.
 #  - 진짜 번호표 글자: 그 번호가 이 방송에 등록됐고(post.jsonl, 상품 목록이 있으면 그 목록) 그 장면 앞뒤 60초 안에 판매자가 "N번"이라 말한 숫자
-#  - 정답 네모: 기존 모델(r2)이 확신 0.5 넘게 찾은 네모 + 진짜 글자인데 r2 네모 밖이면 글자 네모를 번호표 크기로 넓힌 네모
-#  - 장면을 버리는 경우(정답이 흐려지므로): r2 네모가 0.25~0.5 사이, 또는 어느 네모에도 없고 진짜도 아닌데 등록된 번호(또는 그 일부)인 글자
+#  - 정답 네모: 씨앗 모델(SEED_MODEL, 기본은 지금 일꾼 모델 models/tag_rfdetr_nano.onnx)이 확신 0.5 넘게 찾은 네모
+#    + 진짜 글자인데 그 네모 밖이면 글자 네모를 번호표 크기로 넓힌 네모
+#  - 장면을 버리는 경우(정답이 흐려지므로): 씨앗 모델 네모가 0.25~0.5 사이, 또는 어느 네모에도 없고 진짜도 아닌데 등록된 번호(또는 그 일부)인 글자
 #  - 번호표 아닌 숫자만 있는 장면(줄자 눈금 등 — 등록된 적 없는 번호)은 네모 없는 장면으로 넣는다
 #  - 같은 번호를 두 번 읽어 겹친 네모(IoU 0.5 넘음)는 하나로
 #  - 저장소에는 장면·정답을 넣지 않는다(손님 닉네임이 화면에 섞임) — 결과 폴더는 저장소 밖에
-#   python -m sw.tag_ds <out> <every> <run:split[:truth.json]> ...   (split = train | val | auto(뒤 20%를 val))
-#   r3(2026-11-17): every 3, EXP_W=1.45 EXP_H=1.9, NOT_TAGS="@bit_succulent_farm-20261116_213923=9,567",
+#   python -m sw.tag_ds <out> <every> <run:split[:truth.json]> ...   (split = train | valid | auto(뒤 20%를 valid))
+#   → <out>/train·valid·test/_annotations.coco.json + 장면 링크(test는 valid 앞 200장 — 학습 중 시험은 끄고 자료 모양만 맞춤)
+#   첫 RF-DETR(2026-11-17)의 자료는 같은 규칙으로 r2(YOLO, 이전 씨앗)에서 만들었다: every 3, EXP_W=1.45 EXP_H=1.9, NOT_TAGS="@bit_succulent_farm-20261116_213923=9,567",
 #     @bit_succulent_farm-20261116_213923 · Gqsa7bYIhOc-20261113_085837 · mo9alKLVEUI-20261113_125904 (auto)
 #     xhv-E5HEWUw-20261112_115053 · _131840 · _111346 (auto, 정답 ~/lg/bench/20261112/products.json)
 import json, os, random, sys
-from ultralytics import YOLO
+
+from PIL import Image
+
+from . import tagbox
 
 random.seed(11)
 out, every = sys.argv[1], int(sys.argv[2])
 root = os.path.expanduser(os.environ.get("LG_RUNS", "~/lg/runs/live"))
-m = YOLO(os.path.join(os.path.dirname(__file__), "..", "models", "tag_yolo11n_r2.pt"))
+seed = tagbox.Finder(os.environ.get("SEED_MODEL", tagbox.MODEL), conf=0.25)
 EXP_W, EXP_H = float(os.environ.get("EXP_W", 1.35)), float(os.environ.get("EXP_H", 1.7))
 stats = {}
-for split in ("train", "val"):
-    os.makedirs(os.path.join(out, "images", split), exist_ok=True)
-    os.makedirs(os.path.join(out, "labels", split), exist_ok=True)
+sets = {"train": [], "valid": []}                      # [(장면 이름, 원본 경로, 네모들)]
 
 
 def iou(a, b):
@@ -41,6 +44,8 @@ for spec in sys.argv[3:]:
     name, split, *tf = spec.split(":")
     run = os.path.join(root, name)
     rows = [json.loads(l) for l in open(os.path.join(run, "screen.jsonl"))]
+    for r in rows:                                     # 번호표 거르기가 켜진 뒤의 기록은 버린 숫자(off)까지 모두
+        r["t"] = r["t"] + r.get("off", [])
     base = min(r["sec"] for r in rows)
     if tf:
         reg = {p["no"] for p in json.load(open(os.path.expanduser(tf[0])))["products"] if p["phase"] != "CLOSED"}
@@ -63,13 +68,11 @@ for spec in sys.argv[3:]:
     rows = [r for r in rows if r["t"]] + random.sample([r for r in rows if not r["t"]], min(len([r for r in rows if not r["t"]]) // (every * 10), 200))
     cut = sorted(r["sec"] for r in rows)[int(len(rows) * 0.8)]
     for r in sorted(rows, key=lambda r: r["sec"])[::every]:
-        sp = split if split != "auto" else ("val" if r["sec"] >= cut else "train")
+        sp = split if split != "auto" else ("valid" if r["sec"] >= cut else "train")
         f = os.path.join(run, "frames", "%06d.jpg" % (r["sec"] - base))
         if not os.path.exists(f):
             continue
-        res = m.predict(f, imgsz=960, conf=0.25, verbose=False, device="cpu")[0]
-        H, W = res.orig_shape
-        yb = [[x1 / W, y1 / H, x2 / W, y2 / H, c] for (x1, y1, x2, y2), c in zip(res.boxes.xyxy.tolist(), res.boxes.conf.tolist())]
+        yb = seed.boxes(f)
         if any(b[4] < 0.5 for b in yb):
             st["skip"] += 1
             continue
@@ -94,16 +97,26 @@ for spec in sys.argv[3:]:
             if all(iou(b, u) <= 0.5 for u in uniq):
                 uniq.append(b)
         boxes = uniq
-        key = "%s_%06d" % (name.replace("@", ""), r["sec"])
-        dst = os.path.join(out, "images", sp, key + ".jpg")
-        if not os.path.exists(dst):
-            os.symlink(f, dst)
-        with open(os.path.join(out, "labels", sp, key + ".txt"), "w") as o:
-            for x1, y1, x2, y2 in boxes:
-                o.write("0 %.5f %.5f %.5f %.5f\n" % ((x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1))
+        sets[sp].append(("%s_%06d.jpg" % (name.replace("@", ""), r["sec"]), f, boxes))
         st["pos" if boxes else "neg"] += 1
         st["boxes"] += len(boxes)
     stats[name] = st
     print(name, split, st, flush=True)
+sets["test"] = sets["valid"][:200]
+for sp, items in sets.items():
+    d = os.path.join(out, sp)
+    os.makedirs(d, exist_ok=True)
+    images, anns = [], []
+    for i, (fn, f, boxes) in enumerate(items):
+        if not os.path.exists(os.path.join(d, fn)):
+            os.symlink(f, os.path.join(d, fn))
+        W, H = Image.open(f).size
+        images.append({"id": i, "file_name": fn, "width": W, "height": H})
+        for x1, y1, x2, y2 in boxes:
+            bw, bh = (x2 - x1) * W, (y2 - y1) * H
+            anns.append({"id": len(anns), "image_id": i, "category_id": 1, "bbox": [x1 * W, y1 * H, bw, bh], "area": bw * bh, "iscrowd": 0})
+    json.dump({"info": {}, "licenses": [], "images": images, "annotations": anns,
+               "categories": [{"id": 0, "name": "tags", "supercategory": "none"}, {"id": 1, "name": "tag", "supercategory": "tags"}]},
+              open(os.path.join(d, "_annotations.coco.json"), "w"))
+    print(sp, len(images), "장", len(anns), "네모", flush=True)
 json.dump(stats, open(os.path.join(out, "stats.json"), "w"), indent=1)
-open(os.path.join(out, "data.yaml"), "w").write("path: %s\ntrain: images/train\nval: images/val\nnames:\n  0: tag\n" % out)
