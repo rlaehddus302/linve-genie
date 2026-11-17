@@ -7,6 +7,7 @@ import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { LABEL_GROUP_DONE, LABEL_WAITING, labelRows } from '../src/screens/console/LabelBoard.tsx'
 import { LINE_TAB_BAR, LINE_TAB_HEIGHT, LINE_TABS_TOP } from '../src/ui/kit/index.ts'
+import { barStart } from '../src/ui/kit/line-tabs.tsx'
 import { SPACE, TYPE } from '../src/ui/kit/tokens.ts'
 import { makeWorld } from './screen-support.tsx'
 import { buyer, changes, claim, flush, product } from './support.ts'
@@ -111,6 +112,30 @@ describe('탭 바 치수 (D-TABS-03, 토스 거래 내역 사진 재기)', () =>
     const tab = await screen.findByRole('button', { name: '상품' })
     expect(getComputedStyle(within(tab).getByText(/^상품/)).fontSize).toBe(`${String(TYPE.body)}px`)
     expect(getComputedStyle(within(tab).getByTestId('line-tab-bar')).height).toBe('2px')
+    world.services.labels.stop()
+  }, SLOW)
+})
+
+// D-TABS-04 (사용자 "탭 전환할 때 탭 아래 검정 선이 좌우로 움직이는 애니메이션"): 새 탭 밑줄은 옛 밑줄 가운데·폭에서 시작해 제자리로
+describe('탭 밑줄 미끄러짐 (D-TABS-04)', () => {
+  it('옛 탭 가운데까지 옮기고 옛 폭 비율로 늘여 시작한다', () => {
+    // 옛 탭 0~100(가운데 50), 새 탭 120~180(가운데 150, 폭 60)
+    expect(barStart({ x: 0, width: 100 }, { x: 120, width: 60 })).toEqual({ shift: -100, stretch: 100 / 60 })
+    // 오른쪽에서 왼쪽으로
+    expect(barStart({ x: 120, width: 60 }, { x: 0, width: 100 })).toEqual({ shift: 100, stretch: 0.6 })
+  })
+  it('처음 그릴 때·같은 자리·폭이 0이면 움직이지 않는다', () => {
+    expect(barStart(null, { x: 0, width: 100 })).toBeNull()
+    expect(barStart({ x: 10, width: 50 }, { x: 10, width: 50 })).toBeNull()
+    expect(barStart({ x: 10, width: 50 }, { x: 80, width: 0 })).toBeNull()
+  })
+  it('탭을 바꿔도 밑줄은 고른 탭 안에 하나', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    await open(world, true)
+    fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
+    await waitFor(() => expect(within(screen.getByRole('button', { name: '찜 기록' })).getByTestId('line-tab-bar')).toBeTruthy())
+    expect(screen.getAllByTestId('line-tab-bar')).toHaveLength(1)
+    expect(within(screen.getByRole('button', { name: '상품' })).queryByTestId('line-tab-bar')).toBeNull()
     world.services.labels.stop()
   }, SLOW)
 })
