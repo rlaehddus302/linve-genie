@@ -36,8 +36,9 @@ const LOT_JOINED = /^[가-힣]*[가-힣](동|리|가)\d+(-\d+)?(번지)?$/
 const NUMBER = /^(산\s?)?\d{1,5}(-\d{1,5})?(번지)?$/
 const PHONE = /01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}/
 const FILLER =
-  /^(안녕하세요|안녕하세용|감사합니다|감사해요|고맙습니다|입니다|이에요|예요|부탁드려요|부탁드립니다|부탁해요|보내주세요|보내드려요|주세요|사장님|님|네|넵|저는|제|저|입금했어요|입금했습니다|입금완료|아까|방금|찜한|찜했던|주문한|구매한|산|그리고|이랑)$/
-const WORD_TAIL = /(입니다|이에요|예요|이요|입니당|이용|이고요|이구요|이고)$/
+  /^(안녕하세요|안녕하세용|감사합니다|감사해요|고맙습니다|입니다|이에요|예요|부탁드려요|부탁드립니다|부탁해요|보내주세요|보내드려요|주세요|사장님|님|네|넵|저는|제|저|입금했어요|입금했습니다|입금완료|아까|방금|찜한|찜했던|주문한|구매한|산|그리고|이랑|에요|수고|수고하세요|수고하세용|수고하세욥|수고하셨어요|수고하셨습니다|하세요|하세용|하세욥|잘|닉네임|닉|이름|성함|입금자)$/
+// "도도에요"·"도도예용"처럼 이름 뒤에 붙인 말 (D-NICKSMS-01 — 손님이 닉네임만 보낼 때 흔한 꼴)
+const WORD_TAIL = /(입니다요|입니다|입니당|이에요|이에용|이예요|예요|예용|에요|에용|이요|이용|이고요|이구요|이고|임다)$/
 const NOISE_TAIL = /[!~.^ㅎㅋㅠㅜ]+$/
 /** 문자 꾸밈 그림(이모지)은 빈칸으로 */
 const EMOJI = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu
@@ -232,9 +233,55 @@ export function readBuyerInfo(input: string): BuyerInfoText | null {
   }
 }
 
-/** 이름 맞추기용 다듬기: NFC, 영문 소문자, 빈칸·`@` 지움 */
+/**
+ * 이름 맞추기용 다듬기: NFKC(넓은 글자를 보통 글자로), 영문 소문자, 글자·숫자가 아닌 것(빈칸·`@`·`~`·`♡`·이모지 같은 꾸밈)을 지운다.
+ * 닉네임 "도도~♡"과 손님 문자 "도도입니다"의 "도도"가 같다 (D-NICKSMS-01)
+ */
 export function matchKey(value: string): string {
-  return value.normalize('NFC').toLowerCase().replace(/[\s@]/g, '')
+  return value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
+}
+
+/** 성 + 두 글자(또는 두 글자 성 + 두 글자) 사람 이름 모양이면 빈칸을 뗀 이름, 아니면 null ("김 명희" → "김명희") */
+export const fullName = (value: string): string | null => personName(value.replace(/\s/g, ''))
+
+/** 닉네임만 온 문자 (D-NICKSMS-01) */
+export interface NicknameText {
+  /** 닉네임·이름 후보 낱말 (인사말·"입니다"를 뗀, 많아야 둘) */
+  readonly tokens: readonly string[]
+  /** 둘이면 붙여 읽은 것("다육 사랑") */
+  readonly joined: string | null
+  /** 글 속 휴대폰 번호 (숫자만) */
+  readonly phone: string | null
+}
+
+/** 닉네임만 온 문자로 볼 글 길이 상한 (그보다 길면 잡담) */
+const NICK_ONLY_MAX = 40
+
+/**
+ * 주소 없이 닉네임(과 이름·번호)만 온 짧은 문자 읽기 (D-NICKSMS-01): "평온하게 입니다", "도도입니다", "홍지연", "닉네임 도도 / 010-…".
+ * 물음표·번호 아닌 숫자(찜 번호·번지)가 들었거나, 인사말을 뺀 낱말이 없거나 셋 이상이면 null — 잡담·찜을 닉네임으로 읽지 않게.
+ * 닉네임이 맞는지는 서비스가 7일 안 손님과 맞춰 본다(하나일 때만 넣는다)
+ */
+export function readNicknameOnly(input: string): NicknameText | null {
+  const text = input.normalize('NFC').replace(EMOJI, ' ')
+  if ([...clean(text)].length > NICK_ONLY_MAX || /[?？]/.test(text)) return null
+  const phoneMatch = PHONE.exec(text)
+  const rest = text.replace(PHONE, ' ')
+  if (/\d/.test(rest)) return null
+  const tokens: string[] = []
+  for (const raw of rest.split(/[\n\r/|,，]+/)) {
+    const piece = clean(raw)
+    if (piece === '') continue
+    const labeled = labelOf(piece)
+    if (labeled !== null && labeled.label !== 'nickname' && labeled.label !== 'name') return null
+    for (const token of (labeled?.value ?? piece).split(' ')) {
+      const word = token === '' ? null : wordOf(token)
+      if (word !== null) tokens.push(word)
+    }
+  }
+  if (tokens.length === 0 || tokens.length > 2) return null
+  const phone = phoneMatch === null ? null : phoneMatch[0].replace(/\D/g, '')
+  return { tokens, joined: tokens.length === 2 ? tokens.join(' ') : null, phone: phone !== null && /^01\d{8,9}$/.test(phone) ? phone : null }
 }
 
 /** 한국 사람 이름 모양 (한글 2~5자) */

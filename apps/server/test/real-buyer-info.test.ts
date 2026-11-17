@@ -2,7 +2,7 @@
 // 하나면 번호·"확인 전" 손님 배송지로 바로 넣고, 아니면 카드로 판매자가 고른다. 본문·번호·주소는 DB에 원문으로 없다.
 import { describe, expect, it } from 'vitest'
 import { BUYER_INFO_MESSAGES, type BuyerInfoCardView } from '../src/inbox/buyer-info-service.ts'
-import { readBuyerInfo } from '../src/inbox/buyer-info.ts'
+import { matchKey, readBuyerInfo, readNicknameOnly } from '../src/inbox/buyer-info.ts'
 import { chat } from './i2-support.ts'
 import { SMS3_DAY, inboxWorld, liveSale, sms, statuses } from './sms3-support.ts'
 import { client, dumpAllTables, expectOk, rid, writeEvent, type Seller, type TestServer } from './support.ts'
@@ -183,5 +183,100 @@ describe('ORD-14 손님 정보 문자 받기', () => {
     const { world, seller, token } = await inboxWorld()
     await setup(world, seller)
     expect(await statuses(world, token, [sms('i1', '010-8888-9999', '사장님 감사합니다')])).toEqual(['IGNORED'])
+  })
+})
+
+// 닉네임만 온 문자 (D-NICKSMS-01, 2026-11-17 비트다육 안드로이드 — "평온하게 입니다"·"도도입니다"·"홍지연"이 주소가 없어 IGNORED였고,
+// 닉네임 "도도~♡"는 꾸밈 글자 때문에 "도도"와 맞지 않았다. 주소 문자도 "김 명희 … 수고 하세욥"·닉네임이 곧 실명인 "홍지연"은 받는 분을 못 읽어 카드로 남았다)
+describe('D-NICKSMS-01 닉네임만 온 문자 읽기', () => {
+  it('인사말·"입니다"를 떼고 낱말 하나나 둘, 번호는 따로', () => {
+    expect(readNicknameOnly('평온하게 입니다')).toEqual({ tokens: ['평온하게'], joined: null, phone: null })
+    expect(readNicknameOnly('도도입니다')?.tokens).toEqual(['도도'])
+    expect(readNicknameOnly('홍지연')?.tokens).toEqual(['홍지연'])
+    expect(readNicknameOnly('안녕하세요 사장님~ 도도에요ㅎㅎ')?.tokens).toEqual(['도도'])
+    expect(readNicknameOnly('닉네임 : 다육 사랑')).toEqual({ tokens: ['다육', '사랑'], joined: '다육 사랑', phone: null })
+    expect(readNicknameOnly('도도 / 010-1234-5678')).toEqual({ tokens: ['도도'], joined: null, phone: '01012345678' })
+  })
+
+  it('찜·번지·물음표·긴 잡담·인사말뿐인 문자는 아니다', () => {
+    for (const text of ['15번 주세요', '역삼동 5번', '나래 언제 와?', '오늘 라이브 몇 시에 해요', '사장님 감사합니다', '네', '수고하세요', '주소 서울']) expect(readNicknameOnly(text), text).toBeNull()
+  })
+
+  it('닉네임 꾸밈 글자(~·♡·이모지·빈칸·넓은 글자)는 맞추기에서 보지 않는다', () => {
+    expect(matchKey('도도~♡')).toBe(matchKey('도도'))
+    expect(matchKey('🌵 초록 이 🌵')).toBe(matchKey('초록이'))
+    expect(matchKey('ＡＢＣ')).toBe(matchKey('abc'))
+    expect(matchKey('도도~♡')).not.toBe(matchKey('도도맘'))
+  })
+})
+
+describe('D-NICKSMS-01 닉네임만 온 문자 받기', () => {
+  async function tiktokDay(world: TestServer, seller: Seller): Promise<string> {
+    const sale = await liveSale(world, seller, [1, 2, 3, 4, 5, 6])
+    await chat(world, seller, sale.id, 'm1', 'UC_CALM', '평온하게', '1')
+    await chat(world, seller, sale.id, 'm2', 'UC_DODO', '도도~♡', '2')
+    await chat(world, seller, sale.id, 'm3', 'UC_HONG', '홍지연', '3')
+    await chat(world, seller, sale.id, 'm4', 'UC_GREEN1', '초록이', '4')
+    await chat(world, seller, sale.id, 'm5', 'UC_GREEN2', '초록이', '5')
+    await expectOk(client(world, seller.cookie).post(`/api/broadcasts/${sale.id}/end`, { requestId: rid('end') }))
+    world.clock.advance(60 * 60_000)
+    return sale.id
+  }
+  const phoneOf = async (world: TestServer, seller: Seller, buyer: string) =>
+    ((await expectOk(client(world, seller.cookie).post(`/api/days/${SMS3_DAY}/receipt-sms/prepare`, { requestId: rid('rs'), buyer }))).body.sms as { phone: string }).phone
+
+  it('방송 뒤 "평온하게 입니다"·"도도입니다"(닉네임 도도~♡)·"홍지연": 그 손님 번호로 기억하고 "넣었어요" 카드. 원문은 DB에 없다', async () => {
+    const { world, seller, token } = await inboxWorld()
+    await tiktokDay(world, seller)
+    expect(await statuses(world, token, [sms('i1', '010-1111-2222', '평온하게 입니다'), sms('i2', '010-3333-4444', '도도입니다'), sms('i3', '010-5555-6666', '홍지연')])).toEqual(['SAVED', 'SAVED', 'SAVED'])
+    const { cards } = await list(world, seller)
+    expect(cards.map((card) => [card.applied?.buyer, card.status, card.auto, card.message]).sort()).toEqual([
+      ['UC_CALM', 'APPLIED', true, BUYER_INFO_MESSAGES.PHONE_SAVED],
+      ['UC_DODO', 'APPLIED', true, BUYER_INFO_MESSAGES.PHONE_SAVED],
+      ['UC_HONG', 'APPLIED', true, BUYER_INFO_MESSAGES.PHONE_SAVED],
+    ])
+    expect(cards.every((card) => card.address === '' && card.detail === '')).toBe(true)
+    expect(await phoneOf(world, seller, 'UC_CALM')).toBe('01011112222')
+    expect(await phoneOf(world, seller, 'UC_DODO')).toBe('01033334444')
+    expect(await phoneOf(world, seller, 'UC_HONG')).toBe('01055556666')
+    const dump = await dumpAllTables(world.database)
+    for (const raw of ['01011112222', '010-1111-2222', '평온하게 입니다', '도도입니다']) expect(dump).not.toContain(raw)
+  })
+
+  it('맞는 손님이 여럿·없음·다른 손님 번호·잡담 낱말이면 넣지 않는다(IGNORED, 카드 없음). 적어 둔 번호는 덮지 않는다', async () => {
+    const { world, seller, token } = await inboxWorld()
+    await tiktokDay(world, seller)
+    expect(await statuses(world, token, [sms('i1', '010-1111-2222', '초록이입니다'), sms('i2', '010-1111-2223', '모르는닉'), sms('i3', '010-1111-2224', '도도 언제와')])).toEqual(['IGNORED', 'IGNORED', 'IGNORED'])
+    expect((await list(world, seller)).cards).toEqual([])
+    // 이 번호는 평온하게 손님 번호가 됐다 → 같은 번호로 "도도입니다"가 와도 도도~♡ 손님에 넣지 않는다
+    expect(await statuses(world, token, [sms('i4', '010-7777-8888', '평온하게')])).toEqual(['SAVED'])
+    expect(await statuses(world, token, [sms('i5', '010-7777-8888', '도도입니다')])).toEqual(['IGNORED'])
+    // 다른 번호로 또 "평온하게": 처음 번호를 그대로 둔다
+    expect(await statuses(world, token, [sms('i6', '010-9999-0000', '평온하게 입니다')])).toEqual(['SAVED'])
+    expect((await list(world, seller)).cards.find((card) => card.last4 === '0000')?.message).toBe(BUYER_INFO_MESSAGES.PHONE_KEPT)
+    expect(await phoneOf(world, seller, 'UC_CALM')).toBe('01077778888')
+  })
+
+  it('닉네임 + 실명("도도 김하나")도 받고, 방송 중에도 찜이 아니면 받는다', async () => {
+    const { world, seller, token } = await inboxWorld()
+    const sale = await liveSale(world, seller, [1, 2])
+    await chat(world, seller, sale.id, 'm1', 'UC_DODO', '도도~♡', '1')
+    expect(await statuses(world, token, [sms('i1', '010-1212-3434', '도도 김하나')])).toEqual(['SAVED'])
+    expect((await list(world, seller)).cards[0]).toMatchObject({ status: 'APPLIED', name: '김하나', applied: { buyer: 'UC_DODO' } })
+    // 찜 문자는 그대로 찜
+    expect(await statuses(world, token, [sms('i2', '010-1212-3434', '2번 주세요')])).toEqual(['SAVED'])
+  })
+
+  it('주소 문자 받는 분: "김 명희 … 수고 하세욥"은 김명희, 닉네임이 곧 실명이면 그 이름 — 바로 넣는다("확인 전")', async () => {
+    const { world, seller, token } = await inboxWorld()
+    await tiktokDay(world, seller)
+    expect(await statuses(world, token, [sms('i1', '010-5555-6666', '홍지연 010-5555-6666\n부산 부산진구 가야대로 100 2층')])).toEqual(['SAVED'])
+    expect(await statuses(world, token, [sms('i2', '010-1111-2222', '평온하게 / 김 명희 / 인천 남동구 남동대로 215 101호 / 수고 하세욥')])).toEqual(['SAVED'])
+    const { cards } = await list(world, seller)
+    expect(cards.map((card) => [card.applied?.buyer, card.status, card.name]).sort()).toEqual([
+      ['UC_CALM', 'APPLIED', '김명희'],
+      ['UC_HONG', 'APPLIED', '홍지연'],
+    ])
+    expect((await bundle(world, seller, 'UC_HONG')).address).toMatchObject({ name: '홍지연', address: '부산 부산진구 가야대로 100', detail: '2층', confirmed: false })
   })
 })

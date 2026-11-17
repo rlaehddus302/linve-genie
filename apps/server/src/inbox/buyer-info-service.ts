@@ -15,7 +15,7 @@ import { manualPhoneKey, type ReceiptSmsService } from '../receipt-sms.ts'
 import { openSellerText, sealSellerText } from '../secrets.ts'
 import { kstDate, type Clock } from '../time.ts'
 import type { ScopeWriter } from '../writer.ts'
-import { looksLikeName, matchKey, readBuyerInfo, type BuyerInfoText } from './buyer-info.ts'
+import { fullName, looksLikeName, matchKey, readBuyerInfo, readNicknameOnly, type BuyerInfoText, type NicknameText } from './buyer-info.ts'
 
 const SEAL_PURPOSE = 'buyer-info-card'
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -31,6 +31,8 @@ export const BUYER_INFO_MESSAGES = {
   KEPT: '이미 적은 배송지가 있어 배송지는 그대로 뒀어요.',
   REFUSED: '접수했거나 직접 수령·합배송인 손님이라 배송지는 넣지 않았어요.',
   NO_PHONE: '연락처를 몰라 배송지는 넣지 않았어요.',
+  PHONE_SAVED: '휴대폰 번호를 넣었어요. 이제 정산서를 문자로 보낼 수 있어요.',
+  PHONE_KEPT: '이미 적어 둔 번호가 있어 번호는 그대로 뒀어요.',
   NO_MATCH: '어느 손님인지 찾지 못했어요. 손님을 골라 주세요.',
   MANY: '맞는 손님이 여럿이에요. 손님을 골라 주세요.',
   NO_NAME: '받는 분 이름을 읽지 못했어요. 이름을 적어 주세요.',
@@ -40,7 +42,7 @@ export const BUYER_INFO_MESSAGES = {
   buyerGone: '그 손님을 찾지 못했어요. 다시 골라 주세요.',
 } as const
 
-type Note = 'SAVED' | 'KEPT' | 'REFUSED' | 'NO_PHONE'
+type Note = 'SAVED' | 'KEPT' | 'REFUSED' | 'NO_PHONE' | 'PHONE_SAVED' | 'PHONE_KEPT'
 type Why = 'NO_MATCH' | 'MANY' | 'NO_NAME' | 'INVALID'
 
 export interface BuyerChoice {
@@ -106,6 +108,7 @@ export interface ApplyInput {
 
 interface Candidate extends BuyerChoice {
   readonly byPhone: boolean
+  readonly byName: boolean
   readonly names: readonly string[]
 }
 
@@ -157,17 +160,25 @@ export class BuyerInfoService {
         const byPhone = (phoneKey !== null && keys.includes(phoneKey)) || [manualPhoneKey(date, row.buyer), ...keys].some((key) => known.has(key))
         const names = row.names.map(matchKey).filter((key) => key !== '')
         const byName = names.some((name) => tokens.has(name))
-        if (byPhone || byName) out.set(row.buyer, { date, buyer: row.buyer, label: row.label, byPhone, names })
+        if (byPhone || byName) out.set(row.buyer, { date, buyer: row.buyer, label: row.label, byPhone, byName, names })
       }
     }
     return [...out.values()]
   }
 
-  /** 받는 분 이름: 꼬리표로 적은 이름, 없으면 그 손님 닉네임과 다른 한글 이름 모양 조각이 하나일 때 */
+  /**
+   * 받는 분 이름: 꼬리표로 적은 이름. 없으면 (가) 닉네임과 다른 "성 + 두 글자" 이름이 하나 ("김 명희 … 수고 하세욥" → 김명희)
+   * (나) 그런 이름이 없고 닉네임 자체가 "성 + 두 글자" 이름 하나 (닉네임이 실명인 손님 "홍지연") (다) 닉네임과 다른 한글 이름 모양 조각이 하나.
+   * 넣은 배송지는 "확인 전"이라 판매자가 확인해야 접수된다 (D-NICKSMS-01)
+   */
   static #nameFor(info: BuyerInfoText, candidate: Candidate | null): string | null {
     if (info.name !== null) return info.name
     const nick = new Set(candidate?.names ?? [])
     if (info.nickname !== null) nick.add(matchKey(info.nickname))
+    const full = [...new Set(info.words.map(fullName).filter((word): word is string => word !== null))]
+    const fullOther = full.filter((word) => !nick.has(matchKey(word)))
+    if (fullOther.length === 1) return fullOther[0] as string
+    if (fullOther.length === 0 && full.length === 1) return full[0] as string
     const names = [...new Set(info.words.filter((word) => looksLikeName(word) && !nick.has(matchKey(word))))]
     return names.length === 1 ? (names[0] as string) : null
   }
@@ -178,7 +189,10 @@ export class BuyerInfoService {
    */
   async receive(sellerId: string, input: { readonly text: string; readonly sender: string | null; readonly receivedMs: number; readonly nowMs: number }): Promise<boolean> {
     const info = readBuyerInfo(input.text)
-    if (info === null) return false
+    if (info === null) {
+      const nick = readNicknameOnly(input.text)
+      return nick === null ? false : this.#receiveNickname(sellerId, nick, input)
+    }
     const sender = input.sender === null ? null : normalizePhone(input.sender)
     const candidates = await this.#match(sellerId, info, sender, input.nowMs)
     const byPhone = candidates.filter((c) => c.byPhone)
@@ -211,6 +225,46 @@ export class BuyerInfoService {
       receivedAt: new Date(input.receivedMs),
       createdAt: new Date(input.nowMs),
       handledAt: status === 'APPLIED' ? new Date(input.nowMs) : null,
+    })
+    this.#deps.publish(sellerId)
+    return true
+  }
+
+  /**
+   * 닉네임만 온 문자 (D-NICKSMS-01): 번호를 모르는 손님이 "평온하게 입니다"처럼 닉네임만 보내면 그 번호를 그 손님 번호로 기억한다(정산서 문자).
+   * 닉네임·이름으로 맞는 손님이 딱 하나이고, 보낸 번호가 다른 손님 번호가 아니고, 남은 낱말이 그 손님 이름이거나 사람 이름 모양일 때만 —
+   * 아니면 false(지금 그대로 IGNORED, 카드 없음 — 잡담·개인 문자를 카드로 쌓지 않는다). 넣었으면 "넣었어요" 카드(배송지 없음)
+   */
+  async #receiveNickname(sellerId: string, nick: NicknameText, input: { readonly text: string; readonly sender: string | null; readonly receivedMs: number; readonly nowMs: number }): Promise<boolean> {
+    const sender = input.sender === null ? null : normalizePhone(input.sender)
+    const phone = sender ?? nick.phone
+    if (phone === null) return false
+    const info: BuyerInfoText = { nickname: null, name: null, words: nick.joined === null ? nick.tokens : [nick.joined, ...nick.tokens], phone: nick.phone, address: '', detail: '' }
+    const candidates = await this.#match(sellerId, info, sender, input.nowMs)
+    const byName = candidates.filter((c) => c.byName)
+    if (byName.length !== 1) return false
+    const chosen = byName[0] as Candidate
+    if (candidates.some((c) => c.byPhone && c.buyer !== chosen.buyer)) return false
+    const names = new Set(chosen.names)
+    const fits = (nick.joined !== null && names.has(matchKey(nick.joined))) || nick.tokens.every((token) => names.has(matchKey(token)) || fullName(token) !== null)
+    if (!fits) return false
+    const saved = await this.#deps.receiptSms.rememberIfNone(sellerId, manualPhoneKey(chosen.date, chosen.buyer), phone)
+    const note: Note = saved || chosen.byPhone ? 'PHONE_SAVED' : 'PHONE_KEPT'
+    const applied = { date: chosen.date, buyer: chosen.buyer, label: chosen.label }
+    const name = nick.tokens.map(fullName).find((word): word is string => word !== null && !names.has(matchKey(word))) ?? null
+    await this.#deps.db.insert(buyerInfoCards).values({
+      id: `bi_${randomUUID()}`,
+      sellerId,
+      status: 'APPLIED',
+      auto: true,
+      date: chosen.date,
+      buyer: chosen.buyer,
+      note,
+      last4: sender === null ? null : sender.slice(-4),
+      sealed: this.#seal(sellerId, { text: input.text, sender, nickname: nick.tokens[0] ?? null, name, phone, address: '', detail: '', candidates: [applied], applied }),
+      receivedAt: new Date(input.receivedMs),
+      createdAt: new Date(input.nowMs),
+      handledAt: new Date(input.nowMs),
     })
     this.#deps.publish(sellerId)
     return true
