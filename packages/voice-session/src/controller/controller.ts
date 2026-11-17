@@ -287,6 +287,8 @@ export interface CardForm {
 
 /** 덩어리를 읽은 결과 한 줄을 보이는 시간 (D-V2-07) */
 export const READOUT_MS = 4000
+/** 이미 있는 번호 알림을 하지 않는 때 (D-VOICE-EXISTS-01): 이 기기가 음성으로 등록·고친 지 이만큼 안이거나, 같은 번호를 이만큼 안에 이미 알렸다 */
+export const ALREADY_QUIET_MS = 10_000
 /** 번호 없이 들린 가격이 다음 'N번'을 기다리는 시간 (밀리초, 실방송 10:14) */
 export const PENDING_PRICE_MS = 15_000
 /** 맨 위 큰 칸의 접근 이름 — 화면에 제목은 없다 (D-V2-07·D-V2-21) */
@@ -336,6 +338,17 @@ export interface HearingView {
 }
 
 /** 덩어리를 읽은 결과 한 줄 (4초) */
+/**
+ * 이미 있는 번호라 새로 등록하지 않음 (D-VOICE-EXISTS-01, 사용자 2026-11-17 "인식을 못해서 등록이 안 된건지 아니면 이미 있어서 등록 안 된건지"):
+ * 휴대폰 라이브 화면은 큰 글자 칸·묻기 카드를 보이지 않아(D-UX4-92) 이것으로 잠깐 알린다. at이 바뀔 때마다 한 번
+ */
+export interface AlreadyNotice {
+  readonly no: number
+  /** 들은 가격·품종이 지금 상품과 달랐다 (고치지 않았다 — 고칠 것은 상품에서) */
+  readonly differs: boolean
+  readonly at: number
+}
+
 export interface Readout {
   readonly text: string
   /** 버린 결과 (색을 다르게) */
@@ -472,6 +485,8 @@ export interface VoiceSnapshot {
   readonly hearing: HearingView | null
   /** 덩어리를 읽은 결과 한 줄 (4초), 없으면 null */
   readonly readout: Readout | null
+  /** 이미 있는 번호라 새로 등록하지 않은 마지막 알림 (D-VOICE-EXISTS-01), 없으면 null */
+  readonly already: AlreadyNotice | null
   /** 카드 ID → 후보·안내 */
   readonly info: ReadonlyMap<string, CardInfo>
   /** 말하는 동안 멈춘 자동 등록: 카드 ID → 남은 ms */
@@ -683,6 +698,7 @@ export const VOICE_IDLE: VoiceSnapshot = {
   smsDropped: [],
   hearing: null,
   readout: null,
+  already: null,
   info: new Map(),
   paused: new Map(),
   offers: [],
@@ -760,6 +776,7 @@ type CardWork = {
   info: ReadonlyMap<string, CardInfo>
   offers: readonly VoiceOffer[]
   readout: Readout | null
+  already: AlreadyNotice | null
 }
 
 /** 같은 말 막기 시간 (D-V1-06 — 패키지 SMS_REPEAT_WINDOW_MS와 같다): 닫은 카드를 이만큼 들고 있는다 */
@@ -1724,7 +1741,7 @@ export class VoiceController {
 
   #emptyWork(): CardWork {
     const s = this.#snapshot
-    return { cards: s.cards, sms: s.sms, dropped: s.smsDropped, log: s.log, notes: s.notes, info: s.info, offers: s.offers, readout: s.readout }
+    return { cards: s.cards, sms: s.sms, dropped: s.smsDropped, log: s.log, notes: s.notes, info: s.info, offers: s.offers, readout: s.readout, already: s.already }
   }
 
   /** 모으기 결과를 실행한다 (이력을 기다리는 동안은 미룬다 — 그때의 설정·번호 범위와 함께) */
@@ -2266,6 +2283,7 @@ export class VoiceController {
       ...(work.info === s.info ? {} : { info: work.info }),
       ...(work.offers === s.offers ? {} : { offers: work.offers }),
       ...(work.readout === s.readout ? {} : { readout: work.readout }),
+      ...(work.already === s.already ? {} : { already: work.already }),
     }
   }
 
@@ -2650,6 +2668,7 @@ export class VoiceController {
             else this.#priceHeard.set(raw.no, left)
           }
           work.log = module.addLogEntry(work.log, module.createLogEntry({ at: now, pieces: [{ text }], read: { no: raw.no, name: raw.name, price: raw.price, candidates: [] }, action: 'discard', reason: LOG_ALREADY }))
+          this.#noteAlready(work, raw.no, false)
           continue
         }
         if (existing === null) this.#pickCard(work, module, raw, text, note)
@@ -2913,6 +2932,7 @@ export class VoiceController {
       if (Object.keys(changes).length === 0) {
         action = 'discard'
         reason = LOG_ALREADY
+        this.#noteAlready(work, pick.no, false)
       } else {
         this.#chunkActs.add('ASKED')
         this.#ask(work, pick.no, existing, changes, changes.price === undefined ? undefined : check.note)
@@ -3272,20 +3292,25 @@ export class VoiceController {
       decision = { action: 'IGNORE', changes: {}, reason: null }
     }
     const ignore: InstantDone = { action: 'discard', reason: LOG_ALREADY, readout: quiet ? null : alreadyReadout(no) }
+    const ignored = (): InstantDone => {
+      this.#noteAlready(work, no, false)
+      return ignore
+    }
     // 같은 번호 가격 고침 문턱 (실방송 333번): 정정 낱말이 있거나 같은 새 가격을 다른 조각에서 60초 안에 두 번 들어야 바로 고친다
     const gated = options.gate !== false && heard.price !== null && heard.priceSure !== false && !this.#priceGate(module, no, existing.price, heard.price, options.fragment ?? String(this.#chunkSeq), options.correction === true, recent, decision.changes.name !== undefined || options.nameChange === true)
     if (gated && decision.action === 'AUTO_FIX' && decision.changes.price !== undefined) {
       const candidate = pickChanges(existing, { name: decision.changes.name ?? null, price: decision.changes.price })
-      if (Object.keys(candidate).length === 0) return ignore
+      if (Object.keys(candidate).length === 0) return ignored()
       if (existing.pending === true || existing.key === '') return { action: 'discard', reason: LOG_PENDING, readout: null }
       this.#chunkActs.add('ASKED')
       this.#ask(work, no, existing, candidate, REASON_PRICE_ONCE)
+      this.#noteAlready(work, no, true)
       return { action: 'offer', reason: LOG_FIX_CANDIDATE, readout: null }
     }
     this.#chunkActs.add(decision.action === 'IGNORE' ? 'IGNORED' : decision.action === 'ASK' ? 'ASKED' : 'FIXED')
-    if (decision.action === 'IGNORE') return ignore
+    if (decision.action === 'IGNORE') return ignored()
     const changes = pickChanges(existing, { name: decision.changes.name ?? null, price: decision.changes.price ?? null })
-    if (Object.keys(changes).length === 0) return ignore
+    if (Object.keys(changes).length === 0) return ignored()
     if (existing.pending === true || existing.key === '') return { action: 'discard', reason: LOG_PENDING, readout: null }
     if (decision.action === 'ASK') {
       if (decision.reason === 'MAYBE_OTHER') {
@@ -3293,10 +3318,12 @@ export class VoiceController {
         const message = maybeOtherMessage(no, existing.price, existing.claimCount)
         const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, no, message, changes, stage: 'ask', before: null, undoUntil: null, error: null, maybeOther: true, voiceHeard: this.#heardNow }
         work.offers = [offer, ...work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key))]
+        this.#noteAlready(work, no, true)
         return { action: 'offer', reason: LOG_ASK, readout: null }
       }
       const note = decision.reason === 'NOT_OPEN' ? REASON_NOT_OPEN : decision.reason === 'NUMBER_BARE' ? REASON_BARE_NUMBER : undefined
       this.#ask(work, no, existing, changes, note)
+      this.#noteAlready(work, no, true)
       return { action: 'offer', reason: LOG_ASK, readout: askMessage(no, existing, changes) }
     }
     const offer: VoiceOffer = { id: `offer-${String(this.#nextOffer++)}`, kind: 'offer', registrationId: existing.key, no, message: fixingMessage(no, existing, changes), changes, stage: 'busy', before: null, undoUntil: null, error: null }
@@ -3305,6 +3332,20 @@ export class VoiceController {
     work.offers = [offer, ...work.offers.filter((item) => !(item.kind === 'offer' && item.stage === 'ask' && item.registrationId === existing.key && asked(item)))]
     void this.#autoFix(offer.id, existing.key, no, existing, changes, decision.reason === 'NOT_RECENT')
     return { action: 'edit', reason: LOG_AUTO_FIX, readout: null }
+  }
+
+  /**
+   * 들은 번호가 이미 있어 새로 등록하지 않았다 — 휴대폰 화면 알림 (D-VOICE-EXISTS-01). differs = 들은 값이 달라 고치지 않고 남김(묻기).
+   * 이 덩어리에서 이 기기가 등록한 번호, 이 기기가 ALREADY_QUIET_MS 안에 음성으로 등록·고친 번호(같은 말의 되풀이), 같은 번호를 그 안에 이미 알렸으면 알리지 않는다
+   */
+  #noteAlready(work: CardWork, no: number, differs: boolean): void {
+    if (this.#instantNos.get(no) === 'register') return
+    const now = this.#host.now()
+    const touched = this.#voiceTouched.get(no)
+    if (touched !== undefined && now - touched <= ALREADY_QUIET_MS) return
+    const last = work.already
+    if (last !== null && last.no === no && now - last.at <= ALREADY_QUIET_MS) return
+    work.already = { no, differs, at: now }
   }
 
   /** 이 콘솔이 그 번호를 음성으로 등록·고친 지 60초 안이고 그 뒤 다른 번호를 음성으로 등록하지 않았나 (D-V3-59) */

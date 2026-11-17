@@ -356,6 +356,8 @@ export interface VoiceSnapshot {
   readonly hearing: HearingView | null
   /** 덩어리를 읽은 결과 한 줄 (4초), 없으면 null */
   readonly readout: Readout | null
+  /** 이미 있는 번호라 새로 등록하지 않은 마지막 알림 (D-VOICE-EXISTS-01 — 음성 판단 패키지가 채운다, 휴대폰 화면이 잠깐 띄운다) */
+  readonly already?: { readonly no: number; readonly differs: boolean; readonly at: number } | null
   /** 카드 ID → 후보·안내 */
   readonly info: ReadonlyMap<string, CardInfo>
   /** 말하는 동안 멈춘 자동 등록: 카드 ID → 남은 ms */

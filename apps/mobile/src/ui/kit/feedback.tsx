@@ -104,7 +104,7 @@ export const POP_NOTE_MS = 1800
  * 잠깐 뜨는 알림 (D-UX3-11, "복사한 링크를 넣었어요"): 화면 위쪽 가운데에 둥근 검은 알약이 부드럽게 나타났다가 잠시 뒤 사라진다.
  * 칸 아래에 문장을 계속 두지 않는다. note가 바뀔 때마다(같은 글이라도 id가 바뀌면) 다시 뜬다.
  */
-export function PopNote({ note }: { readonly note: { readonly id: number; readonly message: string } | null }) {
+export function PopNote({ note, ms = POP_NOTE_MS }: { readonly note: { readonly id: number; readonly message: string } | null; readonly ms?: number }) {
   const { p } = useKit()
   // 판 안이면 상태 막대 아래, 경로 화면이면 이미 그 아래에서 시작 (D-UX4-41)
   const top = usePageTop()
@@ -121,7 +121,7 @@ export function PopNote({ note }: { readonly note: { readonly id: number; readon
       Animated.timing(fade, { toValue: 0, duration: 220, easing: Easing.in(Easing.cubic), useNativeDriver: native }).start(({ finished }) => {
         if (finished) setShown(null)
       })
-    }, POP_NOTE_MS)
+    }, ms)
     return () => clearTimeout(timer)
     // 같은 알림 id면 다시 띄우지 않는다
   }, [id])

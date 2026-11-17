@@ -41,7 +41,7 @@ import { DecisionsView } from './console/Decisions.tsx'
 import { UnlistedClaims, unlistedNumbers } from './console/UnlistedClaims.tsx'
 
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
-import { VoicePanel } from './console/VoicePanel.tsx'
+import { AlreadyPop, VoicePanel } from './console/VoicePanel.tsx'
 import { useFollowScroll } from '../lib/use-follow-scroll.ts'
 import { HEARD_TAB, HeardTab, ListenLine, useKeptStream } from './console/StreamAudio.tsx'
 import { useTabBarHide } from './console/tab-hide.ts'
@@ -817,6 +817,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           {/* 라이브 연결 끊기 (D-UX4-79) — 이은 라이브는 LinkInfo 안에 있다 */}
           {seller && !closed && !linked ? <EndBroadcastRow broadcastId={broadcastId} onEnded={() => { setEndedHere(true); close(); closePage(); onEnded?.() }} /> : null}
         </FullSheet>
+        {/* 음성으로 들은 번호가 이미 있을 때 화면 위 잠깐 알림 (D-VOICE-EXISTS-01) */}
+        {seller && !ended ? <AlreadyPop session={services.voice} broadcastId={broadcastId} /> : null}
       </View>
     </ConsoleContext.Provider>
   )
