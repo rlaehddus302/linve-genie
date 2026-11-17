@@ -463,6 +463,7 @@ export class LedgerService {
           earlier: found?.bundles.some((bundle) => bundle.date < date) === true,
           regular: found?.summary.regular === true,
           caution: found?.summary.caution === true,
+          passWarning: found?.summary.passWarning === true,
           purchaseTotal: found?.summary.purchaseTotal ?? 0,
         })
         return { buyer, text, spoken: text === null ? null : badgeSpoken(text) }

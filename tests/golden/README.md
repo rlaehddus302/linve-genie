@@ -489,8 +489,8 @@ expect:
 
 - **누가 읽나**: 코어 골든 러너(`pnpm golden`)는 `*.yaml`만 읽어 이 폴더를 건너뛴다. 서버(`apps/server`)의 단위 시험이 이 폴더의 모든 `*.json`을 읽어 서버의 순수 함수로 돌리고 `out`과 깊은 같음으로 비교한다(`pnpm test` 단계). 그 시험은 파일 수(1)와 사례 수 합계(13)를 고정값으로 단언한다 — 사례가 조용히 빠지면 실패한다. 미구현을 허용하는 장치가 없다.
 - **파일** = JSON 객체 `{ "kind", "about", "cases" }`. `kind` = `summary`. 모르는 키·모르는 `kind`는 시험 실패(읽기 오류)다.
-- **사례 키**: `id`(`G-CRM-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `today`(`YYYY-MM-DD` — 서버가 부를 때는 서버 시각의 KST 날짜), `settings` `{ regularCount, regularAmount, waitDays }`(`regularAmount`는 정수 원 또는 `null` = 금액 기준 안 씀), `bundles`(0개 이상 `{ date, buyer, items, subtotal, payment, cancels, noPay }` — `payment` ∈ `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID`, 나머지 수는 0 이상 정수), `out`.
-- **`out`** = `{ "purchaseDays", "purchaseTotal", "lastPurchase", "unpaidDays", "lastUnpaid", "cancels", "regular", "caution" }` — 날짜는 `YYYY-MM-DD` 또는 `null`, 금액은 정수 원. 정확히 같음.
+- **사례 키**: `id`(`G-CRM-` + 세 자리, 이 폴더 전체에서 유일), `title`, `refs`(1개 이상), 선택 `note`(손 계산 메모 — 비교하지 않는다), `today`(`YYYY-MM-DD` — 서버가 부를 때는 서버 시각의 KST 날짜), `settings` `{ regularCount, regularAmount, waitDays }`(`regularAmount`는 정수 원 또는 `null` = 금액 기준 안 씀), `bundles`(0개 이상 `{ date, buyer, items, subtotal, payment, cancels, noPay }`와 선택 `mine`(D-PASS-01 — 판매자 쪽 조치로 끝난 찜 수, 없으면 0) — `payment` ∈ `UNPAID`·`PARTIAL`·`PAID`·`OVERPAID`, 나머지 수는 0 이상 정수), `out`.
+- **`out`** = `{ "purchaseDays", "purchaseTotal", "lastPurchase", "unpaidDays", "lastUnpaid", "cancels", "passes", "regular", "caution", "passWarning" }`(D-PASS-01: `passes` = Σ max(0, cancels − mine), `passWarning` = passes ≥ 3) — 날짜는 `YYYY-MM-DD` 또는 `null`, 금액은 정수 원. 정확히 같음.
 - 결과는 실행 환경의 시간대와 상관없어야 한다(날짜 더하기는 달력 날짜 — 서버 시험도 `TZ`를 바꿔 돌린다). 묶음 순서가 바뀌어도 결과가 같아야 한다.
 
 ## 손님 장부 골든 (`customers/*.json`, KP1 — D-KP1-02·D-KP1-05·D-KP1-06·D-KP1-08)

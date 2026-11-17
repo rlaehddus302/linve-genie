@@ -52,7 +52,7 @@ const settlementOf = async (world: TestServer, seller: Seller, date: string, buy
  * D1: 유튜브 홍길동(UC_A) 1번 20:00:05 · 문자찜 손님 2번 20:01:00 · 유튜브 나래(UC_B) 3번 20:02:00
  * D2(무료 기준 30,000원·기본 3,000원): 홍길동 5번 20:00:10 · 2번 20:00:20(합 31,000원 → 배송비 0) · 나래 1번 20:05:00(직접 수령)
  */
-async function sell(world: TestServer, seller: Seller): Promise<{ sms: string }> {
+async function sell(world: TestServer, seller: Seller): Promise<{ sms: string; b1: string; b2: string }> {
   at(world, D1, '19:00:00')
   const b1 = (await createBroadcast(world, seller, { date: D1, title: '1부' })).id
   await ok(world, seller, { type: 'product.register', b: b1, no: 1, name: '핑크프릴', price: 10000 })
@@ -81,7 +81,7 @@ async function sell(world: TestServer, seller: Seller): Promise<{ sms: string }>
   at(world, D2, '20:05:00')
   await chat(world, seller, b3, 'm5', 'UC_B', '나래', '1')
   await ok(world, seller, { type: 'settlement.shippingOverride', buyer: 'UC_B', date: D2, mode: 'PICKUP' }, D2)
-  return { sms }
+  return { sms, b1, b2 }
 }
 
 describe('D-UX4-125 주문 목록', () => {
@@ -186,7 +186,7 @@ describe('D-UX4-125 주문 목록', () => {
 describe('D-UX4-125 주문 상세', () => {
   it('상품 줄(번호 순)·예약 시각·배송지·그날 배송비 규칙(첫 방송 스냅샷)·금액·다른 날짜 거래(이 날짜 빼고)', async () => {
     const { world, seller } = await world0()
-    await sell(world, seller)
+    const { b2 } = await sell(world, seller)
     await putAddress(world, seller, D2, 'UC_A')
     const response = await detail(world, seller, D2, 'UC_A')
     expect(response.status, response.text).toBe(200)
@@ -201,8 +201,8 @@ describe('D-UX4-125 주문 상세', () => {
       phone: '01022223333',
       address: { address: ADDRESS.address, detail: ADDRESS.detail, zip: ADDRESS.zip },
       items: [
-        { no: 2, name: '라울', price: 10000, qty: 1 },
-        { no: 5, name: '방울복랑 금', price: 21000, qty: 1 },
+        { no: 2, name: '라울', price: 10000, qty: 1, b: b2, options: null },
+        { no: 5, name: '방울복랑 금', price: 21000, qty: 1, b: b2, options: null },
       ],
       claimedAt: new Date(kst(D2, '20:00:10')).toISOString(),
       itemCount: 2,
@@ -226,9 +226,22 @@ describe('D-UX4-125 주문 상세', () => {
     expect(past.body.shippingRule).toEqual({ baseFee: 4000, freeThreshold: null, mode: 'DEFAULT' })
   })
 
+  it('D-PASS-01 [상품 빼기]: 상품 줄의 방송 ID로 방송자 취소(손님 패스)를 보내면 그 줄만 빠지고 합계·배송비가 다시 정해진다', async () => {
+    const { world, seller } = await world0()
+    await sell(world, seller)
+    const before = (await expectOk(detail(world, seller, D2, 'UC_A'))).body as unknown as { items: { no: number; b: string; options: null }[]; total: number }
+    const target = before.items.find((item) => item.no === 2)
+    expect(target).toBeDefined()
+    await ok(world, seller, { type: 'host.cancel', b: target?.b, no: 2, buyer: 'UC_A', reason: '손님 패스' })
+    const after = (await expectOk(detail(world, seller, D2, 'UC_A'))).body as unknown as { items: { no: number }[]; subtotal: number; shipping: number; total: number }
+    expect(after.items.map((item) => item.no)).toEqual([5])
+    // 31,000원(무료) → 21,000원 + 배송비 3,000원
+    expect([after.subtotal, after.shipping, after.total]).toEqual([21_000, 3000, 24_000])
+  })
+
   it('문자 손님: 배송지가 없으면 기억한 번호, 다른 날짜가 없으면 거래 0', async () => {
     const { world, seller } = await world0()
-    const { sms } = await sell(world, seller)
+    const { sms, b1 } = await sell(world, seller)
     const response = await expectOk(detail(world, seller, D1, sms))
     expect(response.body).toMatchObject({
       buyer: sms,
@@ -236,7 +249,7 @@ describe('D-UX4-125 주문 상세', () => {
       name: null,
       phone: '01012345678',
       address: null,
-      items: [{ no: 2, name: '라울', price: 5000, qty: 1 }],
+      items: [{ no: 2, name: '라울', price: 5000, qty: 1, b: b1, options: null }],
       claimedAt: new Date(kst(D1, '20:01:00')).toISOString(),
       history: { count: 0, total: 0, lines: [] },
     })

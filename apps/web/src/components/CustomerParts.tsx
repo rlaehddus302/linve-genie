@@ -13,6 +13,7 @@ import {
   MEMO_SAVED,
   MEMO_TOO_LONG,
   NO_PHONE_MEMO,
+  PASS_WARNING_WORD,
   REGULAR_WORD,
   codePoints,
   dayCustomerPath,
@@ -29,11 +30,12 @@ import { RequestError } from './ErrorNote.tsx'
 import { Modal } from './Modal.tsx'
 
 /** 꼬리표 (기록이 없으면 아무것도) — 차단은 부르는 쪽이 따로 */
-export function CustomerTags({ summary, blocked = false }: { readonly summary: Pick<CustomerSummary, 'regular' | 'caution'> | undefined; readonly blocked?: boolean }) {
+export function CustomerTags({ summary, blocked = false }: { readonly summary: Pick<CustomerSummary, 'regular' | 'caution' | 'passWarning'> | undefined; readonly blocked?: boolean }) {
   return (
     <>
       {summary?.regular === true ? <span className="tag tag-regular">{REGULAR_WORD}</span> : null}
       {summary?.caution === true ? <span className="tag tag-caution">{CAUTION_WORD}</span> : null}
+      {summary?.passWarning === true ? <span className="tag tag-caution">{PASS_WARNING_WORD}</span> : null}
       {blocked ? <span className="tag tag-alert">{BLOCKED_WORD}</span> : null}
     </>
   )
@@ -49,7 +51,7 @@ export function SummaryFacts({ summary, today }: { readonly summary: CustomerSum
           <li key={line}>{line}</li>
         ))}
       </ul>
-      {summary.regular || summary.caution ? (
+      {summary.regular || summary.caution || summary.passWarning ? (
         <p className="cell-marks">
           <CustomerTags summary={summary} />
         </p>

@@ -64,7 +64,7 @@ export type BadgeTone = 'caution' | 'regular' | 'first'
 
 /** 꼬리표 색 (글자와 함께 — 색만으로 가르지 않는다) */
 export function badgeTone(text: string): BadgeTone {
-  if (text === '입금 늦음 주의') return 'caution'
+  if (text === '입금 늦음 주의' || text === '패스 잦음 주의') return 'caution'
   if (text.startsWith('단골')) return 'regular'
   return 'first'
 }

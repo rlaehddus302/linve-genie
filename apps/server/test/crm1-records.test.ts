@@ -31,7 +31,7 @@ describe('AC-CRM1-03 표지로 날짜를 넘어 한 번만 따라간다', () => 
     await buy(world, seller, '2026-10-22', 'UC_Q', '큐', 50_000)
     await payAll(world, seller, '2026-10-22', 'UC_Q')
     at(world, '2026-10-26', '12:00:00')
-    expect(await c.summary('2026-10-15', 'UC_A')).toEqual({ purchaseDays: 4, purchaseTotal: 75_000, lastPurchase: '2026-10-20', unpaidDays: 0, lastUnpaid: null, cancels: 0, regular: true, caution: false })
+    expect(await c.summary('2026-10-15', 'UC_A')).toEqual({ purchaseDays: 4, purchaseTotal: 75_000, lastPurchase: '2026-10-20', unpaidDays: 0, lastUnpaid: null, cancels: 0, passes: 0, regular: true, caution: false, passWarning: false })
     // 합쳐진 구매자 ID로 물어도 지금의 구매자로 푼다
     expect((await expectOk(c.day('2026-10-15', r1))).body.buyer).toBe('UC_A')
     // 10-20의 r9 기록 = 그날(UC_Q 포함 묶음 10,000) + 전화번호 키로 10-15 UC_A 묶음(20,000) + UC_Q 채널로 10-22(50,000)
@@ -141,9 +141,42 @@ describe("AC-CRM1-08 '입금 안 함' 사유 읽기", () => {
     await chat(world, seller, d5.b, 'z5', 'UC_Z', '제트', '안녕')
     await ok(world, seller, { type: 'host.assign', b: d5.b, no: d5.no, buyer: 'UC_Z', reason: '입금 안 함', replace: 'UC_A', replaceTo: 'CANCEL' })
     at(world, '2026-10-26', '12:00:00')
-    expect(await c.summary('2026-10-05', 'UC_A')).toEqual({ purchaseDays: 0, purchaseTotal: 0, lastPurchase: null, unpaidDays: 3, lastUnpaid: '2026-10-05', cancels: 4, regular: false, caution: true })
+    expect(await c.summary('2026-10-05', 'UC_A')).toEqual({ purchaseDays: 0, purchaseTotal: 0, lastPurchase: null, unpaidDays: 3, lastUnpaid: '2026-10-05', cancels: 4, passes: 0, regular: false, caution: true, passWarning: false })
     // 10-04 UC_Z(1등, 미입금 기한 지남)는 미입금 1번
     expect((await c.summary('2026-10-04', 'UC_Z')).unpaidDays).toBe(2)
+  })
+})
+
+describe('D-PASS-01 손님 패스 횟수·패스 잦음 주의', () => {
+  it('채팅 취소(승인)·사유 "손님 패스"·"시청자 요청"은 패스, 판매자 착오·찜 삭제는 패스가 아니다 → 취소 5번 중 패스 3번, 패스 잦음 주의', async () => {
+    const { world, seller } = await crmWorld()
+    const c = crm(world, seller)
+    // 10-01: 손님이 채팅으로 거둠 (요청이면 승인)
+    const d1 = await buy(world, seller, '2026-10-01', 'UC_A', '다육이맘', 10_000)
+    await chat(world, seller, d1.b, 'x1', 'UC_A', '다육이맘', `${String(d1.no)} 패스`)
+    await ok(world, seller, { type: 'host.approveCancel', b: d1.b, no: d1.no, buyer: 'UC_A' })
+    // 10-02: 정산서 보낸 뒤 카톡으로 부분 패스 — 주문 상세 [상품 빼기] "손님이 패스했어요"
+    const d2 = await buy(world, seller, '2026-10-02', 'UC_A', '다육이맘', 10_000)
+    await ok(world, seller, { type: 'host.cancel', b: d2.b, no: d2.no, buyer: 'UC_A', reason: '손님 패스' })
+    // 10-03: 판매자가 잘못 넣은 찜 — 패스가 아니다
+    const d3 = await buy(world, seller, '2026-10-03', 'UC_A', '다육이맘', 10_000)
+    await ok(world, seller, { type: 'host.cancel', b: d3.b, no: d3.no, buyer: 'UC_A', reason: '판매자 착오' })
+    // 10-04: 콘솔 찜 삭제(까닭을 모른다) — 패스로 세지 않는다
+    const d4 = await buy(world, seller, '2026-10-04', 'UC_A', '다육이맘', 10_000)
+    await ok(world, seller, { type: 'host.cancel', b: d4.b, no: d4.no, buyer: 'UC_A', reason: '판매자가 찜을 삭제했어요' })
+    // 10-05: 빠른 선택 "시청자 요청"(공백 무시)
+    const d5 = await buy(world, seller, '2026-10-05', 'UC_A', '다육이맘', 10_000)
+    await ok(world, seller, { type: 'host.reject', b: d5.b, no: d5.no, buyer: 'UC_A', reason: ' 시청자 요청 ' })
+    at(world, '2026-10-26', '12:00:00')
+    expect(await c.summary('2026-10-05', 'UC_A')).toMatchObject({ cancels: 5, passes: 3, passWarning: true, caution: false })
+    // 패스 둘까지는 꼬리표가 없다 (다른 손님 UC_B)
+    const e1 = await buy(world, seller, '2026-10-06', 'UC_B', '나래', 10_000)
+    await ok(world, seller, { type: 'host.cancel', b: e1.b, no: e1.no, buyer: 'UC_B', reason: '손님 패스' })
+    const e2 = await buy(world, seller, '2026-10-07', 'UC_B', '나래', 10_000)
+    await ok(world, seller, { type: 'host.cancel', b: e2.b, no: e2.no, buyer: 'UC_B', reason: '손님패스' })
+    expect(await c.summary('2026-10-07', 'UC_B')).toMatchObject({ cancels: 2, passes: 2, passWarning: false })
+    // "모든 손님" 거르기 "패스 잦음 주의만"
+    expect((await c.rows('filter=pass')).map((row) => row.name)).toEqual(['다육이맘'])
   })
 })
 

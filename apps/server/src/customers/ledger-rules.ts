@@ -72,11 +72,12 @@ export function wonText(won: number): string {
 
 /**
  * 콘솔 손님 표시 (CR-7, 골든 badge.json): 위에서부터 처음 맞는 것 하나 —
- * 설정 꺼짐·리허설·표지 없음 → 없음, 입금 늦음 주의, 단골 · 누적, 앞선 실제 날짜 기록 없음 → 처음, 없음
+ * 설정 꺼짐·리허설·표지 없음 → 없음, 입금 늦음 주의, 패스 잦음 주의(D-PASS-01), 단골 · 누적, 앞선 실제 날짜 기록 없음 → 처음, 없음
  */
-export function customerBadge(input: { show: boolean; rehearsal: boolean; known: boolean; earlier: boolean; regular: boolean; caution: boolean; purchaseTotal: number }): { text: string | null } {
+export function customerBadge(input: { show: boolean; rehearsal: boolean; known: boolean; earlier: boolean; regular: boolean; caution: boolean; passWarning?: boolean; purchaseTotal: number }): { text: string | null } {
   if (!input.show || input.rehearsal || !input.known) return { text: null }
   if (input.caution) return { text: '입금 늦음 주의' }
+  if (input.passWarning === true) return { text: '패스 잦음 주의' }
   if (input.regular) return { text: `단골 · 누적 ${wonText(input.purchaseTotal)}원` }
   if (!input.earlier) return { text: '처음' }
   return { text: null }

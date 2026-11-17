@@ -176,8 +176,8 @@ describe('AC-CRM1-33 봉인 뒤에도 노쇼 기록이 남는다', () => {
       markers: new Map([['c:UC_M', 'UC_M']]),
     }
     const merged = mergeArchive(facts, [
-      { root: 'UC_M', members: [{ id: 'UC_M', marker: 'c:UC_M', display: 'M', phoneLast4: null }], cancels: 1, noPay: 0 },
-      { root: 'UC_N', members: [{ id: 'UC_N', marker: 'c:UC_N', display: 'N', phoneLast4: null }], cancels: 1, noPay: 1 },
+      { root: 'UC_M', members: [{ id: 'UC_M', marker: 'c:UC_M', display: 'M', phoneLast4: null }], cancels: 1, noPay: 0, mine: 0 },
+      { root: 'UC_N', members: [{ id: 'UC_N', marker: 'c:UC_N', display: 'N', phoneLast4: null }], cancels: 1, noPay: 1, mine: 1 },
     ])
     expect(merged.bundles.get('UC_M')).toMatchObject({ items: 1, subtotal: 12_000, payment: 'PAID', cancels: 1, noPay: 0, archived: false })
     expect(merged.bundles.get('UC_N')).toMatchObject({ items: 0, subtotal: 0, payment: 'UNPAID', cancels: 1, noPay: 1, record: true, archived: true })

@@ -48,6 +48,10 @@ export interface OrderItem {
   /** 한 개 가격(원) */
   readonly price: number
   readonly qty: number
+  /** 이 찜의 방송 ID — [상품 빼기]가 방송자 취소(host.cancel b·no·buyer)로 가리킨다 (D-PASS-01) */
+  readonly b: string
+  /** 고른 옵션 `[항목 이름, label]` (옵션 없는 찜은 null) */
+  readonly options: readonly (readonly [string, string])[] | null
 }
 
 /** 이 손님의 다른 날짜 거래 한 줄 */

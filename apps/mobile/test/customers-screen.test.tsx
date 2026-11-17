@@ -7,7 +7,7 @@ import { makeWorld } from './screen-support.tsx'
 
 const row: CustomerRow = {
   id: 'cu1', name: '다육맘', platform: 'YOUTUBE', kindLabel: '유튜브', phoneLast4: null, blocked: false, latestDate: '2026-10-29', latestBuyer: 'u1',
-  purchaseDays: 4, purchaseTotal: 152_000, lastPurchase: '2026-10-29', unpaidDays: 1, lastUnpaid: '2026-10-15', cancels: 0, regular: true, caution: true,
+  purchaseDays: 4, purchaseTotal: 152_000, lastPurchase: '2026-10-29', unpaidDays: 1, lastUnpaid: '2026-10-15', cancels: 0, passes: 0, regular: true, caution: true, passWarning: false,
 }
 
 function world() {

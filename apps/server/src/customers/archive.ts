@@ -149,7 +149,7 @@ export class CustomerArchiver {
         await tx.delete(customerArchiveRows).where(and(eq(customerArchiveRows.sellerId, sellerId), eq(customerArchiveRows.date, scope.date)))
         if (rows.length > 0) {
           await tx.insert(customerArchiveRows).values(
-            rows.map((row) => ({ sellerId, date: scope.date, root: row.root, members: JSON.stringify(row.members), cancels: row.cancels, noPay: row.noPay })),
+            rows.map((row) => ({ sellerId, date: scope.date, root: row.root, members: JSON.stringify(row.members), cancels: row.cancels, noPay: row.noPay, mine: row.mine })),
           )
         }
         const writtenAt = new Date(timer.now())

@@ -435,6 +435,13 @@
       "when": 1794960000035,
       "tag": "0061_print_queue_issue",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1794960000036,
+      "tag": "0062_customer_archive_mine",
+      "breakpoints": true
     }
   ]
 }

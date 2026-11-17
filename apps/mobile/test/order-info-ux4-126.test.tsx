@@ -28,7 +28,7 @@ const detail = (patch: Partial<OrderDetailView> = {}): OrderDetailView => ({
   platform: 'YOUTUBE',
   phone: null,
   address: null,
-  items: [{ no: 15, name: '핑크프릴', price: 10_000, qty: 1 }],
+  items: [{ no: 15, name: '핑크프릴', price: 10_000, qty: 1, b: 'b1', options: null }],
   claimedAt: '2026-10-29T11:00:00.000Z',
   itemCount: 1,
   subtotal: 10_000,

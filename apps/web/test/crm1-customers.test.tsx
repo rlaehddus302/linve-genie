@@ -33,7 +33,7 @@ import { chat, register } from './engine.ts'
 import { EngineServer } from './engine-server.ts'
 import { DATE, FakeEventSource, FakeServer, apiError, flush } from './support.ts'
 
-const SUMMARY_NONE: CustomerSummary = { purchaseDays: 0, purchaseTotal: 0, lastPurchase: null, unpaidDays: 0, lastUnpaid: null, cancels: 0, regular: false, caution: false }
+const SUMMARY_NONE: CustomerSummary = { purchaseDays: 0, purchaseTotal: 0, lastPurchase: null, unpaidDays: 0, lastUnpaid: null, cancels: 0, passes: 0, regular: false, caution: false, passWarning: false }
 
 const day = (buyer: string, patch: Partial<CustomerSummary>): DayCustomer => ({ buyer, ...SUMMARY_NONE, ...patch })
 
@@ -65,9 +65,9 @@ describe('손님 기록 낱말 (D-CRM1-06, AC-CRM1-15)', () => {
   })
 
   it('기록 줄: 숫자가 있으면 그대로, 없으면 "아직 입금 완료된 구매 없음"·"미입금 없음"·"취소 0번"', () => {
-    const summary: CustomerSummary = { purchaseDays: 3, purchaseTotal: 125_000, lastPurchase: '2026-10-15', unpaidDays: 2, lastUnpaid: '2026-10-22', cancels: 1, regular: true, caution: true }
-    expect(summaryLines(summary, '2026-10-26')).toEqual(['누적 구매 125,000원 · 3번', '마지막 구매 10월 15일(목)', '미입금 2번 · 마지막 10월 22일(목)', '취소 1번'])
-    expect(summaryLines(SUMMARY_NONE, '2026-10-26')).toEqual(['누적 구매 0원 · 0번', '아직 입금 완료된 구매 없음', '미입금 없음', '취소 0번'])
+    const summary: CustomerSummary = { purchaseDays: 3, purchaseTotal: 125_000, lastPurchase: '2026-10-15', unpaidDays: 2, lastUnpaid: '2026-10-22', cancels: 1, passes: 1, regular: true, caution: true, passWarning: false }
+    expect(summaryLines(summary, '2026-10-26')).toEqual(['누적 구매 125,000원 · 3번', '마지막 구매 10월 15일(목)', '미입금 2번 · 마지막 10월 22일(목)', '취소 1번 · 그중 손님 패스 1번'])
+    expect(summaryLines(SUMMARY_NONE, '2026-10-26')).toEqual(['누적 구매 0원 · 0번', '아직 입금 완료된 구매 없음', '미입금 없음', '취소 0번 · 그중 손님 패스 0번'])
   })
 
   it('메모 칸 이름: 플랫폼 손님은 "유튜브 · 다육이맘", 문자 손님은 "문자 · 끝자리 1234"', () => {
@@ -254,7 +254,7 @@ describe('구매자 자세히 "손님 기록" 칸·메모 (AC-CRM1-15·21·23)',
         body: {
           date: DATE,
           buyer: 'UC_hong1234',
-          summary: { purchaseDays: 3, purchaseTotal: 125_000, lastPurchase: '2026-10-15', unpaidDays: 2, lastUnpaid: '2026-10-22', cancels: 1, regular: true, caution: true },
+          summary: { purchaseDays: 3, purchaseTotal: 125_000, lastPurchase: '2026-10-15', unpaidDays: 2, lastUnpaid: '2026-10-22', cancels: 1, passes: 1, regular: true, caution: true, passWarning: false },
           members: [
             { buyer: 'UC_hong1234', name: '홍길동', platform: 'YOUTUBE', kindLabel: '유튜브', phoneLast4: null, customer: id, memo: { text: '<img src=x onerror=alert(1)>\n둘째 줄', savedAt: '2026-10-25T15:30:00.000Z' } },
             { buyer: 'sms:r1', name: '문자찜', platform: null, kindLabel: '문자 · 끝자리 1234', phoneLast4: '1234', customer: 'b'.repeat(32), memo: null },
@@ -276,7 +276,7 @@ describe('구매자 자세히 "손님 기록" 칸·메모 (AC-CRM1-15·21·23)',
     const record = screen.getByRole('region', { name: '손님 기록' })
     const past = screen.getByRole('region', { name: '지난 구매' })
     expect(record.compareDocumentPosition(past) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    for (const line of ['누적 구매 125,000원 · 3번', '마지막 구매 10월 15일(목)', '미입금 2번 · 마지막 10월 22일(목)', '취소 1번']) expect(within(record).getByText(line)).toBeDefined()
+    for (const line of ['누적 구매 125,000원 · 3번', '마지막 구매 10월 15일(목)', '미입금 2번 · 마지막 10월 22일(목)', '취소 1번 · 그중 손님 패스 1번']) expect(within(record).getByText(line)).toBeDefined()
     expect(within(record).getByText('단골')).toBeDefined()
     expect(within(record).getByText('입금 늦음 주의')).toBeDefined()
     expect(record.textContent).not.toMatch(/PAID|UNPAID|PARTIAL/)

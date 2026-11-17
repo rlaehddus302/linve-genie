@@ -23,7 +23,7 @@ export const orderDetail = (patch: Partial<OrderDetailView> = {}): OrderDetailVi
   platform: 'YOUTUBE',
   phone: '01012345678',
   address: { address: '경상남도 양산시 물금읍 증산리', detail: '1034', zip: '50603' },
-  items: [{ no: 15, name: '핑크프릴', price: 10_000, qty: 1 }],
+  items: [{ no: 15, name: '핑크프릴', price: 10_000, qty: 1, b: 'b1', options: null }],
   claimedAt: '2026-10-29T11:00:00.000Z',
   itemCount: 1,
   subtotal: 10_000,

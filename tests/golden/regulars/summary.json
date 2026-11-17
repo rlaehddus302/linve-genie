@@ -1,6 +1,6 @@
 {
   "kind": "summary",
-  "about": "손님 기록 요약 (SPEC BUY-06, CRM1 — D-CRM1-03·D-CRM1-04·D-CRM1-05). 서버가 표지로 모은 그 손님의 기록 묶음(실제 날짜의 정산 묶음 하나 = { date, buyer, items, subtotal, payment, cancels, noPay })과 오늘(KST 날짜)·설정을 받아 요약을 낸다. items = 확정 찜 수량 합, subtotal = 상품 합계(원), payment = 코어 입금 상태, cancels = 1등이었다가 취소·무효로 끝난 찜 수, noPay = 그중 사유가 '입금 안 함'인 찜 수. 구매 = items ≥ 1이고 payment가 PAID·OVERPAID인 묶음. 미입금 날 = (items ≥ 1이고 payment가 UNPAID·PARTIAL이고 오늘 > date + waitDays일) 또는 noPay ≥ 1인 묶음의 날짜. 날짜는 같은 날이면 한 번만 센다. regular = purchaseDays ≥ regularCount 또는 (regularAmount가 null이 아니고 purchaseTotal ≥ regularAmount). caution = unpaidDays ≥ 1.",
+  "about": "손님 기록 요약 (SPEC BUY-06, CRM1 — D-CRM1-03·D-CRM1-04·D-CRM1-05). 서버가 표지로 모은 그 손님의 기록 묶음(실제 날짜의 정산 묶음 하나 = { date, buyer, items, subtotal, payment, cancels, noPay })과 오늘(KST 날짜)·설정을 받아 요약을 낸다. items = 확정 찜 수량 합, subtotal = 상품 합계(원), payment = 코어 입금 상태, cancels = 1등이었다가 취소·무효로 끝난 찜 수, noPay = 그중 사유가 '입금 안 함'인 찜 수. 구매 = items ≥ 1이고 payment가 PAID·OVERPAID인 묶음. 미입금 날 = (items ≥ 1이고 payment가 UNPAID·PARTIAL이고 오늘 > date + waitDays일) 또는 noPay ≥ 1인 묶음의 날짜. 날짜는 같은 날이면 한 번만 센다. regular = purchaseDays ≥ regularCount 또는 (regularAmount가 null이 아니고 purchaseTotal ≥ regularAmount). caution = unpaidDays ≥ 1. (D-PASS-01) mine = 그중 판매자 쪽 조치(손님 패스 사유 '손님 패스'·'시청자 요청'이 아닌 방송자 취소·무효·교체 취소, '입금 안 함' 포함)로 끝난 찜 수(없으면 0). passes = Σ max(0, cancels − mine), passWarning = passes ≥ 3.",
   "cases": [
     {
       "id": "G-CRM-001",
@@ -9,7 +9,7 @@
       "today": "2026-10-26",
       "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
       "bundles": [],
-      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "regular": false, "caution": false }
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "passes": 0, "regular": false, "caution": false, "passWarning": false }
     },
     {
       "id": "G-CRM-002",
@@ -23,7 +23,7 @@
         { "date": "2026-10-08", "buyer": "UC_A", "items": 1, "subtotal": 15000, "payment": "PAID", "cancels": 0, "noPay": 0 },
         { "date": "2026-10-15", "buyer": "UC_A", "items": 1, "subtotal": 20000, "payment": "OVERPAID", "cancels": 0, "noPay": 0 }
       ],
-      "out": { "purchaseDays": 3, "purchaseTotal": 65000, "lastPurchase": "2026-10-15", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "regular": true, "caution": false }
+      "out": { "purchaseDays": 3, "purchaseTotal": 65000, "lastPurchase": "2026-10-15", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "passes": 0, "regular": true, "caution": false, "passWarning": false }
     },
     {
       "id": "G-CRM-003",
@@ -36,7 +36,7 @@
         { "date": "2026-10-01", "buyer": "UC_A", "items": 2, "subtotal": 30000, "payment": "PAID", "cancels": 0, "noPay": 0 },
         { "date": "2026-10-08", "buyer": "UC_A", "items": 1, "subtotal": 15000, "payment": "PAID", "cancels": 0, "noPay": 0 }
       ],
-      "out": { "purchaseDays": 2, "purchaseTotal": 45000, "lastPurchase": "2026-10-08", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "regular": false, "caution": false }
+      "out": { "purchaseDays": 2, "purchaseTotal": 45000, "lastPurchase": "2026-10-08", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "passes": 0, "regular": false, "caution": false, "passWarning": false }
     },
     {
       "id": "G-CRM-004",
@@ -48,7 +48,7 @@
       "bundles": [
         { "date": "2026-10-05", "buyer": "UC_A", "items": 3, "subtotal": 100000, "payment": "PAID", "cancels": 0, "noPay": 0 }
       ],
-      "out": { "purchaseDays": 1, "purchaseTotal": 100000, "lastPurchase": "2026-10-05", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "regular": true, "caution": false }
+      "out": { "purchaseDays": 1, "purchaseTotal": 100000, "lastPurchase": "2026-10-05", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "passes": 0, "regular": true, "caution": false, "passWarning": false }
     },
     {
       "id": "G-CRM-005",
@@ -60,7 +60,7 @@
       "bundles": [
         { "date": "2026-10-05", "buyer": "UC_A", "items": 3, "subtotal": 99999, "payment": "PAID", "cancels": 0, "noPay": 0 }
       ],
-      "out": { "purchaseDays": 1, "purchaseTotal": 99999, "lastPurchase": "2026-10-05", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "regular": false, "caution": false }
+      "out": { "purchaseDays": 1, "purchaseTotal": 99999, "lastPurchase": "2026-10-05", "unpaidDays": 0, "lastUnpaid": null, "cancels": 0, "passes": 0, "regular": false, "caution": false, "passWarning": false }
     },
     {
       "id": "G-CRM-006",
@@ -74,7 +74,7 @@
         { "date": "2026-10-22", "buyer": "UC_A", "items": 1, "subtotal": 12000, "payment": "UNPAID", "cancels": 0, "noPay": 0 },
         { "date": "2026-10-23", "buyer": "UC_A", "items": 1, "subtotal": 8000, "payment": "UNPAID", "cancels": 0, "noPay": 0 }
       ],
-      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 2, "lastUnpaid": "2026-10-22", "cancels": 0, "regular": false, "caution": true }
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 2, "lastUnpaid": "2026-10-22", "cancels": 0, "passes": 0, "regular": false, "caution": true, "passWarning": false }
     },
     {
       "id": "G-CRM-007",
@@ -88,7 +88,7 @@
         { "date": "2026-10-25", "buyer": "UC_A", "items": 1, "subtotal": 9000, "payment": "UNPAID", "cancels": 0, "noPay": 0 },
         { "date": "2026-10-26", "buyer": "UC_A", "items": 1, "subtotal": 9000, "payment": "UNPAID", "cancels": 0, "noPay": 0 }
       ],
-      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 1, "lastUnpaid": "2026-10-24", "cancels": 0, "regular": false, "caution": true }
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 1, "lastUnpaid": "2026-10-24", "cancels": 0, "passes": 0, "regular": false, "caution": true, "passWarning": false }
     },
     {
       "id": "G-CRM-008",
@@ -102,7 +102,7 @@
         { "date": "2025-12-29", "buyer": "UC_A", "items": 1, "subtotal": 7000, "payment": "UNPAID", "cancels": 0, "noPay": 0 },
         { "date": "2025-12-30", "buyer": "UC_A", "items": 1, "subtotal": 7000, "payment": "UNPAID", "cancels": 0, "noPay": 0 }
       ],
-      "out": { "purchaseDays": 1, "purchaseTotal": 18000, "lastPurchase": "2025-12-24", "unpaidDays": 1, "lastUnpaid": "2025-12-29", "cancels": 0, "regular": false, "caution": true }
+      "out": { "purchaseDays": 1, "purchaseTotal": 18000, "lastPurchase": "2025-12-24", "unpaidDays": 1, "lastUnpaid": "2025-12-29", "cancels": 0, "passes": 0, "regular": false, "caution": true, "passWarning": false }
     },
     {
       "id": "G-CRM-009",
@@ -115,7 +115,7 @@
         { "date": "2026-10-10", "buyer": "UC_A", "items": 0, "subtotal": 0, "payment": "UNPAID", "cancels": 2, "noPay": 2 },
         { "date": "2026-10-12", "buyer": "UC_A", "items": 1, "subtotal": 15000, "payment": "PAID", "cancels": 1, "noPay": 0 }
       ],
-      "out": { "purchaseDays": 1, "purchaseTotal": 15000, "lastPurchase": "2026-10-12", "unpaidDays": 1, "lastUnpaid": "2026-10-10", "cancels": 3, "regular": false, "caution": true }
+      "out": { "purchaseDays": 1, "purchaseTotal": 15000, "lastPurchase": "2026-10-12", "unpaidDays": 1, "lastUnpaid": "2026-10-10", "cancels": 3, "passes": 3, "regular": false, "caution": true, "passWarning": true }
     },
     {
       "id": "G-CRM-010",
@@ -127,7 +127,7 @@
       "bundles": [
         { "date": "2026-10-15", "buyer": "UC_A", "items": 1, "subtotal": 10000, "payment": "UNPAID", "cancels": 1, "noPay": 1 }
       ],
-      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 1, "lastUnpaid": "2026-10-15", "cancels": 1, "regular": false, "caution": true }
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 1, "lastUnpaid": "2026-10-15", "cancels": 1, "passes": 1, "regular": false, "caution": true, "passWarning": false }
     },
     {
       "id": "G-CRM-011",
@@ -143,7 +143,7 @@
         { "date": "2026-10-05", "buyer": "sms:r9", "items": 1, "subtotal": 4000, "payment": "UNPAID", "cancels": 0, "noPay": 0 },
         { "date": "2026-10-10", "buyer": "UC_A", "items": 1, "subtotal": 7000, "payment": "PAID", "cancels": 0, "noPay": 0 }
       ],
-      "out": { "purchaseDays": 2, "purchaseTotal": 22000, "lastPurchase": "2026-10-10", "unpaidDays": 1, "lastUnpaid": "2026-10-05", "cancels": 0, "regular": false, "caution": true }
+      "out": { "purchaseDays": 2, "purchaseTotal": 22000, "lastPurchase": "2026-10-10", "unpaidDays": 1, "lastUnpaid": "2026-10-05", "cancels": 0, "passes": 0, "regular": false, "caution": true, "passWarning": false }
     },
     {
       "id": "G-CRM-012",
@@ -157,7 +157,7 @@
         { "date": "2026-10-08", "buyer": "UC_A", "items": 2, "subtotal": 40000, "payment": "PAID", "cancels": 0, "noPay": 0 },
         { "date": "2026-10-15", "buyer": "UC_A", "items": 1, "subtotal": 35000, "payment": "PAID", "cancels": 0, "noPay": 0 }
       ],
-      "out": { "purchaseDays": 3, "purchaseTotal": 105000, "lastPurchase": "2026-10-15", "unpaidDays": 1, "lastUnpaid": "2026-10-01", "cancels": 1, "regular": true, "caution": true }
+      "out": { "purchaseDays": 3, "purchaseTotal": 105000, "lastPurchase": "2026-10-15", "unpaidDays": 1, "lastUnpaid": "2026-10-01", "cancels": 1, "passes": 1, "regular": true, "caution": true, "passWarning": false }
     },
     {
       "id": "G-CRM-013",
@@ -169,7 +169,44 @@
       "bundles": [
         { "date": "2026-10-07", "buyer": "UC_A", "items": 0, "subtotal": 0, "payment": "OVERPAID", "cancels": 1, "noPay": 0 }
       ],
-      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 0, "lastUnpaid": null, "cancels": 1, "regular": false, "caution": false }
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 0, "lastUnpaid": null, "cancels": 1, "passes": 1, "regular": false, "caution": false, "passWarning": false }
+    },
+    {
+      "id": "G-CRM-014",
+      "title": "손님 패스 횟수 = 취소 − 판매자 쪽 조치(mine), 세 번부터 패스 잦음 주의",
+      "refs": ["BUY-06", "D-PASS-01"],
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-01", "buyer": "UC_A", "items": 0, "subtotal": 0, "payment": "UNPAID", "cancels": 2, "noPay": 0, "mine": 0 },
+        { "date": "2026-10-08", "buyer": "UC_A", "items": 0, "subtotal": 0, "payment": "UNPAID", "cancels": 1, "noPay": 0 },
+        { "date": "2026-10-15", "buyer": "UC_A", "items": 0, "subtotal": 0, "payment": "UNPAID", "cancels": 3, "noPay": 0, "mine": 3 }
+      ],
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 0, "lastUnpaid": null, "cancels": 6, "passes": 3, "regular": false, "caution": false, "passWarning": true }
+    },
+    {
+      "id": "G-CRM-015",
+      "title": "패스 둘은 꼬리표 없음, 판매자 쪽 조치만 있으면 패스 0",
+      "refs": ["BUY-06", "D-PASS-01"],
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-01", "buyer": "UC_A", "items": 0, "subtotal": 0, "payment": "UNPAID", "cancels": 1, "noPay": 0, "mine": 0 },
+        { "date": "2026-10-08", "buyer": "UC_A", "items": 0, "subtotal": 0, "payment": "UNPAID", "cancels": 4, "noPay": 0, "mine": 3 }
+      ],
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 0, "lastUnpaid": null, "cancels": 5, "passes": 2, "regular": false, "caution": false, "passWarning": false }
+    },
+    {
+      "id": "G-CRM-016",
+      "title": "'입금 안 함'은 판매자 쪽 조치라 패스가 아니다 (미입금으로만 센다)",
+      "refs": ["BUY-06", "D-CRM1-04", "D-PASS-01"],
+      "today": "2026-10-26",
+      "settings": { "regularCount": 3, "regularAmount": 100000, "waitDays": 3 },
+      "bundles": [
+        { "date": "2026-10-01", "buyer": "UC_A", "items": 0, "subtotal": 0, "payment": "UNPAID", "cancels": 2, "noPay": 2, "mine": 2 },
+        { "date": "2026-10-08", "buyer": "UC_A", "items": 0, "subtotal": 0, "payment": "UNPAID", "cancels": 1, "noPay": 0, "mine": 0 }
+      ],
+      "out": { "purchaseDays": 0, "purchaseTotal": 0, "lastPurchase": null, "unpaidDays": 1, "lastUnpaid": "2026-10-01", "cancels": 3, "passes": 1, "regular": false, "caution": true, "passWarning": false }
     }
   ]
 }

@@ -73,6 +73,10 @@ export interface OrderItem {
   readonly name: string
   readonly price: number
   readonly qty: number
+  /** 이 찜의 방송 ID — 주문 상세 [상품 빼기]가 방송자 취소(host.cancel b·no·buyer)로 가리킨다 (D-PASS-01) */
+  readonly b: string
+  /** 고른 옵션 `[항목 이름, label]` (옵션 없는 찜은 null) — host.cancel options로 */
+  readonly options: readonly (readonly [string, string])[] | null
 }
 
 export interface OrderHistoryLine {
@@ -340,7 +344,7 @@ export class OrderService {
       .sort((a, b) => a.no - b.no || (lookup.order.get(a.broadcast) ?? 0) - (lookup.order.get(b.broadcast) ?? 0) || a.seq - b.seq)
       .map((claim) => {
         const price = claim.price ?? 0
-        return { no: claim.no, name: itemText(lookup.names.get(claim.product) ?? '', claim.variant, price, 1), price, qty: claim.qty }
+        return { no: claim.no, name: itemText(lookup.names.get(claim.product) ?? '', claim.variant, price, 1), price, qty: claim.qty, b: claim.broadcast, options: claim.options === null || claim.options.length === 0 ? null : claim.options }
       })
     const { qty, first } = claimFacts(lookup, root, date)
     const address = (await this.#addresses(sellerId, date)).get(root) ?? null

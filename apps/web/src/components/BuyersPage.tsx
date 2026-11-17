@@ -402,7 +402,7 @@ function BuyerTable({ api, label, rows, counts, customers, onOpen }: RowsProps) 
 /** 구매자 목록의 정렬: 이름 순·합계 큰 순(그날) + 누적 큰 순(손님 기록, 실제 날짜만) */
 type ListSort = BuyerSort | 'cumulative'
 
-const LIST_FILTERS: readonly CustomerFilter[] = ['all', 'regular', 'caution']
+const LIST_FILTERS: readonly CustomerFilter[] = ['all', 'regular', 'caution', 'pass']
 
 function BuyerList({ api, customers, onOpen }: { readonly api: ConsoleApi; readonly customers: DayCustomers; readonly onOpen: (id: string | undefined) => void }) {
   const wide = useWide()

@@ -218,7 +218,7 @@ describe('주문 상세 (D-UX4-125)', () => {
   // D-UX4-129 (사용자 지시 2026-11-11 "표는 번호 기준으로 오름차순해서 보여주고"): 서버가 다른 순서로 줘도 번호 작은 것부터
   it('표: 번호 | 상품명 | 개수 | 가격 — 번호 오름차순, 번호·개수는 가운데, 가격은 그 줄 합', async () => {
     const w = makeWorld()
-    withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ items: [{ no: 15, name: '핑크프릴', price: 8_000, qty: 2 }, { no: 3, name: '금황', price: 15_000, qty: 1 }], itemCount: 3, subtotal: 31_000 }) } })
+    withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ items: [{ no: 15, name: '핑크프릴', price: 8_000, qty: 2, b: 'b1', options: null }, { no: 3, name: '금황', price: 15_000, qty: 1, b: 'b1', options: null }], itemCount: 3, subtotal: 31_000 }) } })
     openDetail(w)
     const table = await screen.findByRole('table', { name: '상품' })
     const rows = within(table).getAllByRole('row')
@@ -260,8 +260,8 @@ describe('주문 상세 (D-UX4-125)', () => {
     expect(within(within(paid).getByLabelText('남은 금액 10,000원')).getByText('10,000원').style.color).toBe('rgb(221, 24, 36)')
     expect(within(order).queryByLabelText(/^할인·추가/)).toBeNull()
     expect(within(paid).queryByLabelText(/^돌려줄 돈/)).toBeNull()
-    // 단추는 좌우로 — [배송비 바꾸기] 왼쪽, [정산서 보내기] 오른쪽
-    expect(within(order).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['배송비 바꾸기', '정산서 보내기'])
+    // 단추는 좌우로 — [상품 빼기](D-PASS-01) · [배송비 바꾸기] · [정산서 보내기]
+    expect(within(order).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['상품 빼기', '배송비 바꾸기', '정산서 보내기'])
     fireEvent.click(within(order).getByRole('button', { name: '배송비 바꾸기' }))
     // D-UX4-129 "메뉴들 옆에 > 없으니까 붙이고": 옛 고르기(radio) → 이름 + › 줄
     const choice = await screen.findByTestId('shipping-choice')
@@ -273,6 +273,60 @@ describe('주문 상세 (D-UX4-125)', () => {
     fireEvent.click(within(order).getByRole('button', { name: '배송비 바꾸기' }))
     fireEvent.click(within(await screen.findByTestId('shipping-choice')).getByRole('button', { name: '배송비 기준 바꾸기' }))
     await waitFor(() => expect(onOpenShopSettings).toHaveBeenCalledOnce())
+  })
+
+  // D-PASS-01 (사용자 지시 2026-11-18 "부분 패스 하는 사람도 있어서 취소 처리, 주의고객 기록"): 정산서를 보낸 뒤 일부만 사겠다는 손님
+  it('[상품 빼기]: 뺄 상품을 골라 까닭(손님이 패스했어요 기본)을 확인하면 고른 줄마다 방송자 취소 — 날짜 없이, 옵션은 options로', async () => {
+    const w = makeWorld()
+    const items = [
+      { no: 173, name: '진달래철화분채', price: 30_000, qty: 1, b: 'b1', options: null },
+      { no: 159, name: '수입종', price: 5_000, qty: 1, b: 'b1', options: null },
+      { no: 170, name: '루페스트리', price: 10_000, qty: 1, b: 'b2', options: [['색', '노랑']] as [string, string][] },
+    ]
+    withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail({ items, itemCount: 3, subtotal: 45_000, total: 45_000 }) } })
+    openDetail(w)
+    const order = await screen.findByRole('group', { name: '주문' })
+    fireEvent.click(within(order).getByRole('button', { name: '상품 빼기' }))
+    const sheet = await screen.findByTestId('order-remove')
+    // 번호 순 줄, 처음엔 아무것도 고르지 않아 [빼기]를 누를 수 없다
+    expect(within(sheet).getAllByRole('checkbox').map((row) => row.getAttribute('aria-label'))).toEqual(['159번 수입종 5,000원', '170번 루페스트리 10,000원', '173번 진달래철화분채 30,000원'])
+    expect(within(sheet).getByRole('button', { name: '빼기' }).getAttribute('aria-disabled')).toBe('true')
+    expect(within(sheet).getByRole('radio', { name: /^손님이 패스했어요/ }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(within(sheet).getByRole('checkbox', { name: /^159번/ }))
+    fireEvent.click(within(sheet).getByRole('checkbox', { name: /^170번/ }))
+    // 단추는 좌우로 — [닫기] 왼쪽, [2개 빼기] 오른쪽
+    expect(within(sheet).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['닫기', '2개 빼기'])
+    fireEvent.click(within(sheet).getByRole('button', { name: '2개 빼기' }))
+    // 같은 창이 확인 단계로: [아니요] [빼기]
+    expect(await within(sheet).findByText('159·170번을 뺄까요?')).toBeTruthy()
+    expect(w.events).toHaveLength(0)
+    expect(within(sheet).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['아니요', '빼기'])
+    fireEvent.click(within(sheet).getByRole('button', { name: '빼기' }))
+    await waitFor(() => expect(w.events).toHaveLength(2))
+    expect(w.events.map((call) => call.path)).toEqual(['/api/events', '/api/events'])
+    expect(w.events[0]!.body).toMatchObject({ type: 'host.cancel', b: 'b1', no: 159, buyer: 'u1', reason: '손님 패스' })
+    expect(w.events[0]!.body).not.toHaveProperty('options')
+    expect(w.events[1]!.body).toMatchObject({ type: 'host.cancel', b: 'b2', no: 170, buyer: 'u1', reason: '손님 패스', options: { 색: '노랑' } })
+    expect(await within(order).findByText('2개를 뺐어요 · 손님 기록에 패스로 남겼어요')).toBeTruthy()
+  })
+
+  it('[상품 빼기] "제가 잘못 넣었어요"는 사유 \'판매자 착오\'(패스로 세지 않는다), [아니요]는 아무것도 보내지 않는다', async () => {
+    const w = makeWorld()
+    withOrders(w, ordersView([]), { details: { '2026-10-29|u1': orderDetail() } })
+    openDetail(w)
+    const order = await screen.findByRole('group', { name: '주문' })
+    fireEvent.click(within(order).getByRole('button', { name: '상품 빼기' }))
+    const sheet = await screen.findByTestId('order-remove')
+    fireEvent.click(within(sheet).getByRole('checkbox', { name: /^15번/ }))
+    fireEvent.click(within(sheet).getByRole('radio', { name: /^제가 잘못 넣었어요/ }))
+    fireEvent.click(within(sheet).getByRole('button', { name: '1개 빼기' }))
+    fireEvent.click(await within(sheet).findByRole('button', { name: '아니요' }))
+    expect(w.events).toHaveLength(0)
+    fireEvent.click(within(sheet).getByRole('button', { name: '1개 빼기' }))
+    fireEvent.click(await within(sheet).findByRole('button', { name: '빼기' }))
+    await waitFor(() => expect(w.events).toHaveLength(1))
+    expect(w.events[0]!.body).toMatchObject({ type: 'host.cancel', b: 'b1', no: 15, buyer: 'u1', reason: '판매자 착오' })
+    expect(await within(order).findByText('1개를 뺐어요')).toBeTruthy()
   })
 
   it('금액: 할인·추가와 돌려줄 돈은 있을 때만, 무료 기준이 없으면 그냥 "배송비", 직접 수령이면 괄호에 그 말, 다 받았으면 남은 금액은 빨강이 아니고 입금 확인 단추도 없다', async () => {

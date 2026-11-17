@@ -1,5 +1,5 @@
-// AC-CRM1-01·02 손님 기록 골든 (tests/golden/regulars/*.json, G-CRM-001~013): 서버의 요약 순수 함수로 돌려 out과 깊은 같음.
-// 파일 수 1·사례 수 13을 고정값으로 단언한다(빠지면 실패). 모르는 키·kind는 읽기 오류. TZ 셋·묶음 거꾸로도 같다. 미구현 허용 장치는 없다.
+// AC-CRM1-01·02 손님 기록 골든 (tests/golden/regulars/*.json, G-CRM-001~016): 서버의 요약 순수 함수로 돌려 out과 깊은 같음.
+// 파일 수 1·사례 수 16(D-PASS-01로 13 → 16)을 고정값으로 단언한다(빠지면 실패). 모르는 키·kind는 읽기 오류. TZ 셋·묶음 거꾸로도 같다. 미구현 허용 장치는 없다.
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,8 +11,10 @@ const FILE_KEYS = ['kind', 'about', 'cases']
 const CASE_KEYS = ['id', 'title', 'refs', 'note', 'today', 'settings', 'bundles', 'out']
 const REQUIRED_CASE_KEYS = ['id', 'title', 'refs', 'today', 'settings', 'bundles', 'out']
 const SETTINGS_KEYS = ['regularCount', 'regularAmount', 'waitDays']
-const BUNDLE_KEYS = ['date', 'buyer', 'items', 'subtotal', 'payment', 'cancels', 'noPay']
-const OUT_KEYS = ['purchaseDays', 'purchaseTotal', 'lastPurchase', 'unpaidDays', 'lastUnpaid', 'cancels', 'regular', 'caution']
+const BUNDLE_KEYS = ['date', 'buyer', 'items', 'subtotal', 'payment', 'cancels', 'noPay', 'mine']
+/** mine은 D-PASS-01에서 더한 칸 — 없으면 0 */
+const REQUIRED_BUNDLE_KEYS = ['date', 'buyer', 'items', 'subtotal', 'payment', 'cancels', 'noPay']
+const OUT_KEYS = ['purchaseDays', 'purchaseTotal', 'lastPurchase', 'unpaidDays', 'lastUnpaid', 'cancels', 'passes', 'regular', 'caution', 'passWarning']
 const PAYMENTS = ['UNPAID', 'PARTIAL', 'PAID', 'OVERPAID']
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -51,10 +53,11 @@ function readGolden(text: string, file: string): GoldenCase[] {
     if (!nonNegInt(settings.regularCount) || !nonNegInt(settings.waitDays) || !(settings.regularAmount === null || nonNegInt(settings.regularAmount))) throw new ReadError(`${where}: settings`)
     if (!Array.isArray(item.bundles)) throw new ReadError(`${where}: bundles`)
     const bundles = item.bundles.map((bundle, j) => {
-      const entry = keysOnly(bundle, BUNDLE_KEYS, BUNDLE_KEYS, `${where}.bundles#${String(j)}`)
+      const entry = keysOnly(bundle, BUNDLE_KEYS, REQUIRED_BUNDLE_KEYS, `${where}.bundles#${String(j)}`)
       if (typeof entry.date !== 'string' || !DATE_RE.test(entry.date) || typeof entry.buyer !== 'string') throw new ReadError(`${where}: bundle`)
       if (!PAYMENTS.includes(entry.payment as string)) throw new ReadError(`${where}: payment`)
       for (const key of ['items', 'subtotal', 'cancels', 'noPay']) if (!nonNegInt(entry[key])) throw new ReadError(`${where}: ${key}`)
+      if (entry.mine !== undefined && !nonNegInt(entry.mine)) throw new ReadError(`${where}: mine`)
       return entry as unknown as SummaryBundle
     })
     const out = keysOnly(item.out, OUT_KEYS, OUT_KEYS, `${where}.out`)
@@ -74,10 +77,10 @@ afterAll(() => {
 })
 
 describe('AC-CRM1-01 손님 기록 골든', () => {
-  it('파일 1개·사례 13개 (고정값), id는 폴더 전체에서 유일', () => {
+  it('파일 1개·사례 16개 (고정값, D-PASS-01로 13 → 16), id는 폴더 전체에서 유일', () => {
     expect(files).toEqual(['summary.json'])
-    expect(cases).toHaveLength(13)
-    expect(new Set(cases.map((item) => item.id)).size).toBe(13)
+    expect(cases).toHaveLength(16)
+    expect(new Set(cases.map((item) => item.id)).size).toBe(16)
   })
 
   for (const tz of ['UTC', 'Asia/Seoul', 'America/Los_Angeles']) {

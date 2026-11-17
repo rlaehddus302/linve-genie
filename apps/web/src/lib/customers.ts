@@ -27,8 +27,12 @@ export interface CustomerSummary {
   readonly unpaidDays: number
   readonly lastUnpaid: string | null
   readonly cancels: number
+  /** 그중 손님이 거둔(패스·취소) 수 (D-PASS-01) — 판매자 찜 삭제·상품 삭제·번호 착오는 빼고 센다 */
+  readonly passes: number
   readonly regular: boolean
   readonly caution: boolean
+  /** 패스 잦음 주의 (패스 3번 이상, D-PASS-01) */
+  readonly passWarning: boolean
 }
 
 /** GET /api/days/:date/customers 의 한 줄 (지금의 구매자마다) */
@@ -122,6 +126,8 @@ export interface CustomerDetailView {
 
 export const REGULAR_WORD = '단골'
 export const CAUTION_WORD = '입금 늦음 주의'
+/** 패스를 자주 하는 손님 꼬리표 (D-PASS-01) */
+export const PASS_WARNING_WORD = '패스 잦음 주의'
 /** 콘솔 요약 줄에 다 들어가지 않을 때 (D-CRM1-07) */
 export const CAUTION_SHORT = '주의'
 /** 화면 읽기 프로그램이 읽는 말 (D-CRM1-07) */
@@ -163,7 +169,7 @@ export function summaryLines(summary: CustomerSummary, today: string): string[] 
     `누적 구매 ${formatWon(summary.purchaseTotal)} · ${String(summary.purchaseDays)}번`,
     summary.lastPurchase === null ? NO_PURCHASE : `마지막 구매 ${customerDate(summary.lastPurchase, today)}`,
     summary.unpaidDays === 0 ? NO_UNPAID : `미입금 ${String(summary.unpaidDays)}번${summary.lastUnpaid === null ? '' : ` · 마지막 ${customerDate(summary.lastUnpaid, today)}`}`,
-    `취소 ${String(summary.cancels)}번`,
+    `취소 ${String(summary.cancels)}번 · 그중 손님 패스 ${String(summary.passes)}번`,
   ]
 }
 
@@ -208,19 +214,20 @@ export const codePoints = (text: string): number => [...text].length
 
 // ── 구매자 목록 정렬·거르기 (D-CRM1-06, AC-CRM1-14) ─────────────────
 
-export type CustomerFilter = 'all' | 'regular' | 'caution'
+export type CustomerFilter = 'all' | 'regular' | 'caution' | 'pass'
 
 export const FILTER_WORD: Readonly<Record<CustomerFilter, string>> = {
   all: '모두',
   regular: '단골만',
   caution: '입금 늦음 주의만',
+  pass: '패스 잦음 주의만',
 }
 
 /** 거르기: 단골만·입금 늦음 주의만 (기록이 없는 구매자는 둘 다 아니다) */
-export function passesFilter(summary: Pick<CustomerSummary, 'regular' | 'caution'> | undefined, filter: CustomerFilter): boolean {
+export function passesFilter(summary: Pick<CustomerSummary, 'regular' | 'caution' | 'passWarning'> | undefined, filter: CustomerFilter): boolean {
   if (filter === 'all') return true
   if (summary === undefined) return false
-  return filter === 'regular' ? summary.regular : summary.caution
+  return filter === 'regular' ? summary.regular : filter === 'pass' ? summary.passWarning : summary.caution
 }
 
 /** "누적 큰 순": 누적 구매 금액 큰 순, 같으면 이름 순 → 구매자 ID 순 (기록이 없으면 0원) */
@@ -240,7 +247,7 @@ export const SORT_WORD: Readonly<Record<CustomerSort, string>> = {
 }
 
 export const CUSTOMER_SORTS: readonly CustomerSort[] = ['total', 'recent', 'unpaid']
-export const CUSTOMER_FILTERS: readonly CustomerFilter[] = ['all', 'regular', 'caution']
+export const CUSTOMER_FILTERS: readonly CustomerFilter[] = ['all', 'regular', 'caution', 'pass']
 
 export const isCustomerSort = (value: string | null | undefined): value is CustomerSort => (CUSTOMER_SORTS as readonly string[]).includes(value ?? '')
 export const isCustomerFilter = (value: string | null | undefined): value is CustomerFilter => (CUSTOMER_FILTERS as readonly string[]).includes(value ?? '')

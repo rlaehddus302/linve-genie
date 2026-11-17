@@ -7,7 +7,8 @@
 //   (이벤트 본문 형식을 바꾸지 않아 이미 쌓인 기록에도 맞다).
 // - 묶음 = 그날 지금의 구매자(root)의 정산 묶음. items = 확정 찜 수량 합, subtotal = 코어 정산 상품 합계, payment = 코어 입금 상태,
 //   cancels = 1등(확정)이었던 적이 있고(가격 스냅샷이 있다) 지금 취소·무효(방송자)인 찜 수,
-//   noPay = 그중 방송자 조치(취소·무효·교체 취소)의 사유가 '입금 안 함'으로 끝난 찜 수.
+//   noPay = 그중 방송자 조치(취소·무효·교체 취소)의 사유가 '입금 안 함'으로 끝난 찜 수,
+//   mine = 그중 방송자 조치의 사유가 손님 패스 사유(isPassReason)가 아닌 찜 수 (D-PASS-01 — 패스 횟수 = cancels − mine).
 //   사유는 엔진 상태에 없어 그 범위의 이벤트 기록을 코어 applyEvent로 다시 적용해 어느 확정 찜이 그 조치로 끝났는지 본다(사유 후보 이벤트가 있는 범위만).
 // - 봉인 날짜(30일, D-PL1-04)는 봉인 장부로 다시 세운 상태로 센다(D-CRM1-02). 장부에는 끝난 찜·조치 사유가 없어,
 //   그 날짜의 cancels·noPay는 봉인 전에 남긴 보관 행(archive.ts, D-CRM1-12)에서 더한다 — 같은 뿌리 구매자면 같은 묶음,
@@ -30,7 +31,7 @@ import { readSealed } from '../sealed-state.ts'
 import { last4KeyText, newBuyerKeyText } from '../sms-last4.ts'
 import { eventsBetween, snapshotBefore } from '../store.ts'
 import type { ScopeWriter } from '../writer.ts'
-import { isNoPayReason, type SummaryBundle } from './summary.ts'
+import { isNoPayReason, isPassReason, type SummaryBundle } from './summary.ts'
 
 const SMS_PREFIX = 'sms:'
 
@@ -77,15 +78,27 @@ export interface DayFacts {
 /** 사유 후보 이벤트: 방송자 취소·무효, 교체 취소(직접 배정 replaceTo=CANCEL) */
 const ACTION_TYPES = ['host.cancel', 'host.reject', 'host.assign'] as const
 
-function noPayCandidate(type: string, body: string): boolean {
+/** 사유 후보 하나의 갈래: '입금 안 함'(판매자 쪽이기도 하다), 그 밖의 판매자 쪽 조치, 아니면 null(손님 패스 사유·후보 아님) */
+type ActionKind = 'noPay' | 'mine'
+
+function actionKind(type: string, body: string): ActionKind | null {
   try {
     const event = JSON.parse(body) as { reason?: unknown; replaceTo?: unknown }
-    if (type === 'host.assign' && event.replaceTo !== 'CANCEL') return false
-    return isNoPayReason(event.reason)
+    if (type === 'host.assign' && event.replaceTo !== 'CANCEL') return null
+    if (isNoPayReason(event.reason)) return 'noPay'
+    return isPassReason(event.reason) ? null : 'mine'
   } catch {
-    return false
+    return null
   }
 }
+
+/** 방송자 조치로 끝난 확정 찜 ID — '입금 안 함'으로 끝난 것, 손님 패스가 아닌 사유로 끝난 것('입금 안 함' 포함) */
+export interface EndedClaims {
+  readonly noPay: ReadonlySet<string>
+  readonly mine: ReadonlySet<string>
+}
+
+const NO_ENDED: EndedClaims = { noPay: new Set(), mine: new Set() }
 
 const isEnded = (status: string, reason: string | null) => status === 'CANCELLED' || (status === 'REJECTED' && reason === 'BY_HOST')
 
@@ -95,8 +108,10 @@ interface NoPayProgress {
   replayed: number
   /** 여기까지 후보를 찾아봤다 (replayed 이상) */
   checked: number
-  /** 찾은 찜 ID (replayed까지의 후보로) */
+  /** 찾은 '입금 안 함' 찜 ID (replayed까지의 후보로) */
   ids: ReadonlySet<string>
+  /** 찾은 판매자 쪽 조치 찜 ID (D-PASS-01) */
+  mine: ReadonlySet<string>
   /** replayed 시점의 상태 — 메모리를 아끼려 최근 것 몇 벌만 둔다(없으면 다음에 스냅샷에서 시작) */
   state: EngineState | null
 }
@@ -109,12 +124,12 @@ const yieldTurn = () => new Promise<void>((resolve) => setImmediate(resolve))
  * 그 범위에서 '입금 안 함' 조치로 끝난 확정 찜 ID (후보 이벤트 앞뒤의 찜 상태를 코어 applyEvent로 비교한다).
  * 이어 센다: 지난번 다시 적용한 곳 뒤의 새 후보만 본다. 앞선 후보의 결과는 뒤 이벤트로 바뀌지 않는다(그 조치 앞뒤 비교라서).
  */
-async function noPayClaims(db: Db, sellerId: string, scopeId: string, upto: number, log: LogSink, date: string): Promise<ReadonlySet<string>> {
+async function noPayClaims(db: Db, sellerId: string, scopeId: string, upto: number, log: LogSink, date: string): Promise<EndedClaims> {
   const key = JSON.stringify([sellerId, scopeId])
   return oneAtATime(noPayRunning, key, async () => {
     const known = noPayProgress.get(key)
-    const progress: NoPayProgress = known ?? { replayed: 0, checked: 0, ids: new Set(), state: null }
-    if (upto <= progress.checked) return progress.ids
+    const progress: NoPayProgress = known ?? { replayed: 0, checked: 0, ids: new Set(), mine: new Set(), state: null }
+    if (upto <= progress.checked) return { noPay: progress.ids, mine: progress.mine }
     const rows = await db
       .select({ seq: events.seq, type: events.type, body: events.body })
       .from(events)
@@ -129,15 +144,19 @@ async function noPayClaims(db: Db, sellerId: string, scopeId: string, upto: numb
         ),
       )
       .orderBy(asc(events.seq))
-    const candidates = rows.filter((row) => noPayCandidate(row.type, row.body)).map((row) => row.seq)
+    const kinds = new Map<number, ActionKind>()
+    for (const row of rows) {
+      const kind = actionKind(row.type, row.body)
+      if (kind !== null) kinds.set(row.seq, kind)
+    }
+    const candidates = [...kinds.keys()]
     const first = candidates[0]
     const last = candidates.at(-1)
     if (first === undefined || last === undefined) {
       progress.checked = upto
       remember(noPayProgress, key, progress, NO_PAY_CACHE_MAX)
-      return progress.ids
+      return { noPay: progress.ids, mine: progress.mine }
     }
-    const wanted = new Set(candidates)
     // 시작 상태: 이어 갈 상태, 없으면 첫 새 후보보다 앞선 스냅샷, 그것도 없으면 빈 상태(0번부터)
     let state: EngineState
     let from: number
@@ -156,13 +175,15 @@ async function noPayClaims(db: Db, sellerId: string, scopeId: string, upto: numb
       }
     }
     const ids = new Set(progress.ids)
+    const mine = new Set(progress.mine)
     while (from < last) {
       const chunk = await eventsBetween(db, sellerId, scopeId, from, last, NO_PAY_CHUNK)
       if (chunk.length === 0) break
       for (const row of chunk) {
         from = row.seq
         if (row.failed) continue
-        const before = wanted.has(row.seq) ? new Set(listClaims(state).filter((claim) => claim.status === 'CONFIRMED').map((claim) => claim.id)) : null
+        const kind = kinds.get(row.seq)
+        const before = kind !== undefined ? new Set(listClaims(state).filter((claim) => claim.status === 'CONFIRMED').map((claim) => claim.id)) : null
         try {
           state = applyEvent(state, JSON.parse(row.body) as EngineEvent).state
         } catch {
@@ -171,15 +192,19 @@ async function noPayClaims(db: Db, sellerId: string, scopeId: string, upto: numb
           continue
         }
         if (before === null) continue
-        for (const claim of listClaims(state)) if (before.has(claim.id) && isEnded(claim.status, claim.reason)) ids.add(claim.id)
+        for (const claim of listClaims(state)) {
+          if (!before.has(claim.id) || !isEnded(claim.status, claim.reason)) continue
+          mine.add(claim.id)
+          if (kind === 'noPay') ids.add(claim.id)
+        }
       }
       noPayReplayed += chunk.length
       if (from < last) await yieldTurn()
     }
-    const next: NoPayProgress = { replayed: last, checked: upto, ids, state }
+    const next: NoPayProgress = { replayed: last, checked: upto, ids, mine, state }
     remember(noPayProgress, key, next, NO_PAY_CACHE_MAX)
     keepState(key)
-    return ids
+    return { noPay: ids, mine }
   })
 }
 
@@ -232,7 +257,7 @@ async function phoneKeys(deps: FactsDeps, sellerId: string, scope: ScopeRow): Pr
 }
 
 /** 범위 상태 하나 → 그날 재료 (판정 없음 — 코어 조회 결과만) */
-export function factsOf(date: string, scopeId: string, seq: number, state: EngineState, keys: ReadonlyMap<string, string>, ended: ReadonlySet<string>): DayFacts {
+export function factsOf(date: string, scopeId: string, seq: number, state: EngineState, keys: ReadonlyMap<string, string>, ended: ReadonlySet<string>, mineEnded: ReadonlySet<string> = new Set()): DayFacts {
   const buyers = new Map<string, DayBuyer>()
   const markers = new Map<string, string>()
   for (const buyer of listBuyers(state)) {
@@ -256,13 +281,14 @@ export function factsOf(date: string, scopeId: string, seq: number, state: Engin
     })
     if (marker !== null && !markers.has(marker)) markers.set(marker, buyer.id)
   }
-  const counts = new Map<string, { items: number; cancels: number; noPay: number }>()
+  const counts = new Map<string, { items: number; cancels: number; noPay: number; mine: number }>()
   for (const claim of listClaims(state)) {
-    const entry = counts.get(claim.currentBuyer) ?? { items: 0, cancels: 0, noPay: 0 }
+    const entry = counts.get(claim.currentBuyer) ?? { items: 0, cancels: 0, noPay: 0, mine: 0 }
     if (claim.status === 'CONFIRMED') entry.items += claim.qty
     else if (claim.price !== null && isEnded(claim.status, claim.reason)) {
       entry.cancels += 1
       if (ended.has(claim.id)) entry.noPay += 1
+      if (ended.has(claim.id) || mineEnded.has(claim.id)) entry.mine += 1
     }
     counts.set(claim.currentBuyer, entry)
   }
@@ -270,7 +296,7 @@ export function factsOf(date: string, scopeId: string, seq: number, state: Engin
   for (const buyer of buyers.values()) {
     if (buyer.root !== buyer.id) continue
     const settlement = getSettlement(state, buyer.id, date)
-    const count = counts.get(buyer.id) ?? { items: 0, cancels: 0, noPay: 0 }
+    const count = counts.get(buyer.id) ?? { items: 0, cancels: 0, noPay: 0, mine: 0 }
     const paid = settlement.records.some((record) => record.kind === 'payment' || record.kind === 'refund')
     const info = getBuyer(state, buyer.id)
     bundles.set(buyer.id, {
@@ -281,6 +307,7 @@ export function factsOf(date: string, scopeId: string, seq: number, state: Engin
       payment: settlement.payment,
       cancels: count.cancels,
       noPay: count.noPay,
+      mine: count.mine,
       name: buyer.display,
       members: [buyer.id, ...(info?.merged ?? [])],
       record: count.items > 0 || paid || count.cancels > 0,
@@ -305,6 +332,8 @@ export interface ArchiveRow {
   readonly members: readonly ArchiveMember[]
   readonly cancels: number
   readonly noPay: number
+  /** 판매자 쪽 조치로 끝난 찜 수 (D-PASS-01 — 옛 행은 0) */
+  readonly mine: number
 }
 
 /** 그날 재료 → 보관 행 (기록 묶음 중 표지가 있는 구성원이 있는 것만 — 다른 날과 이어질 수 없는 묶음은 남길 까닭이 없다) */
@@ -317,7 +346,7 @@ export function archiveRowsOf(facts: DayFacts): ArchiveRow[] {
       .filter((buyer) => buyer !== undefined)
       .map((buyer) => ({ id: buyer.id, marker: buyer.marker, display: buyer.display, phoneLast4: buyer.phoneLast4 }))
     if (!members.some((member) => member.marker !== null)) continue
-    out.push({ root: bundle.buyer, members, cancels: bundle.cancels, noPay: bundle.noPay })
+    out.push({ root: bundle.buyer, members, cancels: bundle.cancels, noPay: bundle.noPay, mine: bundle.mine ?? 0 })
   }
   return out
 }
@@ -340,7 +369,7 @@ export function mergeArchive(facts: DayFacts, rows: readonly ArchiveRow[]): DayF
     if (existing !== undefined) {
       const cancels = existing.cancels + row.cancels
       const members = [...existing.members, ...ids.filter((id) => !existing.members.includes(id))]
-      bundles.set(target, { ...existing, cancels, noPay: existing.noPay + row.noPay, members, record: existing.record || cancels > 0 })
+      bundles.set(target, { ...existing, cancels, noPay: existing.noPay + row.noPay, mine: (existing.mine ?? 0) + row.mine, members, record: existing.record || cancels > 0 })
     } else {
       bundles.set(target, {
         date: facts.date,
@@ -350,6 +379,7 @@ export function mergeArchive(facts: DayFacts, rows: readonly ArchiveRow[]): DayF
         payment: 'UNPAID',
         cancels: row.cancels,
         noPay: row.noPay,
+        mine: row.mine,
         name: row.members[0]?.display ?? '',
         members: ids.includes(target) ? ids : [target, ...ids],
         record: row.cancels > 0,
@@ -400,18 +430,18 @@ export function readArchiveMembers(text: string): ArchiveMember[] | null {
 /** 그 날짜의 보관 행 (판매자 ID 조건). 읽을 수 없는 행은 빼고 경고(코드·날짜만) */
 async function archiveRows(db: Db, sellerId: string, date: string, log: LogSink): Promise<ArchiveRow[]> {
   const rows = await db
-    .select({ root: customerArchiveRows.root, members: customerArchiveRows.members, cancels: customerArchiveRows.cancels, noPay: customerArchiveRows.noPay })
+    .select({ root: customerArchiveRows.root, members: customerArchiveRows.members, cancels: customerArchiveRows.cancels, noPay: customerArchiveRows.noPay, mine: customerArchiveRows.mine })
     .from(customerArchiveRows)
     .where(and(eq(customerArchiveRows.sellerId, sellerId), eq(customerArchiveRows.date, date)))
     .orderBy(asc(customerArchiveRows.id))
   const out: ArchiveRow[] = []
   for (const row of rows) {
     const members = readArchiveMembers(row.members)
-    if (members === null || row.cancels < 0 || row.noPay < 0) {
+    if (members === null || row.cancels < 0 || row.noPay < 0 || row.mine < 0) {
       log({ level: 'warn', code: 'CUSTOMER_ARCHIVE_UNREADABLE', date })
       continue
     }
-    out.push({ root: row.root, members, cancels: row.cancels, noPay: row.noPay })
+    out.push({ root: row.root, members, cancels: row.cancels, noPay: row.noPay, mine: row.mine })
   }
   return out
 }
@@ -565,7 +595,7 @@ export async function factsFor(deps: FactsDeps, sellerId: string, scope: ScopeRo
 async function buildFacts(deps: FactsDeps, sellerId: string, scope: ScopeRow, sealed: boolean, slot: string | null): Promise<DayFacts | null> {
   let state: EngineState
   let seq = scope.seq
-  let ended: ReadonlySet<string> = new Set()
+  let ended: EndedClaims = NO_ENDED
   if (sealed) {
     const read = await readSealed(deps.db, sellerId, scope.date)
     if (!read.sealed || read.state === null) {
@@ -580,7 +610,7 @@ async function buildFacts(deps: FactsDeps, sellerId: string, scope: ScopeRow, se
     seq = runtime.seq
     ended = await noPayClaims(deps.db, sellerId, scope.id, runtime.seq, deps.log, scope.date)
   }
-  let facts = factsOf(scope.date, scope.id, seq, state, await phoneKeys(deps, sellerId, { ...scope, seq }), ended)
+  let facts = factsOf(scope.date, scope.id, seq, state, await phoneKeys(deps, sellerId, { ...scope, seq }), ended.noPay, ended.mine)
   // 봉인 날짜: 봉인 전에 남긴 보관 행을 더한다 (D-CRM1-12 — 봉인한 날짜의 행은 바뀌지 않아 (범위, seq, 봉인) 캐시가 그대로 맞다)
   if (sealed) facts = mergeArchive(facts, await archiveRows(deps.db, sellerId, scope.date, deps.log))
   factsBuilds += 1

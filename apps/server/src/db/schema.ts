@@ -2423,6 +2423,8 @@ export const customerArchiveRows = pgTable(
     members: text('members').notNull(),
     cancels: integer('cancels').notNull(),
     noPay: integer('no_pay').notNull(),
+    /** 판매자 쪽 조치로 끝난 찜 수 (D-PASS-01 — 패스 횟수 = cancels − mine, 옛 행은 0) */
+    mine: integer('mine').notNull().default(0),
   },
   (t) => [index('customer_archive_rows_date_idx').on(t.sellerId, t.date)],
 )

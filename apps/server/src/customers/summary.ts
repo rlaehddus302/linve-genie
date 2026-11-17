@@ -17,6 +17,11 @@ export interface SummaryBundle {
   readonly cancels: number
   /** 그중 사유가 '입금 안 함'인 찜 수 */
   readonly noPay: number
+  /**
+   * 그중 손님이 거둔 것이 아닌 찜 수 (D-PASS-01): 방송자 조치(취소·무효·교체 취소)로 끝났고 사유가 손님 패스 사유(PASS_REASONS)가 아닌 것.
+   * 없으면 0 — 옛 보관 행·골든은 취소를 모두 손님 패스로 센다
+   */
+  readonly mine?: number
 }
 
 /** 설정 "손님 관리" (D-CRM1-05) */
@@ -36,8 +41,23 @@ export interface CustomerSummary {
   readonly unpaidDays: number
   readonly lastUnpaid: string | null
   readonly cancels: number
+  /** 손님 패스 횟수 (D-PASS-01) = 취소 횟수 − 판매자 쪽 조치로 끝난 찜 수 */
+  readonly passes: number
   readonly regular: boolean
   readonly caution: boolean
+  /** 패스 잦음 주의 = 패스 횟수 ≥ PASS_WARNING_COUNT (D-PASS-01) */
+  readonly passWarning: boolean
+}
+
+/** 패스 잦음 주의가 붙는 패스 횟수 (D-PASS-01 AUTO — 한두 번은 누구나 한다) */
+export const PASS_WARNING_COUNT = 3
+
+/** 손님 패스로 세는 방송자 조치 사유 (공백 무시): 주문 상세 [상품 빼기]의 "손님이 패스했어요"와 빠른 선택 "시청자 요청" */
+const PASS_REASONS: ReadonlySet<string> = new Set(['손님패스', '시청자요청'])
+
+/** 방송자 조치 사유가 손님 패스인지 (D-PASS-01). 아니면 판매자 쪽 조치(찜 삭제·상품 삭제·번호 착오·판매자 착오·입금 안 함…)로 패스에 넣지 않는다 */
+export function isPassReason(reason: unknown): boolean {
+  return typeof reason === 'string' && PASS_REASONS.has(reason.replace(/\s/gu, ''))
 }
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -95,12 +115,13 @@ const latest = (dates: ReadonlySet<string>): string | null => {
   return found
 }
 
-/** 손님 기록 요약 (골든 G-CRM-001~013) */
+/** 손님 기록 요약 (골든 G-CRM-001~016) */
 export function customerSummary(today: string, settings: CustomerSettings, bundles: readonly SummaryBundle[]): CustomerSummary {
   const purchaseDates = new Set<string>()
   const unpaidDates = new Set<string>()
   let purchaseTotal = 0
   let cancels = 0
+  let passes = 0
   for (const bundle of bundles) {
     if (isPurchase(bundle)) {
       purchaseDates.add(bundle.date)
@@ -108,9 +129,10 @@ export function customerSummary(today: string, settings: CustomerSettings, bundl
     }
     if (isUnpaid(bundle, today, settings.waitDays)) unpaidDates.add(bundle.date)
     cancels += bundle.cancels
+    passes += Math.max(0, bundle.cancels - (bundle.mine ?? 0))
   }
   const purchaseDays = purchaseDates.size
   const unpaidDays = unpaidDates.size
   const regular = purchaseDays >= settings.regularCount || (settings.regularAmount !== null && purchaseTotal >= settings.regularAmount)
-  return { purchaseDays, purchaseTotal, lastPurchase: latest(purchaseDates), unpaidDays, lastUnpaid: latest(unpaidDates), cancels, regular, caution: unpaidDays >= 1 }
+  return { purchaseDays, purchaseTotal, lastPurchase: latest(purchaseDates), unpaidDays, lastUnpaid: latest(unpaidDates), cancels, passes, regular, caution: unpaidDays >= 1, passWarning: passes >= PASS_WARNING_COUNT }
 }

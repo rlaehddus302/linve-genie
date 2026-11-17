@@ -17,6 +17,7 @@ import {
   MEMO_SAVED,
   MEMO_TOO_LONG,
   NO_PURCHASE,
+  PASS_WARNING_WORD,
   REGULAR_WORD,
   SORT_WORD,
   codePoints,
@@ -62,12 +63,13 @@ export const LEDGER_DELETE_ASK = '이 손님의 저장한 배송지를 지울까
 export const LEDGER_DELETED = '저장한 배송지를 지웠어요.'
 const LINKED_PREFIX = '이 손님이 직접 연결한 계정: '
 
-function CustomerTags({ row, blocked }: { readonly row: Pick<CustomerRow, 'regular' | 'caution'>; readonly blocked?: boolean }) {
-  if (!row.regular && !row.caution && blocked !== true) return null
+function CustomerTags({ row, blocked }: { readonly row: Pick<CustomerRow, 'regular' | 'caution' | 'passWarning'>; readonly blocked?: boolean }) {
+  if (!row.regular && !row.caution && !row.passWarning && blocked !== true) return null
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs }}>
       {row.regular ? <MiniTag tone="success">{REGULAR_WORD}</MiniTag> : null}
       {row.caution ? <MiniTag tone="warning">{CAUTION_WORD}</MiniTag> : null}
+      {row.passWarning ? <MiniTag tone="warning">{PASS_WARNING_WORD}</MiniTag> : null}
       {blocked === true ? <MiniTag tone="danger">{BLOCKED_WORD}</MiniTag> : null}
     </View>
   )
@@ -78,7 +80,7 @@ function CustomerLine({ row, today, onPress }: { readonly row: CustomerRow; read
   const { p } = useKit()
   const summary = hasNoPurchase(row) ? NO_PURCHASE : `누적 ${formatWon(row.purchaseTotal)} · ${String(row.purchaseDays)}번 · 마지막 ${customerDate(row.lastPurchase ?? '', today)}`
   return (
-    <Tap role="button" aria-label={`${row.name} · ${row.kindLabel}${row.regular ? ` · ${REGULAR_WORD}` : ''}${row.caution ? ` · ${CAUTION_WORD}` : ''}`} onPress={onPress} style={({ pressed }) => listRowStyle(p, pressed)}>
+    <Tap role="button" aria-label={`${row.name} · ${row.kindLabel}${row.regular ? ` · ${REGULAR_WORD}` : ''}${row.caution ? ` · ${CAUTION_WORD}` : ''}${row.passWarning ? ` · ${PASS_WARNING_WORD}` : ''}`} onPress={onPress} style={({ pressed }) => listRowStyle(p, pressed)}>
       <Initial name={row.name} />
       <View style={{ flex: 1, gap: 2 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap' }}>
@@ -207,7 +209,7 @@ function summaryRows(summary: CustomerSummary, today: string): readonly { readon
     row('누적 구매', `${formatWon(summary.purchaseTotal)} · ${String(summary.purchaseDays)}번`, lines[0]),
     row('마지막 구매', summary.lastPurchase === null ? '없음' : customerDate(summary.lastPurchase, today), lines[1]),
     row('미입금', summary.unpaidDays === 0 ? '없음' : `${String(summary.unpaidDays)}번${summary.lastUnpaid === null ? '' : ` · 마지막 ${customerDate(summary.lastUnpaid, today)}`}`, lines[2]),
-    row('취소', `${String(summary.cancels)}번`, lines[3]),
+    row('취소', `${String(summary.cancels)}번 · 그중 손님 패스 ${String(summary.passes)}번`, lines[3]),
   ]
 }
 

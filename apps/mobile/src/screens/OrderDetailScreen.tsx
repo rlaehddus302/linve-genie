@@ -5,7 +5,8 @@
 //    줄을 누르면 상품 추가처럼 한 번에 하나씩 묻는 손님 정보 화면(OrderInfoScreen). 손님이 적은 주소가 아직 확인 전이면 주소 아래 작은 "확인 전".
 // ② 테두리 없는 표 번호 | 상품명 | 개수 | 가격 (번호 오름차순, 번호·개수는 가운데 — 번호 칸은 "번호" 글자 폭이라 표 왼쪽 끝에 붙고 상품명과는 띄운다, D-UX4-129),
 //    목록 끝 얇은 구분선(띠 아님) 아래 총합(개수 합 · 가격 합) · 배송비(무료 기준이 있으면 늘 "배송비(50,000원 이상 구매 시 무료배송)") · 할인·추가 · 최종 금액,
-//    그 묶음 오른쪽 아래 작은 회색 단추 [배송비 바꾸기] [정산서 보내기].
+//    그 묶음 오른쪽 아래 작은 회색 단추 [상품 빼기] [배송비 바꾸기] [정산서 보내기].
+//    [상품 빼기] (D-PASS-01) → 뺄 상품 고르기 + 까닭(손님이 패스했어요 / 제가 잘못 넣었어요) 아래 창(order-remove.tsx) — 고른 줄마다 방송자 취소.
 //    [배송비 바꾸기] → 아래 창 이름 + › 줄: "배송비 기준 바꾸기"(가게 설정) / "이 주문 배송비 바꾸기"(우리 키보드 화면, OrderShippingScreen).
 //    [정산서 보내기] → 아래 창 줄 넷: 고객에게 문자 보내기 · 사진으로 저장하기 · CSV 파일로 저장하기 · 엑셀 파일로 저장하기 (order-export.tsx).
 // ③ "입금" 이름표 아래 받은 금액 · 남은 금액(남아 있으면 빨강) · 돌려줄 돈, 남은 금액이 있으면 [입금을 확인했나요?] → 팝업 [확인했어요] → 남은 금액을 다 받은 것으로 적는다.
@@ -34,6 +35,7 @@ import { PlatformIcon } from '../ui/PlatformIcon.tsx'
 import { DetailHeading } from './order-fix.tsx'
 import { MenuRow } from './order-parts.tsx'
 import { OrderSendSheet, SEND_TITLE, SHEET_GONE_MS, type SendNotice } from './order-export.tsx'
+import { OrderRemoveSheet, REMOVE_BUTTON, type RemoveWhy } from './order-remove.tsx'
 import { OrderInfoFlow } from './OrderInfoScreen.tsx'
 import { OrderShippingFlow } from './OrderShippingScreen.tsx'
 
@@ -100,6 +102,7 @@ function OrderDetailBody({ date, buyer, onBack, onOpenOrder, onOpenShopSettings,
   const [sending, setSending] = useState(false)
   const [notice, setNotice] = useState<SendNotice | null>(null)
   const [shippingAsk, setShippingAsk] = useState(false)
+  const [removing, setRemoving] = useState(false)
   // 최근 주문 내역의 지금 주문 줄 → 맨 위로 (D-UX4-129)
   const scroller = useRef<ScrollViewInstance>(null)
   const { data: view, error, reload } = useCachedGet<OrderDetailView>(orderPath(date, buyer), bump)
@@ -123,6 +126,11 @@ function OrderDetailBody({ date, buyer, onBack, onOpenOrder, onOpenShopSettings,
     reloadDay()
     // 아래 주문 목록 합계도 다시 받는다
     signalScreens(ORDERS_TOPIC)
+  }
+  const removed = (count: number, why: RemoveWhy) => {
+    setRemoving(false)
+    setNotice({ tone: 'success', text: `${String(count)}개를 뺐어요${why === 'pass' ? ' · 손님 기록에 패스로 남겼어요' : ''}` })
+    written()
   }
   const pickShipping = async (choice: 'rule' | 'order') => {
     setShippingAsk(false)
@@ -148,13 +156,14 @@ function OrderDetailBody({ date, buyer, onBack, onOpenOrder, onOpenShopSettings,
         <ScrollView ref={scroller} style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: SPACE.xxxl }} keyboardShouldPersistTaps="handled">
           <Head view={view} {...(editable ? { onEdit: onEditInfo } : {})} addressNote={addressNote} />
           <Band />
-          <Order view={view} notice={notice} {...(shippingChoices.length > 0 ? { onShipping: () => setShippingAsk(true) } : {})} onSend={() => { setNotice(null); setSending(true) }} />
+          <Order view={view} notice={notice} {...(!sealed ? { onRemove: () => { setNotice(null); setRemoving(true) } } : {})} {...(shippingChoices.length > 0 ? { onShipping: () => setShippingAsk(true) } : {})} onSend={() => { setNotice(null); setSending(true) }} />
           <Band />
           <Payment view={view} date={date} settlement={settlement === null || sealed ? null : { buyer: settlement.buyer, date: settlement.date }} onPaid={written} />
           <Band />
           <History view={view} {...(onOpenOrder !== undefined ? { onOpen: onOpenOrder } : {})} onTop={() => scroller.current?.scrollTo({ y: 0, animated: true })} />
         </ScrollView>
       )}
+      {view !== null ? <OrderRemoveSheet visible={removing} buyer={view.buyer} items={view.items} onClose={() => setRemoving(false)} onDone={removed} /> : null}
       <OrderSendSheet visible={sending} date={date} buyer={buyer} name={title} sealed={sealed} onClose={() => setSending(false)} onNotice={setNotice} onSent={written} />
       <BottomSheet visible={shippingAsk} onClose={() => setShippingAsk(false)} title={SHIPPING_BUTTON} testID="shipping-choice">
         {/* 이름 + › 줄 (D-UX4-129 "메뉴들 옆에 > 없으니까 붙이고" — [정산서 보내기] 창과 같은 줄) */}
@@ -346,7 +355,7 @@ function MoneyRow({ label, value, strong }: { readonly label: string; readonly v
  * ② 테두리 없는 표 번호 | 상품명 | 개수 | 가격 (가격은 그 줄 합), 목록 끝 얇은 구분선,
  * 총합(개수 합 · 가격 합) · 배송비(이름표 괄호 안에 무료 기준) · 할인·추가 · 최종 금액, 오른쪽 아래 [배송비 바꾸기] [정산서 보내기]
  */
-function Order({ view, notice, onShipping, onSend }: { readonly view: OrderDetailView; readonly notice: SendNotice | null; readonly onShipping?: () => void; readonly onSend: () => void }) {
+function Order({ view, notice, onRemove, onShipping, onSend }: { readonly view: OrderDetailView; readonly notice: SendNotice | null; readonly onRemove?: () => void; readonly onShipping?: () => void; readonly onSend: () => void }) {
   const { p } = useKit()
   return (
     <View role="group" aria-label="주문" style={{ paddingHorizontal: DETAIL_SIDE, paddingVertical: SPACE.xl, gap: SPACE.lg }}>
@@ -392,8 +401,9 @@ function Order({ view, notice, onShipping, onSend }: { readonly view: OrderDetai
         {view.adjustments !== 0 ? <MoneyRow label="할인·추가" value={signedWon(view.adjustments)} /> : null}
         <MoneyRow label={GRAND_TOTAL} value={formatWon(view.total)} strong />
       </View>
-      {/* 단추는 좌우로만 (D-UX4-01) — 오른쪽 아래에 [배송비 바꾸기] [정산서 보내기] */}
+      {/* 단추는 좌우로만 (D-UX4-01) — 오른쪽 아래에 [상품 빼기] [배송비 바꾸기] [정산서 보내기] */}
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: SPACE.sm }}>
+        {onRemove !== undefined && view.items.length > 0 ? <SmallButton label={REMOVE_BUTTON} onPress={onRemove} /> : null}
         {onShipping !== undefined ? <SmallButton label={SHIPPING_BUTTON} onPress={onShipping} /> : null}
         <SmallButton label={SEND_TITLE} onPress={onSend} />
       </View>

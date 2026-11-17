@@ -22,7 +22,7 @@ export const CUSTOMER_DAYS_PAGE_SIZE = 20
 
 export const CUSTOMER_SORTS = ['total', 'recent', 'unpaid'] as const
 export type CustomerSort = (typeof CUSTOMER_SORTS)[number]
-export const CUSTOMER_FILTERS = ['all', 'regular', 'caution'] as const
+export const CUSTOMER_FILTERS = ['all', 'regular', 'caution', 'pass'] as const
 export type CustomerFilter = (typeof CUSTOMER_FILTERS)[number]
 
 export interface CustomerDeps {
@@ -375,6 +375,7 @@ export class CustomerService {
       if (row === null) continue
       if (query.filter === 'regular' && !row.regular) continue
       if (query.filter === 'caution' && !row.caution) continue
+      if (query.filter === 'pass' && !row.passWarning) continue
       if (needle !== null && !CustomerService.#matches(index, marker, row, needle)) continue
       rows.push(row)
     }
