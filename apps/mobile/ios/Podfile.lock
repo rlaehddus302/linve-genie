@@ -155,6 +155,8 @@ PODS:
     - ExpoModulesCore
   - LivejjimAudio (0.0.0):
     - ExpoModulesCore
+  - LivejjimInk (0.0.0):
+    - ExpoModulesCore
   - LivejjimNotice (0.0.0):
     - ExpoModulesCore
   - LivejjimWebSession (0.0.0):
@@ -2393,6 +2395,7 @@ DEPENDENCIES:
   - "hermes-engine (from `../../../node_modules/.pnpm/react-native@0.88.0_@babel+core@7.29.7_supports-color@8.1.1__@react-native+metro-config_8f0eef2000e0e0cd22178fb3a3833ac7/node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)"
   - LiveGeniePrintStation (from `../../../packages/mobile-ble/ios`)
   - LivejjimAudio (from `../../../packages/mobile-audio/ios`)
+  - LivejjimInk (from `../../../packages/mobile-ink/ios`)
   - LivejjimNotice (from `../../../packages/mobile-notice/ios`)
   - LivejjimWebSession (from `../../../packages/mobile-websession/ios`)
   - RCT-Folly (from `build/rndeps-facades/RCT-Folly`)
@@ -2569,6 +2572,8 @@ EXTERNAL SOURCES:
     :path: "../../../packages/mobile-ble/ios"
   LivejjimAudio:
     :path: "../../../packages/mobile-audio/ios"
+  LivejjimInk:
+    :path: "../../../packages/mobile-ink/ios"
   LivejjimNotice:
     :path: "../../../packages/mobile-notice/ios"
   LivejjimWebSession:
@@ -2791,6 +2796,7 @@ SPEC CHECKSUMS:
   hermes-engine: 82e398b5bff0e418fd1246e00069d4ec594ea60a
   LiveGeniePrintStation: 331ec6d5d46c4bd45ccb94d3ca0a66540355c898
   LivejjimAudio: 47cbd7b950a5c1057d6204e77a8eb0f1efd3b0ec
+  LivejjimInk: fe00a59cd0e2443894fae115fbb15e072cc58fdb
   LivejjimNotice: 4d10d80b957e2f9eae2f4227d1b7f335160f4a7e
   LivejjimWebSession: 470729f3f5d32285d05769712b8cb36246e6ef12
   MultiplatformBleAdapter: b1fddd0d499b96b607e00f0faa8e60648343dc1d

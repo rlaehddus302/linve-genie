@@ -1,20 +1,17 @@
-// 손글씨로 숫자 넣기 (D-HANDWRITE-01, 판매자 요청 2026-11-17 "손글씨 기능 추가해줘. 폰을 내려놓은 상태에선 타자가 더 힘듦"):
+// 손글씨로 글자 넣기 (D-HANDWRITE-02, 판매자 2026-11-17 "손글씨는 숫자 말고 품종 같은 텍스트 넣을때만" — 옛 D-HANDWRITE-01은 숫자 칸):
 // - HandwritingPad: 손가락으로 긋는 큰 판(획을 굵게 그린다). 판 안에서 긋는 것은 판이 다 가져간다(창이 내려가거나 목록이 밀리지 않는다).
-// - HandwritingSheet: 화면 폭 전체의 반 화면 판 — 위에 읽은 숫자(쓰는 중은 흐리게), "혹시" 후보 단추, 큰 쓰는 판, [멈추면 바로 넣기],
-//   아래 [지우기 | 넣기](부정 왼쪽·긍정 오른쪽). 잠깐 멈추면 숫자로 굳고 판이 비어 이어 쓸 수 있다.
-// - HandwritingButton: 칸 옆 [손글씨] 단추 (펜 그림 + 글자).
-// 읽기는 휴대폰 안에서만(lib/handwriting.ts) — 인터넷·서버 없이 바로.
+// - HandwritingSheet: 화면 폭 전체의 반 화면 판 — 위에 읽은 글, [띄우기]·[← 한 글자], "혹시" 후보(다른 읽기·품종 이름), 큰 쓰는 판,
+//   아래 [지우기 | 넣기](부정 왼쪽·긍정 오른쪽). 잠깐 멈추면 글자로 읽어 위 글 뒤에 붙이고 판이 비어 이어 쓸 수 있다.
+// - HandwritingButton: 칸 옆 [손글씨] 단추 (펜 그림 + 글자). 손글씨 읽기가 없는 앱(옛 빌드·웹)에서는 그리지 않는다.
+// 읽기는 휴대폰 안에서만(lib/ink-reader.ts) — 획을 밖으로 보내지 않는다.
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { PanResponder, ScrollView, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import { tapHaptic } from '../../native/haptics.ts'
-import type { InkPoint, InkStroke } from '../../lib/handwriting.ts'
-import { AUTO_INSERT_MS, EMPTY_PAD, padChoices, padReducer, SETTLE_MS } from '../../lib/handwriting-pad.ts'
-import { correctionsOf } from '../../lib/handwriting.ts'
-import { learnDigits, setAutoInsert, useHandwriting } from '../../lib/handwriting-store.ts'
+import { EMPTY_PAD, insertText, padReducer, SETTLE_MS, type InkPoint, type InkStroke } from '../../lib/handwriting.ts'
+import { prepareInk, readInk, useInkReader } from '../../lib/ink-reader.ts'
 import { Icon } from './app.tsx'
 import { BigButton } from './buttons.tsx'
-import { ToggleRow } from './layout.tsx'
 import { Tap } from './press.tsx'
 import { BottomSheet } from './sheets.tsx'
 import { Txt, useKit } from './theme.tsx'
@@ -23,23 +20,27 @@ import { RADIUS, SPACE, TOUCH } from './tokens.ts'
 /** 화면에 보이는 말 (쉬운 한국어) */
 export const HANDWRITING_WORDS = {
   button: '손글씨',
-  description: '손가락으로 숫자를 크게 써 주세요. 잠깐 멈추면 숫자로 바뀌어요.',
-  padHint: '여기에 숫자를 크게 써 주세요',
+  description: '손가락으로 크게 써 주세요. 잠깐 멈추면 글자로 바뀌어요. 두세 글자씩 나눠 써도 이어 붙어요.',
+  padHint: '여기에 크게 써 주세요',
   padLabel: '손글씨 쓰는 곳',
-  empty: '쓴 숫자가 여기 보여요',
-  maybe: '혹시 이 숫자예요?',
+  empty: '쓴 글자가 여기 보여요',
+  reading: '읽고 있어요…',
+  preparing: '글씨 읽기를 준비하고 있어요. 처음 한 번은 조금 걸려요.',
+  failed: '글씨 읽기를 준비하지 못했어요. 인터넷을 확인하고 다시 열어 주세요.',
+  missed: '못 읽었어요. 조금 더 크게 다시 써 주세요.',
+  maybe: '혹시 이 이름이에요?',
+  space: '띄우기',
+  spaceLabel: '한 칸 띄우기',
   back: '한 글자 지우기',
   clear: '지우기',
   insert: '넣기',
-  auto: '멈추면 바로 넣기',
-  autoHelp: '쓰고 1초쯤 멈추면 [넣기]를 누르지 않아도 칸에 들어가요.',
 } as const
 
-/** 너무 길면: 칸에 넣지 않고 알린다 (잘라 넣지 않는다 — 가격이 몰래 바뀌지 않게) */
-export const tooLongWords = (max: number): string => `${String(max)}자리까지만 넣을 수 있어요. 한 글자씩 지워 주세요.`
+/** 너무 길면: 칸에 넣지 않고 알린다 (잘라 넣지 않는다) */
+export const tooLongWords = (max: number): string => `${String(max)}자까지만 넣을 수 있어요. 한 글자씩 지워 주세요.`
 
 /**
- * 쓰는 판 높이: 판 안의 다른 것(제목·숫자·후보 자리·켜기 줄·단추 ≈ 500)을 빼고 남는 만큼 — 170 ~ 320.
+ * 쓰는 판 높이: 판 안의 다른 것(제목·글·후보 자리·단추 ≈ 500)을 빼고 남는 만큼 — 170 ~ 320.
  * 판이 넘쳐 스크롤이 생기면 아이폰은 아래로 긋는 손가락을 스크롤이 가져가므로, 보통 글자 크기에서는 넘치지 않게 잡는다.
  */
 export function padHeightFor(windowHeight: number): number {
@@ -70,11 +71,13 @@ export interface HandwritingPadProps {
   readonly onPenDown: () => void
   /** 획 하나를 다 그었다 */
   readonly onStroke: (stroke: InkStroke) => void
+  /** 판 크기를 알았다 (읽을 때 쓰는 곳 크기로 넘긴다) */
+  readonly onWidth?: (width: number) => void
   readonly testID?: string
 }
 
 /** 손가락으로 긋는 판. 판 안의 긋기는 판이 끝까지 가진다(창 끌기·스크롤에 넘기지 않는다) */
-export function HandwritingPad({ ink, height, onPenDown, onStroke, testID }: HandwritingPadProps) {
+export function HandwritingPad({ ink, height, onPenDown, onStroke, onWidth, testID }: HandwritingPadProps) {
   const { p } = useKit()
   const [width, setWidth] = useState(0)
   const [current, setCurrent] = useState<readonly InkPoint[]>([])
@@ -99,7 +102,7 @@ export function HandwritingPad({ ink, height, onPenDown, onStroke, testID }: Han
       onShouldBlockNativeResponder: () => true,
       onPanResponderGrant: (event) => {
         const { locationX, locationY, pageX, pageY } = event.nativeEvent
-        const first = { x: locationX, y: locationY }
+        const first = { x: locationX, y: locationY, t: Date.now() }
         live.current = { points: [first], ox: locationX, oy: locationY, px: pageX, py: pageY }
         setCurrent([first])
         calls.current.onPenDown()
@@ -108,7 +111,7 @@ export function HandwritingPad({ ink, height, onPenDown, onStroke, testID }: Han
         const now = live.current
         if (now === null) return
         // 화면 기준 움직임으로 잰다 — 손가락 아래 요소가 바뀌어도 자리가 튀지 않는다
-        const point = { x: now.ox + event.nativeEvent.pageX - now.px, y: now.oy + event.nativeEvent.pageY - now.py }
+        const point = { x: now.ox + event.nativeEvent.pageX - now.px, y: now.oy + event.nativeEvent.pageY - now.py, t: Date.now() }
         const last = now.points[now.points.length - 1]
         if (last !== undefined && Math.hypot(point.x - last.x, point.y - last.y) < MIN_STEP) return
         now.points.push(point)
@@ -125,7 +128,10 @@ export function HandwritingPad({ ink, height, onPenDown, onStroke, testID }: Han
       testID={testID}
       role="img"
       aria-label={HANDWRITING_WORDS.padLabel}
-      onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}
+      onLayout={(event: LayoutChangeEvent) => {
+        setWidth(event.nativeEvent.layout.width)
+        onWidth?.(event.nativeEvent.layout.width)
+      }}
       style={{ height, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, overflow: 'hidden' }}
     >
       {/* 글자 줄 안내: 가운데 아래쪽 옅은 밑줄 하나 */}
@@ -151,6 +157,8 @@ export function HandwritingPad({ ink, height, onPenDown, onStroke, testID }: Han
 /** [손글씨] 단추: 펜 그림 + 글자 (그림만 두지 않는다). 눌림 자리 48 */
 export function HandwritingButton({ label, onPress, testID }: { readonly label: string; readonly onPress: () => void; readonly testID?: string }) {
   const { p } = useKit()
+  const can = useInkReader()
+  if (!can) return null
   return (
     <Tap
       role="button"
@@ -171,79 +179,83 @@ export function HandwritingButton({ label, onPress, testID }: { readonly label: 
 export interface HandwritingSheetProps {
   readonly visible: boolean
   readonly onClose: () => void
-  /** 무엇을 쓰는지 ("가격", "뒷자리 4개") — 판 제목 */
+  /** 무엇을 쓰는지 ("품종") — 판 제목 */
   readonly label: string
-  /** [넣기]·멈추면 바로 넣기: 읽은 숫자 글 */
+  /** [넣기]: 읽은 글 */
   readonly onInsert: (text: string) => void
-  /** 넣을 수 있는 자리 수 (넘으면 넣지 않고 알린다) */
+  /** 넣을 수 있는 글자 수 (넘으면 넣지 않고 알린다) */
   readonly maxLength?: number
-  /** 숫자 뒤 단위 ("원") */
-  readonly unit?: string
+  /** 자주 쓰는 말(품종 이름) — 비슷하게 읽히면 이 표기로 고치고 "혹시" 후보에 보인다 */
+  readonly hints?: readonly string[]
   readonly testID?: string
 }
 
-/** 손글씨 숫자 판 (반 화면 — 화면 폭 전체) */
-export function HandwritingSheet({ visible, onClose, label, onInsert, maxLength, unit, testID }: HandwritingSheetProps) {
+type Ready = 'preparing' | 'ready' | 'failed'
+
+/** 손글씨 글자 판 (반 화면 — 화면 폭 전체) */
+export function HandwritingSheet({ visible, onClose, label, onInsert, maxLength, hints = [], testID }: HandwritingSheetProps) {
   const { p } = useKit()
   const { height: windowHeight } = useWindowDimensions()
   const padHeight = padHeightFor(windowHeight)
-  const { autoInsert, templates } = useHandwriting()
   const [state, dispatch] = useReducer(padReducer, EMPTY_PAD)
+  const [ready, setReady] = useState<Ready>('preparing')
+  const [reading, setReading] = useState(0)
+  const padWidth = useRef(0)
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const insertTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const latest = useRef({ ink: state.ink, hints, padHeight })
+  useEffect(() => {
+    latest.current = { ink: state.ink, hints, padHeight }
+  })
   const stop = () => {
     if (settleTimer.current !== null) clearTimeout(settleTimer.current)
-    if (insertTimer.current !== null) clearTimeout(insertTimer.current)
     settleTimer.current = null
-    insertTimer.current = null
   }
-  // 열 때마다 빈 판
+  // 열 때마다 빈 판 · 읽을 준비 (안드로이드는 처음 한 번 모델을 받는다)
   useEffect(() => {
-    if (visible) dispatch({ type: 'clear' })
-    return stop
-  }, [visible])
-  // 쓰는 중인 숫자(아직 굳지 않음)까지 합친 글 — [넣기]를 멈추기 전에 눌러도 보이는 그대로 넣는다
-  const shown = state.text + (state.live?.text ?? '')
-  const tooLong = maxLength !== undefined && shown.length > maxLength
-  const canInsert = shown !== '' && !tooLong
-  const latest = useRef({ canInsert, text: shown, autoInsert, onInsert, onClose })
-  useEffect(() => {
-    latest.current = { canInsert, text: shown, autoInsert, onInsert, onClose }
-  })
-  const insert = (text: string) => {
-    stop()
-    onInsert(text)
-    onClose()
-  }
-  // 굳힌 뒤 멈춰 있으면 바로 넣기 (켰을 때만)
-  useEffect(() => {
-    if (!visible || !autoInsert || !canInsert || state.last === null || state.ink.length > 0) return
-    insertTimer.current = setTimeout(() => {
-      const now = latest.current
-      if (now.autoInsert && now.canInsert) {
-        now.onInsert(now.text)
-        now.onClose()
-      }
-    }, AUTO_INSERT_MS)
+    if (!visible) return stop
+    dispatch({ type: 'clear' })
+    setReading(0)
+    let live = true
+    setReady('preparing')
+    void prepareInk().then((ok) => {
+      if (live) setReady(ok ? 'ready' : 'failed')
+    })
     return () => {
-      if (insertTimer.current !== null) clearTimeout(insertTimer.current)
+      live = false
+      stop()
     }
-  }, [visible, autoInsert, canInsert, state.text, state.last, state.ink.length])
+  }, [visible])
+  const read = () => {
+    settleTimer.current = null
+    const { ink, hints: words, padHeight: height } = latest.current
+    if (ink.length === 0) return
+    setReading((count) => count + 1)
+    void readInk(ink, padWidth.current, height, words).then((candidates) => {
+      setReading((count) => Math.max(0, count - 1))
+      dispatch({ type: 'read', strokes: ink, candidates, hints: words })
+    })
+  }
   const onPenDown = () => stop()
   const onStroke = (stroke: InkStroke) => {
-    dispatch({ type: 'stroke', stroke, templates, padHeight })
-    settleTimer.current = setTimeout(() => dispatch({ type: 'settle' }), SETTLE_MS)
+    dispatch({ type: 'stroke', stroke })
+    stop()
+    settleTimer.current = setTimeout(read, SETTLE_MS)
+  }
+  const shown = insertText(state)
+  const tooLong = maxLength !== undefined && Array.from(shown).length > maxLength
+  const canInsert = shown !== '' && !tooLong && state.ink.length === 0 && reading === 0
+  const insert = () => {
+    stop()
+    onInsert(shown)
+    onClose()
   }
   const pick = (option: string) => {
     tapHaptic()
-    stop()
-    const reading = state.live ?? state.last?.reading ?? null
-    // 후보를 골라 고친 글씨는 이 휴대폰이 배운다 (다음부터 같은 꼴을 바로 맞힌다)
-    if (reading !== null) learnDigits(correctionsOf(reading, option))
     dispatch({ type: 'pick', option })
   }
-  const choices = padChoices(state)
-  const pendingFrom = state.text.length
+  const status = tooLong && maxLength !== undefined ? tooLongWords(maxLength) : ready === 'failed' ? HANDWRITING_WORDS.failed : ready === 'preparing' ? HANDWRITING_WORDS.preparing : state.missed ? HANDWRITING_WORDS.missed : null
+  const small = ({ pressed, disabled }: { readonly pressed: boolean; readonly disabled: boolean }) => ({ minWidth: TOUCH.min, height: TOUCH.min, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous' as const, alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: pressed ? p.pressed : p.surfaceAlt, opacity: disabled ? 0.4 : 1 })
+  const noText = state.text === '' && state.ink.length === 0
   return (
     <BottomSheet
       visible={visible}
@@ -254,53 +266,51 @@ export function HandwritingSheet({ visible, onClose, label, onInsert, maxLength,
       contentDrag={false}
       testID={testID}
       actions={[
-        <BigButton key="clear" kind="secondary" label={HANDWRITING_WORDS.clear} disabled={shown === ''} onPress={() => { stop(); dispatch({ type: 'clear' }) }} />,
-        <BigButton key="insert" label={HANDWRITING_WORDS.insert} disabled={!canInsert} onPress={() => insert(shown)} testID="handwriting-insert" />,
+        <BigButton key="clear" kind="secondary" label={HANDWRITING_WORDS.clear} disabled={noText} onPress={() => { stop(); dispatch({ type: 'clear' }) }} />,
+        <BigButton key="insert" label={HANDWRITING_WORDS.insert} disabled={!canInsert} onPress={insert} testID="handwriting-insert" />,
       ]}
     >
-      {/* 읽은 숫자: 굳힌 것은 진하게, 쓰는 중은 흐리게 · 오른쪽 [한 글자 지우기] */}
+      {/* 읽은 글 (읽는 중이면 뒤에 흐리게 "읽고 있어요…") · 오른쪽 [띄우기] [← 한 글자] */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: TOUCH.min }}>
-        <View role="status" aria-label={shown === '' ? HANDWRITING_WORDS.empty : `${shown}${unit ?? ''}`} style={{ flex: 1, flexDirection: 'row', alignItems: 'baseline' }}>
-          {shown === '' ? (
+        <View role="status" aria-label={shown === '' ? (reading > 0 ? HANDWRITING_WORDS.reading : HANDWRITING_WORDS.empty) : shown} style={{ flex: 1, flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', columnGap: SPACE.sm }}>
+          {shown === '' && reading === 0 ? (
             <Txt step="bodyLarge" ink={p.placeholder}>
               {HANDWRITING_WORDS.empty}
             </Txt>
           ) : (
             <>
-              <Txt step="amount" weight="bold" numberOfLines={1}>
-                {state.text}
-              </Txt>
-              <Txt step="amount" weight="bold" ink={p.placeholder} numberOfLines={1}>
-                {shown.slice(pendingFrom)}
-              </Txt>
-              {unit === undefined ? null : (
-                <Txt step="title" weight="medium" color="textSub">
-                  {` ${unit}`}
+              {shown === '' ? null : (
+                <Txt step="title" weight="bold" numberOfLines={2}>
+                  {shown}
                 </Txt>
               )}
+              {reading > 0 ? (
+                <Txt step="body" ink={p.placeholder}>
+                  {HANDWRITING_WORDS.reading}
+                </Txt>
+              ) : null}
             </>
           )}
         </View>
-        <Tap
-          role="button"
-          aria-label={HANDWRITING_WORDS.back}
-          disabled={shown === ''}
-          onPress={() => { stop(); dispatch({ type: 'back' }) }}
-          style={({ pressed }) => ({ minWidth: TOUCH.min, height: TOUCH.min, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.pressed : p.surfaceAlt, opacity: shown === '' ? 0.4 : 1 })}
-        >
+        <Tap role="button" aria-label={HANDWRITING_WORDS.spaceLabel} disabled={state.text === '' || state.text.endsWith(' ')} onPress={() => dispatch({ type: 'space' })} style={({ pressed }) => small({ pressed, disabled: state.text === '' || state.text.endsWith(' ') })}>
+          <Txt step="body" weight="medium" color="textSub">
+            {HANDWRITING_WORDS.space}
+          </Txt>
+        </Tap>
+        <Tap role="button" aria-label={HANDWRITING_WORDS.back} disabled={noText} onPress={() => { stop(); dispatch({ type: 'back' }) }} style={({ pressed }) => small({ pressed, disabled: noText })}>
           <Txt step="body" weight="medium" color="textSub">
             ← 한 글자
           </Txt>
         </Tap>
       </View>
-      {/* 후보 자리(늘 같은 높이): 너무 길면 알림, 아니면 후보 — 누르면 그 숫자로 고친다. 큰 둥근 단추, 가로로 민다 */}
-      {tooLong && maxLength !== undefined ? (
+      {/* 후보 자리(늘 같은 높이 — 쓰는 중에 판이 아래로 밀리면 획이 어긋난다): 알림, 아니면 "혹시" 후보 — 누르면 위 글이 그 글로 바뀐다 */}
+      {status !== null ? (
         <View style={{ height: CHOICE_ROOM }}>
-          <Txt step="body" weight="book" color="dangerText" role="alert">
-            {tooLongWords(maxLength)}
+          <Txt step="body" weight="book" color={tooLong || ready === 'failed' ? 'dangerText' : 'textSub'} role={tooLong || ready === 'failed' || state.missed ? 'alert' : undefined}>
+            {status}
           </Txt>
         </View>
-      ) : choices.length === 0 ? (
+      ) : state.choices.length === 0 ? (
         <View style={{ height: CHOICE_ROOM }} />
       ) : (
         <View style={{ height: CHOICE_ROOM, gap: SPACE.xs }}>
@@ -308,25 +318,24 @@ export function HandwritingSheet({ visible, onClose, label, onInsert, maxLength,
             {HANDWRITING_WORDS.maybe}
           </Txt>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACE.sm }} keyboardShouldPersistTaps="handled">
-            {choices.map((choice) => (
+            {state.choices.map((choice) => (
               <Tap
-                key={choice.option}
+                key={choice}
                 role="button"
-                aria-label={`${choice.shown}${unit ?? ''} 고르기`}
-                onPress={() => pick(choice.option)}
+                aria-label={`${choice} 고르기`}
+                onPress={() => pick(choice)}
                 hitSlop={4}
                 style={({ pressed }) => ({ minHeight: 44, minWidth: 64, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.pill, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: p.primary, backgroundColor: pressed ? p.pressed : p.surface })}
               >
-                <Txt step="lead" weight="bold" color="primaryText">
-                  {choice.shown}
+                <Txt step="lead" weight="bold" color="primaryText" numberOfLines={1}>
+                  {choice}
                 </Txt>
               </Tap>
             ))}
           </ScrollView>
         </View>
       )}
-      <HandwritingPad ink={state.ink} height={padHeight} onPenDown={onPenDown} onStroke={onStroke} testID="handwriting-pad" />
-      <ToggleRow title={HANDWRITING_WORDS.auto} subtitle={HANDWRITING_WORDS.autoHelp} on={autoInsert} onChange={setAutoInsert} testID="handwriting-auto" />
+      <HandwritingPad ink={state.ink} height={padHeight} onPenDown={onPenDown} onStroke={onStroke} onWidth={(width) => { padWidth.current = width }} testID="handwriting-pad" />
     </BottomSheet>
   )
 }

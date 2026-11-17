@@ -1,0 +1,18 @@
+{
+  "name": "@livejjim/mobile-ink",
+  "version": "0.0.0",
+  "private": true,
+  "description": "라이브지니 앱 손글씨 읽기 모듈(Expo Modules API, 네이티브 이름 LivejjimInk) — 품종처럼 글자 칸에 손가락으로 쓴 한글·영문을 휴대폰 안에서 읽는다. 아이폰은 기기 글자 읽기(Vision), 안드로이드는 ML Kit 손글씨 읽기(처음 한 번 한국어 모델을 받는다) (D-HANDWRITE-02)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./native": "./src/native.ts"
+  },
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  },
+  "devDependencies": {
+    "expo-modules-core": "58.0.28",
+    "typescript": "6.0.3"
+  }
+}

@@ -1,0 +1,23 @@
+// 라이브지니 앱 손글씨 읽기 모듈 (Expo Modules API, D-HANDWRITE-02). Expo 자동 연결(expo-module.config.json)이 이 모듈을 앱 빌드에 넣는다.
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.livejjim.ink'
+version = '0.0.0'
+
+android {
+  namespace 'com.livejjim.ink'
+  defaultConfig {
+    versionCode 1
+    versionName '0.0.0'
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // ML Kit 손글씨 읽기: 휴대폰 안에서 읽는다. 한국어 모델(약 20MB)은 처음 한 번 받아 둔다.
+  implementation 'com.google.mlkit:digital-ink-recognition:18.1.0'
+}
