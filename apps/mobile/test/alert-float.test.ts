@@ -3,7 +3,7 @@
 // 프린터 쪽은 한 줄(급한 것부터): 꺼짐 → 블루투스(이 폰이 찍는 폰일 때) → 끊김 → 실패. 블루투스·연결은 이 폰이 찍는 폰이거나 찍는 폰이 없으면 이 폰이 본 상태로.
 import type { QueueSummary } from '@livejjim/web/src/api/print-types.ts'
 import { describe, expect, it } from 'vitest'
-import { FLOAT_ALERT_GAP, FLOAT_ALERT_HEIGHT, FLOAT_TEXT, alertStackHeight, cancelFloatText, floatAlerts, printerFloat, unlistedFloatText, type HerePrinter } from '../src/screens/console/AlertFloat.tsx'
+import { FLOAT_ALERT_GAP, FLOAT_TEXT, HALO, HALO_OPACITY, cancelFloatText, floatAlerts, printerFloat, unlistedFloatText, type HerePrinter } from '../src/screens/console/AlertFloat.tsx'
 
 const device = { id: 'd1', name: '아이폰', live: true, printerConnected: true, releasing: false }
 const queue = (over: Partial<QueueSummary> = {}): QueueSummary => ({ rev: 1, device, pause: null, waiting: 0, printing: 0, discard: 0, labelsEnabled: true, ...over })
@@ -65,10 +65,11 @@ describe('떠 있는 알림 목록 (급한 것부터)', () => {
   })
 })
 
-describe('알림 뒤 흐림 막 (D-ALERTSCRIM-01 — 뒤 글자가 알림 사이로 비쳐 읽기 어려웠다)', () => {
-  it('막은 맨 위 알림 위끝까지 덮는다 — 알림 수만큼 높이와 사이', () => {
-    expect(alertStackHeight(0)).toBe(0)
-    expect(alertStackHeight(1)).toBe(FLOAT_ALERT_HEIGHT)
-    expect(alertStackHeight(2)).toBe(2 * FLOAT_ALERT_HEIGHT + FLOAT_ALERT_GAP)
+// D-ALERTSCRIM-02 (사용자 "흐림 막이 너무 답답한데? … 에러 문구 주변만 반투명한 막을"): 옛 D-ALERTSCRIM-01(화면 너비 흐림 막의 높이) 시험을 바꿈
+describe('알림 캡슐 둘레 테', () => {
+  it('테는 캡슐 사이의 반 두께라 이웃 테가 맞닿고, 반투명이다', () => {
+    expect(HALO * 2).toBe(FLOAT_ALERT_GAP)
+    expect(HALO_OPACITY).toBeGreaterThan(0.5)
+    expect(HALO_OPACITY).toBeLessThan(1)
   })
 })

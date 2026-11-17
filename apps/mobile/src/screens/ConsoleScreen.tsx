@@ -27,7 +27,7 @@ import { useStatementScope } from '../lib/broadcast-groups.ts'
 import { SalesPill } from './console/SalesPill.tsx'
 import { BuyerTotalsPage, TotalsPill } from './console/BuyerTotals.tsx'
 import { BroadcastSalesList } from './console/BroadcastSales.tsx'
-import { AlertFloat, FLOAT_ALERT_GAP, FLOAT_ALERT_HEIGHT, FloatScrim, SCRIM_OVER, alertStackHeight, floatAlerts, type FloatAction } from './console/AlertFloat.tsx'
+import { AlertFloat, FLOAT_ALERT_GAP, FLOAT_ALERT_HEIGHT, floatAlerts, type FloatAction } from './console/AlertFloat.tsx'
 import { FAB_SIZE, FLOAT_PILL_GAP, FLOAT_PILL_HEIGHT, pillBottom } from './console/float-layout.ts'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
@@ -726,8 +726,6 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
             </Animated.View>
           ) : null}
         </Animated.ScrollView>
-        {/* 알림 뒤 흐림 막 (D-ALERTSCRIM-01): 뒤 목록 글자가 알림 캡슐 사이·옆으로 비치지 않게 — 둥근 단추·캡슐보다 먼저(아래에) 그린다 */}
-        {alertsShown ? <FloatScrim top={floatBottom + alertStackHeight(alerts.length) + SCRIM_OVER} /> : null}
         {shownTab === 'products' && !closed && !searchPad ? <AddFab bottom={fabBottom} onPress={() => { if (openAdd === undefined) { setAddNo(null); setPage('add') } else openAdd() }} /> : null}
         {/* [라벨] 탭: (+) 자리의 인쇄 단추 → 직접 인쇄 판 (D-LABELTAB-01) */}
         {shownTab === 'labels' ? <PrintFab bottom={fabBottom} onPress={openDirect} /> : null}

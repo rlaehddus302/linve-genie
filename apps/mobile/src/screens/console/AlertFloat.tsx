@@ -8,7 +8,6 @@
 // - 뺀 것: 1등 정하기(앱에서는 충돌이 생기지 않고 승계 결정은 없앴다, D-SUCCESSION-01), 출력 멈춤(출력 멈추기를 없앰), 까닭별 문구·기기 앱 꺼짐(한 줄로 합침),
 //   버릴 라벨·확인 필요(D-ALERTFLOAT-01).
 import { View } from 'react-native'
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 import type { QueueSummary } from '@livejjim/web/src/api/print-types.ts'
 import type { ConnectionState } from '@livejjim/printer'
 import type { LinkRadio } from '../../lib/print-cause.ts'
@@ -72,17 +71,27 @@ export function floatAlerts(input: { readonly cancelRequests: number; readonly q
 export const FLOAT_ALERT_HEIGHT = FLOAT_PILL_HEIGHT
 export const FLOAT_ALERT_GAP = FLOAT_PILL_GAP
 
+/**
+ * 캡슐 둘레 테 두께·진하기 (D-ALERTSCRIM-02, 사용자 "흐림 막이 너무 답답한데? … 에러 문구 주변만 반투명한 막을 치는게 낫지 않겠니?" — 옛 D-ALERTSCRIM-01 화면 너비 흐림 막을 걷음).
+ * 두께는 캡슐 사이의 반이라 이웃 테가 맞닿아 사이로 글자가 비치지 않는다.
+ */
+export const HALO = FLOAT_PILL_GAP / 2
+export const HALO_OPACITY = 0.85
+
 /** 알림 색: 옅은 빨강 바탕 + 빨간 글 (D-PRINTOFF-01 — 옛 진한 빨강 바탕은 "너무 빨갛고", 그 전 분홍은 너무 옅었다) */
 export const ALERT_COLORS = { bg: '#FBD3D1', pressed: '#F5BCB9', fg: '#B8121C' } as const
 
 /** 왼쪽 아래 빨간 캡슐들 (D-PRINTOFF-01 — 둥근 단추는 오른쪽 아래). bottom: 맨 아래 캡슐의 아래 자리, right: 오른쪽 끝(둥근 단추 자리를 비운다) */
 export function AlertFloat({ items, bottom, right, onAction }: { readonly items: readonly FloatAlert[]; readonly bottom: number; readonly right: number; readonly onAction: (action: FloatAction) => void }) {
+  const { p } = useKit()
   if (items.length === 0) return null
   return (
     <View aria-label="알림" role="region" testID="alert-float" pointerEvents="box-none" style={{ position: 'absolute', left: SPACE.xl, right, bottom, alignItems: 'flex-start', gap: FLOAT_ALERT_GAP }}>
       {items.map((item) => (
+        <View key={item.key} style={{ maxWidth: '100%' }}>
+          {/* 둘레 테 (D-ALERTSCRIM-02): 캡슐 둘레만 반투명 바탕 — 뒤 목록 글자가 캡슐 바로 옆·사이로 비치지 않게. 이웃 테끼리 맞닿는다(사이 = 테 두 겹) */}
+          <View aria-hidden pointerEvents="none" style={{ position: 'absolute', top: -HALO, bottom: -HALO, left: -HALO, right: -HALO, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.surface, opacity: HALO_OPACITY }} />
         <Tap
-          key={item.key}
           role="button"
           aria-label={item.text}
           onPress={() => onAction(item.action)}
@@ -110,38 +119,9 @@ export function AlertFloat({ items, bottom, right, onAction }: { readonly items:
             <Icon name="chevron" color={ALERT_COLORS.fg} size={14} />
           </View>
         </Tap>
+        </View>
       ))}
     </View>
   )
 }
 
-/** 알림 캡슐 묶음 높이 (맨 아래 캡슐 아래 자리부터 맨 위 캡슐 위까지) */
-export const alertStackHeight = (count: number): number => (count <= 0 ? 0 : count * FLOAT_ALERT_HEIGHT + (count - 1) * FLOAT_ALERT_GAP)
-/** 흐림 막이 알림 위로 더 올라가는 길이 */
-export const SCRIM_OVER = 28
-
-/**
- * 알림 뒤 흐림 막 (D-ALERTSCRIM-01, 사용자 "에러 문구와 그 뒤에 글자가 겹쳐서 에러 문구 가독성이 떨어진다"): 화면 아래에서 맨 위 알림보다 조금 위까지,
- * 위는 투명 → 알림 자리부터 화면 바탕색으로 덮어 뒤 목록 글자(빨간 "상품명을 인식하지 못했어요"·이름 알약 등)가 캡슐 사이·옆으로 비치지 않게 한다.
- * 누름은 막지 않는다(뒤 목록을 그대로 누르고 밀 수 있다). top: 막 위끝의 화면 아래에서의 높이
- */
-export function FloatScrim({ top }: { readonly top: number }) {
-  const { p } = useKit()
-  if (top <= 0) return null
-  const solid = Math.min(0.99, Math.max(0, (top - SCRIM_OVER) / top))
-  const fade = 1 - solid
-  return (
-    <View testID="alert-scrim" aria-hidden pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: top }}>
-      <Svg width="100%" height="100%">
-        <Defs>
-          <LinearGradient id="alert-scrim" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={p.surface} stopOpacity={0} />
-            <Stop offset={String(fade)} stopColor={p.surface} stopOpacity={0.94} />
-            <Stop offset="1" stopColor={p.surface} stopOpacity={1} />
-          </LinearGradient>
-        </Defs>
-        <Rect x="0" y="0" width="100%" height="100%" fill="url(#alert-scrim)" />
-      </Svg>
-    </View>
-  )
-}
