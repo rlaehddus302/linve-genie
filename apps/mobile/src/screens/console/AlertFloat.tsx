@@ -7,7 +7,8 @@ import { View } from 'react-native'
 import type { PrintIssue, QueueSummary } from '@livejjim/web/src/api/print-types.ts'
 import type { AlertCounts } from '../../lib/derive.ts'
 import { Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
-import { RADIUS, SPACE, pressedFill } from '../../ui/kit/tokens.ts'
+import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
+import { FLOAT_PILL_GAP, FLOAT_PILL_HEIGHT } from './float-layout.ts'
 
 /** 누르면 할 일 — 라벨·프린터 화면 · 정하기 판 · 등록 안 된 번호 */
 export type FloatAction = 'labels' | 'decide' | 'unlisted'
@@ -25,7 +26,7 @@ export const PRINT_ISSUE_TEXT: Readonly<Record<PrintIssue, string | null>> = {
   OUT_OF_RANGE: '프린터가 너무 멀어요',
   PRINTER_CLOSED: '프린터가 꺼져 있어요',
   LINK_LOST: '프린터 연결이 끊겼어요',
-  APP_BACKGROUND: '출력 기기에서 앱을 켜 주세요',
+  APP_BACKGROUND: '프린터 연결 기기 앱이 닫혔어요',
   NO_RESPONSE: '프린터가 답하지 않아요',
   COVER_OPEN: '프린터 덮개가 열려 있어요',
   NO_PAPER: '라벨 용지가 없어요',
@@ -36,7 +37,8 @@ export const PRINT_ISSUE_TEXT: Readonly<Record<PrintIssue, string | null>> = {
 
 export const PRINT_FLOAT_TEXT = {
   noDevice: '프린터를 연결해 주세요',
-  deviceOff: '출력 기기에서 앱을 켜 주세요',
+  // 프린터를 맡은 기기(이 폰이 아닐 수 있다 — 다른 폰·PC)의 앱 연결이 닫혀 있다. 옛 "출력 기기에서 앱을 켜 주세요"는 무슨 말인지 몰라 바꿈
+  deviceOff: '프린터 연결 기기가 꺼졌어요',
   lost: '프린터 연결이 끊겼어요',
   printerError: '프린터를 확인해 주세요',
   labelError: '라벨을 만들지 못했어요',
@@ -79,15 +81,14 @@ export function floatAlerts(input: { readonly counts: AlertCounts; readonly queu
   return out
 }
 
-/** 캡슐 높이·사이 (아래 단추와 같은 44) */
-export const FLOAT_ALERT_HEIGHT = 44
-export const FLOAT_ALERT_GAP = SPACE.sm
+/** 캡슐 높이·사이 — 매출·합계 캡슐과 같다 (D-FLOATLEFT-01) */
+export const FLOAT_ALERT_HEIGHT = FLOAT_PILL_HEIGHT
+export const FLOAT_ALERT_GAP = FLOAT_PILL_GAP
 
 /** 오른쪽 아래 빨간 캡슐들 — bottom: 맨 아래 캡슐의 아래 자리 */
 export function AlertFloat({ items, bottom, onAction }: { readonly items: readonly FloatAlert[]; readonly bottom: number; readonly onAction: (action: FloatAction) => void }) {
-  const { p, tones } = useKit()
+  const { p } = useKit()
   if (items.length === 0) return null
-  const pair = tones.danger
   return (
     <View aria-label="알림" role="region" testID="alert-float" pointerEvents="box-none" style={{ position: 'absolute', right: SPACE.xl, bottom, maxWidth: '86%', alignItems: 'flex-end', gap: FLOAT_ALERT_GAP }}>
       {items.map((item) => (
@@ -106,7 +107,8 @@ export function AlertFloat({ items, bottom, onAction }: { readonly items: readon
             paddingLeft: SPACE.lg,
             paddingRight: SPACE.md,
             borderRadius: RADIUS.pill, borderCurve: 'continuous',
-            backgroundColor: pressed ? pressedFill(p, pair.bg) : pair.bg,
+            // 진한 빨강 바탕에 흰 글 (D-FLOATLEFT-01, 사용자 "배경 더 빨갛게" — 옛: 옅은 분홍 바탕에 빨간 글)
+            backgroundColor: pressed ? p.dangerPressed : p.danger,
             shadowColor: '#000000',
             shadowOpacity: 0.12,
             shadowRadius: 8,
@@ -114,9 +116,9 @@ export function AlertFloat({ items, bottom, onAction }: { readonly items: readon
             elevation: 4,
           })}
         >
-          <Txt step="bodyLarge" weight="bold" ink={pair.fg} numberOfLines={1}>{item.text}</Txt>
+          <Txt step="bodyLarge" weight="bold" ink={p.onDanger} numberOfLines={1}>{item.text}</Txt>
           <View aria-hidden style={{ width: 16, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="chevron" color={pair.fg} size={16} />
+            <Icon name="chevron" color={p.onDanger} size={16} />
           </View>
         </Tap>
       ))}

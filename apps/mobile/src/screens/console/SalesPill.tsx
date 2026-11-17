@@ -4,22 +4,19 @@
 import { Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, pressedFill } from '../../ui/kit/tokens.ts'
 import { salesMoney } from '../../lib/broadcast-sales.ts'
+import { FLOAT_PILL_HEIGHT, pillBottom } from './float-layout.ts'
 
-/** (+) 단추 지름 (ProductAdd AddFab) */
-const FAB_SIZE = 58
-/** 캡슐 높이 */
-export const SALES_PILL_HEIGHT = 44
+/** 캡슐 높이 — 떠 있는 캡슐 모두 같다 (D-FLOATLEFT-01, 옛 44) */
+export const SALES_PILL_HEIGHT = FLOAT_PILL_HEIGHT
 
 /** 캡슐 글: 방송 중 "현재 매출", 끝나면 "총매출" (옛 줄과 같은 말) */
 export const salesPillText = (closed: boolean, total: number | null): string => `${closed ? '총매출' : '현재 매출'} ${salesMoney(total)} ›`
 
-export function SalesPill({ closed, total, bottom, besideFab, onPress }: {
+export function SalesPill({ closed, total, bottom, onPress }: {
   readonly closed: boolean
   readonly total: number | null
   /** (+) 단추의 아래 자리 — 캡슐을 그 단추와 위아래 가운데로 맞춘다 */
   readonly bottom: number
-  /** (+) 단추가 오른쪽에 있다 — 그 왼쪽에 선다 */
-  readonly besideFab: boolean
   readonly onPress: () => void
 }) {
   const { p } = useKit()
@@ -33,8 +30,9 @@ export function SalesPill({ closed, total, bottom, besideFab, onPress }: {
       pressScale={0.96}
       style={({ pressed }) => ({
         position: 'absolute',
-        right: SPACE.xl + (besideFab ? FAB_SIZE + SPACE.sm : 0),
-        bottom: bottom + (FAB_SIZE - SALES_PILL_HEIGHT) / 2,
+        // (+) 단추는 왼쪽 아래로 옮겼다 — 캡슐은 늘 오른쪽 끝 (D-FLOATLEFT-01, 옛: (+) 왼쪽)
+        right: SPACE.xl,
+        bottom: pillBottom(bottom),
         maxWidth: '70%',
         minHeight: SALES_PILL_HEIGHT,
         paddingHorizontal: SPACE.lg,
@@ -51,7 +49,7 @@ export function SalesPill({ closed, total, bottom, besideFab, onPress }: {
         elevation: 4,
       })}
     >
-      <Txt step="body" weight="bold" numberOfLines={1}>{text}</Txt>
+      <Txt step="bodyLarge" weight="bold" numberOfLines={1}>{text}</Txt>
     </Tap>
   )
 }

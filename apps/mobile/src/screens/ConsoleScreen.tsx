@@ -28,6 +28,7 @@ import { SalesPill } from './console/SalesPill.tsx'
 import { BuyerTotalsPage, TotalsPill } from './console/BuyerTotals.tsx'
 import { BroadcastSalesList } from './console/BroadcastSales.tsx'
 import { AlertFloat, FLOAT_ALERT_GAP, FLOAT_ALERT_HEIGHT, floatAlerts, type FloatAction } from './console/AlertFloat.tsx'
+import { FLOAT_PILL_GAP, FLOAT_PILL_HEIGHT, pillBottom } from './console/float-layout.ts'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
 import { ConsoleManage, MANAGE_LABEL } from './console/Manage.tsx'
@@ -565,9 +566,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const padInset = docked ? SPACE.sm : Math.max(inset, SPACE.sm)
   /** (+) 단추·매출 캡슐의 아래 자리 */
   const fabBottom = (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md
-  /** 아래 오른쪽에 떠 있는 단추(+·인쇄·매출·합계)가 있으면 오류 알림은 그 위 (단추 58 + 사이) */
-  const bottomButton = (shownTab === 'products' && !searchPad) || shownTab === 'labels' || (shownTab === 'feed' && !closed && claimCount > 0)
-  const floatBottom = fabBottom + (bottomButton ? 58 + SPACE.md : 0)
+  /** 오른쪽 맨 아래 캡슐(매출·합계)이 있으면 오류 알림은 그 위에 같은 크기로 쌓인다 — (+)·인쇄 단추는 왼쪽 아래 (D-FLOATLEFT-01) */
+  // 아래 줄에 무엇이든(매출·합계 캡슐, (+)·인쇄 단추) 있으면 그 줄 위에 — 긴 알림이 왼쪽 단추에 닿지 않게
+  const bottomRow = (shownTab === 'products' && !searchPad) || shownTab === 'labels' || (shownTab === 'feed' && !closed && claimCount > 0)
+  const floatBottom = pillBottom(fabBottom) + (bottomRow ? FLOAT_PILL_HEIGHT + FLOAT_PILL_GAP : 0)
   const alertsShown = alerts.length > 0 && !searchPad
   const padHeight = DIGIT_PAD_HEIGHT + padInset + 1
   /** 탭을 바꾸면 찾기 칸을 접는다(찾는 글은 탭마다 남는다) */
@@ -743,7 +745,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         {/* 매출 캡슐 (D-UX4-140): (+) 왼쪽 — 숫자판을 연 동안은 (+)처럼 숨는다 */}
         {/* 손님별 합계 캡슐 (D-BUYERSUM-01): 라이브 중 [찜 기록] 탭 오른쪽 아래 */}
         {shownTab === 'feed' && !closed && claimCount > 0 ? <TotalsPill bottom={fabBottom} onPress={() => (openTotals === undefined ? setTotalsOpen(true) : openTotals())} /> : null}
-        {shownTab === 'products' && !searchPad ? <SalesPill closed={closed} total={sales.total} bottom={fabBottom} besideFab={!closed} onPress={startPage === 'record' ? onBack : () => setSalesPage('sales')} /> : null}
+        {shownTab === 'products' && !searchPad ? <SalesPill closed={closed} total={sales.total} bottom={fabBottom} onPress={startPage === 'record' ? onBack : () => setSalesPage('sales')} /> : null}
         {/* 오류 알림 (D-ALERTFLOAT-01): 오른쪽 아래 빨간 캡슐 — 아래 단추(+·인쇄·매출·합계)가 있는 탭은 그 위에. 숫자판을 연 동안은 숨는다 */}
         {alertsShown ? <AlertFloat items={alerts} bottom={floatBottom} onAction={onAlert} /> : null}
         </View>

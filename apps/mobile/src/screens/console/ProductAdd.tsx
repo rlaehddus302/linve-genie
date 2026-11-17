@@ -892,7 +892,7 @@ export function AddFab({ onPress, bottom }: { readonly onPress: () => void; read
       testID="add-product"
       onPress={onPress}
       pressScale={0.94}
-      style={({ pressed }) => ({ position: 'absolute', right: SPACE.xl, bottom, width: 58, height: 58, borderRadius: 29, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.primaryPressed : p.primary, shadowColor: '#000000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 })}
+      style={({ pressed }) => ({ position: 'absolute', left: SPACE.xl /* 왼쪽 아래 (D-FLOATLEFT-01, 옛 right) */, bottom, width: 58, height: 58, borderRadius: 29, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.primaryPressed : p.primary, shadowColor: '#000000', shadowOpacity: 0.18, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 })}
     >
       <View aria-hidden style={{ width: 22, height: 22, alignItems: 'center', justifyContent: 'center' }}>
         <View style={{ position: 'absolute', width: 22, height: 3, borderRadius: 2, borderCurve: 'continuous', backgroundColor: p.onPrimary }} />

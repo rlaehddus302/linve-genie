@@ -15,6 +15,7 @@ import { EmptyFill, StackPage, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { GUTTER, RADIUS, SPACE, pressedFill } from '../../ui/kit/tokens.ts'
 import { Loading } from '../../ui/parts.tsx'
 import { ClaimFeedToolbar } from './ClaimFeed.tsx'
+import { FLOAT_PILL_HEIGHT, pillBottom } from './float-layout.ts'
 import { useConsoleApi, type ConsoleApi } from './context.ts'
 import { claimAt, compareNames, feedBuyerName, searchText } from './feed-rows.ts'
 import { SlidePage } from './parts.tsx'
@@ -172,10 +173,6 @@ function TotalRow({ row, open, onPress }: { readonly row: BuyerTotal; readonly o
   )
 }
 
-/** 캡슐 높이 — 매출 캡슐(SalesPill)과 같다 */
-const PILL_HEIGHT = 44
-/** (+) 단추 지름 — 캡슐을 그 자리 높이 가운데에 맞춘다 */
-const FAB_SIZE = 58
 
 /** [찜 기록] 탭 오른쪽 아래 "손님별 합계 ›" — 상품 탭 매출 캡슐과 같은 꼴, (+) 단추 자리 높이 */
 export function TotalsPill({ bottom, onPress }: { readonly bottom: number; readonly onPress: () => void }) {
@@ -190,8 +187,8 @@ export function TotalsPill({ bottom, onPress }: { readonly bottom: number; reado
       style={({ pressed }) => ({
         position: 'absolute',
         right: SPACE.xl,
-        bottom: bottom + (FAB_SIZE - PILL_HEIGHT) / 2,
-        minHeight: PILL_HEIGHT,
+        bottom: pillBottom(bottom),
+        minHeight: FLOAT_PILL_HEIGHT, // 떠 있는 캡슐 모두 같은 크기 (D-FLOATLEFT-01)
         paddingHorizontal: SPACE.lg,
         borderRadius: RADIUS.pill, borderCurve: 'continuous',
         alignItems: 'center',
@@ -206,7 +203,7 @@ export function TotalsPill({ bottom, onPress }: { readonly bottom: number; reado
         elevation: 4,
       })}
     >
-      <Txt step="body" weight="bold" numberOfLines={1}>{TOTALS_PILL}</Txt>
+      <Txt step="bodyLarge" weight="bold" numberOfLines={1}>{TOTALS_PILL}</Txt>
     </Tap>
   )
 }

@@ -31,7 +31,8 @@ describe('프린터 한 줄 (출력 기기 없음 + 출력 멈춤을 하나로)'
   })
 
   it('까닭을 모르면: 기기 앱 꺼짐 → 끊김 → 프린터 오류', () => {
-    expect(printerFloatText(queue({ device: { ...device, live: false }, waiting: 1 }), false, false)).toBe('출력 기기에서 앱을 켜 주세요')
+    // D-FLOATLEFT-01: 옛 "출력 기기에서 앱을 켜 주세요"는 뜻을 몰라 바꿈 — 프린터를 맡은 기기(다른 폰·PC일 수 있다)의 앱 연결이 닫힘
+    expect(printerFloatText(queue({ device: { ...device, live: false }, waiting: 1 }), false, false)).toBe('프린터 연결 기기가 꺼졌어요')
     expect(printerFloatText(queue({ device: { ...device, printerConnected: false }, waiting: 1 }), false, false)).toBe('프린터 연결이 끊겼어요')
     expect(printerFloatText(queue({ pause: pause('DISCONNECTED') }), false, false)).toBe('프린터 연결이 끊겼어요')
     expect(printerFloatText(queue({ pause: pause('PRINTER_ERROR') }), false, false)).toBe('프린터를 확인해 주세요')
@@ -42,10 +43,10 @@ describe('프린터 한 줄 (출력 기기 없음 + 출력 멈춤을 하나로)'
     expect(printerFloatText(queue({ pause: pause('LABEL_ERROR') }), false, false)).toBe('라벨을 만들지 못했어요')
   })
 
-  it('문구는 짧다 (15자 안팎) — 영어·개발 용어 없음', () => {
+  it('문구는 짧다 (17자 안팎) — 영어·개발 용어 없음', () => {
     for (const text of [...Object.values(PRINT_FLOAT_TEXT), ...Object.values(PRINT_ISSUE_TEXT)]) {
       if (text === null) continue
-      expect(text.length).toBeLessThanOrEqual(16)
+      expect(text.length).toBeLessThanOrEqual(17) // D-FLOATLEFT-01: "프린터 연결 기기 앱이 닫혔어요"(17) — 옛 16
       expect(text).not.toMatch(/[A-Za-z]/)
     }
   })

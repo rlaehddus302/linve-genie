@@ -56,7 +56,7 @@ const typePad = (digits: string) => {
 }
 
 describe('매출 캡슐 (D-UX4-140)', () => {
-  it('매출은 탭 바 위 한 줄이 아니라 상품 탭 아래 (+) 왼쪽 캡슐이고, 누르면 정산 내역서가 열린다', async () => {
+  it('매출은 탭 바 위 한 줄이 아니라 상품 탭 오른쪽 아래 캡슐((+)는 왼쪽 아래)이고, 누르면 정산 내역서가 열린다', async () => {
     await open(worldWith(VIEW))
     const scroll = screen.getByTestId('console-scroll')
     // 옛 자리(탭 바 위 알림 줄 오른쪽)에는 없다
@@ -66,8 +66,10 @@ describe('매출 캡슐 (D-UX4-140)', () => {
     expect(pill.getAttribute('aria-label')).toBe('현재 매출 20,000원')
     expect(pill.textContent).toBe('현재 매출 20,000원 ›')
     const fab = screen.getByRole('button', { name: '상품 추가' })
-    // (+) 단추보다 왼쪽(오른쪽 끝에서 더 멀다), 같은 바닥 높이 묶음
-    expect(parseFloat(getComputedStyle(pill).right)).toBeGreaterThan(parseFloat(getComputedStyle(fab).right))
+    // D-FLOATLEFT-01 (사용자 지시 2026-11-17 "+ … 플로팅 아이콘은 맨 왼쪽으로"): 옛 기대는 캡슐이 (+) 왼쪽. 이제 (+)는 왼쪽 아래, 캡슐은 오른쪽 끝
+    expect(getComputedStyle(fab).left).toBe('20px')
+    expect(getComputedStyle(fab).right).toBe('auto')
+    expect(getComputedStyle(pill).right).toBe('20px')
     expect(getComputedStyle(pill).position).toBe('absolute')
     fireEvent.click(pill)
     // 옛 기대: 제목 "정산 내역서". 새 기대(D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔"): "정산서"
