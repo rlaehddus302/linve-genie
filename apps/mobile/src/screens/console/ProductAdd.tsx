@@ -32,7 +32,7 @@ import { formatWon } from '../../lib/words.ts'
 import { tapHaptic } from '../../native/haptics.ts'
 import { BigButton, ButtonRow, ErrorLine, HandwritingButton, HandwritingSheet, PRESS_EASING, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
-import { edgeSwipeCloses, startsEdgeSwipe, useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
+import { edgeStartTracker, edgeSwipeCloses, startsEdgeSwipe, useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
 import { useConsoleApi } from './context.ts'
 import { SlidePage, useFooterInset } from './parts.tsx'
 import { SyncClashDialog, readSyncClash, type SyncClash } from './SyncClash.tsx'
@@ -621,8 +621,11 @@ export function useStepBack(stepBack: StepBack | undefined, back: () => boolean,
   widthNow.current = width
   const [edge] = useState(() => {
     const settle = () => Animated.timing(swipe, { toValue: 0, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
+    // 손이 처음 닿은 자리로 가장자리를 본다 — g.x0은 잡기 전 0이라 어디서 밀어도 앞 단계로 갔다 (D-SWIPE-01)
+    const start = edgeStartTracker()
     return PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_event, g) => !firstNow.current && startsEdgeSwipe(g.x0, g.dx, g.dy),
+      onStartShouldSetPanResponderCapture: start.onStart,
+      onMoveShouldSetPanResponderCapture: (_event, g) => !firstNow.current && startsEdgeSwipe(start.x(), g.dx, g.dy),
       onPanResponderTerminationRequest: () => false,
       onPanResponderMove: (_event, g) => swipe.setValue(Math.max(g.dx, 0) / 3),
       onPanResponderRelease: (_event, g) => {

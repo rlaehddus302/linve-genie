@@ -3,7 +3,7 @@
 // 한 단계 더 뒤(홈)로 나갔다. 겹친 화면이 열려 있는 동안 그 경로의 기본 밀기를 끄고(useHoldRouteSwipe), 겹친 화면은 스스로 밀려 닫힌다(useEdgeSwipeBack).
 // 경로 뼈대(app/_layout의 screenLayout)가 경로마다 RouteSwipeProvider를 둔다 — 시험·웹에서는 없어서 아무것도 하지 않는다.
 import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react'
-import { Animated, Easing, PanResponder, type GestureResponderHandlers } from 'react-native'
+import { Animated, Easing, PanResponder, type GestureResponderEvent, type GestureResponderHandlers } from 'react-native'
 
 type Gate = { readonly hold: () => () => void }
 const RouteSwipeContext = createContext<Gate | null>(null)
@@ -49,6 +49,22 @@ export function startsEdgeSwipe(x0: number, dx: number, dy: number): boolean {
   return x0 <= EDGE_SWIPE_START && dx > 6 && dx > Math.abs(dy) * 1.5
 }
 
+/**
+ * 손이 처음 닿은 가로 자리를 기억한다 (D-SWIPE-01). PanResponder의 x0은 잡기(grant) 전에는 0이라
+ * onMoveShouldSetPanResponderCapture에서 쓰면 "가장자리에서 시작"이 늘 참이 돼 화면 어디서 밀어도 뒤로 갔다(D-UX3-57과 같은 까닭).
+ * capture는 바깥에서 안으로 먼저 불리므로 안쪽 단추·스크롤이 손을 잡아도 시작 자리는 늘 들어온다. 두 손가락은 밀기로 보지 않는다.
+ */
+export function edgeStartTracker(): { readonly onStart: (event: GestureResponderEvent) => false; readonly x: () => number } {
+  let startX = Number.POSITIVE_INFINITY
+  return {
+    onStart: (event) => {
+      startX = event.nativeEvent.touches.length > 1 ? Number.POSITIVE_INFINITY : event.nativeEvent.pageX
+      return false
+    },
+    x: () => startX,
+  }
+}
+
 /** 손을 뗐을 때 닫을지: 화면 너비의 1/3 넘게 밀었거나, 빠르게 튕겼으면 닫는다 */
 export function edgeSwipeCloses(dx: number, vx: number, width: number): boolean {
   return dx > width / 3 || (vx > 0.4 && dx > 24)
@@ -67,8 +83,10 @@ export function useEdgeSwipeBack({ progress, width, onClose, enabled }: { readon
   size.current = width
   return useMemo(() => {
     const back = () => Animated.timing(progress, { toValue: 1, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
+    const start = edgeStartTracker()
     return PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_, g) => on.current && startsEdgeSwipe(g.x0, g.dx, g.dy),
+      onStartShouldSetPanResponderCapture: start.onStart,
+      onMoveShouldSetPanResponderCapture: (_, g) => on.current && startsEdgeSwipe(start.x(), g.dx, g.dy),
       onPanResponderTerminationRequest: () => false,
       onPanResponderMove: (_, g) => progress.setValue(1 - Math.min(Math.max(g.dx / size.current, 0), 1)),
       onPanResponderRelease: (_, g) => {
