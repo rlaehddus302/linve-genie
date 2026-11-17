@@ -47,6 +47,7 @@ import { HEARD_TAB, HeardTab, ListenLine, useKeptStream } from './console/Stream
 import { useTabBarHide } from './console/tab-hide.ts'
 import { ListenSourceChip, ListenSourceSheet } from './console/ListenSource.tsx'
 import { ClaimFeed, ClaimFeedToolbar, useClaimFeedState } from './console/ClaimFeed.tsx'
+import { DirectPrintSheet, LABEL_TAB, LabelList, LabelToolbar, PrintFab, labelRows, type DirectPrefill, type LabelRow } from './console/LabelBoard.tsx'
 import { LiveTalk, TALK_TAB, TalkDock } from './console/LiveTalk.tsx'
 import { EndBroadcastRow } from './console/EndBroadcast.tsx'
 import { LinkInfo, hasLinkedLive } from './console/LinkInfo.tsx'
@@ -199,7 +200,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const closeSearchOnTap = () => {
     if (!draggingSearch.current) closeSearchPad()
   }
-  const [tab, setTab] = useState<'products' | 'feed' | 'talk' | 'heard'>('products')
+  const [tab, setTab] = useState<'products' | 'feed' | 'talk' | 'heard' | 'labels'>('products')
   // 라이브 채팅처럼 (D-UX3-75): 목록은 최신이 맨 아래. 처음·탭을 바꿀 때는 맨 아래에서 시작하고,
   // 맨 아래를 보고 있는 동안 새 줄이 오면 따라 내려간다. 위로 올려 보고 있으면 그대로 둔다.
   const follow = useFollowScroll()
@@ -374,6 +375,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
     for (const label of labels) if (label.claim !== null && label.word !== '') map.set(label.claim, label.word)
     return map
   }, [labels])
+  // [라벨] 탭 줄 (D-LABELTAB-01): 그날 라벨 중 이 라이브 상품 라벨
+  const labelList = useMemo(() => labelRows(labels, broadcastId, data === null ? [] : boardProducts(data, broadcastId), names), [labels, broadcastId, data, names])
 
   const ended = justEnded || endedHere || broadcast?.ended === true || data?.broadcasts.get(broadcastId)?.ended === true
   // 이 화면을 보는 동안 방송이 끝났다(판매자가 끝냄 · 플랫폼에서 끝나 저절로 끝남) — 정산 화면으로 넘어가며 정산 정보가 비어 있으면 묻는다 (D-RETRO-63)
@@ -415,7 +418,13 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   // 아래 창이 채팅·문자면 채팅·문자 탭을, 들린 말이면 들린 말 탭을 숨긴다. 들린 말 탭은 판매자만(듣기는 판매자 일)
   const showTalkTab = !(live && dock === 'talk')
   const showHeardTab = seller && !(live && dock === 'voice')
-  const shownTab = (tab === 'talk' && !showTalkTab) || (tab === 'heard' && !showHeardTab) ? 'products' : tab
+  // [라벨] 탭 (D-LABELTAB-01): 판매자·실제 라이브·봉인 전이고 라벨 기능을 켰을 때만. 끄면 상품 탭으로 돌아간다
+  const showLabelTab = seller && broadcast !== null && !broadcast.rehearsal && !(data?.sealed ?? false) && labelsQueue.queue?.labelsEnabled === true
+  const shownTab = (tab === 'talk' && !showTalkTab) || (tab === 'heard' && !showHeardTab) || (tab === 'labels' && !showLabelTab) ? 'products' : tab
+  /** 라벨 탭: 대기 중인 것만 보기 · 직접 인쇄 판(열림, 채운 값) */
+  const [waitingOnly, setWaitingOnly] = useState(false)
+  const [directOpen, setDirectOpen] = useState(false)
+  const [directPrefill, setDirectPrefill] = useState<DirectPrefill | null>(null)
   useEffect(() => {
     setSearchPad(false)
     setSearchDigits('')
@@ -564,8 +573,23 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
       <LineTab role="button" on={shownTab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => pickTab('feed')} />
       {showTalkTab ? <LineTab role="button" on={shownTab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => pickTab('talk')} /> : null}
       {showHeardTab ? <LineTab role="button" on={shownTab === 'heard'} label={HEARD_TAB} ariaLabel={HEARD_TAB} onPress={() => pickTab('heard')} /> : null}
+      {showLabelTab ? <LineTab role="button" on={shownTab === 'labels'} label={`${LABEL_TAB} ${String(labelList.length)}`} ariaLabel={LABEL_TAB} onPress={() => pickTab('labels')} /> : null}
     </>
   )
+  /** 라벨 줄 누름 (D-LABELTAB-01): 직접 인쇄 라벨은 같은 값을 채운 직접 인쇄 판, 상품 라벨은 그 상품 자세히(다시 인쇄·뽑기가 거기 있다) */
+  const openLabelRow = (row: LabelRow) => {
+    const product = row.direct ? undefined : boardProducts(data, broadcastId).find((item) => item.no === row.no)
+    if (product !== undefined) {
+      setDetail(product.key)
+      return
+    }
+    setDirectPrefill({ no: row.no, name: row.name, price: row.price, nickname: row.buyer })
+    setDirectOpen(true)
+  }
+  const openDirect = () => {
+    setDirectPrefill(null)
+    setDirectOpen(true)
+  }
   // 돋보기: 상품 탭은 번호 숫자판, 찜 기록 탭은 닉네임 키보드 (D-UX4-201)
   // 따로 넘어가는 찾기 화면은 상품·찜 기록을 하나로 찾는다 (D-UX4-205) — 상품이나 찜이 하나라도 있으면
   const canSearch = openSearch !== undefined ? (shownTab === 'products' || shownTab === 'feed') && (productCountNow > 0 || claimCount > 0) : (shownTab === 'products' && (searchDigits !== '' || productCountNow > 0)) || (shownTab === 'feed' && feedRows(data, names, broadcastId).length > 0)
@@ -660,6 +684,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
                 <View testID="console-toolbar" style={{ paddingTop: SPACE.md }}>
                   <ClaimFeedToolbar {...feedState} searchShown={searching || feedState.query !== ''} searchFill={p.surfaceAlt} searchFocus={searching} onSearchBlur={() => setSearching(false)} />
                 </View>
+              ) : shownTab === 'labels' && labelList.length > 0 ? (
+                <View testID="console-toolbar" style={{ paddingTop: SPACE.md }}>
+                  <LabelToolbar rows={labelList} waitingOnly={waitingOnly} onWaitingOnly={setWaitingOnly} />
+                </View>
               ) : null}
             </Animated.View>
           </View>
@@ -682,11 +710,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           {/* 목록 붙이기 (D-UX3-81 — D-UX3-77을 바꿈): 채팅·문자는 라이브 채팅처럼 화면 아래에, 상품·찜 기록은 위에 */}
           <View testID="console-list" ref={listNode} collapsable={false} onLayout={(event) => { listTop.current = event.nativeEvent.layout.y }} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
             <Appear instant={!listLate} style={{ flexGrow: 1, justifyContent: shownTab === 'talk' || shownTab === 'heard' ? 'flex-end' : 'flex-start' }}>
-              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} claimedOnly={claimedOnly} onClaimedOnly={setClaimedOnly} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} onRow={onRow} toolbar={false} sort={productSort} onSort={setProductSort} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} onEditProduct={setDetail} toolbar={false} query={feedState.query} onQuery={feedState.onQuery} sort={feedState.sort} onSort={feedState.onSort} /> : shownTab === 'heard' ? <HeardTab session={services.voice} broadcastId={broadcastId} live={!closed} /> : <LiveTalk />}
+              {shownTab === 'products' ? <ProductList key={broadcastId} onOpen={setDetail} query={searchDigits} onQuery={setSearchDigits} claimedOnly={claimedOnly} onClaimedOnly={setClaimedOnly} numberSearch={{ open: openSearchPad, submit: closeSearchPad }} onRow={onRow} toolbar={false} sort={productSort} onSort={setProductSort} /> : shownTab === 'feed' ? <ClaimFeed onOpenProduct={setDetail} onEditProduct={setDetail} toolbar={false} query={feedState.query} onQuery={feedState.onQuery} sort={feedState.sort} onSort={feedState.onSort} /> : shownTab === 'heard' ? <HeardTab session={services.voice} broadcastId={broadcastId} live={!closed} /> : shownTab === 'labels' ? <LabelList rows={labelList} waitingOnly={waitingOnly} onOpen={openLabelRow} /> : <LiveTalk />}
             </Appear>
           </View>
           {/* (+) 단추·매출 캡슐에 마지막 줄이 가리지 않게 */}
-          {shownTab === 'products' || (shownTab === 'feed' && !closed) ? <View style={{ height: 72 }} /> : null}
+          {shownTab === 'products' || shownTab === 'labels' || (shownTab === 'feed' && !closed) ? <View style={{ height: 72 }} /> : null}
           {shownTab === 'products' && searchPad ? (
             // 숫자 키에서 시작한 드래그도 목록의 네이티브 스크롤이 받도록 같은 ScrollView에 둔다.
             <Animated.View style={{ position: 'absolute', opacity: padOpacity, zIndex: 12, left: 0, right: 0, top: Math.max(0, viewportHeight - padHeight), transform: [{ translateY: scrollOffset }] }}>
@@ -700,6 +728,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           ) : null}
         </Animated.ScrollView>
         {shownTab === 'products' && !closed && !searchPad ? <AddFab bottom={fabBottom} onPress={() => { if (openAdd === undefined) { setAddNo(null); setPage('add') } else openAdd() }} /> : null}
+        {/* [라벨] 탭: (+) 자리의 인쇄 단추 → 직접 인쇄 판 (D-LABELTAB-01) */}
+        {shownTab === 'labels' ? <PrintFab bottom={fabBottom} onPress={openDirect} /> : null}
         {/* 매출 캡슐 (D-UX4-140): (+) 왼쪽 — 숫자판을 연 동안은 (+)처럼 숨는다 */}
         {/* 손님별 합계 캡슐 (D-BUYERSUM-01): 라이브 중 [찜 기록] 탭 오른쪽 아래 */}
         {shownTab === 'feed' && !closed && claimCount > 0 ? <TotalsPill bottom={fabBottom} onPress={() => (openTotals === undefined ? setTotalsOpen(true) : openTotals())} /> : null}
@@ -715,6 +745,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
 
         {/* 상품 자세히 (D-UX4-30): 번호·품종·가격은 판 안 점선 칸이 보이므로 판 제목은 두지 않는다 */}
         {/* 고치기는 반 화면 판 · 확인 시 저장 (D-UX4-106) */}
+        {showLabelTab ? <DirectPrintSheet visible={directOpen} b={broadcastId} products={shownProducts(data, broadcastId)} prefill={directPrefill} onClose={() => setDirectOpen(false)} onQueued={() => { setDirectOpen(false); setWaitingOnly(false) }} /> : null}
         <ProductSheet product={detailProduct} onClose={() => setDetail(null)} onKey={setDetail} onShow={showProduct} {...(seller && !sealed && detailProduct !== undefined ? { onDecide: () => { setDecideFor(detailProduct.key); setDetail(null); setSheet('decide') } } : {})} />
         <BottomSheet visible={sheet === 'decide'} onClose={close} title="정하기">
           {sheet === 'decide' && hostQueue !== null ? <DecisionsView queue={hostQueue} {...(decideFor === null || data.products.get(decideFor) === undefined ? {} : { product: data.products.get(decideFor) })} onQueued={close} /> : null}

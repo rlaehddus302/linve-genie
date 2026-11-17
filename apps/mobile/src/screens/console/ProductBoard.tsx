@@ -471,11 +471,11 @@ const NO_OUTSIDE: readonly string[] = []
  * 걸러 보기 칩 (D-UX4-141 → D-UX4-148, 사용자 2026-11-16 "탭 알약과 똑같이 생겨 구분이 안 된다"): 탭 알약(알약 모양·흰 바탕/주색 바탕)과 다르게
  * 덜 둥근 네모 테두리 칩. 끄면 바탕 없이 회색 테두리·깔때기·회색 글, 켜면 옅은 주색 바탕·주색 테두리·체크·주색 굵은 글
  */
-function FilterChip({ on, label, onPress }: { readonly on: boolean; readonly label: string; readonly onPress: () => void }) {
+export function FilterChip({ on, label, onPress, testID = 'claimed-only-chip' }: { readonly on: boolean; readonly label: string; readonly onPress: () => void; readonly testID?: string }) {
   const { p } = useKit()
   const ink = on ? p.onSecondary : p.textSub
   return (
-    <Tap role="switch" aria-label={label} aria-checked={on} testID="claimed-only-chip" onPress={onPress} hitSlop={4} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs + 2, flexShrink: 1, minHeight: 36, paddingLeft: SPACE.sm + 2, paddingRight: SPACE.md, borderRadius: RADIUS.sm, borderCurve: 'continuous', borderWidth: 1, borderColor: on ? p.primary : p.softPressed, backgroundColor: pressed ? (on ? p.secondaryPressed : p.pressed) : on ? p.secondary : 'transparent' })}>
+    <Tap role="switch" aria-label={label} aria-checked={on} testID={testID} onPress={onPress} hitSlop={4} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs + 2, flexShrink: 1, minHeight: 36, paddingLeft: SPACE.sm + 2, paddingRight: SPACE.md, borderRadius: RADIUS.sm, borderCurve: 'continuous', borderWidth: 1, borderColor: on ? p.primary : p.softPressed, backgroundColor: pressed ? (on ? p.secondaryPressed : p.pressed) : on ? p.secondary : 'transparent' })}>
       <ChipGlyph kind={on ? 'check' : 'funnel'} color={on ? p.primary : p.textSub} />
       <Txt step="body" weight={on ? 'bold' : 'medium'} ink={ink} numberOfLines={1}>{label}</Txt>
     </Tap>

@@ -297,11 +297,12 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     const input = body(c)
     const requestId = requestIdOf(input)
     if (requestId === null) return invalidRequestId()
-    const extra = onlyKeys(input, ['requestId', 'b', 'no', 'name', 'price'])
+    // nickname: 라벨에 찍을 손님 이름(선택, D-LABELTAB-01) — 없거나 비면 옛처럼 "직접 인쇄"
+    const extra = onlyKeys(input, ['requestId', 'b', 'no', 'name', 'price', 'nickname'])
     if (extra !== null) return extra
     const b = own(input, 'b')
     if (typeof b !== 'string' || !REF_RE.test(b)) return invalid([{ field: 'b', message: '방송을 골라 주세요.' }])
-    return outcome(c, await print.directLabel(sellerOf(c), accountOf(c), requestId, b, { no: own(input, 'no'), name: own(input, 'name'), price: own(input, 'price') }))
+    return outcome(c, await print.directLabel(sellerOf(c), accountOf(c), requestId, b, { no: own(input, 'no'), name: own(input, 'name'), price: own(input, 'price'), nickname: own(input, 'nickname') }))
   })
 
   api.post('/print/labels/print', async (c) => {

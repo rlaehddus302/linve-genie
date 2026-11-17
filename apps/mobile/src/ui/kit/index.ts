@@ -15,5 +15,5 @@ export { AppHeader, BACK_ICON, BackButton, HEADER_BUTTON, HeaderTextButton, NAV,
 export { PRESS_EASING, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Tap, TAP_SCALE, usePressMotion, type TapProps } from './press.tsx'
 export { EDGE_SWIPE_START, RouteSwipeProvider, edgeStartTracker, edgeSwipeCloses, startsEdgeSwipe, useEdgeSwipeBack, useHoldRouteSwipe } from './route-swipe.tsx'
 export { StackPage } from './stack-page.tsx'
-export { LINE_TAB_EDGE, LINE_TAB_PAD, LINE_TABS_TOP, LineTab, LineTabs } from './line-tabs.tsx'
+export { LINE_TAB_BAR, LINE_TAB_EDGE, LINE_TAB_HEIGHT, LINE_TAB_PAD, LINE_TABS_TOP, LineTab, LineTabs } from './line-tabs.tsx'
 export { ARRIVAL_FALLBACK_MS, ArrivalProvider, FocusInput, ScreenArrivalProvider, useDeferredAutoFocus, useScreenArrived, type ArrivalNavigation } from './arrival.tsx'

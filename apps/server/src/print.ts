@@ -511,6 +511,9 @@ export interface PrintOptions {
   readonly onPrinted?: (tx: Db, info: { sellerId: string; date: string; jobId: string; broadcast: string | null; no: number | null; now: Date }) => Promise<void>
 }
 
+/** 직접 인쇄 손님 이름 최대 글자 수 (D-LABELTAB-01) */
+const DIRECT_NICKNAME_MAX = 40
+
 export class PrintService {
   readonly #options: PrintOptions
   /** 판매자마다 알림을 차례로 만든다 (나중 알림이 앞 알림보다 먼저 나가지 않게) */
@@ -1342,7 +1345,7 @@ export class PrintService {
    * 그 라벨 키에 그 범위의 PRINT_PRODUCT_LABEL 효과가 있으면(라벨 기능을 끈 동안 나와 작업이 되지 않은 효과) 라벨 키를 그 효과와 묶는다 —
    * 출력함이 되면 L-11 7대로 그 효과를 보고한다(N4a L-11 3·7, L-13 8, D-N4a-04)
    */
-  async directLabel(sellerId: string, accountId: string, requestId: string, b: string, input: { no: unknown; name: unknown; price: unknown }): Promise<ActionOutcome<{ jobs: JobView[] }>> {
+  async directLabel(sellerId: string, accountId: string, requestId: string, b: string, input: { no: unknown; name: unknown; price: unknown; nickname?: unknown }): Promise<ActionOutcome<{ jobs: JobView[] }>> {
     const scope = await this.#broadcastScope(sellerId, b)
     if (scope === null) return { kind: 'not_found' }
     if (scope === 'rehearsal') return rejected(422, 'PRINT_REHEARSAL', PRINT_MESSAGES.rehearsal)
@@ -1350,7 +1353,11 @@ export class PrintService {
     const runtime = await this.#options.writer.read(sellerId, date)
     const { scopeId } = runtime
     if (scopeId === null) return { kind: 'not_found' }
-    const checked = checkProductData({ ...input, date, buyer: { kind: 'youtube', name: '직접 인쇄' } })
+    // 손님 이름(선택, D-LABELTAB-01): 글이면 앞뒤 빈칸을 떼고 40자까지, 비었거나 없으면 옛처럼 "직접 인쇄"
+    const { nickname, ...fields } = input
+    if (nickname !== undefined && nickname !== null && (typeof nickname !== 'string' || nickname.trim().length > DIRECT_NICKNAME_MAX)) return rejected(422, 'LABEL_INVALID', '손님 이름을 확인해 주세요.')
+    const buyerName = typeof nickname === 'string' && nickname.trim() !== '' ? nickname.trim() : '직접 인쇄'
+    const checked = checkProductData({ ...fields, date, buyer: { kind: 'youtube', name: buyerName } })
     if (!checked.ok || checked.data.name.length > 80) return rejected(422, 'LABEL_INVALID', '번호·품종·가격을 확인해 주세요.')
     const result = await this.#db.transaction(async (tx) => {
       const now = this.#now()

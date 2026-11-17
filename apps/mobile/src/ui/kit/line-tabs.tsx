@@ -12,21 +12,28 @@ import { Tap } from './press.tsx'
 export const LINE_TAB_PAD = SPACE.md
 /** 첫 탭 밑줄이 화면 끝에서 22 — 상품 줄 번호 네모와 같은 세로 줄 (D-UX4-203) */
 export const LINE_TAB_EDGE = 22
-/** 머리와 탭 글 사이 (라이브 화면 TABS_TOP, D-UX4-110) */
-export const LINE_TABS_TOP = SPACE.sm
+/** 머리와 탭 글 사이 (라이브 화면 TABS_TOP, D-UX4-110). 8 → 4 (D-TABS-03, 토스 거래 내역 사진 재기 — 머리 가운데 ↔ 탭 글 가운데 51) */
+export const LINE_TABS_TOP = SPACE.xs
+/**
+ * 탭 한 칸 높이 — 글 가운데 ↔ 밑 선 18.5 (D-TABS-03, 토스 18.6. 옛 48은 25였다).
+ * 누름 자리는 위아래 hitSlop으로 48을 지킨다
+ */
+export const LINE_TAB_HEIGHT = 35
+/** 고른 탭 밑줄 두께 (D-TABS-03, 토스 2 — 옛 3) */
+export const LINE_TAB_BAR = 2
 
 /**
- * 탭 하나: 글자만(16, D-UX4-203), 고르면 굵은 검정 글과 탭 폭만큼 검정 밑줄, 안 고르면 회색 글.
+ * 탭 하나: 글자만(15 — D-TABS-03, 토스 사진과 한글 폭을 재어. 옛 16은 7% 컸다), 고르면 굵은 검정 글과 탭 폭만큼 검정 밑줄, 안 고르면 회색 글.
  * role: 라이브 화면은 옛 그대로 'button'(aria-selected), 다른 화면은 'tab'
  */
 export function LineTab({ on, label, ariaLabel, onPress, role = 'tab', testID }: { readonly on: boolean; readonly label: string; readonly ariaLabel?: string; readonly onPress: () => void; readonly role?: 'tab' | 'button'; readonly testID?: string }) {
   const { p } = useKit()
   return (
-    <Tap role={role} aria-label={ariaLabel ?? label} aria-selected={on} testID={testID} onPress={onPress} pressScale={1} style={({ pressed }) => ({ minHeight: TOUCH.min, paddingHorizontal: LINE_TAB_PAD, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
-      <Txt step="bodyLarge" weight={on ? 'bold' : 'medium'} ink={on ? p.text : p.borderStrong} numberOfLines={1}>
+    <Tap role={role} aria-label={ariaLabel ?? label} aria-selected={on} testID={testID} onPress={onPress} pressScale={1} hitSlop={{ top: (TOUCH.min - LINE_TAB_HEIGHT) / 2, bottom: (TOUCH.min - LINE_TAB_HEIGHT) / 2 }} style={({ pressed }) => ({ minHeight: LINE_TAB_HEIGHT, paddingHorizontal: LINE_TAB_PAD, justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+      <Txt step="body" weight={on ? 'bold' : 'medium'} ink={on ? p.text : p.borderStrong} numberOfLines={1}>
         {label}
       </Txt>
-      {on ? <View aria-hidden testID="line-tab-bar" style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 3, borderRadius: 2, borderCurve: 'continuous', backgroundColor: p.text }} /> : null}
+      {on ? <View aria-hidden testID="line-tab-bar" style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: LINE_TAB_BAR, borderRadius: LINE_TAB_BAR / 2, borderCurve: 'continuous', backgroundColor: p.text }} /> : null}
     </Tap>
   )
 }

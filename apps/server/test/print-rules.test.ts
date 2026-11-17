@@ -121,6 +121,26 @@ describe('AC-I1-04 엔진 상태 → 라벨 데이터 (L-9)', () => {
     expect((await p.api.get(`/api/print/labels?date=${DAY}&historyBroadcast=${b.id}`)).body).toMatchObject({ labels: [{ history: [{ data: { no: 333 } }] }] })
   })
 
+  // D-LABELTAB-01: 라이브 화면 [라벨] 탭의 인쇄 단추 — 손님 이름을 적으면 라벨에 그 이름, 비우면 옛처럼 "직접 인쇄", 너무 길면 거절
+  it('직접 인쇄에 손님 이름을 적으면 라벨에 그 이름이 찍힌다', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller, { date: DAY })
+    const p = printApi(world, seller)
+    await becomeDevice(world, seller)
+    await expectOk(p.api.post('/api/print/labels/direct', { b: b.id, no: 12, name: '홍옥', price: 3000, nickname: '  꽃언니 ', requestId: rid('direct-name') }))
+    const named = (await p.claim(DEVICE_A)).job!
+    expect(named.data).toMatchObject({ no: 12, buyer: { kind: 'youtube', name: '꽃언니' } })
+    await p.done(DEVICE_A, named.attempt)
+    await expectOk(p.api.post('/api/print/labels/direct', { b: b.id, no: 13, name: '', price: 0, nickname: '', requestId: rid('direct-blank') }))
+    const plain = (await p.claim(DEVICE_A)).job!
+    expect(plain.data).toMatchObject({ no: 13, buyer: { kind: 'youtube', name: '직접 인쇄' } })
+    await p.done(DEVICE_A, plain.attempt)
+    const long = await p.api.post('/api/print/labels/direct', { b: b.id, no: 14, name: '홍옥', price: 3000, nickname: '가'.repeat(41), requestId: rid('direct-long') })
+    expect(long.status).toBe(422)
+    expect((await p.claim(DEVICE_A)).job).toBeNull()
+  })
+
   it('(라) 문자찜 지정 구매자가 유튜브 채널이어도 문자찜 (마) 문자 구매자를 유튜브 시청자에 합쳐도 문자찜 라벨은 문자찜, 유튜브 쪽은 그 채널 이름', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
