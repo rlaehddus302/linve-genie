@@ -111,6 +111,18 @@ export function pastBroadcasts(items: readonly BroadcastItem[]): BroadcastItem[]
   return newestFirst(items).filter((item) => item.ended && !item.rehearsal)
 }
 
+/** 지난 라이브 줄 왼쪽 플랫폼 아이콘 (모르면 재생 표시) — 라이브 합치기 판도 같은 것을 쓴다 */
+export function LiveIcon({ item, size = 34 }: { readonly item: BroadcastItem; readonly size?: number }) {
+  const { p } = useKit()
+  const platform = item.platforms?.[0]
+  if (platform !== undefined) return <PlatformIcon platform={platform} size={size} />
+  return (
+    <View aria-hidden style={{ width: size, height: size, borderRadius: size * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
+      <Icon name="play" color={p.textSub} size={Math.round(size * 0.53)} />
+    </View>
+  )
+}
+
 /** 홈과 모두보기에서 같은 지난 라이브 행을 쓴다. */
 /** 합친 뒤 목록 위 한 줄 */
 export const MERGED_DONE = '합쳤어요. 어느 라이브를 눌러도 합친 정산서가 열려요.'
@@ -130,13 +142,7 @@ export function HistoryRow({ item, now, onPress, round = null }: { readonly item
   const sub = historyAgo(item.endedAt ?? item.createdAt, now) ?? ''
   return (
     <Tap role="button" aria-label={`${title}${round === null ? '' : ` · ${MERGED_TAG} ${round}`} — ${sub} · 총매출 ${sales} · ${counts}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
-      {platform === undefined ? (
-        <View aria-hidden style={{ width: 34, height: 34, borderRadius: 34 * 0.2237, borderCurve: 'continuous', backgroundColor: p.soft, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="play" color={p.textSub} size={18} />
-        </View>
-      ) : (
-        <PlatformIcon platform={platform} size={34} />
-      )}
+      <LiveIcon item={item} />
       <View style={{ flex: 1, gap: 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
           <View style={{ flexShrink: 1 }}>

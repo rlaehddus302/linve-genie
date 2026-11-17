@@ -36,12 +36,11 @@ export interface StatementScope {
 
 // ── 화면 글 ──
 export const MERGE_TITLE = '라이브 합치기'
-export const MERGE_DESCRIPTION = '같은 날 끝난 라이브를 골라 주세요. 정산서가 하나로 합쳐지고 배송비는 한 번만 붙어요. 언제든 다시 나눌 수 있어요.'
+export const MERGE_DESCRIPTION = '하나로 합칠 라이브를 골라 주세요. 배송비는 한 번만 붙고, 언제든 다시 나눌 수 있어요.'
 export const MERGE_BUTTON = '합치기'
 export const MERGE_CANCEL = '취소'
-export const mergeConfirm = (count: number): string => `${String(count)}개 합치기`
 export const MERGE_OTHER_DAY = '같은 날 라이브만 합칠 수 있어요.'
-export const MERGE_NONE = '같은 날 끝난 라이브가 2개 이상 있어야 합칠 수 있어요.'
+export const MERGE_NONE = '같은 날 라이브가 2개 이상 있어야 합칠 수 있어요.'
 export const MERGE_FAILED = '합치지 못했어요. 다시 해 주세요.'
 export const SPLIT_QUESTION = '합친 라이브를 나눌까요?'
 export const SPLIT_DESCRIPTION = '라이브마다 정산서가 따로 생기고 배송비도 라이브마다 붙어요. 이미 보낸 정산서는 그대로예요.'
@@ -54,7 +53,7 @@ export const GROUPS_RETRY = '다시 불러오기'
 /** 합친 정산서 위 한 줄: "1차 · 2차를 합친 정산서예요" */
 export const mergedNote = (count: number): string => `${Array.from({ length: count }, (_, i) => roundWord(i)).join(' · ')}를 합친 정산서예요`
 /** 합치지 않은 같은 날 라이브가 더 있을 때 */
-export const siblingsNote = (count: number): string => `같은 날 끝난 라이브가 ${String(count)}개 더 있어요. 합치면 정산서 하나로 보낼 수 있어요.`
+export const siblingsNote = (count: number): string => `같은 날 라이브가 ${String(count)}개 더 있어요.`
 export const EARLIER_TITLE = '먼저 받은 정산서가 있어요'
 export const EARLIER_NOTE = '이 손님은 합치기(또는 나누기) 전에 정산서를 받았어요. 이미 입금했는지 확인하고 보내 주세요.'
 

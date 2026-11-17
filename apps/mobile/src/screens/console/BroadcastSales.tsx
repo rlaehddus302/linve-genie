@@ -19,7 +19,7 @@
 // - 모두에게 보내기(D-RETRO-64): 문자는 판매자 휴대폰의 문자 앱으로 한 명씩 보낸다(앱이 대신 보내지 않는다) — 보내면 다음 손님으로 바로 넘어가고 보낸 손님을 표시한다.
 // - 라이브 합치기 (D-MERGE-LIVE-01~04, 판매자 요청 2026-11-17 "하루에 1차, 2차 이렇게 끊어서 방송하는 경우 … 정산할 때 정보가 파편화"):
 //   합친 라이브면 묶음의 라이브를 모두 담은 정산서(부르는 쪽이 sales·scope를 준다) — 목록 위 "1차 · 2차를 합친 정산서예요" [나누기].
-//   합치지 않았는데 같은 날 끝난 라이브가 더 있으면 "같은 날 끝난 라이브가 n개 더 있어요" [합치기].
+//   합치지 않았는데 같은 날 끝난 라이브가 더 있으면 "같은 날 라이브가 n개 더 있어요." [합치기] — 판에는 이 라이브만 골라 두고 풀 수 없다(D-MERGE-LIVE-05).
 //   보낸 손님 표시는 정산서(묶음 모습)마다 따로, 다른 정산서로 먼저 받은 손님은 모두에게 보내기 차례에서 빼고 따로 보인다(두 번 청구하지 않게).
 //   묶음을 받기 전에는 [보내기]를 막는다 — 1차만 담긴 정산서가 나가지 않게.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -373,7 +373,7 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
         {receiptsError !== null ? <Txt step="caption" color="textSub">{PHONE_CHECK_FAILED}</Txt> : null}
       </>}
     </BottomSheet>
-    {list !== null ? <MergeLivesSheet visible={merging} items={list.broadcasts.filter(item => item.date === date)} groups={groups} initial={[...scope.broadcasts, ...others.map(item => item.id)]}
+    {list !== null ? <MergeLivesSheet visible={merging} items={list.broadcasts.filter(item => item.date === date)} groups={groups} initial={scope.broadcasts} locked={scope.broadcasts}
       onClose={() => setMerging(false)} onMerged={() => setMerging(false)} /> : null}
     <ConfirmSheet visible={splitAsk} question={SPLIT_QUESTION} description={SPLIT_DESCRIPTION} cancelLabel="취소" confirmLabel={SPLIT_BUTTON} busy={splitting}
       onCancel={() => setSplitAsk(false)} onConfirm={() => void split()} />

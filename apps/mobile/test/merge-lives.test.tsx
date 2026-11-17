@@ -1,4 +1,4 @@
-// 라이브 합치기 (D-MERGE-LIVE-01~04, 판매자 요청 2026-11-17 "하루에 1차, 2차 이렇게 끊어서 방송하는 경우도 있기 때문에 나중에 정산할 때 정보가 파편화됨")
+// 라이브 합치기 (D-MERGE-LIVE-01~05, 판매자 요청 2026-11-17 "하루에 1차, 2차 이렇게 끊어서 방송하는 경우도 있기 때문에 나중에 정산할 때 정보가 파편화됨")
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
@@ -12,6 +12,7 @@ import { fromFull } from '../src/lib/scope-data.ts'
 import { sendGroups } from '../src/screens/console/statement-send.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { AllBroadcastsScreen, MERGED_DONE } from '../src/screens/BroadcastList.tsx'
+import { liveSub, newestMergeFirst } from '../src/screens/console/MergeLives.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { BROADCAST, BROADCAST_VIEW, buyer, claim, fullView, product } from './support.ts'
 
@@ -54,6 +55,13 @@ describe('합친 정산서 셈 (순수 함수)', () => {
     expect(statementScope(null, 'b1')).toMatchObject({ broadcasts: ['b1'], ready: false })
     expect(statementScope([], 'b1')).toMatchObject({ key: 'b1', broadcasts: ['b1'], lead: 'b1', group: null, ready: true })
     expect(statementScope([GROUP], 'b2')).toMatchObject({ key: 'group:g1:b1+b2', broadcasts: ['b1', 'b2'], lead: 'b1', ready: true })
+  })
+
+  it('합치기 판 줄: 아래 글은 "56분 전 · 59개 · 450,000원", 끝난 때가 최근인 것이 위 (D-MERGE-LIVE-05)', () => {
+    const ended = '2026-10-29T12:00:00.000Z'
+    expect(liveSub(item('b1', { salesQty: 59, salesTotal: 450000 }), Date.parse(ended) + 56 * 60_000)).toBe('56분 전 · 59개 · 450,000원')
+    const later = item('b0', { endedAt: '2026-10-29T16:28:00.000Z' })
+    expect(newestMergeFirst([item('b1'), later, item('b2')]).map((row) => row.id)).toEqual(['b0', 'b2', 'b1'])
   })
 
   it('고르기: 끝난 라이브만, 다른 날을 누르면 그 줄 하나로 새로 고른다', () => {
@@ -133,10 +141,19 @@ describe('정산서 화면', () => {
     expect(screen.queryByRole('button', { name: /나오미다육 정산서/ })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '합치기' }))
     const sheet = await screen.findByRole('dialog', { name: '라이브 합치기' })
-    // 같은 날 라이브가 미리 골라져 있다
-    expect(within(sheet).getAllByRole('checkbox').map((box) => box.getAttribute('aria-checked'))).toEqual(['true', 'true'])
+    // 이 정산서의 라이브만 골라 두고 풀 수 없다, 같은 날 다른 라이브는 판매자가 고른다 (D-MERGE-LIVE-05 — 예전엔 모두 미리 골라 둠)
+    const pickOf = (id: string) => within(sheet).getByTestId(`merge-pick-${id}`)
+    expect(pickOf('b1').getAttribute('aria-checked')).toBe('true')
+    expect(pickOf('b2').getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(pickOf('b1'))
+    expect(pickOf('b1').getAttribute('aria-checked')).toBe('true')
+    expect((within(sheet).getByRole('button', { name: '합치기' }) as HTMLButtonElement).disabled || within(sheet).getByRole('button', { name: '합치기' }).getAttribute('aria-disabled') === 'true').toBe(true)
+    fireEvent.click(pickOf('b2'))
+    // 최근 것이 위, 날짜 머리 없음 · 줄 아래 "n분 전 · n개 · n원"
+    expect(within(sheet).getAllByRole('checkbox').map((box) => box.getAttribute('data-testid'))).toEqual(['merge-pick-b2', 'merge-pick-b1'])
+    expect(within(sheet).queryByRole('group')).toBeNull()
     w.server.on('GET', /^\/api\/broadcast-groups$/, () => ({ body: { groups: [GROUP] } }))
-    fireEvent.click(within(sheet).getByRole('button', { name: '2개 합치기' }))
+    fireEvent.click(within(sheet).getByRole('button', { name: '합치기' }))
     await screen.findByText(mergedNote(2))
     expect(w.server.callsTo('POST', /^\/api\/broadcast-groups$/)[0]!.body).toMatchObject({ broadcasts: ['b1', 'b2'] })
     expect(screen.getByRole('button', { name: /^가을여행 정산서 · 80,000원/ })).toBeTruthy()
@@ -169,7 +186,7 @@ describe('지난 라이브 [합치기]', () => {
     expect(within(sheet).getByTestId('merge-pick-b1').getAttribute('aria-checked')).toBe('false')
     fireEvent.click(within(sheet).getByTestId('merge-pick-b1'))
     fireEvent.click(within(sheet).getByTestId('merge-pick-b2'))
-    expect(confirm().textContent).toBe('2개 합치기')
+    expect(confirm().textContent).toBe('합치기')
     w.server.on('GET', /^\/api\/broadcast-groups$/, () => ({ body: { groups: [GROUP] } }))
     fireEvent.click(confirm())
     await screen.findByText(MERGED_DONE)
