@@ -8,10 +8,11 @@
 // - 뺀 것: 1등 정하기(앱에서는 충돌이 생기지 않고 승계 결정은 없앴다, D-SUCCESSION-01), 출력 멈춤(출력 멈추기를 없앰), 까닭별 문구·기기 앱 꺼짐(한 줄로 합침),
 //   버릴 라벨·확인 필요(D-ALERTFLOAT-01).
 import { View } from 'react-native'
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 import type { QueueSummary } from '@livejjim/web/src/api/print-types.ts'
 import type { ConnectionState } from '@livejjim/printer'
 import type { LinkRadio } from '../../lib/print-cause.ts'
-import { Icon, Tap, Txt } from '../../ui/kit/index.ts'
+import { Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { FLOAT_PILL_GAP, FLOAT_PILL_HEIGHT } from './float-layout.ts'
 
@@ -110,6 +111,37 @@ export function AlertFloat({ items, bottom, right, onAction }: { readonly items:
           </View>
         </Tap>
       ))}
+    </View>
+  )
+}
+
+/** 알림 캡슐 묶음 높이 (맨 아래 캡슐 아래 자리부터 맨 위 캡슐 위까지) */
+export const alertStackHeight = (count: number): number => (count <= 0 ? 0 : count * FLOAT_ALERT_HEIGHT + (count - 1) * FLOAT_ALERT_GAP)
+/** 흐림 막이 알림 위로 더 올라가는 길이 */
+export const SCRIM_OVER = 28
+
+/**
+ * 알림 뒤 흐림 막 (D-ALERTSCRIM-01, 사용자 "에러 문구와 그 뒤에 글자가 겹쳐서 에러 문구 가독성이 떨어진다"): 화면 아래에서 맨 위 알림보다 조금 위까지,
+ * 위는 투명 → 알림 자리부터 화면 바탕색으로 덮어 뒤 목록 글자(빨간 "상품명을 인식하지 못했어요"·이름 알약 등)가 캡슐 사이·옆으로 비치지 않게 한다.
+ * 누름은 막지 않는다(뒤 목록을 그대로 누르고 밀 수 있다). top: 막 위끝의 화면 아래에서의 높이
+ */
+export function FloatScrim({ top }: { readonly top: number }) {
+  const { p } = useKit()
+  if (top <= 0) return null
+  const solid = Math.min(0.99, Math.max(0, (top - SCRIM_OVER) / top))
+  const fade = 1 - solid
+  return (
+    <View testID="alert-scrim" aria-hidden pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: top }}>
+      <Svg width="100%" height="100%">
+        <Defs>
+          <LinearGradient id="alert-scrim" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={p.surface} stopOpacity={0} />
+            <Stop offset={String(fade)} stopColor={p.surface} stopOpacity={0.94} />
+            <Stop offset="1" stopColor={p.surface} stopOpacity={1} />
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="100%" height="100%" fill="url(#alert-scrim)" />
+      </Svg>
     </View>
   )
 }

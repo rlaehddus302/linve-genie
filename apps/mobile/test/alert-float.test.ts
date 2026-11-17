@@ -3,7 +3,7 @@
 // 프린터 쪽은 한 줄(급한 것부터): 꺼짐 → 블루투스(이 폰이 찍는 폰일 때) → 끊김 → 실패. 블루투스·연결은 이 폰이 찍는 폰이거나 찍는 폰이 없으면 이 폰이 본 상태로.
 import type { QueueSummary } from '@livejjim/web/src/api/print-types.ts'
 import { describe, expect, it } from 'vitest'
-import { FLOAT_TEXT, cancelFloatText, floatAlerts, printerFloat, unlistedFloatText, type HerePrinter } from '../src/screens/console/AlertFloat.tsx'
+import { FLOAT_ALERT_GAP, FLOAT_ALERT_HEIGHT, FLOAT_TEXT, alertStackHeight, cancelFloatText, floatAlerts, printerFloat, unlistedFloatText, type HerePrinter } from '../src/screens/console/AlertFloat.tsx'
 
 const device = { id: 'd1', name: '아이폰', live: true, printerConnected: true, releasing: false }
 const queue = (over: Partial<QueueSummary> = {}): QueueSummary => ({ rev: 1, device, pause: null, waiting: 0, printing: 0, discard: 0, labelsEnabled: true, ...over })
@@ -62,5 +62,13 @@ describe('떠 있는 알림 목록 (급한 것부터)', () => {
 
   it('버릴 라벨·대기 라벨 수만으로는 아무것도 뜨지 않는다', () => {
     expect(floatAlerts({ cancelRequests: 0, queue: queue({ discard: 3, waiting: 5 }), here: mine, rehearsal: false, ended: false, unlisted: 0 })).toEqual([])
+  })
+})
+
+describe('알림 뒤 흐림 막 (D-ALERTSCRIM-01 — 뒤 글자가 알림 사이로 비쳐 읽기 어려웠다)', () => {
+  it('막은 맨 위 알림 위끝까지 덮는다 — 알림 수만큼 높이와 사이', () => {
+    expect(alertStackHeight(0)).toBe(0)
+    expect(alertStackHeight(1)).toBe(FLOAT_ALERT_HEIGHT)
+    expect(alertStackHeight(2)).toBe(2 * FLOAT_ALERT_HEIGHT + FLOAT_ALERT_GAP)
   })
 })
