@@ -111,10 +111,14 @@ describe('찾기 화면 (D-UX4-204·205)', () => {
     expect(onBack).toHaveBeenCalledTimes(1)
   })
 
-  it('맞는 것이 없으면 한 번만 "찾는 결과가 없어요"', async () => {
+  it('맞는 것이 없으면 한 번만 그림과 "검색한 내용을 찾을 수 없어요."', async () => {
     const { page, type } = await openPage(searchWorld())
     type('없는이름')
     await waitFor(() => expect(page.getByText(SEARCH_NO_MATCH)).toBeTruthy())
+    // 토스 사진처럼 같은 그림 아래 한 줄 (D-SEARCH-EMPTY-02)
+    expect(SEARCH_NO_MATCH).toBe('검색한 내용을 찾을 수 없어요.')
+    expect(page.getByTestId('search-no-match').textContent).toBe(SEARCH_NO_MATCH)
+    expect(within(page.getByTestId('search-no-match')).getByTestId('search-hint-glyph')).toBeTruthy()
     expect(page.queryByTestId('search-products')).toBeNull()
     expect(page.queryByTestId('search-feed')).toBeNull()
   })

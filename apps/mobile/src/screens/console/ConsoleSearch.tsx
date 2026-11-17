@@ -32,8 +32,8 @@ export const SEARCH_HINT_TOP = 152
 /** 최근 검색어 (D-SEARCH-RECENT-01, 토스 검색 사진) */
 export const RECENT_TITLE = '최근 검색어'
 export const RECENT_CLEAR = '전체 삭제'
-export const SEARCH_NO_MATCH = '찾는 결과가 없어요'
-export const SEARCH_NO_MATCH_BODY = '번호, 품종, 닉네임을 다시 확인해 주세요'
+/** 맞는 것이 없을 때 (D-SEARCH-EMPTY-02, 사용자 2026-11-17 토스 검색 결과 없음 사진 "검색 결과 없을 때 저렇게 똑같이 띄워줘.") — 빈 칸 안내와 같은 그림 아래 한 줄 */
+export const SEARCH_NO_MATCH = '검색한 내용을 찾을 수 없어요.'
 
 export function ConsoleSearchScreen({ broadcastId, onBack }: { readonly broadcastId: string; readonly onBack: () => void }) {
   return (
@@ -128,26 +128,22 @@ function RecentSearches({ list, onPick }: { readonly list: readonly string[]; re
 
 /** 빈 칸일 때: 토스 검색 화면처럼 회색 그림(줄 셋 + 돋보기) 아래 회색 두 줄 — 찾기 칸 아래 고정 자리 */
 function SearchHint() {
-  const { p } = useKit()
-  return (
-    <View role="status" aria-label={SEARCH_EMPTY.replace('\n', ' ')} testID="search-hint" style={{ alignItems: 'center', paddingTop: SEARCH_HINT_TOP, paddingHorizontal: SPACE.lg, gap: SPACE.lg }}>
-      <SearchListGlyph color={p.clearCircle} />
-      <Txt step="body" weight="book" ink={p.borderStrong} center>
-        {SEARCH_EMPTY}
-      </Txt>
-    </View>
-  )
+  return <GlyphNote text={SEARCH_EMPTY} testID="search-hint" />
 }
 
-/** 맞는 것이 없을 때 — 안내와 같은 고정 자리 (키보드에 밀려 올라가지 않는다) */
+/** 맞는 것이 없을 때 — 토스 사진처럼 같은 그림 아래 회색 한 줄, 안내와 같은 고정 자리 (키보드에 밀려 올라가지 않는다, D-SEARCH-EMPTY-02) */
 function NoMatch() {
+  return <GlyphNote text={SEARCH_NO_MATCH} testID="search-no-match" />
+}
+
+/** 회색 그림 + 회색 글 (찾기 칸 아래 SEARCH_HINT_TOP 고정) */
+function GlyphNote({ text, testID }: { readonly text: string; readonly testID: string }) {
+  const { p } = useKit()
   return (
-    <View role="status" aria-label={`${SEARCH_NO_MATCH} ${SEARCH_NO_MATCH_BODY}`} testID="search-no-match" style={{ alignItems: 'center', paddingTop: SEARCH_HINT_TOP, paddingHorizontal: SPACE.lg, gap: SPACE.sm }}>
-      <Txt step="lead" weight="bold" center>
-        {SEARCH_NO_MATCH}
-      </Txt>
-      <Txt step="body" weight="medium" color="textSub" center>
-        {SEARCH_NO_MATCH_BODY}
+    <View role="status" aria-label={text.replace(/\n/g, ' ')} testID={testID} style={{ alignItems: 'center', paddingTop: SEARCH_HINT_TOP, paddingHorizontal: SPACE.lg, gap: SPACE.lg }}>
+      <SearchListGlyph color={p.clearCircle} />
+      <Txt step="body" weight="book" ink={p.borderStrong} center>
+        {text}
       </Txt>
     </View>
   )
