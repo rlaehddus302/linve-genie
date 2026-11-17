@@ -13,13 +13,15 @@
 //   개수 칸 [−] n개 [+] — "채홍 3개"처럼 적어도 개수로 나눈다. 가격은 묶음 하나의 값 그대로(개수로 곱하지 않는다).
 // D-ADDPIECES-01 (사용자 지시 2026-11-17 "품종 입력 받을 때 버튼이 너무 많아서 난잡하다"): 개수는 품종 다음 단계 "몇 개인가요?"에서 따로 묻는다.
 //   품종 단계는 칸 · [손글씨로 적을게요](둥근 네모) · 품종 후보 한 줄 · 맨 아래 [품종 없이 넘어가기]만.
+// D-ADDPIECES-02 (사용자 지시 2026-11-17): 위로 올라간 값은 이름(번호·가격) 없이 값만. 품종 칸 아래 [손글씨로 적을게요] [품종 없이 넘어갈게요] 한 줄 왼쪽 정렬,
+//   품종 후보 줄은 없앰(손글씨 읽기 참고 낱말로만 쓴다), 단추 그림 없음, 단추는 모두 둥근 네모. 아이폰은 품종 칸 [다음]을 키보드 위에 붙여(InputAccessoryView) 키보드와 같이 올라온다.
 // 이미 있는 번호 (D-DUPNO-02, 사용자 지시 2026-11-17 "다음 버튼 누르기 전에 곧바로 아래에 빨간 글씨로 이미 등록된 번호에요"):
 //   번호 칸에 판매 중인 상품의 번호를 치는 순간 칸 아래 빨간 글 "이미 등록된 번호예요." — "번호는 999번까지 적을 수 있어요."와 같은 꼴(흔들기·진동, [다음] 흐림).
 //   옛 D-DUPNO-01 묻는 카드 [아니요 | 하나 더 올리기]는 없앴다. 같은 물건을 더 팔려면 그 상품의 [같은 물건 더 팔기](D-STK-02).
 //   확인 중(임시 등록) 상품의 번호는 막지 않는다(D-RETRO-92). [추가하기] 사이 다른 쪽에서 같은 번호가 올라오면 [닫기 | 그 상품 보기](D-RETRO-22) 그대로.
 import { productTitle, splitPieces } from '@livejjim/core/format'
 import { useEffect, useRef, useState } from 'react'
-import { Animated, BackHandler, Easing, PanResponder, Platform, View, useWindowDimensions, type GestureResponderEvent } from 'react-native'
+import { Animated, BackHandler, Easing, InputAccessoryView, PanResponder, Platform, View, useWindowDimensions, type GestureResponderEvent } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
@@ -34,7 +36,7 @@ import { edgeStartTracker, edgeSwipeCloses, startsEdgeSwipe, useHoldRouteSwipe }
 import { useConsoleApi } from './context.ts'
 import { SlidePage, useFooterInset } from './parts.tsx'
 import { SyncClashDialog, readSyncClash, type SyncClash } from './SyncClash.tsx'
-import { PiecesStepper, VarietyChips } from './VarietyChips.tsx'
+import { PiecesStepper } from './VarietyChips.tsx'
 
 type Step = 'no' | 'price' | 'name' | 'pieces' | 'confirm'
 
@@ -43,7 +45,9 @@ export const ASK_NO = '상품 번호가 무엇인가요?'
 export const ASK_PRICE = '가격은 어떻게 되나요?'
 export const ASK_NAME = '어떤 품종인가요?'
 export const ASK_PIECES = '몇 개인가요?'
-export const SKIP_NAME = '품종 없이 넘어가기'
+export const SKIP_NAME = '품종 없이 넘어갈게요'
+/** 아이폰 품종 칸 키보드 위 [다음] 자리 (D-ADDPIECES-02) */
+const NAME_NEXT_DOCK = 'product-add-name-next'
 export const ASK_ADD = '상품을 추가할까요?'
 /** 확인 중(임시 등록) 상품이 있는 번호를 쳤을 때 (D-RETRO-92): 친 값으로 그 상품을 확정한다 */
 export const ASK_CONFIRM_HELD = '이 값으로 확정할까요?'
@@ -521,13 +525,11 @@ export function BigNumber({ label, question, digits, format, suffix }: { readonl
   )
 }
 
-/** 이미 답한 단계 (위로 올라간 값) — 누르면 그 단계로 돌아가 고친다. 손님 정보 입력(D-UX4-126)도 같이 쓴다 */
+/** 이미 답한 단계 (위로 올라간 값) — 누르면 그 단계로 돌아가 고친다. 손님 정보 입력(D-UX4-126)도 같이 쓴다.
+ * 이름(번호·가격…)은 보이지 않고 값만 (D-ADDPIECES-02, 사용자 지시 "이미 입력한 값의 라벨은 보여주지마") — 읽어 주기에는 이름까지 */
 export function DoneLine({ label, value, onPress }: { readonly label: string; readonly value: string; readonly onPress: () => void }) {
   return (
-    <Tap role="button" aria-label={`${label} ${value} 고치기`} onPress={onPress} style={({ pressed }) => ({ gap: 2, opacity: pressed ? 0.6 : 1 })}>
-      <Txt step="body" color="textSub">
-        {label}
-      </Txt>
+    <Tap role="button" aria-label={`${label} ${value} 고치기`} onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
       <Txt step="title" weight="bold">
         {value}
       </Txt>
@@ -639,6 +641,10 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
   const [busy, setBusy] = useState(false)
   // 손글씨 판 (D-HANDWRITE-01) — 번호·가격 단계에서만
   const [pen, setPen] = useState(false)
+  // 아이폰 품종 칸: 초점이 있는 동안 [다음]은 키보드 위에 붙는다(키보드와 같이 오르내린다). 처음엔 곧 초점을 받으므로 붙은 쪽으로 둔다 (D-ADDPIECES-02)
+  const [nameBlurred, setNameBlurred] = useState(false)
+  const stepNow = useRef(step)
+  stepNow.current = step
   const clearProblem = () => {
     setError(null)
     setSame(null)
@@ -693,7 +699,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
     setError(null)
     setStep(askName ? 'name' : 'confirm')
   }
-  // 품종 후보 단추 (D-VARIETY-01): 이 방송 최근(앱 자료 → 서버) → 자주 판 것
+  // 품종 이름 (D-VARIETY-01): 이 방송 최근(앱 자료 → 서버) → 자주 판 것 — 단추 줄은 없앴고 손글씨 읽기 참고 낱말로만 (D-ADDPIECES-02)
   const lists = useVarietyLists(api.b, step === 'name')
   const chips = step === 'name' ? varietyChoices({ recent: [...localRecent(api.data.products.values(), api.b), ...lists.recent], frequent: lists.frequent }) : []
   // 품종 칸의 "채홍 3개"는 품종과 개수로 나눈다 — 개수 칸을 건드렸으면 그 값이 먼저 (D-PIECES-01)
@@ -792,6 +798,9 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
     )
   }
 
+  const nextOff = active.trim() === '' || shownError !== null
+  const dock = Platform.OS === 'ios' && step === 'name'
+  const nameDocked = dock && !nameBlurred
   const onNext = step === 'no' ? nextFromNo : step === 'price' ? nextFromPrice : step === 'name' ? () => setStep('pieces') : () => setStep('confirm')
   return (
     <Animated.View {...edgeHandlers} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
@@ -810,14 +819,17 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
                 maxLength={40}
                 returnKeyType="next"
                 onSubmitEditing={() => { if (name.trim() !== '') setStep('pieces') }}
+                onFocus={() => setNameBlurred(false)}
+                // 단계를 떠나며 칸이 사라질 때의 놓침은 셈하지 않는다 — 돌아오면 다시 키보드 위에 붙는다
+                onBlur={() => { if (stepNow.current === 'name') setNameBlurred(true) }}
+                {...(Platform.OS === 'ios' ? { inputAccessoryViewID: NAME_NEXT_DOCK } : {})}
                 style={{ fontSize: BIG, paddingVertical: 0, color: p.text, ...font(WEIGHT.bold) }}
               />
-              {/* 휴대폰을 눕혀 두고 손가락으로 품종 쓰기 (D-HANDWRITE-02) — 숫자(번호·가격)는 숫자판 */}
-              <HandwritingButton label="품종" onPress={() => setPen(true)} />
-              {/* 품종 후보 한 줄(가로로 민다, D-VARIETY-01) — 개수는 다음 단계 (D-ADDPIECES-01) */}
-              <VarietyChips choices={chips} selected={split.name} inset={SPACE.xxl} onPick={(value) => setName(value)} />
-              {/* 토스 "잔액 · 159,952원 입력" 같은 회색 칩 — 꾸욱 눌린다 (D-UX4-43), 품종 단계 맨 아래 (D-ADDPIECES-01) */}
-              {name.trim() === '' ? <SoftChip label={SKIP_NAME} onPress={() => setStep('pieces')} /> : null}
+              {/* 칸 아래 한 줄 왼쪽 정렬 (D-ADDPIECES-02): 휴대폰을 눕혀 두고 손가락으로 품종 쓰기(D-HANDWRITE-02) · 토스 회색 칩(D-UX4-43). 개수는 다음 단계 (D-ADDPIECES-01) */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap' }}>
+                <HandwritingButton label="품종" onPress={() => setPen(true)} />
+                {name.trim() === '' ? <SoftChip label={SKIP_NAME} onPress={() => setStep('pieces')} /> : null}
+              </View>
             </>
           ) : step === 'pieces' ? (
             <>
@@ -846,9 +858,15 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
       {/* 그사이 같은 번호가 올라왔으면 [다음] 자리에 [닫기 | 그 상품 보기] (D-RETRO-22) */}
       {sameButtons !== null ? (
         <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.sm }}>{sameButtons}</View>
-      ) : (
-        <NextButton onPress={onNext} disabled={active.trim() === '' || shownError !== null} />
+      ) : nameDocked ? null : (
+        <NextButton onPress={onNext} disabled={nextOff} />
       )}
+      {/* 아이폰 품종 칸: 키보드 위에 붙은 [다음] — 휴대폰이 키보드와 한 몸으로 움직인다(키보드 피하기보다 늦지 않다, D-ADDPIECES-02) */}
+      {dock ? (
+        <InputAccessoryView nativeID={NAME_NEXT_DOCK} backgroundColor={p.surface}>
+          <NextButton onPress={onNext} disabled={nextOff} />
+        </InputAccessoryView>
+      ) : null}
       {typing ? (
         <View style={{ paddingBottom: footer }}>
           <NumberKeys doubleZero={step === 'price'} onKey={type} />

@@ -44,7 +44,7 @@ export function VarietyChips({ choices, selected, disabled = false, inset = GUTT
             disabled={disabled}
             hitSlop={4}
             onPress={() => onPick(name)}
-            style={({ pressed }) => ({ minHeight: 40, paddingHorizontal: SPACE.md, borderRadius: RADIUS.pill, borderCurve: 'continuous', borderWidth: 1.5, borderColor: on ? p.primary : 'transparent', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.pressed : p.surfaceAlt, opacity: disabled ? 0.45 : 1 })}
+            style={({ pressed }) => ({ minHeight: 40, paddingHorizontal: SPACE.md, borderRadius: RADIUS.sm, borderCurve: 'continuous', borderWidth: 1.5, borderColor: on ? p.primary : 'transparent', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? p.pressed : p.surfaceAlt, opacity: disabled ? 0.45 : 1 })}
           >
             <Txt step="body" weight={on ? 'bold' : 'book'} ink={on ? p.primaryText : p.tabInk} numberOfLines={1}>
               {name}

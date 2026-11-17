@@ -10,7 +10,6 @@ import Svg, { Path } from 'react-native-svg'
 import { tapHaptic } from '../../native/haptics.ts'
 import { EMPTY_PAD, insertText, padReducer, SETTLE_MS, type InkPoint, type InkStroke } from '../../lib/handwriting.ts'
 import { prepareInk, readInk, useInkReader } from '../../lib/ink-reader.ts'
-import { Icon } from './app.tsx'
 import { BigButton } from './buttons.tsx'
 import { Tap } from './press.tsx'
 import { BottomSheet } from './sheets.tsx'
@@ -156,7 +155,7 @@ export function HandwritingPad({ ink, height, onPenDown, onStroke, onWidth, test
   )
 }
 
-/** [손글씨로 적을게요] 단추: 펜 그림 + 글자 (그림만 두지 않는다), 캡슐이 아닌 둥근 네모 — 품종 없이 넘어가기 칩과 같은 꼴 (D-ADDPIECES-01). 눌림 자리 48 */
+/** [손글씨로 적을게요] 단추: 글자만(펜 그림은 D-ADDPIECES-02에서 뺐다), 캡슐이 아닌 둥근 네모 — 품종 없이 넘어갈게요 칩과 같은 꼴 (D-ADDPIECES-01). 눌림 자리 48 */
 // compact: 글자 칸 안 오른쪽에 붙는 단추 — 칸이 좁아지지 않게 짧은 [손글씨]
 export function HandwritingButton({ label, onPress, testID, compact = false }: { readonly label: string; readonly onPress: () => void; readonly testID?: string; readonly compact?: boolean }) {
   const { p } = useKit()
@@ -169,9 +168,8 @@ export function HandwritingButton({ label, onPress, testID, compact = false }: {
       testID={testID}
       hitSlop={6}
       onPress={onPress}
-      style={({ pressed }) => ({ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: compact ? SPACE.sm + 2 : SPACE.md, paddingVertical: compact ? SPACE.xs + 2 : SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surfaceAlt })}
+      style={({ pressed }) => ({ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', paddingHorizontal: compact ? SPACE.sm + 2 : SPACE.md, paddingVertical: compact ? SPACE.xs + 2 : SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surfaceAlt })}
     >
-      <Icon name="edit" size={18} color={p.tabInk} />
       <Txt step={compact ? 'meta' : 'body'} weight="book" ink={p.tabInk}>
         {compact ? HANDWRITING_WORDS.button : HANDWRITING_WORDS.write}
       </Txt>
