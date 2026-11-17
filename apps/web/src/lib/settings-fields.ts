@@ -86,7 +86,6 @@ export const FIELDS: readonly FieldDef[] = [
     kind: 'choice',
     options: [
       { value: 'AUTO', word: '대기 1순위가 바로 1등' },
-      { value: 'ASK', word: '내가 골라요' },
       { value: 'REOPEN', word: '대기를 정리하고 다시 판매' },
     ],
   },

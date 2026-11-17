@@ -162,6 +162,16 @@ export const SELLER_DEFAULTS: Readonly<Record<string, unknown>> = Object.freeze(
   'thanks.followEdits': true,
 })
 
+/**
+ * 그만 쓰는 선택지 (D-SUCCESSION-01): "1등이 취소되면 → 내가 골라요"(ASK). 고르면 1등이 빠질 때마다 판매자가 다음 1등을 정해야 해
+ * 방송 중 "승계 결정 필요" 알림이 뜬다 — 대기 1순위가 바로 1등이 되는 기본값(AUTO)으로 충분하다. 설정 API는 받지 않고,
+ * 이미 저장한 판매자는 AUTO로 읽는다(다음에 시작하는 라이브부터). 판정 엔진은 그대로 ASK를 안다(옛 방송 다시 재생·골든 시험).
+ */
+export const RETIRED_SUCCESSION_MESSAGE = '이제 고를 수 없어요. 1등이 취소되면 대기 1순위가 바로 1등이 돼요.'
+export function withoutRetired(settings: Record<string, unknown>): Record<string, unknown> {
+  return settings['cancel.succession'] === 'ASK' ? { ...settings, 'cancel.succession': 'AUTO' } : settings
+}
+
 const TITLE_MAX = 100
 /** 메시지 조회 개수 기본·상한 (AC-S05-20 — 그날 메시지 전체를 한 번에 주는 길은 없다) */
 export const MESSAGES_LIMIT_DEFAULT = 100
@@ -392,7 +402,7 @@ export class Service {
     if (seller === null) throw new Error('판매자가 없다')
     const parsed: unknown = JSON.parse(seller.settings)
     // 판매자 기본값 (D-YT-SRV-23): 감사 채팅은 판매자가 켠 뒤에만 — 시험으로 이은 남의 라이브에 감사가 올라가지 않게. 판정 엔진 기본값은 그대로
-    return { ...(this.#options.sellerDefaults ?? {}), ...(isPlainObject(parsed) ? parsed : {}) }
+    return withoutRetired({ ...(this.#options.sellerDefaults ?? {}), ...(isPlainObject(parsed) ? parsed : {}) })
   }
 
   async settings(sellerId: string): Promise<SaleSettings> {
@@ -415,6 +425,9 @@ export class Service {
     })
     if (problems.length > 0) return { ok: false, rejection: invalidInput(problems) }
     const record = changes as Record<string, unknown>
+    if (own(record, 'cancel.succession') === 'ASK') {
+      return { ok: false, rejection: rejection(400, 'NOT_SUPPORTED', '고를 수 없는 설정이에요.', [{ field: 'settings.cancel.succession', message: RETIRED_SUCCESSION_MESSAGE }]) }
+    }
     if (own(record, 'settlement.groupBy') === 'MANUAL') {
       return { ok: false, rejection: rejection(400, 'NOT_SUPPORTED', '아직 지원하지 않는 설정이에요.', [{ field: 'settings.settlement.groupBy', message: '아직 지원하지 않아요.' }]) }
     }

@@ -140,10 +140,10 @@ describe('판매 규칙 (AC-I3-45·46)', () => {
     const waitlist = within(rules).getByLabelText('대기 인원 (0이면 대기 없음)')
     expect(waitlist.getAttribute('inputmode')).toBe('numeric')
     fireEvent.change(waitlist, { target: { value: '3' } })
-    fireEvent.click(within(rules).getByRole('radio', { name: '내가 골라요' }))
+    fireEvent.click(within(rules).getByRole('radio', { name: '대기를 정리하고 다시 판매' })) // 내가 골라요는 없앰 (D-SUCCESSION-01)
     clickSave() // FB1 D-FB1-06
     expect(await within(saveBar()).findByText('저장했어요. 바꾼 규칙은 다음에 시작하는 라이브부터 적용돼요.')).toBeDefined() // FB1 D-FB1-06 · (D-UX4-86)
-    expect(server.callsTo('PATCH', /^\/api\/settings$/).map((call) => call.body)).toEqual([{ settings: { 'waitlist.max': 3, 'cancel.succession': 'ASK' } }])
+    expect(server.callsTo('PATCH', /^\/api\/settings$/).map((call) => call.body)).toEqual([{ settings: { 'waitlist.max': 3, 'cancel.succession': 'REOPEN' } }])
   })
 
   it('배송비: 빈 무료배송 기준은 null, 그날 정산 안내 문장', async () => {

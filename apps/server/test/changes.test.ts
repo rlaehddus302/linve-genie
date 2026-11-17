@@ -197,7 +197,7 @@ describe('AC-S05-61 증분 조회 — 덮으면 같다', () => {
   it('무작위 이벤트 순서(등록·채팅·문자찜·조치·차단·충돌·번호 변경·합치기·입금·메시지 변환)에서 어느 기준점이든 전체(a) + 증분(a → 지금) = 전체(지금)', async () => {
     await fc.assert(
       fc.asyncProperty(
-        fc.constantFrom<Record<string, unknown>>({}, { 'contention.policy': 'RECEIVED_TIME', 'cancel.succession': 'ASK' }, { 'cancel.buyerChat': 'AUTO', 'waitlist.max': 1 }),
+        fc.constantFrom<Record<string, unknown>>({}, { 'contention.policy': 'RECEIVED_TIME', 'cancel.succession': 'REOPEN' } /* ASK는 설정 API가 받지 않는다 (D-SUCCESSION-01) */, { 'cancel.buyerChat': 'AUTO', 'waitlist.max': 1 }),
         fc.array(stepArb, { minLength: 5, maxLength: 45 }),
         async (settings, steps) => {
           const world = await newWorld()

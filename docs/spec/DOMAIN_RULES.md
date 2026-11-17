@@ -27,7 +27,7 @@
 | `claim.preOpenExpire` | 공개 순간 유효 시간보다 오래된 보류 찜을 만료하나 (D-PEND-01) | 예/아니요 | `예`(엔진 — 옛 방송 재생 호환). 운영 판매자 기본값은 `아니요` |
 | `waitlist.max` | 대기 인원 한도 (0=대기 없음) | 정수 | `5` |
 | `cancel.buyerChat` | 시청자 채팅 취소 | `OFF` / `REQUEST` / `AUTO` | `REQUEST` |
-| `cancel.succession` | 1등 취소 시 | `AUTO` / `ASK` / `REOPEN` | `AUTO` |
+| `cancel.succession` | 1등 취소 시 (`ASK`는 엔진만 안다 — 판매자 설정으로는 고를 수 없고 저장된 값은 `AUTO`로 읽는다, D-SUCCESSION-01) | `AUTO` / `ASK` / `REOPEN` | `AUTO` |
 | `contention.policy` | 판정 순위 기준 | `ARRIVAL` / `RECEIVED_TIME` | `ARRIVAL` |
 | `contention.sameMinuteTieBreaker` | 문자(분 단위)와 유튜브가 같은 분일 때 | `YOUTUBE` / `SMS` / `HOST` | `HOST` |
 | `price.unit` | 손으로 적는 가격(빠른 입력·고치기 칸·상품 목록 가져오기)에서 단위 없는 숫자의 단위 (라벨의 가격 표기는 라벨 템플릿의 `priceStyle` — LABEL_RULES L-3, D-I1-05. 말로 한 가격은 따르지 않는다 — R-17 4. 예외: 음성 확정 읽기의 원 없는 빠른 꼴 `N번 (품종) 수`는 따른다 — R-17 8, D-V3-48·63·70) | `WON` / `THOUSAND` / `TEN_THOUSAND`(FB1, D-FB1-11) / `AUTO`(V3, D-V3-70) | `THOUSAND` |

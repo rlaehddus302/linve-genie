@@ -55,6 +55,11 @@ describe('AC-S04-50 판매 규칙 설정 읽기·바꾸기', () => {
     expect(manual.status).toBe(400)
     expect(manual.body).toEqual({ error: { code: 'NOT_SUPPORTED', message: '아직 지원하지 않는 설정이에요.', problems: [{ field: 'settings.settlement.groupBy', message: '아직 지원하지 않아요.' }] } })
     expect((await api.get('/api/settings')).body).toEqual({ settings: DEFAULT_SETTINGS })
+    // "1등이 취소되면 → 내가 골라요"는 그만 쓴다 (D-SUCCESSION-01)
+    const ask = await api.patch('/api/settings', { settings: { 'cancel.succession': 'ASK' } })
+    expect(ask.status).toBe(400)
+    expect(ask.body).toEqual({ error: { code: 'NOT_SUPPORTED', message: '고를 수 없는 설정이에요.', problems: [{ field: 'settings.cancel.succession', message: '이제 고를 수 없어요. 1등이 취소되면 대기 1순위가 바로 1등이 돼요.' }] } })
+    expect((await api.get('/api/settings')).body).toEqual({ settings: DEFAULT_SETTINGS })
   })
 
   it('바꾼 설정은 다음에 만드는 방송부터 — 이미 시작한 방송은 바꾸기 전 대기 한도를 쓴다', async () => {

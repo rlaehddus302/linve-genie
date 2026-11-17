@@ -188,6 +188,17 @@ describe('AC-S04-22 기록 전에 거른다', () => {
     })
   })
 
+  it('이미 "내가 골라요"(ASK)를 저장한 판매자는 대기 1순위가 바로 1등(AUTO)으로 읽고 새 라이브도 AUTO로 시작한다 (D-SUCCESSION-01)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    await world.database.pglite?.query(`update sellers set settings = $1 where id = $2`, [JSON.stringify({ 'cancel.succession': 'ASK', 'waitlist.max': 3 }), seller.sellerId])
+    const api = client(world, seller.cookie)
+    expect((await api.get('/api/settings')).body).toMatchObject({ settings: { 'cancel.succession': 'AUTO', 'waitlist.max': 3 } })
+    const b = await createBroadcast(world, seller)
+    const { state } = await replayFromDb(world, b.date)
+    expect(getBroadcast(state, b.id)?.settings['cancel.succession']).toBe('AUTO')
+  })
+
   it('미구현 설정(MANUAL)이 판매자 설정에 있으면 방송 만들기를 기록하지 않는다', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
