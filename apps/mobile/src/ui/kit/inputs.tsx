@@ -161,7 +161,7 @@ export function UnderlineField({ label, help, error, again, unit, trailing, hand
           )}
           {pen ? (
             <View onLayout={(event) => setPenWidth(event.nativeEvent.layout.width)}>
-              <HandwritingButton label={label} onPress={() => setPenOpen(true)} />
+              <HandwritingButton label={label} onPress={() => setPenOpen(true)} compact />
             </View>
           ) : null}
           {clearable ? (

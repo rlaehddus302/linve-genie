@@ -11,6 +11,8 @@
 // 쓰기는 원문 칸(noText·priceText, SRV1 약속 2) — 가격은 "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 앱은 판정하지 않는다.
 // 품종 단계 (D-VARIETY-01·D-PIECES-01, 사용자 메모 11-13): 칸 아래 품종 후보 단추 한 줄(이 방송 최근 → 자주 판 것, 누르면 칸에 들어간다)과
 //   개수 칸 [−] n개 [+] — "채홍 3개"처럼 적어도 개수로 나눈다. 가격은 묶음 하나의 값 그대로(개수로 곱하지 않는다).
+// D-ADDPIECES-01 (사용자 지시 2026-11-17 "품종 입력 받을 때 버튼이 너무 많아서 난잡하다"): 개수는 품종 다음 단계 "몇 개인가요?"에서 따로 묻는다.
+//   품종 단계는 칸 · [손글씨로 적을게요](둥근 네모) · 품종 후보 한 줄 · 맨 아래 [품종 없이 넘어가기]만.
 // 이미 있는 번호 (D-DUPNO-02, 사용자 지시 2026-11-17 "다음 버튼 누르기 전에 곧바로 아래에 빨간 글씨로 이미 등록된 번호에요"):
 //   번호 칸에 판매 중인 상품의 번호를 치는 순간 칸 아래 빨간 글 "이미 등록된 번호예요." — "번호는 999번까지 적을 수 있어요."와 같은 꼴(흔들기·진동, [다음] 흐림).
 //   옛 D-DUPNO-01 묻는 카드 [아니요 | 하나 더 올리기]는 없앴다. 같은 물건을 더 팔려면 그 상품의 [같은 물건 더 팔기](D-STK-02).
@@ -34,12 +36,14 @@ import { SlidePage, useFooterInset } from './parts.tsx'
 import { SyncClashDialog, readSyncClash, type SyncClash } from './SyncClash.tsx'
 import { PiecesStepper, VarietyChips } from './VarietyChips.tsx'
 
-type Step = 'no' | 'price' | 'name' | 'confirm'
+type Step = 'no' | 'price' | 'name' | 'pieces' | 'confirm'
 
 export const ADD_TITLE = '상품 추가'
 export const ASK_NO = '상품 번호가 무엇인가요?'
 export const ASK_PRICE = '가격은 어떻게 되나요?'
 export const ASK_NAME = '어떤 품종인가요?'
+export const ASK_PIECES = '몇 개인가요?'
+export const SKIP_NAME = '품종 없이 넘어가기'
 export const ASK_ADD = '상품을 추가할까요?'
 /** 확인 중(임시 등록) 상품이 있는 번호를 쳤을 때 (D-RETRO-92): 친 값으로 그 상품을 확정한다 */
 export const ASK_CONFIRM_HELD = '이 값으로 확정할까요?'
@@ -551,12 +555,13 @@ export interface StepBack {
   current: (() => boolean) | null
 }
 
-/** 앞 단계: 번호 ← 가격 ← 품종 ← 확인 (품종을 안 물으면 확인 ← 가격). 첫 단계면 null */
+/** 앞 단계: 번호 ← 가격 ← 품종 ← 개수 ← 확인 (품종을 안 물으면 확인 ← 가격, D-ADDPIECES-01). 첫 단계면 null */
 export function previousStep(step: Step, askName: boolean): Step | null {
   if (step === 'no') return null
   if (step === 'price') return 'no'
   if (step === 'name') return 'price'
-  return askName ? 'name' : 'price'
+  if (step === 'pieces') return 'name'
+  return askName ? 'pieces' : 'price'
 }
 
 /**
@@ -734,13 +739,16 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
 
   const done: { readonly step: Step; readonly label: string; readonly value: string }[] = []
   if (step !== 'no') done.push({ step: 'no', label: '번호', value: `${no}번` })
-  if (step === 'name') done.push({ step: 'price', label: '가격', value: won(price) })
+  if (step === 'name' || step === 'pieces') done.push({ step: 'price', label: '가격', value: won(price) })
+  if (step === 'pieces' && split.name !== '') done.push({ step: 'name', label: '품종', value: split.name })
 
   // 훅은 확인 화면으로 일찍 돌아가기 전에
-  const active = step === 'no' ? no : step === 'price' ? price : name
-  const shownError = error ?? (step === 'name' || step === 'confirm' ? null : tooBig(step, active))
+  // 숫자판으로 치는 단계(번호·가격) — 품종은 휴대폰 키보드, 개수는 [−] [+]
+  const typing = step === 'no' || step === 'price'
+  const active = step === 'no' ? no : step === 'price' ? price : step === 'name' ? name : String(count)
+  const shownError = error ?? (typing ? tooBig(step, active) : null)
   // 잘못이 생기거나 바뀌면, 또 넘쳐 치면 큰 칸이 좌우로 흔들리고 진동한다 (D-UX3-51 흔들기, D-UX4-61)
-  const shake = useWrongShake(step === 'name' || step === 'confirm' ? null : shownError, again)
+  const shake = useWrongShake(typing ? shownError : null, again)
   // 이미 있는 번호 안내는 번호 칸과 확인 화면에서만 (D-RETRO-22)
   const sameShown = same !== null && error !== null && (step === 'no' || step === 'confirm') ? same : null
   const sameButtons = sameShown === null || onShow === undefined ? null : <SameNumberButtons onClose={() => setSame(null)} onShow={() => onShow(sameShown.key)} />
@@ -784,7 +792,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
     )
   }
 
-  const onNext = step === 'no' ? nextFromNo : step === 'price' ? nextFromPrice : () => setStep('confirm')
+  const onNext = step === 'no' ? nextFromNo : step === 'price' ? nextFromPrice : step === 'name' ? () => setStep('pieces') : () => setStep('confirm')
   return (
     <Animated.View {...edgeHandlers} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
       <View style={{ flex: 1, paddingHorizontal: SPACE.xxl, paddingTop: SPACE.xxl, gap: SPACE.xxl }}>
@@ -801,18 +809,23 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
                 placeholderTextColor={p.placeholder}
                 maxLength={40}
                 returnKeyType="next"
-                onSubmitEditing={() => { if (name.trim() !== '') setStep('confirm') }}
+                onSubmitEditing={() => { if (name.trim() !== '') setStep('pieces') }}
                 style={{ fontSize: BIG, paddingVertical: 0, color: p.text, ...font(WEIGHT.bold) }}
               />
-              {/* 토스 "잔액 · 159,952원 입력" 같은 회색 칩 — 꾸욱 눌린다 (D-UX4-43) */}
               {/* 휴대폰을 눕혀 두고 손가락으로 품종 쓰기 (D-HANDWRITE-02) — 숫자(번호·가격)는 숫자판 */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap' }}>
-                {name.trim() === '' ? <SoftChip label="품종 없이 넘어가기" onPress={() => setStep('confirm')} /> : null}
-                <HandwritingButton label="품종" onPress={() => setPen(true)} />
-              </View>
-              {/* 품종 후보 한 줄(가로로 민다) · 개수 칸 (D-VARIETY-01·D-PIECES-01) */}
+              <HandwritingButton label="품종" onPress={() => setPen(true)} />
+              {/* 품종 후보 한 줄(가로로 민다, D-VARIETY-01) — 개수는 다음 단계 (D-ADDPIECES-01) */}
               <VarietyChips choices={chips} selected={split.name} inset={SPACE.xxl} onPick={(value) => setName(value)} />
-              <PiecesStepper pieces={count} onChange={setPieces} />
+              {/* 토스 "잔액 · 159,952원 입력" 같은 회색 칩 — 꾸욱 눌린다 (D-UX4-43), 품종 단계 맨 아래 (D-ADDPIECES-01) */}
+              {name.trim() === '' ? <SoftChip label={SKIP_NAME} onPress={() => setStep('pieces')} /> : null}
+            </>
+          ) : step === 'pieces' ? (
+            <>
+              {/* 개수 (D-PIECES-01·D-ADDPIECES-01): 묶음 하나에 몇 포기인지 — 가격은 곱하지 않는다 */}
+              <Txt step="amount" weight="bold">
+                {ASK_PIECES}
+              </Txt>
+              <PiecesStepper pieces={count} onChange={setPieces} large />
             </>
           ) : (
             <Animated.View style={{ transform: [{ translateX: shake }] }}>
@@ -836,11 +849,13 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
       ) : (
         <NextButton onPress={onNext} disabled={active.trim() === '' || shownError !== null} />
       )}
-      {step === 'name' ? null : (
+      {typing ? (
         <View style={{ paddingBottom: footer }}>
           <NumberKeys doubleZero={step === 'price'} onKey={type} />
         </View>
-      )}
+      ) : step === 'pieces' ? (
+        <View style={{ paddingBottom: footer }} />
+      ) : null}
       <HandwritingSheet
         visible={pen && step === 'name'}
         onClose={() => setPen(false)}

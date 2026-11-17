@@ -56,8 +56,8 @@ export function VarietyChips({ choices, selected, disabled = false, inset = GUTT
   )
 }
 
-/** 개수 칸: [−] n개 [+] 한 줄 (1~99) */
-export function PiecesStepper({ pieces, disabled = false, onChange }: { readonly pieces: number; readonly disabled?: boolean; readonly onChange: (pieces: number) => void }) {
+/** 개수 칸: [−] n개 [+] 한 줄 (1~99). large: 상품 추가 개수 단계 — "개수" 글 없이 큰 단추·큰 글 (D-ADDPIECES-01) */
+export function PiecesStepper({ pieces, disabled = false, large = false, onChange }: { readonly pieces: number; readonly disabled?: boolean; readonly large?: boolean; readonly onChange: (pieces: number) => void }) {
   const { p } = useKit()
   const step = (label: string, sign: string, next: number, off: boolean) => (
     <Tap
@@ -67,22 +67,26 @@ export function PiecesStepper({ pieces, disabled = false, onChange }: { readonly
       disabled={off}
       hitSlop={6}
       onPress={() => onChange(next)}
-      style={({ pressed }) => ({ width: 44, height: 40, borderRadius: RADIUS.md, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed && !off ? p.pressed : p.surfaceAlt, opacity: off ? 0.4 : 1 })}
+      style={({ pressed }) => ({ width: large ? 56 : 44, height: large ? 52 : 40, borderRadius: RADIUS.md, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: pressed && !off ? p.pressed : p.surfaceAlt, opacity: off ? 0.4 : 1 })}
     >
-      <Txt step="lead" weight="bold" color="textSub">
+      <Txt step={large ? 'title' : 'lead'} weight="bold" color="textSub">
         {sign}
       </Txt>
     </Tap>
   )
   return (
-    <View role="group" aria-label={PIECES_LABEL} testID="pieces-stepper" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
-      <Txt step="body" weight="bold" color="textSub">
-        {PIECES_LABEL}
-      </Txt>
-      <View style={{ flex: 1 }} />
+    <View role="group" aria-label={PIECES_LABEL} testID="pieces-stepper" style={{ flexDirection: 'row', alignItems: 'center', gap: large ? SPACE.md : SPACE.sm }}>
+      {large ? null : (
+        <>
+          <Txt step="body" weight="bold" color="textSub">
+            {PIECES_LABEL}
+          </Txt>
+          <View style={{ flex: 1 }} />
+        </>
+      )}
       {step(PIECES_LESS, '−', Math.max(PIECES_MIN, pieces - 1), disabled || pieces <= PIECES_MIN)}
-      <View style={{ minWidth: 48, alignItems: 'center' }}>
-        <Txt step="lead" weight="bold" center testID="pieces-value">
+      <View style={{ minWidth: large ? 96 : 48, alignItems: 'center' }}>
+        <Txt step={large ? 'amount' : 'lead'} weight="bold" center testID="pieces-value">
           {piecesWords(pieces)}
         </Txt>
       </View>

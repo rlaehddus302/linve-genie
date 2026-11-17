@@ -20,6 +20,8 @@ import { RADIUS, SPACE, TOUCH } from './tokens.ts'
 /** 화면에 보이는 말 (쉬운 한국어) */
 export const HANDWRITING_WORDS = {
   button: '손글씨',
+  /** 단추 글 (D-ADDPIECES-01, 사용자 지시 2026-11-17 "[손글씨로 적을게요]로 이름 바꾸고 … 둥근 네모로") */
+  write: '손글씨로 적을게요',
   description: '손가락으로 크게 써 주세요. 잠깐 멈추면 글자로 바뀌어요. 두세 글자씩 나눠 써도 이어 붙어요.',
   padHint: '여기에 크게 써 주세요',
   padLabel: '손글씨 쓰는 곳',
@@ -154,8 +156,9 @@ export function HandwritingPad({ ink, height, onPenDown, onStroke, onWidth, test
   )
 }
 
-/** [손글씨] 단추: 펜 그림 + 글자 (그림만 두지 않는다). 눌림 자리 48 */
-export function HandwritingButton({ label, onPress, testID }: { readonly label: string; readonly onPress: () => void; readonly testID?: string }) {
+/** [손글씨로 적을게요] 단추: 펜 그림 + 글자 (그림만 두지 않는다), 캡슐이 아닌 둥근 네모 — 품종 없이 넘어가기 칩과 같은 꼴 (D-ADDPIECES-01). 눌림 자리 48 */
+// compact: 글자 칸 안 오른쪽에 붙는 단추 — 칸이 좁아지지 않게 짧은 [손글씨]
+export function HandwritingButton({ label, onPress, testID, compact = false }: { readonly label: string; readonly onPress: () => void; readonly testID?: string; readonly compact?: boolean }) {
   const { p } = useKit()
   const can = useInkReader()
   if (!can) return null
@@ -166,11 +169,11 @@ export function HandwritingButton({ label, onPress, testID }: { readonly label: 
       testID={testID}
       hitSlop={6}
       onPress={onPress}
-      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 2, height: 36, paddingHorizontal: SPACE.sm + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surfaceAlt })}
+      style={({ pressed }) => ({ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: compact ? SPACE.sm + 2 : SPACE.md, paddingVertical: compact ? SPACE.xs + 2 : SPACE.sm, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.surfaceAlt })}
     >
-      <Icon name="edit" size={18} color={p.textSub} />
-      <Txt step="meta" weight="medium" color="textSub">
-        {HANDWRITING_WORDS.button}
+      <Icon name="edit" size={18} color={p.tabInk} />
+      <Txt step={compact ? 'meta' : 'body'} weight="book" ink={p.tabInk}>
+        {compact ? HANDWRITING_WORDS.button : HANDWRITING_WORDS.write}
       </Txt>
     </Tap>
   )

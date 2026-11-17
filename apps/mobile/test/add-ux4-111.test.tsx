@@ -86,7 +86,9 @@ describe('상품 추가 (D-UX4-111)', () => {
     expect(previousStep('no', true)).toBeNull()
     expect(previousStep('price', true)).toBe('no')
     expect(previousStep('name', true)).toBe('price')
-    expect(previousStep('confirm', true)).toBe('name')
+    // D-ADDPIECES-01 (사용자 지시 2026-11-17): 품종 다음에 개수 단계 — 옛 기대는 확인 ← 품종
+    expect(previousStep('pieces', true)).toBe('name')
+    expect(previousStep('confirm', true)).toBe('pieces')
     expect(previousStep('confirm', false)).toBe('price')
   })
 

@@ -134,7 +134,8 @@ describe('상품 개수 (D-PIECES-01)', () => {
     expect(within(list).getByText('라울')).toBeTruthy()
   })
 
-  it('상품 추가: 품종 단계에 단추·개수 칸, "채홍 3개"로 적어도 품종 채홍·개수 3으로 등록하고 가격은 친 값 그대로', async () => {
+  // D-ADDPIECES-01 (사용자 지시 2026-11-17 "품종 입력 받을 때 버튼이 너무 많아서 난잡하다. 개수는 그 다음에"): 옛 기대는 품종 단계에 개수 칸
+  it('상품 추가: 품종 단계에 단추·[손글씨로 적을게요]·맨 아래 [품종 없이 넘어가기], 개수는 다음 단계 — "채홍 3개"로 적어도 품종 채홍·개수 3, 가격은 친 값 그대로', async () => {
     const data = fromFull(fullView({ products: [{ ...product(1, { name: '라울' }), id: 'p1' }] }))
     const sent: Record<string, unknown>[] = []
     const api: ConsoleApi = { b: 'b1', data, names: new BuyerNames(data.buyers, data.claims), ended: false, sealed: false, command: async (event) => { sent.push({ ...event }); return { date: '2026-10-29', rehearsal: false, seq: 6, type: String(event.type), changed: true, effects: [] } }, select: () => {}, selected: null, labelWords: new Map() }
@@ -146,10 +147,19 @@ describe('상품 개수 (D-PIECES-01)', () => {
     for (const key of '20000') fireEvent.click(within(pad()).getByRole('button', { name: key }))
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
     const input = screen.getByLabelText<HTMLInputElement>('어떤 품종인가요?')
+    // 품종 단계에는 개수 칸이 없고, [품종 없이 넘어가기]가 맨 아래(품종 후보 줄 뒤)
+    expect(screen.queryByRole('group', { name: '개수' })).toBeNull()
+    const skip = screen.getByRole('button', { name: '품종 없이 넘어가기' })
+    expect(screen.getByRole('group', { name: VARIETY_ROW }).compareDocumentPosition(skip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     // 단추를 누르면 칸에 들어간다
     fireEvent.click(within(screen.getByRole('group', { name: VARIETY_ROW })).getByRole('button', { name: '라울' }))
     expect(input.value).toBe('라울')
     fireEvent.change(input, { target: { value: '채홍 3개' } })
+    expect(screen.queryByRole('button', { name: '품종 없이 넘어가기' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    // 개수 단계: "몇 개인가요?" — 품종 칸의 3개를 이어받고, 위에 번호·가격·품종(채홍)
+    expect(screen.getByText('몇 개인가요?')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '품종 채홍 고치기' })).toBeTruthy()
     expect(within(screen.getByRole('group', { name: '개수' })).getByTestId('pieces-value').textContent).toBe('3개')
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
     const lines = await screen.findByTestId('add-confirm-lines')
