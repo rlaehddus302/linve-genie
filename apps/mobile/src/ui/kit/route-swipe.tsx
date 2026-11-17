@@ -65,6 +65,15 @@ export function edgeStartTracker(): { readonly onStart: (event: GestureResponder
   }
 }
 
+/**
+ * 단계 뒤로 밀기 (D-STEPSWIPE-01, 사용자 지시 2026-11-17 "제스처 인식 되면 화면 딸려오는 효과 없이 바로 그냥 이전 화면으로"):
+ * 손가락을 따라 화면을 끌지 않고, 이만큼 밀면(또는 빠르게 튕기면) 손을 떼기 전에 바로 앞 단계로 간다
+ */
+export const STEP_SWIPE_BACK = 48
+export function stepSwipeBacks(dx: number, vx: number): boolean {
+  return dx > STEP_SWIPE_BACK || (vx > 0.3 && dx > 20)
+}
+
 /** 손을 뗐을 때 닫을지: 화면 너비의 1/3 넘게 밀었거나, 빠르게 튕겼으면 닫는다 */
 export function edgeSwipeCloses(dx: number, vx: number, width: number): boolean {
   return dx > width / 3 || (vx > 0.4 && dx > 24)

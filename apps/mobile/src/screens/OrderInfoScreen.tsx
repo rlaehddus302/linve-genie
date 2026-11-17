@@ -196,7 +196,7 @@ function InfoSteps({ date, buyer, field, initial, onSaved, onConflict, stepBack 
     go(previous)
     return true
   }
-  const { swipe, edgeHandlers } = useStepBack(stepBack, back, previousInfoStep(step, asked) === null)
+  const { edgeHandlers } = useStepBack(stepBack, back, previousInfoStep(step, asked) === null)
 
   const set = (key: Exclude<InfoStep, 'phone'>, value: string) => {
     if (fieldError?.step === key) setFieldError(null)
@@ -250,7 +250,7 @@ function InfoSteps({ date, buyer, field, initial, onSaved, onConflict, stepBack 
   if (step === 'confirm') {
     const where = [values.address.trim(), values.detail.trim()].filter((part) => part !== '').join(' ')
     return (
-      <Animated.View {...edgeHandlers} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
+      <Animated.View {...edgeHandlers} style={{ flex: 1 }}>
         <View style={{ flex: 1, paddingHorizontal: SPACE.xxl }}>
           <View style={{ flex: CONFIRM_ABOVE }} />
           <View testID="info-confirm" style={{ alignItems: 'center', gap: CONFIRM_GAP }}>
@@ -292,7 +292,7 @@ function InfoSteps({ date, buyer, field, initial, onSaved, onConflict, stepBack 
     return [{ key, text: text === '' ? '없음' : text }]
   })
   return (
-    <Animated.View {...edgeHandlers} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
+    <Animated.View {...edgeHandlers} style={{ flex: 1 }}>
       <View style={{ flex: 1, paddingHorizontal: SPACE.xxl, paddingTop: SPACE.xxl, gap: SPACE.xxl }}>
         {done.map((line) => <DoneLine key={line.key} label={INFO_LABELS[line.key]} value={line.text} onPress={() => open(line.key)} />)}
         <View style={{ gap: SPACE.sm }}>

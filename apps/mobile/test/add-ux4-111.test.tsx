@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { ASK_ADD, ASK_NO, ASK_PRICE, CONFIRM_ABOVE, CONFIRM_BELOW, CONFIRM_GAP, previousStep } from '../src/screens/console/ProductAdd.tsx'
 import { NO_CLAIMS, NO_NAME } from '../src/screens/console/ProductBoard.tsx'
+import { STEP_SWIPE_BACK, stepSwipeBacks } from '../src/ui/kit/route-swipe.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { flush, product } from './support.ts'
 
@@ -96,8 +97,25 @@ describe('상품 추가 (D-UX4-111)', () => {
     const source = read('src/screens/console/ProductAdd.tsx')
     expect(source).toContain('useHoldRouteSwipe(!first)')
     expect(source).toContain("BackHandler.addEventListener('hardwareBackPress', () => backNow.current())")
-    expect(source).toContain('if (edgeSwipeCloses(g.dx, g.vx, widthNow.current)) backNow.current()')
+    // D-STEPSWIPE-01 (사용자 지시 2026-11-17 "손가락 떼기 전까지 계속 딸려오는데 … 바로 그냥 이전 화면으로"): 옛 기대는 손가락을 따라 끌다가 뗄 때 앞 단계
+    expect(source).toContain('if (stepSwipeBacks(g.dx, g.vx)) goBack()')
+    expect(source).not.toContain('translateX: swipe')
+    expect(stepSwipeBacks(30, 0)).toBe(false)
+    expect(stepSwipeBacks(STEP_SWIPE_BACK + 1, 0)).toBe(true)
+    expect(stepSwipeBacks(24, 0.5)).toBe(true)
     expect(read('src/screens/console/StackScreens.tsx')).toContain('onBack={() => { if (stepBack.current?.() !== true) onBack() }}')
+  })
+
+  it('가격을 친 뒤 앞 단계로 갔다가 다시 가격 단계로 오면 가격 칸은 비어 있다 (D-STEPSWIPE-01)', async () => {
+    const { page } = await openAdd()
+    typePad(['1', '1'])
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    typePad(['1', '0', '0', '0', '0'])
+    expect(within(page).getByText('10,000원')).toBeTruthy()
+    fireEvent.click(within(page).getByRole('button', { name: '번호 11번 고치기' }))
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    expect(within(page).queryByText('10,000원')).toBeNull()
+    expect(within(page).getByRole('button', { name: '다음' }).getAttribute('aria-disabled')).toBe('true')
   })
 
   it('확인 화면: 번호 → 가격 → 품종, 묻는 말과 사이 띄움, 글 묶음은 화면 1/3 높이', async () => {

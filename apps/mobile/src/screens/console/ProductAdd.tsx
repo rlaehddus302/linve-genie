@@ -35,7 +35,7 @@ import { formatWon } from '../../lib/words.ts'
 import { tapHaptic } from '../../native/haptics.ts'
 import { Appear, FocusInput, BigButton, ButtonRow, ErrorLine, HandwritingButton, HandwritingSheet, PRESS_EASING, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
-import { edgeStartTracker, edgeSwipeCloses, startsEdgeSwipe, useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
+import { edgeStartTracker, edgeSwipeCloses, startsEdgeSwipe, stepSwipeBacks, useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
 import { useConsoleApi } from './context.ts'
 import { SlidePage, useFooterInset } from './parts.tsx'
 import { SyncClashDialog, readSyncClash, type SyncClash } from './SyncClash.tsx'
@@ -631,7 +631,8 @@ export function previousStep(step: Step, askName: boolean): Step | null {
 
 /**
  * 단계 뒤로 (D-UX4-111): 머리 ‹(stepBack)·왼쪽 가장자리 밀기·안드로이드 뒤로가 앞 단계로 간다(back이 true). 첫 단계면 화면을 닫게 둔다.
- * 상품 추가와 손님 정보 입력(D-UX4-126)이 같이 쓴다. swipe·edgeHandlers는 단계 내용을 감싼 Animated.View에 단다
+ * 상품 추가와 손님 정보 입력(D-UX4-126)이 같이 쓴다. edgeHandlers는 단계 내용을 감싼 View에 단다.
+ * 밀기는 화면을 손가락에 끌고 오지 않고, 알아보는 순간(stepSwipeBacks) 한 번 바로 앞 단계로 간다 (D-STEPSWIPE-01)
  */
 export function useStepBack(stepBack: StepBack | undefined, back: () => boolean, first: boolean) {
   const { width } = useWindowDimensions()
@@ -651,29 +652,37 @@ export function useStepBack(stepBack: StepBack | undefined, back: () => boolean,
     const handle = BackHandler.addEventListener('hardwareBackPress', () => backNow.current())
     return () => handle.remove()
   }, [first])
-  const swipe = useRef(new Animated.Value(0)).current
   const firstNow = useRef(first)
   firstNow.current = first
   const widthNow = useRef(width)
   widthNow.current = width
   const [edge] = useState(() => {
-    const settle = () => Animated.timing(swipe, { toValue: 0, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
     // 손이 처음 닿은 자리로 가장자리를 본다 — g.x0은 잡기 전 0이라 어디서 밀어도 앞 단계로 갔다 (D-SWIPE-01)
     const start = edgeStartTracker()
+    // 한 번 밀기에 한 단계만 — 앞 단계로 간 뒤 손을 떼기 전까지 더 밀어도 또 가지 않는다
+    let gone = false
+    const goBack = () => {
+      if (gone) return
+      gone = true
+      backNow.current()
+    }
     return PanResponder.create({
       onStartShouldSetPanResponderCapture: start.onStart,
       onMoveShouldSetPanResponderCapture: (_event, g) => !firstNow.current && startsEdgeSwipe(start.x(), g.dx, g.dy),
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderMove: (_event, g) => swipe.setValue(Math.max(g.dx, 0) / 3),
-      onPanResponderRelease: (_event, g) => {
-        if (edgeSwipeCloses(g.dx, g.vx, widthNow.current)) backNow.current()
-        settle()
+      onPanResponderGrant: () => {
+        gone = false
       },
-      onPanResponderTerminate: settle,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderMove: (_event, g) => {
+        if (stepSwipeBacks(g.dx, g.vx)) goBack()
+      },
+      onPanResponderRelease: (_event, g) => {
+        if (stepSwipeBacks(g.dx, g.vx) || edgeSwipeCloses(g.dx, g.vx, widthNow.current)) goBack()
+      },
     }).panHandlers
   })
   const edgeHandlers = Platform.OS === 'web' ? {} : edge
-  return { swipe, edgeHandlers }
+  return { edgeHandlers }
 }
 
 /**
@@ -690,7 +699,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow, li
   })()
   // 처음 한 번만 정한다 — 열려 있는 동안 자료가 바뀌어도 단계가 저절로 바뀌지 않는다
   const [start] = useState(() => startOfAdd(startNo, maxNumber, startNo !== undefined && liveProductAt(api.data.products, api.b, startNo) !== null))
-  const [step, setStep] = useState<Step>(start.step)
+  const [step, setStepNow] = useState<Step>(start.step)
   // 번호·가격 칸과 넘쳐 친 횟수(흔들기)를 한 상태로 — 누름마다 앞 누름의 결과에서 이어 간다 (D-UX4-102)
   const [typed, setTyped] = useState<{ readonly no: string; readonly price: string; readonly again: number }>({ no: start.no, price: '', again: 0 })
   const { no, price, again } = typed
@@ -706,6 +715,11 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow, li
   // 손글씨 판 (D-HANDWRITE-01) — 번호·가격 단계에서만
   const [pen, setPen] = useState(false)
   const keyboard = useKeyboardLift(liftKeyboard)
+  // 가격 단계로 다시 들어오면(앞 단계에서 넘어오거나 뒤로 와서) 가격 칸은 비운다 (D-STEPSWIPE-01, 사용자 지시 2026-11-17 "그 전에 입력한게 남아있는데 비워줘")
+  const setStep = (next: Step) => {
+    if (next === 'price' && step !== 'price') setTyped((now) => ({ ...now, price: '' }))
+    setStepNow(next)
+  }
   const clearProblem = () => {
     setError(null)
     setSame(null)
@@ -719,7 +733,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow, li
     setStep(previous)
     return true
   }
-  const { swipe, edgeHandlers } = useStepBack(stepBack, back, step === 'no')
+  const { edgeHandlers } = useStepBack(stepBack, back, step === 'no')
 
   // 넣는 동안 바로 알리는 말 (토스 "출금할 수 있는 돈이 …이에요." 사진, D-UX4-54): 칸 아래 빨간 글 + 칸이 좌우로 흔들리고 에러 진동, [다음]은 흐리게
   // D-UX4-61 (사용자 지시 2026-11-09): 자리 수를 넘는 한 자리도 칸에 보여 준다 — 그래야 넘친 걸 보고 한 자리를 지울 수 있다. 그보다 더 치면 받지 않고 다시 흔든다
@@ -825,7 +839,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow, li
     const confirming = held !== null && isTentative(held)
     // D-UX4-111 (사용자 지시 2026-11-10): 번호 → 가격 → 품종 순(옛 번호 → 품종 → 가격), 묻는 말과 상품 줄 사이를 띄우고, 글 묶음은 화면 1/3 높이(옛 가운데)
     return (
-      <Animated.View {...edgeHandlers} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
+      <Animated.View {...edgeHandlers} style={{ flex: 1 }}>
         <View style={{ flex: 1, paddingHorizontal: SPACE.xxl }}>
           <View style={{ flex: CONFIRM_ABOVE }} />
           <View testID="add-confirm" style={{ alignItems: 'center', gap: CONFIRM_GAP }}>
@@ -862,7 +876,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow, li
   const nextOff = active.trim() === '' || shownError !== null
   const onNext = step === 'no' ? nextFromNo : step === 'price' ? nextFromPrice : step === 'name' ? () => setStep('pieces') : () => setStep('confirm')
   return (
-    <Animated.View {...edgeHandlers} ref={keyboard.holder} onLayout={keyboard.measure} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
+    <Animated.View {...edgeHandlers} ref={keyboard.holder} onLayout={keyboard.measure} style={{ flex: 1 }}>
       <View style={{ flex: 1, paddingHorizontal: SPACE.xxl, paddingTop: SPACE.xxl, gap: SPACE.xxl }}>
         {done.map((line) => <DoneLine key={line.step} label={line.label} value={line.value} onPress={() => { clearProblem(); setStep(line.step) }} />)}
         {/* 새로 묻는 칸은 옅게 아래에서 올라온다 (D-ADDPIECES-03) */}
