@@ -4,15 +4,24 @@
 #   2. 무늬 말뿐 — LLM 답의 절반 넘게가 무늬 말뿐(색금·녹금·SP…)이면 그 무늬 말을 이름으로 쓴다.
 #   3. LLM 답 가운데 가장 많이 나온 이름(같은 표면 먼저 나온 이름). 사전에 있으면(자모 88점) 사전 표기로.
 #   4. 바꾸기 — 그 이름이 상품 받아쓰기에서 안 들리는데, 받아쓰기 투표(variety.pick_name)가 고른 진짜 품종은 들리면 그 이름으로.
-#   확인 중(NAME_UNSURE)은 사전에 없는 이름에만 붙인다. 사전에 있는 이름은 바로 확정한다. 품종·옵션은 나누지 않는다(이름 통째로 사전과 맞춤).
+#   확인 중(NAME_UNSURE)은 사전에 없는 이름에만 붙인다. 사전에 있는 이름은 바로 확정한다.
+#   나누기(SPLIT, 기본 켬, D-RECOG-44): 답마다 품종·옵션으로 나눠(variety.parts) 품종만 사전과 맞추고 품종끼리 투표, 옵션은 그 품종 답의 절반 넘게 붙인 것만
+#   다시 붙여 "품종 옵션"(variety.label)으로 보낸다. 장부 방식의 나누기에서 고친 것: 무늬 말뿐 답과 이름 답이 같은 표면 먼저 나온 쪽(장부 방식은 무늬 말이
+#   더 많아야 이김), 창독·창록 → 창녹, "색금창" → 창 색금, 앞에 붙은 SP·종자·창·찐은 떼고 품종을 맞춤(통째로 사전에 있으면 떼지 않음),
+#   품종만으로 사전에 없으면 통째 이름으로 다시 맞춤("왕색금" → 왕비 색금). LLM_NAME_SPLIT=0이면 통째로.
 # 9방송 930상품(받아 둔 sol 답, 정답이 새지 않는 사전) 시험: 장부 방식(shop, 빈 장부) 71.7%·확인 중 645 → 이 방식 74.8%·확인 중 165.
 import collections
+import os
 import re
 
 from rapidfuzz import fuzz
 
 from . import variety as V
 
+SPLIT = os.environ.get("LLM_NAME_SPLIT", "1") != "0"                     # 품종·옵션으로 나눠 품종끼리 투표(D-RECOG-44)
+FRONT = ("SP", "종자", "창", "찐")                                         # 품종 이름 앞에 붙여 적는 말("SP몰디브", "창몰디브")
+_CHANG = re.compile(r"창\s?(?:독|록|노|농)\s?(색금|금)")                    # 창독색금·창록금 → 창녹색금·창녹금(무늬 자리에서만)
+_PAT_CHANG = re.compile(r"(녹색금|색금|녹금|금)창")                        # "색금창" → "창색금"
 CUT = 88                                                                    # 사전 이름으로 볼 자모 비율(canon)
 nz0 = lambda s: re.sub(r"[^가-힣A-Za-z0-9]", "", s or "")
 
@@ -139,6 +148,50 @@ def unsure(name, dic):
     return bool(name) and not pattern_only(name) and not known(name, dic)
 
 
+def _exact(k, dic):
+    return len(k) >= 2 and (nz0(k) in dic.names or V.norm(k) in dic.names)
+
+
+def parts(name, dic):
+    """LLM 이름 하나 → (품종 열쇠, 보일 품종, 사전에 있나, [앞 옵션], [옵션]). 품종이 없으면 열쇠 ""(옵션만).
+    "먼로 철화" → (먼로, 먼로, True, [], [철화]), "SP몰디브색금" → (몰디브, 몰디브, True, [], [SP, 색금]), "창록금" → ("", "", False, [], [창, 녹금])"""
+    t = _CHANG.sub(lambda m: "창녹" + m.group(1), name)
+    m = _PAT_CHANG.fullmatch(V.norm(t))
+    if m:
+        t = "창" + m.group(1)
+    whole = V.norm(V._QTY.sub("", V.tidy(t)))
+    if _exact(whole, dic):                                                 # 통째로 사전에 있는 꼴("백산금", "먼로철화")은 사전 표기를 나눈다
+        b2, h2, o2, _ = V.parts(dic.names.get(whole) or dic.names.get(nz0(whole)) or whole, heard=False)
+        if b2:
+            return V.norm(b2), b2, True, h2, o2
+    base, heads, opts, _ = V.parts(t)
+    front = []
+    while base and not _exact(base, dic):
+        f = next((f for f in FRONT if base.upper().startswith(f.upper()) and len(base) - len(f) >= 2), None)
+        if not f:
+            break
+        front.append("SP" if f.upper() == "SP" else f)
+        base = base[len(f):]
+    if not base:
+        return "", "", False, heads, front + opts
+    c, ok = V.canon(base, dic, CUT)
+    if not ok:                                                             # 품종만으로 못 맞추면 통째 이름으로("왕색금" → 왕비색금, "UF금" → UFO금)
+        c2, ok2 = V.canon(V.tidy(t), dic, CUT)
+        b2, h2, o2, _ = V.parts(c2, heard=False) if ok2 else ("", [], [], "")
+        if b2:
+            return V.norm(b2), b2, True, h2 or heads, o2 or (front + opts)
+    nm = c if ok else base
+    return V.norm(nm), nm, ok, heads, front + opts
+
+
+def _label(name, dic):
+    """이름 하나를 "품종 옵션" 모양으로(받아쓰기 투표로 바꾼 이름에 쓴다) → (이름, 사전에 있나)"""
+    k, nm, ok, heads, opts = parts(name, dic)
+    if not k:
+        return V.label("", opts, heads), False
+    return V.label(nm, opts, heads), ok
+
+
 def pick_market(llm_names, lines, dic, trs=(), t0=None, nicks=()):
     """→ (이름 또는 "", 까닭, 굳은 이름인가, 확인 중 품종인가, extra) — variety.pick_shop과 같은 모양.
     llm_names = 그 번호에 LLM이 적은 이름들(답한 순서), lines = 그 상품 받아쓰기 [(초, 글)], trs = 방송 받아쓰기 [(초, 글)], t0 = 그 상품 첫 줄 시각"""
@@ -165,6 +218,8 @@ def pick_market(llm_names, lines, dic, trs=(), t0=None, nicks=()):
     extra["qty"] = qty.most_common(1)[0][0] if qty else ""
     cc = collections.Counter(cands)                                          # most_common: 같은 표면 먼저 나온 이름
     extra["tally"] = {V.norm(k): v for k, v in cc.items()}
+    if SPLIT:
+        return _pick_split(cands, raw, lines, dic, guests, drop, extra)
     if cands:
         pats = [nz0(c) for c in cands if pattern_only(c)]
         if len(pats) * 2 > len(cands):
@@ -190,6 +245,57 @@ def pick_market(llm_names, lines, dic, trs=(), t0=None, nicks=()):
     sure_name = known(name, dic) or pattern_only(name)
     extra.update(votes=votes, rank=1 if sure_name else 0, source=source)
     return name, why + drop, False, unsure(name, dic), extra
+
+
+def _pick_split(cands, raw, lines, dic, guests, drop, extra):
+    """나누기 켬: 품종끼리 투표(같은 표면 먼저 나온 품종), 무늬 말뿐 답이 더 많거나 같은 표에 먼저 나왔으면 무늬 말, 옵션은 절반 넘게 붙인 것만"""
+    votes, info, first = collections.Counter(), {}, {}
+    hs, os_ = collections.Counter(), collections.Counter()
+    only, first_only = collections.Counter(), None
+    for i, c in enumerate(cands):
+        k, nm, ok, heads, opts = parts(c, dic)
+        if not k:
+            p = V.label("", opts, heads) if (opts or heads) else (c if pattern_only(c) else "")
+            if p:
+                only[p] += 1
+                first_only = i if first_only is None else first_only
+            continue
+        votes[k] += 1
+        info.setdefault(k, (nm, ok))
+        first.setdefault(k, i)
+        if heads:
+            hs[(k, tuple(heads))] += 1
+        if opts:
+            os_[(k, tuple(V.same(opts)))] += 1
+    extra["tally"] = dict(votes)
+    on = sum(only.values())
+    top = max(votes, key=lambda k: (votes[k], -first[k])) if votes else None
+    if on and (top is None or on > votes[top] or (on == votes[top] and first_only < first[top])):
+        p = only.most_common(1)[0][0]
+        extra.update(pattern=p, votes=on, rank=1, source="무늬 말")
+        return p, f"무늬 말뿐 답 '{p}'({on}/{len(cands)})" + drop, False, False, extra
+    w = V.pick_name(raw, lines, dic, guests)[0]
+    if top is None:
+        if not w:
+            return "", "LLM 이름 없음" + drop, False, False, extra
+        name, ok = _label(w, dic)
+        extra.update(votes=0, rank=1 if ok or pattern_only(name) else 0, source="받아쓰기")
+        return name, f"LLM 이름 없음 → 받아쓰기 투표 '{w}'" + drop, False, not ok and not pattern_only(name), extra
+
+    def half(ctr):
+        mine = {v: n for (k, v), n in ctr.items() if k == top}
+        return list(max(mine, key=mine.get)) if mine and max(mine.values()) * 2 >= votes[top] else []
+    nm, ok = info[top]
+    opts, heads = half(os_), half(hs)
+    name = V.label(nm, opts, heads)
+    why = f"품종 '{nm}'({votes[top]}/{len(cands)})" + (" (사전에 있음)" if ok else "") + (f" + 옵션 '{' '.join(heads + opts)}'" if opts or heads else "")
+    source = "LLM"
+    if w and real(w) and stem(w) != stem(nm) and not said(nm, lines) and said(w, lines):
+        why += f" → 받아쓰기 투표 '{w}'(LLM 이름은 안 들리고 이것은 들림)"
+        name, ok = _label(w, dic)
+        source = "받아쓰기"
+    extra.update(pattern=" ".join(heads + opts), votes=votes[top], rank=1 if ok else 0, source=source)
+    return name, why + drop, False, not ok and not pattern_only(name), extra
 
 
 def should_rename(now, name, extra, now_rank=0):
