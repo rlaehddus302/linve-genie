@@ -1,6 +1,6 @@
 // 판매자 의견 2026-11-17 세 가지:
 // - D-CLAIMADD-03 찜 넣기 [닉네임으로 보이기] — 기본 꺼짐(문자찜), 켜고 채팅 손님으로 넣으면 sms named
-// - D-DUPNO-01 이미 있는 번호 "26번이 이미 있어요 (품종 · 가격) 같은 물건으로 하나 더 올릴까요?" [아니요 | 하나 더 올리기] — 재고 +1
+// - D-DUPNO-01 이미 있는 번호 묻기 → D-DUPNO-02(사용자 지시 2026-11-17)로 바꿈: 치는 순간 칸 아래 빨간 "이미 등록된 번호예요.", [다음] 흐림
 // - D-BUYERSUM-01 라이브 중 손님별 합계 (찜 기록 탭 "손님별 합계 ›" → 손님마다 개수·합계, 찾기·정렬·펼치기)
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -10,7 +10,7 @@ import { BuyerNames } from '../src/lib/derive.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { CLAIM_ADD_NAMED, isChatBuyer } from '../src/screens/console/ClaimAdd.tsx'
 import { smsClaimEvent } from '../src/screens/console/claim-actions.ts'
-import { DUP_ASK, DUP_MORE, DUP_NO, SAME_NUMBER_SHOW, dupTitle } from '../src/screens/console/ProductAdd.tsx'
+import { NO_TAKEN } from '../src/screens/console/ProductAdd.tsx'
 import { TOTALS_PILL, TOTALS_TITLE, buyerTotals, filterTotals, totalLineText, totalsSummary } from '../src/screens/console/BuyerTotals.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { buyer, changes, claim, flush, fullView, product } from './support.ts'
@@ -35,14 +35,6 @@ async function open(world: World, patch: Parameters<typeof changes>[2]) {
   })
   world.seq = 7
   world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=([7-9]|\d\d)$/, (call) => ({ body: changes(Number(/since=(\d+)/.exec(call.path)?.[1]), world.seq, {}) }))
-}
-
-/** 두 단추가 같은 줄(좌우)에 있고 왼쪽이 먼저다 (D-UX4-01) */
-function expectSideBySide(left: HTMLElement, right: HTMLElement) {
-  const row = left.parentElement?.parentElement
-  expect(row).toBe(right.parentElement?.parentElement)
-  expect(getComputedStyle(row!).flexDirection).toBe('row')
-  expect(left.compareDocumentPosition(right) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 }
 
 const typePad = (digits: string) => {
@@ -120,57 +112,32 @@ describe('찜 넣기 [닉네임으로 보이기] (D-CLAIMADD-03)', () => {
   }, SLOW)
 })
 
-// ── D-DUPNO-01 ──────────────────────────────────────────────────
+// ── D-DUPNO-02 ──────────────────────────────────────────────────
 
-describe('이미 있는 번호에 같은 물건 하나 더 (D-DUPNO-01)', () => {
-  it('글: "26번이 이미 있어요 (핑크프릴 · 8,000원)" — 품종이 비면 가격만', () => {
-    expect(dupTitle({ no: 26, name: '핑크프릴', price: 8_000 })).toBe('26번이 이미 있어요 (핑크프릴 · 8,000원)')
-    expect(dupTitle({ no: 27, name: ' ', price: 5_000 })).toBe('27번이 이미 있어요 (5,000원)')
-  })
-
+// 스펙 변경 (D-DUPNO-02, 사용자 지시 2026-11-17 "다음 버튼 누르기 전에 곧바로 아래에 빨간 글씨로 이미 등록된 번호에요"):
+// 옛 기대는 [다음]에서 "26번이 이미 있어요 (핑크프릴 · 8,000원) / 같은 물건으로 하나 더 올릴까요?" [아니요 | 하나 더 올리기] → 재고 +1 (D-DUPNO-01).
+// 같은 물건 더 팔기는 그 상품의 [같은 물건 더 팔기](D-STK-02)에 그대로 있다.
+describe('이미 있는 번호는 치는 순간 빨간 글 (D-DUPNO-02)', () => {
   const SOLD = {
     products: [product(26, { name: '핑크프릴', price: 8_000, status: 'SOLD', winners: ['u1'], winnerClaims: ['c1'], waitlist: ['u2'], waitlistClaims: ['c2'] })],
     claims: [claim('c1', 26, 'u1'), claim('c2', 26, 'u2', { status: 'WAITLISTED', seq: 11 })],
     buyers: [buyer('u1', '홍길동'), buyer('u2', '김철수')],
   } satisfies Parameters<typeof changes>[2]
 
-  async function askDup(world: World) {
+  it('대기 손님이 있는 판매 완료 번호도 묻지 않는다 — 빨간 "이미 등록된 번호예요.", [다음] 흐림, 숫자판은 그대로, 보내지 않는다', async () => {
+    const world = makeWorld({ products: [product(26)] })
     await open(world, SOLD)
     fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
     const page = await screen.findByRole('dialog', { name: '상품 추가' })
     typePad('26')
-    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
-    return page
-  }
-
-  it('번호 칸 [다음]에서 막지 않고 묻는다 — 지금 품종·가격, 찜이 될 대기 손님, [아니요 | 하나 더 올리기]. 올리기 = 재고 +1', async () => {
-    const world = makeWorld({ products: [product(26)] })
-    const page = await askDup(world)
-    const card = within(page).getByTestId('dup-number')
-    expect(within(card).getByText('26번이 이미 있어요 (핑크프릴 · 8,000원)')).toBeTruthy()
-    expect(within(card).getByText(DUP_ASK)).toBeTruthy()
-    expect(within(card).getByText(/대기 1번 김철수 님도 찜이 되어 라벨을 뽑을 수 있어요\./)).toBeTruthy()
-    expect(within(card).getByText(/이 번호는 같은 물건 2개를 팔아요\./)).toBeTruthy()
-    expect(within(card).getByRole('button', { name: SAME_NUMBER_SHOW })).toBeTruthy()
-    // 묻는 동안 [다음]·숫자판은 없다
-    expect(within(page).queryByRole('button', { name: '다음' })).toBeNull()
-    expect(within(page).queryByRole('group', { name: '숫자판' })).toBeNull()
-    expectSideBySide(within(page).getByRole('button', { name: DUP_NO }), within(page).getByRole('button', { name: `26번에 ${DUP_MORE}` }))
-    fireEvent.click(within(page).getByRole('button', { name: `26번에 ${DUP_MORE}` }))
-    await waitFor(() => expect(world.events.length).toBe(1))
-    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.update', b: 'b1', no: 26, stock: 2 })
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '상품 추가' })).toBeNull())
-  }, SLOW)
-
-  it('[아니요]면 묻기를 내리고 숫자판·[다음]이 돌아온다 — 아무것도 보내지 않는다', async () => {
-    const world = makeWorld({ products: [product(26)] })
-    const page = await askDup(world)
-    fireEvent.click(within(page).getByRole('button', { name: DUP_NO }))
+    expect(within(page).getByText(NO_TAKEN)).toBeTruthy()
+    expect(within(page).getByRole('button', { name: '다음' }).getAttribute('aria-disabled')).toBe('true')
+    expect(within(page).getByRole('group', { name: '숫자판' })).toBeTruthy()
+    expect(within(page).queryByRole('button', { name: /하나 더 올리기/ })).toBeNull()
     expect(within(page).queryByTestId('dup-number')).toBeNull()
-    expect(within(page).getByRole('button', { name: '다음' })).toBeTruthy()
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
     typePad('7')
-    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
-    expect(within(page).queryByTestId('dup-number')).toBeNull()
+    expect(within(page).queryByText(NO_TAKEN)).toBeNull()
     expect(world.events.length).toBe(0)
   }, SLOW)
 })

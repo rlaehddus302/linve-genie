@@ -7,7 +7,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import type { FullView } from '@livejjim/web/src/api/types.ts'
 import { describe, expect, it } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
-import { DUP_MORE, SAME_NUMBER_CLOSE, SAME_NUMBER_SHOW, sameNumberWords } from '../src/screens/console/ProductAdd.tsx'
+import { NO_TAKEN, SAME_NUMBER_CLOSE, SAME_NUMBER_SHOW, sameNumberWords } from '../src/screens/console/ProductAdd.tsx'
 import { REPRINT_HINT } from '../src/screens/console/ProductBoard.tsx'
 import { EDIT_DONE, PRICE_SCOPE_ALL, PRICE_SCOPE_NEW, RENUMBER_GO, RENUMBER_KEEP, REUSE_ASK, REUSE_GO, claimedBuyers, priceScopeAsk, renumberAsk, renumberLoses, reuseNote } from '../src/screens/console/ProductEdit.tsx'
 import { fromFull } from '../src/lib/scope-data.ts'
@@ -360,43 +360,38 @@ describe('이미 있는 번호 안내 (D-RETRO-22, 개선 계획표 F5)', () => 
     expect(world.events).toHaveLength(1)
   })
 
-  // D-DUPNO-01 (사용자 지시 2026-11-17 "중복 번호일 경우 등록이 안 되는 게 아니라 … 해당 번호로 등록할까요?"): 같은 물건을 더 올릴 수 있는 번호는 막지 않고 묻는다.
-  // 그래서 옛 [닫기 | 그 상품 보기] 안내는 더 올릴 수 없는 번호(여기서는 999개를 파는 번호 — STOCK_MAX)에서만 본다. 묻는 쪽은 아래 D-DUPNO-01 묶음.
-  it('추가: 더 올릴 수 없는 이미 있는 번호면 그 상품의 품종·가격과 [닫기 | 그 상품 보기]를 보이고, [그 상품 보기]면 추가 화면을 닫고 그 상품 자세히를 연다', async () => {
+  // D-DUPNO-02 (사용자 지시 2026-11-17 "다음 버튼 누르기 전에 곧바로 아래에 빨간 글씨로 이미 등록된 번호에요"): 스펙 변경.
+  // 옛 기대는 [다음]을 눌러야 "289번은 이미 있어요. 다른 번호를 적어 주세요." + 품종·가격 + [닫기 | 그 상품 보기](D-RETRO-22),
+  // 더 올릴 수 있는 번호는 [아니요 | 하나 더 올리기](D-DUPNO-01). 이제 어느 상품이든 치는 순간 칸 아래 빨간 한 줄이고 [다음]은 흐리다.
+  it('추가: 이미 있는 번호를 치는 순간 칸 아래 빨간 "이미 등록된 번호예요." — [다음]은 흐리고 다른 단추는 없다, 보내지 않는다', async () => {
     const world = worldWith({ products: [product(289, { name: '로라클론', price: 60_000, stock: 999 }), product(15)] })
-    followWrites(world)
     await open(world)
     fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
     const page = await screen.findByRole('dialog', { name: '상품 추가' })
     typePad('289')
+    expect(within(page).getByText(NO_TAKEN)).toBeTruthy()
+    expect(within(page).getByRole('button', { name: '다음' }).getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(within(page).getByRole('button', { name: '다음' }))
-    expect(within(page).getByText('289번은 이미 있어요. 다른 번호를 적어 주세요.')).toBeTruthy()
-    expect(within(page).getByText('지금 289번은 로라클론 60,000원이에요.')).toBeTruthy()
-    expect(within(page).queryByRole('button', { name: '다음' })).toBeNull()
-    expect(within(page).queryByRole('button', { name: DUP_MORE })).toBeNull()
-    expectSideBySide(within(page).getByRole('button', { name: SAME_NUMBER_CLOSE }), within(page).getByRole('button', { name: SAME_NUMBER_SHOW }))
-    fireEvent.click(within(page).getByRole('button', { name: SAME_NUMBER_SHOW }))
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '상품 추가' })).toBeNull())
-    const detail = await screen.findByRole('group', { name: '상품 자세히' })
-    expect(within(detail).getByRole('button', { name: '번호 고치기' }).textContent).toBe('289번')
-    expect(within(detail).getByRole('button', { name: '가격 고치기' }).textContent).toBe('60,000원')
+    expect(within(page).queryByRole('button', { name: SAME_NUMBER_CLOSE })).toBeNull()
+    expect(within(page).queryByRole('button', { name: SAME_NUMBER_SHOW })).toBeNull()
+    expect(within(page).queryByText('가격은 어떻게 되나요?')).toBeNull()
     expect(world.events).toHaveLength(0)
   })
 
-  it('추가: 더 올릴 수 없는 번호의 [닫기]나 다른 번호를 치면 [다음]이 돌아온다', async () => {
-    const world = worldWith({ products: [product(15, { name: '핑크프릴', stock: 999 })] })
+  it('추가: 한 자리를 지우거나 더 쳐서 없는 번호가 되면 빨간 글이 사라지고 [다음]이 살아난다', async () => {
+    const world = worldWith({ products: [product(15, { name: '핑크프릴' })] })
     await open(world)
     fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
     const page = await screen.findByRole('dialog', { name: '상품 추가' })
-    typePad('15')
-    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
-    fireEvent.click(within(page).getByRole('button', { name: SAME_NUMBER_CLOSE }))
-    expect(within(page).queryByRole('button', { name: SAME_NUMBER_SHOW })).toBeNull()
-    expect(within(page).getByRole('button', { name: '다음' })).toBeTruthy()
     typePad('1')
-    expect(within(page).queryByText('지금 15번은 핑크프릴 10,000원이에요.')).toBeNull()
+    expect(within(page).queryByText(NO_TAKEN)).toBeNull()
+    typePad('5')
+    expect(within(page).getByText(NO_TAKEN)).toBeTruthy()
+    typePad('1')
+    expect(within(page).queryByText(NO_TAKEN)).toBeNull()
+    expect(within(page).getByRole('button', { name: '다음' }).getAttribute('aria-disabled')).not.toBe('true')
     fireEvent.click(within(page).getByRole('button', { name: '다음' }))
-    expect(within(page).queryByText('151번은 이미 있어요. 다른 번호를 적어 주세요.')).toBeNull()
+    expect(within(page).getByText('가격은 어떻게 되나요?')).toBeTruthy()
   })
 
   it('추가: [추가하기]를 누른 사이 다른 쪽에서 같은 번호를 올렸으면, 따라잡은 그 상품과 [닫기 | 그 상품 보기]를 보인다', async () => {

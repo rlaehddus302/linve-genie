@@ -231,11 +231,10 @@ describe('ConsoleScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
     const page = await screen.findByRole('dialog', { name: '상품 추가' })
     typePad('15')
-    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
-    // D-DUPNO-01 (사용자 지시 2026-11-17 "중복 번호일 경우 등록이 안 되는 게 아니라 … 등록할까요?"): 옛 기대는 "15번은 이미 있어요. 다른 번호를 적어 주세요."로 막았다.
-    // 이제 같은 물건을 더 올릴 수 있는 번호는 묻는다 — [아니요]면 숫자판으로 돌아와 다른 번호를 적는다(보내지 않는다)
-    expect(within(page).getByText('15번이 이미 있어요 (품종15 · 10,000원)')).toBeTruthy()
-    fireEvent.click(within(page).getByRole('button', { name: '아니요' }))
+    // D-DUPNO-02 (사용자 지시 2026-11-17 "다음 버튼 누르기 전에 곧바로 아래에 빨간 글씨로 이미 등록된 번호에요"): 옛 기대는 [다음]에서
+    // "15번이 이미 있어요 (품종15 · 10,000원)" 묻기 → [아니요](D-DUPNO-01). 이제 치는 순간 빨간 한 줄, [다음]은 흐리다
+    expect(within(page).getByText('이미 등록된 번호예요.')).toBeTruthy()
+    expect(within(page).getByRole('button', { name: '다음' }).getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(within(page).getByRole('button', { name: '지우기' }))
     typePad('7')
     fireEvent.click(within(page).getByRole('button', { name: '다음' }))

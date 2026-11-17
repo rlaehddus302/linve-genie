@@ -11,12 +11,10 @@
 // 쓰기는 원문 칸(noText·priceText, SRV1 약속 2) — 가격은 "원"을 붙여 방송 가격 단위와 상관없이 원으로 읽힌다. 앱은 판정하지 않는다.
 // 품종 단계 (D-VARIETY-01·D-PIECES-01, 사용자 메모 11-13): 칸 아래 품종 후보 단추 한 줄(이 방송 최근 → 자주 판 것, 누르면 칸에 들어간다)과
 //   개수 칸 [−] n개 [+] — "채홍 3개"처럼 적어도 개수로 나눈다. 가격은 묶음 하나의 값 그대로(개수로 곱하지 않는다).
-// 이미 있는 번호 (D-DUPNO-01, 사용자 지시 2026-11-17 "중복 번호일 경우 등록이 안 되는 게 아니라 '중복 번호가 존재합니다. 해당 번호로 등록할까요?' 같은 안내 문구 필요"):
-//   번호 칸 [다음]에서 그 번호에 판매 중인 상품이 있으면 막지 않고 묻는다 — "26번이 이미 있어요 (핑크프릴 · 8,000원)" "같은 물건으로 하나 더 올릴까요?"
-//   [아니요 | 하나 더 올리기]. 올리기 = 그 번호의 같은 물건 개수를 하나 늘린다(D-STK-02 [같은 물건 더 팔기]와 같은 product.update 재고 +1 —
-//   대기 1번 손님이 있으면 그 손님이 찜이 된다). 엔진은 한 번호에 상품 하나라 다른 물건을 같은 번호로 따로 올릴 수는 없다 — 품종·가격은 지금 것 그대로이고
-//   다른 물건이면 [아니요]를 누르고 다른 번호를 적는다. 더 올릴 수 없는 상품(옵션 상품·가격 없는 상품·겹친 상품·자리가 빈 승계 결정 필요·999개)은 옛 안내 그대로
-//   "이미 있어요. 다른 번호를 적어 주세요." [닫기 | 그 상품 보기] (D-RETRO-22).
+// 이미 있는 번호 (D-DUPNO-02, 사용자 지시 2026-11-17 "다음 버튼 누르기 전에 곧바로 아래에 빨간 글씨로 이미 등록된 번호에요"):
+//   번호 칸에 판매 중인 상품의 번호를 치는 순간 칸 아래 빨간 글 "이미 등록된 번호예요." — "번호는 999번까지 적을 수 있어요."와 같은 꼴(흔들기·진동, [다음] 흐림).
+//   옛 D-DUPNO-01 묻는 카드 [아니요 | 하나 더 올리기]는 없앴다. 같은 물건을 더 팔려면 그 상품의 [같은 물건 더 팔기](D-STK-02).
+//   확인 중(임시 등록) 상품의 번호는 막지 않는다(D-RETRO-92). [추가하기] 사이 다른 쪽에서 같은 번호가 올라오면 [닫기 | 그 상품 보기](D-RETRO-22) 그대로.
 import { productTitle, splitPieces } from '@livejjim/core/format'
 import { useEffect, useRef, useState } from 'react'
 import { Animated, BackHandler, Easing, PanResponder, Platform, View, useWindowDimensions, type GestureResponderEvent } from 'react-native'
@@ -25,8 +23,6 @@ import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
 import { productKey } from '../../lib/derive.ts'
 import { isTentative } from '../../lib/tentative.ts'
-import { sellMore, sellMoreDescription, sellMorePlan, type SellMorePlan } from './claim-actions.ts'
-import { feedBuyerName } from './feed-rows.ts'
 import { localRecent, useVarietyLists, varietyChoices } from '../../lib/varieties.ts'
 import { formatWon } from '../../lib/words.ts'
 import { tapHaptic } from '../../native/haptics.ts'
@@ -89,37 +85,8 @@ export function sameNumberWords(product: Pick<Product, 'no' | 'name' | 'price'>)
   return `지금 ${String(product.no)}번은 ${name === '' ? '' : `${name} `}${formatWon(product.price)}이에요.`
 }
 
-// ── 이미 있는 번호에 같은 물건 하나 더 (D-DUPNO-01) ─────────────────────
-
-export const DUP_NO = '아니요'
-export const DUP_MORE = '하나 더 올리기'
-export const DUP_ASK = '같은 물건으로 하나 더 올릴까요?'
-export const DUP_NOTE = '품종과 가격은 지금 그대로예요. 다른 물건이면 "아니요"를 누르고 다른 번호를 적어 주세요.'
-
-/** "26번이 이미 있어요 (핑크프릴 · 8,000원)" — 품종이 비면 가격만 */
-export function dupTitle(product: Pick<Product, 'no' | 'name' | 'price'>): string {
-  const parts = [product.name.trim(), product.price === null ? '' : formatWon(product.price)].filter((part) => part !== '')
-  return `${String(product.no)}번이 이미 있어요${parts.length === 0 ? '' : ` (${parts.join(' · ')})`}`
-}
-
-/** 이미 있는 번호에서 하나 더 올릴 수 있으면 그 상품과 계획 (확인 중·판매 종료 번호는 여기 오지 않는다) */
-export interface DupNumber {
-  readonly product: Product
-  readonly plan: SellMorePlan
-}
-
-/** 이미 있는 번호 묻기 (D-DUPNO-01): 굵은 "26번이 이미 있어요 (핑크프릴 · 8,000원)" · 묻는 말 · 찜이 될 손님·개수 · 품종·가격 그대로 안내 · [그 상품 보기] 칩 */
-export function DupNumberCard({ dup, nextName, onShow }: { readonly dup: DupNumber; readonly nextName: string | null; readonly onShow?: () => void }) {
-  return (
-    <View role="alert" testID="dup-number" style={{ gap: SPACE.sm }}>
-      <Txt step="bodyLarge" weight="bold">{dupTitle(dup.product)}</Txt>
-      <Txt step="bodyLarge" weight="bold">{DUP_ASK}</Txt>
-      <Txt step="body" color="textSub">{sellMoreDescription(nextName, dup.plan.stock)}</Txt>
-      <Txt step="caption" color="textSub">{DUP_NOTE}</Txt>
-      {onShow === undefined ? null : <SoftChip label={SAME_NUMBER_SHOW} onPress={onShow} />}
-    </View>
-  )
-}
+/** 판매 중인 상품의 번호를 쳤을 때 칸 아래 빨간 글 (D-DUPNO-02) */
+export const NO_TAKEN = '이미 등록된 번호예요.'
 
 /** 그 번호에 지금 있는(지우지 않은) 상품 — 없으면 null */
 export function liveProductAt(products: ReadonlyMap<string, Product>, b: string, no: number): Product | null {
@@ -146,7 +113,7 @@ export function SameNumberButtons({ onClose, onShow }: { readonly onClose: () =>
 
 /**
  * 번호를 채워 여는 상품 추가 (D-RETRO-23 — 등록 안 된 번호의 찜 알림에서): 쓸 수 있는 번호면 번호 칸을 채우고 가격부터 묻는다.
- * 숫자가 아니거나 한도를 넘으면 빈 번호 칸부터, 그사이 그 번호 상품이 생겼으면 번호만 채우고 번호 칸에 머문다([다음]에서 이미 있다고 알린다)
+ * 숫자가 아니거나 한도를 넘으면 빈 번호 칸부터, 그사이 그 번호 상품이 생겼으면 번호만 채우고 번호 칸에 머문다(칸 아래 빨간 글로 이미 있다고 알린다, D-DUPNO-02)
  */
 export function startOfAdd(startNo: number | undefined, maxNumber: number | null, taken: boolean): { readonly step: 'no' | 'price'; readonly no: string } {
   if (startNo === undefined || !Number.isSafeInteger(startNo) || startNo < 1) return { step: 'no', no: '' }
@@ -662,8 +629,6 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
   const [error, setError] = useState<string | null>(null)
   // 이미 있는 번호의 상품 (D-RETRO-22) — 품종·가격과 [닫기 | 그 상품 보기]를 보인다
   const [same, setSame] = useState<SameNumber | null>(null)
-  // 이미 있는 번호에 같은 물건 하나 더 올릴지 묻기 (D-DUPNO-01)
-  const [dup, setDup] = useState<DupNumber | null>(null)
   // 방금 다른 계정에서 들어온 값과 내 값 (D-RETRO-13) — 둘을 보여 고르게 한다
   const [clash, setClash] = useState<SyncClash | null>(null)
   const [busy, setBusy] = useState(false)
@@ -672,7 +637,6 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
   const clearProblem = () => {
     setError(null)
     setSame(null)
-    setDup(null)
   }
 
   // 뒤로 = 앞 단계로 (D-UX4-111, 사용자 지시 "맨 앞 입력 단계(번호)가 아닌 곳에서 뒤로가기 하면 이전 입력 단계로 … 스와이프로 뒤로가기해도")
@@ -687,11 +651,17 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
 
   // 넣는 동안 바로 알리는 말 (토스 "출금할 수 있는 돈이 …이에요." 사진, D-UX4-54): 칸 아래 빨간 글 + 칸이 좌우로 흔들리고 에러 진동, [다음]은 흐리게
   // D-UX4-61 (사용자 지시 2026-11-09): 자리 수를 넘는 한 자리도 칸에 보여 준다 — 그래야 넘친 걸 보고 한 자리를 지울 수 있다. 그보다 더 치면 받지 않고 다시 흔든다
+  const takenAt = (value: number): boolean => {
+    const existing = liveProductAt(api.data.products, api.b, value)
+    return existing !== null && !isTentative(existing)
+  }
   const digitLimit = (step: Step): number => (step === 'no' ? Math.max(String(maxNumber ?? NO_FALLBACK_MAX).length, 1) : PRICE_DIGITS)
   const tooBig = (step: Step, digits: string): string | null => {
     if (digits === '') return null
     if (digits.length > digitLimit(step)) return step === 'no' ? noLimitWords(maxNumber ?? NO_FALLBACK_MAX) : PRICE_LIMIT
     if (step === 'no' && maxNumber !== null && Number(digits) > maxNumber) return noLimitWords(maxNumber)
+    // 판매 중인 상품의 번호는 치는 순간 알린다 — 확인 중 상품은 친 값으로 확정하므로 막지 않는다 (D-DUPNO-02, D-RETRO-92)
+    if (step === 'no' && takenAt(Number(digits))) return NO_TAKEN
     return null
   }
   // D-UX4-102: 그린 때의 값(no·price)이 아니라 지금 값에 이어 붙인다 — 다음 그리기 전에 두 번 눌러도 앞 숫자가 덮이지 않는다
@@ -709,36 +679,9 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
     const value = Number(no)
     if (no === '' || !Number.isSafeInteger(value) || value < 1) return setError('상품 번호를 숫자로 적어 주세요.')
     if (maxNumber !== null && value > maxNumber) return setError(noLimitWords(maxNumber))
-    const existing = liveProductAt(api.data.products, api.b, value)
-    // 확인 중(임시 등록) 상품이 있는 번호는 막지 않는다 — 친 값으로 그 상품을 확정한다 (D-RETRO-92)
-    if (existing !== null && !isTentative(existing)) {
-      // 같은 물건을 하나 더 올릴 수 있으면 막지 않고 묻는다 (D-DUPNO-01)
-      const plan = sellMorePlan(existing)
-      if (plan !== null) {
-        setError(null)
-        setSame(null)
-        return setDup({ product: existing, plan })
-      }
-      setSame(existing)
-      return setError(`${String(value)}번은 이미 있어요. 다른 번호를 적어 주세요.`)
-    }
+    if (takenAt(value)) return setError(NO_TAKEN)
     clearProblem()
     setStep('price')
-  }
-  // [하나 더 올리기] (D-DUPNO-01): 같은 물건 개수 +1 — 보내기 직전 최신 상태에서 찜이 될 손님이 바뀌었으면 보내지 않는다(sellMore)
-  const addMore = async () => {
-    if (busy || dup === null) return
-    setBusy(true)
-    setError(null)
-    try {
-      await sellMore(api, dup.product, dup.plan.next)
-      setBusy(false)
-      onAdded(dup.product.key)
-    } catch (caught) {
-      setBusy(false)
-      setDup(null)
-      setError(isApiError(caught) ? caught.message : caught instanceof Error && caught.message !== '' ? caught.message : '올리지 못했어요. 다시 눌러 주세요.')
-    }
   }
   const nextFromPrice = () => {
     if (price === '' || Number(price) < 100) return setError('가격은 100원 이상으로 적어 주세요.')
@@ -801,8 +744,6 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
   // 이미 있는 번호 안내는 번호 칸과 확인 화면에서만 (D-RETRO-22)
   const sameShown = same !== null && error !== null && (step === 'no' || step === 'confirm') ? same : null
   const sameButtons = sameShown === null || onShow === undefined ? null : <SameNumberButtons onClose={() => setSame(null)} onShow={() => onShow(sameShown.key)} />
-  // 같은 물건 하나 더 묻기는 번호 칸에서만 (D-DUPNO-01)
-  const dupShown = step === 'no' ? dup : null
   if (step === 'confirm') {
     // 그 번호에 확인 중 상품이 있으면 친 값으로 그 상품을 확정한다 (D-RETRO-92) — 지금 값을 같이 보인다
     const held = liveProductAt(api.data.products, api.b, Number(no))
@@ -887,24 +828,15 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
           ) : null}
           {shownError !== null ? <ErrorLine large>{shownError}</ErrorLine> : null}
           {sameShown !== null ? <SameNumberLine product={sameShown} /> : null}
-          {dupShown !== null ? <DupNumberCard dup={dupShown} nextName={dupShown.plan.next === null ? null : feedBuyerName(api.data, api.names, dupShown.plan.next)} {...(onShow === undefined ? {} : { onShow: () => onShow(dupShown.product.key) })} /> : null}
         </View>
       </View>
-      {/* 이미 있는 번호면 [다음] 자리에 [아니요 | 하나 더 올리기](D-DUPNO-01) 또는 [닫기 | 그 상품 보기] — 다른 번호를 치면 [다음]으로 돌아온다 (D-RETRO-22) */}
-      {dupShown !== null ? (
-        <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.sm }}>
-          <ButtonRow>
-            <BigButton kind="outline" label={DUP_NO} disabled={busy} onPress={() => setDup(null)} />
-            <BigButton label={DUP_MORE} ariaLabel={`${String(dupShown.product.no)}번에 ${DUP_MORE}`} busy={busy} onPress={() => void addMore()} />
-          </ButtonRow>
-        </View>
-      ) : sameButtons !== null ? (
+      {/* 그사이 같은 번호가 올라왔으면 [다음] 자리에 [닫기 | 그 상품 보기] (D-RETRO-22) */}
+      {sameButtons !== null ? (
         <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.sm }}>{sameButtons}</View>
       ) : (
         <NextButton onPress={onNext} disabled={active.trim() === '' || shownError !== null} />
       )}
-      {/* 같은 물건 하나 더 묻는 동안은 숫자판을 내려 작은 휴대폰에서도 묻는 글이 다 보이게 — [아니요]면 다시 나온다 (D-DUPNO-01) */}
-      {step === 'name' ? null : dupShown !== null ? <View style={{ height: footer }} /> : (
+      {step === 'name' ? null : (
         <View style={{ paddingBottom: footer }}>
           <NumberKeys doubleZero={step === 'price'} onKey={type} />
         </View>
