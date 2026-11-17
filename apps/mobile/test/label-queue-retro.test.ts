@@ -291,6 +291,24 @@ describe('F2-2 실패한 시도에 까닭과 시각을 붙인다', () => {
     queue.stop()
   })
 
+  it('프린터가 알린 까닭(덮개 열림)은 블루투스 사실을 몰라도 까닭 낱말로 붙이고, 사실이 있으면 사실보다 앞선다 (D-ALERTFLOAT-01)', async () => {
+    const coverOpen: PrinterResult = { ok: false, error: { code: 'PRINT_FAILED', message: '프린터 덮개가 열려 있어요. 덮개를 닫은 뒤 다시 시작해 주세요.', issue: 'COVER_OPEN' } }
+    const ble = new FakeBlePrinter({ printResult: () => coverOpen })
+    const { server, queue, world, clock } = setup(ble)
+    world.jobs = [job('j1'), job('j2')]
+    queue.start()
+    await queue.connect()
+    await flush(30)
+    expect(posts(server, /print\/result/)).toEqual([{ deviceId: ME, attempt: 'j1-a1', ok: false, error: { code: 'PRINT_FAILED' }, cause: { reason: 'COVER_OPEN', at: '2026-11-12T03:25:53.000Z', elapsedMs: 0 } }])
+    // 블루투스 사실을 알아도(앱이 뒤에 있었어도) 프린터가 알린 까닭이 먼저다
+    ble.facts = { radio: 'on', app: 'background', leftAt: null, lost: null }
+    await queue.connect()
+    await clock.advance(2000)
+    await flush(30)
+    expect(posts(server, /print\/result/).at(-1)).toMatchObject({ attempt: 'j2-a1', ok: false, cause: { reason: 'COVER_OPEN', radio: 'on', app: 'background' } })
+    queue.stop()
+  })
+
   it('사실을 모르는 연결(시험용 프린터)과 출력함 결과에는 까닭을 붙이지 않는다', async () => {
     let fail = true
     const ble = new FakeBlePrinter({ printResult: () => (fail ? timeout : { ok: true }) })

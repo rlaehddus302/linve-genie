@@ -33,21 +33,35 @@ export async function readQueue(db: Db, sellerId: string): Promise<QueueRow | nu
   return rows[0] ?? null
 }
 
-export type QueuePatch = Partial<Pick<QueueRow, 'deviceId' | 'deviceName' | 'printerConnected' | 'printerProfileId' | 'releasing' | 'paused' | 'backlog' | 'nextOrder' | 'frontOrder' | 'labelsEnabled' | 'hideNicknameSuffix'>>
+export type QueuePatch = Partial<Pick<QueueRow, 'deviceId' | 'deviceName' | 'printerConnected' | 'printerProfileId' | 'releasing' | 'paused' | 'backlog' | 'nextOrder' | 'frontOrder' | 'labelsEnabled' | 'hideNicknameSuffix' | 'issue'>>
+
+/**
+ * 라벨이 안 나가는 까닭(issue)을 둘 때인지 (D-ALERTFLOAT-01): 출력이 멈췄거나, 출력 기기가 있는데 프린터가 끊겨 있다.
+ * 아니면(멈춤이 풀리고 프린터가 이어져 있거나 출력 기기가 없다) 까닭은 지난 일이다 — updateQueue가 지운다
+ */
+export function issueStands(row: Pick<QueueRow, 'paused' | 'deviceId' | 'printerConnected'>): boolean {
+  return row.paused !== null || (row.deviceId !== null && !row.printerConnected)
+}
 
 /** 라벨 기능이 꺼져 있는지 (잠그지 않고 읽는다 — 미리 거르기용. 줄이 없으면 켬, N4a L-13 1). 정하는 값은 잠근 줄의 labelsEnabled다 */
 export async function labelsOff(db: Db, sellerId: string): Promise<boolean> {
   return (await readQueue(db, sellerId))?.labelsEnabled === false
 }
 
-/** 대기열 줄을 고치고 rev를 1 올린다. 새 rev를 돌려준다 (잠근 트랜잭션 안에서) */
+/**
+ * 대기열 줄을 고치고 rev를 1 올린다. 새 rev를 돌려준다 (잠근 트랜잭션 안에서).
+ * 고친 뒤 멈춤이 풀리고 프린터가 이어져 있으면(issueStands가 아니면) 라벨이 안 나가는 까닭(issue)을 지운다 (D-ALERTFLOAT-01)
+ */
 export async function updateQueue(tx: Db, sellerId: string, patch: QueuePatch, now: Date): Promise<number> {
   const rows = await tx
     .update(printQueues)
     .set({ ...patch, rev: sql`${printQueues.rev} + 1`, updatedAt: now })
     .where(eq(printQueues.sellerId, sellerId))
-    .returning({ rev: printQueues.rev })
-  return rows[0]?.rev ?? 0
+    .returning({ rev: printQueues.rev, issue: printQueues.issue, paused: printQueues.paused, deviceId: printQueues.deviceId, printerConnected: printQueues.printerConnected })
+  const row = rows[0]
+  if (row === undefined) return 0
+  if (row.issue !== null && !issueStands(row)) await tx.update(printQueues).set({ issue: null }).where(eq(printQueues.sellerId, sellerId))
+  return row.rev
 }
 
 /**

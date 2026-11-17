@@ -1927,8 +1927,8 @@ export async function restoreSeller(options: RestoreOptions): Promise<RestoreOut
       // 입금 연결·처리 기록은 지우기 전에 읽어 둔다 (N3 — 판매자가 한 일의 기록, 아래에서 다시 넣는다)
       const savedDeposits = await saveDepositRecords(tx, sellerId)
       for (const table of RESTORE_REPLACED_TABLES) await tx.delete(table).where(eq(table.sellerId, sellerId))
-      // 출력 대기열 줄은 남긴다(라벨 기능 켬/끔·출력 기기) — 지운 작업을 기다리는 출력 중·멈춤 상태만 지운다 (D-I2-14)
-      await tx.update(printQueues).set({ releasing: false, paused: null, backlog: false, rev: sql`${printQueues.rev} + 1`, updatedAt: now }).where(eq(printQueues.sellerId, sellerId))
+      // 출력 대기열 줄은 남긴다(라벨 기능 켬/끔·출력 기기) — 지운 작업을 기다리는 출력 중·멈춤 상태와 안 나가던 까닭만 지운다 (D-I2-14, D-ALERTFLOAT-01)
+      await tx.update(printQueues).set({ releasing: false, paused: null, backlog: false, issue: null, rev: sql`${printQueues.rev} + 1`, updatedAt: now }).where(eq(printQueues.sellerId, sellerId))
       // 열린 밴드 글 연결은 모두 끝낸다 — 복구로 이벤트가 바뀌어 본 댓글 표와 어긋난다 (D-BND1-14, AC-BND1-04). 토큰(계정 연결)은 둔다
       await tx
         .update(bandLinks)

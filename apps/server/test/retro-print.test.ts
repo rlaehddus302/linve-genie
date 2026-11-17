@@ -222,7 +222,9 @@ describe('F2-2 실패한 출력 시도에 까닭과 시각을 남긴다', () => 
 
   it('parseAttemptCause: 낱말은 정해진 것만, 시각은 서버 시계와 하루 안, 수는 범위 안의 정수, 프린터는 켠 프로필 ID만', () => {
     const now = new Date('2026-11-12T03:25:53.000Z')
-    expect(ATTEMPT_CAUSE_REASONS).toEqual(['BLUETOOTH_OFF', 'BLUETOOTH_DENIED', 'OUT_OF_RANGE', 'PRINTER_CLOSED', 'LINK_LOST', 'APP_BACKGROUND', 'NO_RESPONSE', 'UNKNOWN'])
+    // D-ALERTFLOAT-01: 프린터가 알린 까닭 넷(덮개·용지·배터리·과열)을 더했다 — 웹 PrintIssue와 같은 낱말
+    expect(ATTEMPT_CAUSE_REASONS).toEqual(['BLUETOOTH_OFF', 'BLUETOOTH_DENIED', 'OUT_OF_RANGE', 'PRINTER_CLOSED', 'LINK_LOST', 'APP_BACKGROUND', 'NO_RESPONSE', 'COVER_OPEN', 'NO_PAPER', 'LOW_BATTERY', 'OVERHEAT', 'UNKNOWN'])
+    for (const reason of ['COVER_OPEN', 'NO_PAPER', 'LOW_BATTERY', 'OVERHEAT']) expect(parseAttemptCause({ reason, elapsedMs: 900 }, now)).toEqual({ reason, at: null, detail: { elapsedMs: 900 } })
     expect(parseAttemptCause(undefined, now)).toBeNull()
     expect(parseAttemptCause([], now)).toBeNull()
     expect(parseAttemptCause({ reason: 'HACK' }, now)).toBeNull()
@@ -232,6 +234,102 @@ describe('F2-2 실패한 출력 시도에 까닭과 시각을 남긴다', () => 
     expect(parseAttemptCause({ reason: 'NO_RESPONSE', at: '2031-01-01T00:00:00.000Z' }, now)?.at).toBeNull()
     expect(parseAttemptCause({ reason: 'NO_RESPONSE', at: 12345 }, now)?.at).toBeNull()
     expect(parseAttemptCause({ reason: 'LINK_LOST', radio: 'weird', app: 'x', wentBackground: 'yes', elapsedMs: -1, lostAgoMs: 1.5, ble: '201', ios: 6, att: 99_999_999, profileId: 'NOT_A_PRINTER' }, now)?.detail).toEqual({ ios: 6 })
+  })
+})
+
+describe('D-ALERTFLOAT-01 출력 요약의 issue: 라벨이 안 나가는 가장 최근 까닭', () => {
+  const fail = (p: ReturnType<typeof printApi>, attempt: string, code: string, cause?: unknown) =>
+    expectOk(p.api.post('/api/print/result', { deviceId: DEVICE_A, attempt, ok: false, error: { code }, ...(cause === undefined ? {} : { cause }) }))
+
+  async function ready(world: TestServer, seller: Seller, nos: readonly number[] = [375]) {
+    const b = await createBroadcast(world, seller, { date: DAY })
+    for (const no of nos) {
+      await register(world, seller, b.id, no)
+      await say(world, seller, b.id, `UC_${String(no)}`, `손님${String(no)}`, String(no))
+    }
+    await becomeDevice(world, seller)
+    return printApi(world, seller)
+  }
+
+  it('프린터가 덮개 열림을 알리면 요약에 COVER_OPEN, 판매자가 다시 시작하면(프린터 이어짐) null', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const p = await ready(world, seller)
+    expect((await p.overview()).queue.issue).toBeNull()
+    const held = await p.claim(DEVICE_A)
+    await fail(p, held.job?.attempt ?? '', 'PRINT_FAILED', { reason: 'COVER_OPEN', at: new Date(world.clock.now()).toISOString(), elapsedMs: 800, profileId: 'NIIMBOT_B1' })
+    const paused = (await p.overview()).queue
+    expect(paused.pause?.reason).toBe('PRINTER_ERROR')
+    expect(paused.issue).toBe('COVER_OPEN')
+    // 프린터가 끊겨도(멈춤은 그대로) 가장 최근 까닭은 남는다 — 끊김 알림이 결과보다 먼저 와도 까닭을 잃지 않는다
+    await expectOk(p.state(DEVICE_A, false))
+    expect((await p.overview()).queue.issue).toBe('COVER_OPEN')
+    await expectOk(p.state(DEVICE_A, true))
+    expect((await p.overview()).queue).toMatchObject({ pause: { reason: 'PRINTER_ERROR' }, issue: 'COVER_OPEN' })
+    await expectOk(p.restart())
+    const resumed = (await p.overview()).queue
+    expect(resumed.pause).toBeNull()
+    expect(resumed.issue).toBeNull()
+    // 지운 까닭은 다시 끊겨도 돌아오지 않는다 (지난 일)
+    await expectOk(p.state(DEVICE_A, false))
+    expect((await p.overview()).queue).toMatchObject({ pause: { reason: 'DISCONNECTED' }, issue: null })
+  })
+
+  it('끊김으로 실패하면 앱이 본 까닭(LINK_LOST 등), 프린터가 다시 이어져 끊김 멈춤이 풀리면 null', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const p = await ready(world, seller)
+    const held = await p.claim(DEVICE_A)
+    await fail(p, held.job?.attempt ?? '', 'DISCONNECTED', { reason: 'OUT_OF_RANGE', radio: 'on', app: 'active' })
+    expect((await p.overview()).queue).toMatchObject({ device: { printerConnected: false }, pause: { reason: 'DISCONNECTED' }, issue: 'OUT_OF_RANGE' })
+    await expectOk(p.state(DEVICE_A, true))
+    expect((await p.overview()).queue).toMatchObject({ pause: null, issue: null })
+  })
+
+  it('가장 최근 실패의 까닭으로 바뀌고, 까닭이 없는 실패(옛 앱·시험용 프린터)면 null — 앞 까닭을 남기지 않는다', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const p = await ready(world, seller)
+    const first = await p.claim(DEVICE_A)
+    await fail(p, first.job?.attempt ?? '', 'DISCONNECTED', { reason: 'BLUETOOTH_OFF' })
+    expect((await p.overview()).queue.issue).toBe('BLUETOOTH_OFF')
+    // 다시 이어지기 전에 같은 장을 다시 받을 수는 없다 — 이어지면 지워지고, 다음 실패의 까닭으로 바뀐다
+    await expectOk(p.state(DEVICE_A, true))
+    const second = await p.claim(DEVICE_A)
+    await fail(p, second.job?.attempt ?? '', 'PRINT_FAILED', { reason: 'NO_PAPER' })
+    expect((await p.overview()).queue.issue).toBe('NO_PAPER')
+    await expectOk(p.restart())
+    const third = await p.claim(DEVICE_A)
+    await fail(p, third.job?.attempt ?? '', 'TIMEOUT')
+    expect((await p.overview()).queue).toMatchObject({ pause: { reason: 'PRINTER_ERROR' }, issue: null })
+    // 모르는 낱말·모양이 틀린 까닭도 null
+    await expectOk(p.restart())
+    const fourth = await p.claim(DEVICE_A)
+    await fail(p, fourth.job?.attempt ?? '', 'PRINT_FAILED', { reason: 'PAPER_JAM' })
+    expect((await p.overview()).queue.issue).toBeNull()
+  })
+
+  it('출력함이 되면 null — 멈춤(끊김)이 남아 있어도', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const p = await ready(world, seller)
+    const held = await p.claim(DEVICE_A)
+    // 출력 중에 프린터 끊김 알림이 먼저 왔고 그 사이 까닭이 남아 있던 경우 (끊김 멈춤 + 까닭)
+    await expectOk(p.state(DEVICE_A, false))
+    await rows(world, `update print_queues set issue = 'LOW_BATTERY' where seller_id = $1`, [seller.sellerId])
+    expect((await p.overview()).queue).toMatchObject({ pause: { reason: 'DISCONNECTED' }, issue: 'LOW_BATTERY' })
+    expect(await p.done(DEVICE_A, held.job?.attempt ?? '')).toBe(true)
+    expect((await p.overview()).queue).toMatchObject({ pause: { reason: 'DISCONNECTED' }, issue: null })
+  })
+
+  it('멈추지 않았고 프린터가 이어져 있으면 줄에 까닭이 남아 있어도 요약은 null (모르는 낱말도 null)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const p = await ready(world, seller)
+    await rows(world, `update print_queues set issue = 'OVERHEAT' where seller_id = $1`, [seller.sellerId])
+    expect((await p.overview()).queue).toMatchObject({ pause: null, issue: null })
+    await rows(world, `update print_queues set issue = '아무 글', paused = 'SELLER' where seller_id = $1`, [seller.sellerId])
+    expect((await p.overview()).queue).toMatchObject({ pause: { reason: 'SELLER' }, issue: null })
   })
 })
 

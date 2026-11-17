@@ -28,6 +28,8 @@ export interface Overview {
     rev: number
     device: { id: string; name: string; live: boolean; printerConnected: boolean; releasing: boolean } | null
     pause: { reason: string; message: string; backlog: boolean } | null
+    /** 라벨이 안 나가는 가장 최근 까닭 (D-ALERTFLOAT-01) */
+    issue: string | null
     waiting: number
     printing: number
     discard: number

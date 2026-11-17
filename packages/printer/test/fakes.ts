@@ -1,6 +1,6 @@
 // 시험용 가짜 niimbluelib 클라이언트·손으로 돌리는 타이머·인쇄 그림 풀기·Marklife 작업 바이트 풀기.
 import { inflateSync } from 'node:zlib'
-import type { EncodedImage } from '@mmote/niimbluelib'
+import { PrintError, type EncodedImage } from '@mmote/niimbluelib'
 import { createBitmap, getPixel, setPixel, type LabelBitmap } from '@livejjim/label'
 import type { NiimbotClientLike, NiimbotPrintTaskLike, NiimbotTaskOptions, PrinterTimer } from '../src/index.ts'
 
@@ -91,6 +91,10 @@ export class FakeTask implements NiimbotPrintTaskLike {
   }
 
   async printPage(image: EncodedImage, quantity?: number): Promise<void> {
+    if (this.client.failOn === 'page' && this.client.printErrorReason !== undefined) {
+      // niimbluelib이 프린터 오류 패킷(In_PrintError)을 받았을 때 던지는 그 예외
+      throw new PrintError(`Print error ${String(this.client.printErrorReason)}`, this.client.printErrorReason)
+    }
     if (this.client.failOn === 'page') throw Object.assign(new Error('Print error 3: 덮개 열림'), { name: 'PrintError' })
     this.pages.push({ image, quantity })
   }
@@ -129,6 +133,8 @@ export class FakeNiimbotClient implements NiimbotClientLike {
   /** 끝냄 알림(printEnd)의 응답을 붙잡아 둔다 — 프린터가 끝났다고 알린 뒤 응답 전에 끊기는 경우 */
   holdEnd = false
   failOn: 'init' | 'page' | undefined
+  /** failOn 'page'일 때 niimbluelib PrintError(reasonId = 이 번호)를 던진다 — 없으면 까닭 없는 예외 */
+  printErrorReason: number | undefined
   disconnectCalls = 0
   readonly tasks: FakeTask[] = []
   private readonly listeners = new Set<() => void>()

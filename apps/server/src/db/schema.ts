@@ -746,6 +746,11 @@ export const printQueues = pgTable('print_queues', {
   releasing: boolean('releasing').notNull().default(false),
   /** 멈춘 까닭: DISCONNECTED · PRINTER_ERROR · SELLER · LABEL_ERROR (멈추지 않았으면 null) */
   paused: text('paused'),
+  /**
+   * 라벨이 안 나가는 가장 최근 까닭 (D-ALERTFLOAT-01) — 출력 기기 앱이 실패 결과에 알린 까닭 낱말(print.ts ATTEMPT_CAUSE_REASONS: 블루투스 꺼짐·덮개 열림·용지 없음 …).
+   * 실패를 기록할 때 그 까닭으로(까닭이 없으면 null) 바꾸고, 출력함이 되거나 멈춤이 풀리고 프린터가 이어져 있으면 null로 지운다(print-store updateQueue)
+   */
+  issue: text('issue'),
   /** 새로 출력 기기를 정할 때 쌓인 라벨이 있어 판매자 멈춤으로 시작했다("출력 시작") */
   backlog: boolean('backlog').notNull().default(false),
   /** 대기 맨 끝에 넣을 다음 순서 번호 */

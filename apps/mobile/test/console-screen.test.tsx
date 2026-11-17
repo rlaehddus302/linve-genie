@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { SessionProvider } from '../src/services.tsx'
 import { AWAY_LABELS_GO, ConsoleScreen, LINK_TITLE, THANKS_TITLE } from '../src/screens/ConsoleScreen.tsx'
 import { END_LINK_LABEL } from '../src/screens/console/EndBroadcast.tsx'
-import { ASK_ADD, ASK_NAME, ASK_NO, ASK_PRICE } from '../src/screens/console/ProductAdd.tsx'
+import { ASK_ADD, ASK_NAME, ASK_NO, ASK_PIECES, ASK_PRICE } from '../src/screens/console/ProductAdd.tsx'
 import { DOCK_STATE } from '../src/screens/console/StreamAudio.tsx'
 import { LISTEN_START, LISTEN_STATE, VOICE_CONSENT_LINES } from '../src/lib/words.ts'
 import { makeWorld, openSearchField } from './screen-support.tsx'
@@ -219,6 +219,9 @@ describe('ConsoleScreen', () => {
     expect(within(page).queryByRole('group', { name: '숫자판' })).toBeNull()
     fireEvent.change(name, { target: { value: '삼광색금' } })
     fireEvent.click(within(page).getByRole('button', { name: '다음' }))
+    // 개수 단계 (D-ADDPIECES-01) — 1개 그대로 [다음]
+    expect(within(page).getByText(ASK_PIECES)).toBeTruthy()
+    fireEvent.click(within(page).getByRole('button', { name: '다음' }))
     for (const line of ['15번', '삼광색금', '15,000원', ASK_ADD]) expect(within(page).getByText(line)).toBeTruthy()
     fireEvent.click(within(page).getByRole('button', { name: '추가하기' }))
     await waitFor(() => expect(world.events.length).toBe(1))
@@ -288,14 +291,11 @@ describe('ConsoleScreen', () => {
     // 이제 손님 줄에 시각이 없다 — 채팅 원문도 여전히 없다
     expect(rows.map((row) => row.textContent?.match(/\d{1,2}:\d{2}/g)?.length ?? 0)).toEqual([0, 0, 0])
     expect(within(rows[0]!).queryByLabelText(/^가장 최근 찜/)).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /^보류 찜 1/ }))
-    const pendingRows = await waitFor(() => {
-      const lists = screen.getAllByRole('list', { name: '찜 기록' })
-      const only = lists.find((list) => within(list).queryAllByRole('listitem').length === 1)
-      expect(only).toBeTruthy()
-      return within(only!).getAllByRole('listitem')
-    })
-    expect(pendingRows[0]?.getAttribute('aria-label')).toBe('문자-0937 88 보류')
+    // D-ALERTFLOAT-01 (사용자 지시 2026-11-17): 옛 기대는 [보류 찜 1] 칸 → 보류 찜만 보는 판. 이제 오른쪽 아래 빨간 알림 "등록 안 된 번호에 찜 1건" —
+    // 번호가 하나(88번)라 누르면 그 번호가 채워진 상품 추가가 열린다
+    fireEvent.click(screen.getByRole('button', { name: '등록 안 된 번호에 찜 1건' }))
+    const add = await screen.findByRole('dialog', { name: '상품 추가' })
+    expect(within(add).getByRole('button', { name: '번호 88번 고치기' })).toBeTruthy()
   })
 
   // D-UX4-27·25 (사용자 지시 2026-11-09 "[140 찜] 이런 각 항목을 누르면 아래에서 메뉴 … 찜 삭제 … 삭제하면 그 다음 대기 1이 찜되게")
@@ -605,7 +605,7 @@ describe('ConsoleScreen', () => {
     // 보낸 조치는 응답 seq까지 따라잡는다 — 따라잡기 응답은 바뀐 것 없이 seq만
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=(\d+)/, (call) => ({ body: changes(Number(/since=(\d+)/.exec(call.path)?.[1] ?? 5), world.seq, {}) }))
     await open(world)
-    // D-LIVETEST-07: 정하기 단추 대신 경고 칸(취소 요청·승계 결정 필요)을 누르면 정하기 창이 열린다
+    // D-LIVETEST-07: 정하기 단추 대신 경고 칸(취소 요청·승계 결정 필요)을 누르면 정하기 창이 열린다 — D-ALERTFLOAT-01로 오른쪽 아래 빨간 알림 "취소 요청 1건"·"1등을 정해 주세요"
     fireEvent.click(await screen.findByRole('button', { name: /^취소 요청 1/ }))
     const cancel = await screen.findByRole('group', { name: '취소 요청 — 5번' })
     expect(cancel.textContent).toContain('요청한 사람: 꽃집언니')
@@ -616,7 +616,8 @@ describe('ConsoleScreen', () => {
     fireEvent.click(within(cancel).getByRole('button', { name: '취소 승인' }))
     await waitFor(() => expect(world.events.some((call) => call.body?.type === 'host.approveCancel')).toBe(true))
     expect(world.events.find((call) => call.body?.type === 'host.approveCancel')?.body).toMatchObject({ b: 'b1', no: 5, buyer: 'u1' })
-    fireEvent.click(screen.getByRole('button', { name: /^승계 결정 필요 1/ }))
+    // D-ALERTFLOAT-01: 충돌·승계 알림은 "1등을 정해 주세요" 한 줄 (옛 "승계 결정 필요 1")
+    fireEvent.click(screen.getByRole('button', { name: '1등을 정해 주세요' }))
     const succession = await screen.findByRole('group', { name: '승계 결정 — 6번' })
     fireEvent.click(within(succession).getByRole('button', { name: '초록손 1등으로' }))
     expect(order(succession, ['안 바꾸기', '1등으로 올리기'])).toEqual(['안 바꾸기', '1등으로 올리기'])

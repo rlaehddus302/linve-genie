@@ -116,12 +116,10 @@ describe('찜 기록 보기 고르기 (D-RETRO-50~52)', () => {
     expect(getComputedStyle(tag()).minWidth).toBe('48px')
     expect(screen.queryByRole('button', { name: '글자 작게' })).toBeNull()
     // (D-UX4-151: 번호별 꼬리표의 같은 확인은 번호별 보기와 함께 걷었다)
-    // 보류 찜 판: 손님별·같은 크기 그대로, 도구 줄(찾기 칸·고르기) 없음 — 도구 줄은 찜 기록 탭의 하나뿐
-    fireEvent.click(screen.getByRole('button', { name: /^보류 찜 1/ }))
-    const pending = (await screen.findAllByRole('list', { name: '찜 기록' })).find((list) => labels(list).length === 1)!
-    expect(labels(pending)).toEqual(['문자-0937 88 보류'])
+    // D-ALERTFLOAT-01 (사용자 지시 2026-11-17): 옛 "보류 찜 판"(손님별 꼬리표 목록, 도구 줄 없음)을 없앴다 —
+    // 등록 안 된 번호의 찜은 오른쪽 아래 빨간 알림 하나로 알리고, 도구 줄은 여전히 찜 기록 탭의 하나뿐
+    expect(screen.getByRole('button', { name: '등록 안 된 번호에 찜 1건' })).toBeTruthy()
     expect(screen.getAllByRole('group', { name: '찜 기록 찾기·정렬' })).toHaveLength(1)
-    expect(within(pending).queryByRole('button')).toBeNull()
   }, SLOW)
 
   // D-UX4-151: 번호 줄의 "+n명" 접기·펼치기 시험은 번호별 보기와 함께 걷었다 (손님별 줄은 접지 않는다)

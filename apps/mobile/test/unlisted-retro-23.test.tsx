@@ -1,5 +1,6 @@
 // D-RETRO-23 (개선 계획표 A8, 11월 12일 라이브 복기 9.2): 아직 상품이 없는 번호에 손님 찜이 기다리면 방송 화면이 눈에 띄게 알린다 —
-// "등록 안 된 번호에 찜 n건" + 번호 알약. 알약을 누르면 그 번호가 채워진 상품 추가가 열린다.
+// D-ALERTFLOAT-01(사용자 지시 2026-11-17)로 옛 탭 바 밑 주황 상자 + 번호 알약 → 오른쪽 아래 빨간 알림 "등록 안 된 번호에 찜 n건 ›".
+// 번호가 하나면 누르는 대로 그 번호가 채워진 상품 추가, 여럿이면 번호 판에서 골라 연다.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -8,7 +9,8 @@ import { describe, expect, it } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { ASK_ADD, ASK_NO, ASK_PRICE, startOfAdd } from '../src/screens/console/ProductAdd.tsx'
 import { ProductAddScreen } from '../src/screens/console/StackScreens.tsx'
-import { UNLISTED_LABEL, unlistedNumbers, unlistedPillLabel, unlistedTitle } from '../src/screens/console/UnlistedClaims.tsx'
+import { unlistedFloatText } from '../src/screens/console/AlertFloat.tsx'
+import { UNLISTED_LABEL, unlistedNumbers, unlistedPillLabel } from '../src/screens/console/UnlistedClaims.tsx'
 import { fromFull } from '../src/lib/scope-data.ts'
 import { makeWorld } from './screen-support.tsx'
 import { buyer, changes, claim, flush, fullView, product } from './support.ts'
@@ -38,6 +40,12 @@ async function open(world: ReturnType<typeof makeWorld>, props: { openAdd?: () =
     await flush()
   })
 }
+/** 빨간 알림을 누르고 번호 판에서 그 번호를 고른다 */
+async function pickNumber(no: number) {
+  fireEvent.click(screen.getByRole('button', { name: unlistedFloatText(3) }))
+  const list = await screen.findByRole('list', { name: UNLISTED_LABEL })
+  fireEvent.click(within(list).getByRole('button', { name: unlistedPillLabel(no) }))
+}
 const typePad = (digits: string) => {
   const pad = screen.getByRole('group', { name: '숫자판' })
   for (const key of digits) fireEvent.click(within(pad).getByRole('button', { name: key }))
@@ -55,30 +63,37 @@ describe('등록 안 된 번호의 찜 알림 (D-RETRO-23, 개선 계획표 A8)'
     expect(unlistedNumbers(fromFull(fullView({ products: [product(15)] })), 'b1')).toEqual([])
   })
 
-  // D-TABS-02 (사용자 지시 2026-11-17 "탭 바 위에는 아무것도 안 뜨게"): 알림은 탭 바 밑으로 — 옛 기대: 탭 바 위(첫째 묶음 안)
-  it('방송 화면 탭 바 밑에 "등록 안 된 번호에 찜 3건"과 번호 알약이 보이고, 닉네임은 그리지 않는다', async () => {
+  // D-ALERTFLOAT-01 (옛 기대: 탭 바 밑 주황 상자 + 번호 알약 — D-TABS-02): 오른쪽 아래 빨간 알림 하나, 탭 바 밑 알림 묶음에는 없다
+  it('오른쪽 아래 빨간 알림 "등록 안 된 번호에 찜 3건"이 뜨고, 누르면 번호 판에 오래 기다린 번호부터 — 닉네임은 그리지 않는다', async () => {
     await open(worldWith(VIEW))
-    const strip = screen.getByRole('region', { name: UNLISTED_LABEL })
-    expect(unlistedTitle(3)).toBe('등록 안 된 번호에 찜 3건')
-    expect(within(strip).getByText('등록 안 된 번호에 찜 3건')).toBeTruthy()
-    expect(within(strip).getAllByRole('button').map((pill) => pill.getAttribute('aria-label'))).toEqual(['397번 상품 추가', '313번 상품 추가'])
-    expect(within(strip).getByRole('button', { name: unlistedPillLabel(313) }).textContent).toBe('313번 2건 ›')
-    expect(within(strip).getByRole('button', { name: unlistedPillLabel(397) }).textContent).toBe('397번 ›')
-    expect(strip.textContent).not.toContain('박철수')
-    // 탭 바보다 밑 (탭 바 밑 알림 묶음 안)
-    expect(screen.getByTestId('console-tabs').compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(within(screen.getByTestId('console-notices')).getByRole('region', { name: UNLISTED_LABEL })).toBe(strip)
+    expect(unlistedFloatText(3)).toBe('등록 안 된 번호에 찜 3건')
+    const float = screen.getByTestId('alert-float')
+    const alert = within(float).getByRole('button', { name: unlistedFloatText(3) })
+    expect(alert.textContent).toBe('등록 안 된 번호에 찜 3건')
+    expect(within(screen.getByTestId('console-notices')).queryByText(/등록 안 된 번호/)).toBeNull()
+    fireEvent.click(alert)
+    const list = await screen.findByRole('list', { name: UNLISTED_LABEL })
+    expect(within(list).getAllByRole('button').map((row) => row.getAttribute('aria-label'))).toEqual(['397번 상품 추가', '313번 상품 추가'])
+    expect(within(list).getByRole('button', { name: unlistedPillLabel(313) }).textContent).toBe('313번찜 2건')
+    expect(list.textContent).not.toContain('박철수')
   })
 
-  it('기다리는 찜이 없으면 아무것도 그리지 않는다', async () => {
+  it('기다리는 찜이 없으면 알림이 없다', async () => {
     await open(worldWith({ products: [product(15)] }))
-    expect(screen.queryByRole('region', { name: UNLISTED_LABEL })).toBeNull()
+    expect(screen.queryByTestId('alert-float')).toBeNull()
   })
 
-  it('번호 알약을 누르면 그 번호가 채워진 상품 추가가 가격부터 열리고, 그대로 추가하면 그 번호로 등록한다', async () => {
+  it('번호가 하나뿐이면 알림을 누르는 대로 그 번호가 채워진 상품 추가가 열린다', async () => {
+    await open(worldWith({ products: [product(15)], claims: [waiting('c3', 397, 'u3', 12)], pending: [slot(397, ['c3'], ['u3'])], buyers: [buyer('u3', '박철수')] }))
+    fireEvent.click(screen.getByRole('button', { name: unlistedFloatText(1) }))
+    const page = await screen.findByRole('dialog', { name: '상품 추가' })
+    expect(within(page).getByRole('button', { name: '번호 397번 고치기' })).toBeTruthy()
+  })
+
+  it('번호 판에서 번호를 누르면 그 번호가 채워진 상품 추가가 가격부터 열리고, 그대로 추가하면 그 번호로 등록한다', async () => {
     const world = worldWith(VIEW)
     await open(world)
-    fireEvent.click(screen.getByRole('button', { name: unlistedPillLabel(397) }))
+    await pickNumber(397)
     const page = await screen.findByRole('dialog', { name: '상품 추가' })
     expect(within(page).getByRole('button', { name: '번호 397번 고치기' })).toBeTruthy()
     expect(within(page).getByRole('status', { name: ASK_PRICE })).toBeTruthy()
@@ -90,9 +105,9 @@ describe('등록 안 된 번호의 찜 알림 (D-RETRO-23, 개선 계획표 A8)'
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'product.register', b: 'b1', noText: '397', priceText: '40000원', name: '' })
   })
 
-  it('알약으로 열었다 닫고 (+)로 열면 번호 칸은 비어 있다', async () => {
+  it('번호 판으로 열었다 닫고 (+)로 열면 번호 칸은 비어 있다', async () => {
     await open(worldWith(VIEW))
-    fireEvent.click(screen.getByRole('button', { name: unlistedPillLabel(313) }))
+    await pickNumber(313)
     const first = await screen.findByRole('dialog', { name: '상품 추가' })
     // 채워진 번호는 눌러서 고칠 수 있다 — 뒤로 가면 번호 칸
     fireEvent.click(within(first).getByRole('button', { name: '번호 313번 고치기' }))
@@ -107,7 +122,7 @@ describe('등록 안 된 번호의 찜 알림 (D-RETRO-23, 개선 계획표 A8)'
   it('기기에서는 번호를 실어 쌓인 상품 추가 경로를 연다 — 겹쳐 그리지 않는다', async () => {
     const opened: (number | 'plain')[] = []
     await open(worldWith(VIEW), { openAdd: () => opened.push('plain'), openAddAt: (no) => opened.push(no) })
-    fireEvent.click(screen.getByRole('button', { name: unlistedPillLabel(397) }))
+    await pickNumber(397)
     fireEvent.click(screen.getByRole('button', { name: '상품 추가' }))
     expect(opened).toEqual([397, 'plain'])
     expect(screen.queryByRole('dialog', { name: '상품 추가' })).toBeNull()

@@ -18,7 +18,7 @@ import {
   type RememberedPrinter,
   type RememberingPrinterAdapter,
 } from './adapter.ts'
-import { OK, densityMessage, fail, isTimeoutCause, modelDetail, printerErrorWithMessage, retriedTimeoutDetail, type PrinterErrorCode, type PrinterResult } from './errors.ts'
+import { OK, densityMessage, fail, isTimeoutCause, modelDetail, niimbotIssueOf, printFailed, printerErrorWithMessage, retriedTimeoutDetail, type PrinterErrorCode, type PrinterResult } from './errors.ts'
 import { ENABLED_PROFILES, NIIMBOT_SERVICE_UUID, PRINTER_PROFILES, labelProfilesOf, profileForDeviceName } from './profiles.ts'
 
 /** niimbluelib 인쇄 작업에서 이 어댑터가 쓰는 부분 */
@@ -475,7 +475,8 @@ export function createNiimbotAdapter(options: NiimbotAdapterOptions = {}): Remem
         void task.printEnd().catch(() => false)
         return fail('TIMEOUT')
       }
-      return fail('PRINT_FAILED', outcome.error)
+      // 프린터가 알린 오류(PrintError)면 까닭(덮개·용지·배터리·과열)을 붙인다 (D-ALERTFLOAT-01)
+      return printFailed(outcome.error, niimbotIssueOf(outcome.error))
     },
   }
   return adapter

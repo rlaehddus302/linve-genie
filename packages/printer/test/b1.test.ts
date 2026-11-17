@@ -1,7 +1,7 @@
 // B1 어댑터 — 기능 감지·연결 오류·마지막 줄 대응·농도·프로필 확장 (AC-P1-40~43, L-7).
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { LabelType } from '@mmote/niimbluelib'
+import { LabelType, PrintError } from '@mmote/niimbluelib'
 import { bitmapsEqual, getPixel, type LabelBitmap } from '@livejjim/label'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -9,7 +9,9 @@ import {
   CONNECTION_STATES,
   ENABLED_PROFILES,
   PRINTER_ERROR_CODES,
+  PRINTER_ISSUES,
   PRINTER_MESSAGES,
+  PRINT_ISSUE_MESSAGES,
   createB1Adapter,
   createNiimbotAdapter,
   describeCause,
@@ -312,6 +314,59 @@ describe('끊김·오류·시간 초과 (AC-P1-43)', () => {
     expect(!r.ok && r.error.detail).toBeUndefined()
     expect(describeCause(new Error('구매자 010-1234-5678 출력 실패'))).toBeUndefined()
     expect(describeCause(new Error('Timeout 10000ms'))).toBe('프린터가 답하지 않아 기다리는 시간이 지났어요.')
+  })
+
+  it('프린터가 알린 오류(PrintError reasonId)면 PRINT_FAILED에 까닭과 그 문장: 1 덮개·2 용지·3·4 배터리·7 과열, 연결은 그대로 (D-ALERTFLOAT-01)', async () => {
+    const cases: [number, string][] = [
+      [1, 'COVER_OPEN'],
+      [2, 'NO_PAPER'],
+      [3, 'LOW_BATTERY'],
+      [4, 'LOW_BATTERY'],
+      [7, 'OVERHEAT'],
+    ]
+    for (const [reason, issue] of cases) {
+      const { adapter, client } = setup()
+      await adapter.connect('bluetooth')
+      client.failOn = 'page'
+      client.printErrorReason = reason
+      const r = await adapter.print(sampleImage())
+      expect(r, String(reason)).toEqual({ ok: false, error: { code: 'PRINT_FAILED', message: PRINT_ISSUE_MESSAGES[issue as keyof typeof PRINT_ISSUE_MESSAGES], issue } })
+      expect(adapter.state, String(reason)).toBe('CONNECTED')
+    }
+  })
+
+  it('모르는 오류 번호(0 지원 안 함·5·6·8·9 …)와 까닭 없는 예외는 까닭을 붙이지 않고 L-7 표 문장 그대로', async () => {
+    for (const reason of [0, 5, 6, 8, 9, 10, 99]) {
+      const { adapter, client } = setup()
+      await adapter.connect('bluetooth')
+      client.failOn = 'page'
+      client.printErrorReason = reason
+      const r = await adapter.print(sampleImage())
+      expect(r, String(reason)).toEqual({ ok: false, error: { code: 'PRINT_FAILED', message: PRINTER_MESSAGES.PRINT_FAILED } })
+    }
+    const { adapter, client } = setup()
+    await adapter.connect('bluetooth')
+    client.failOn = 'init'
+    const r = await adapter.print(sampleImage())
+    expect(r).toEqual({ ok: false, error: { code: 'PRINT_FAILED', message: PRINTER_MESSAGES.PRINT_FAILED } })
+  })
+
+  it('끝나기를 기다리는 동안(상태 묻기) 프린터 오류가 오면 그 까닭 — 덮개를 출력 중에 연 경우', async () => {
+    const { adapter, client } = setup()
+    await adapter.connect('bluetooth')
+    client.autoFinish = false
+    const pending = adapter.print(sampleImage())
+    await flush()
+    client.tasks[0]!.finished.reject(new PrintError('Print error 1 (In_PrintStatus packet flag)', 1))
+    expect(await pending).toEqual({ ok: false, error: { code: 'PRINT_FAILED', message: PRINT_ISSUE_MESSAGES.COVER_OPEN, issue: 'COVER_OPEN' } })
+  })
+
+  it('까닭 문장은 쉬운 한국어(영어 없음), 까닭마다 하나', () => {
+    expect(Object.keys(PRINT_ISSUE_MESSAGES).sort()).toEqual([...PRINTER_ISSUES].sort())
+    for (const message of Object.values(PRINT_ISSUE_MESSAGES)) {
+      expect(message).not.toMatch(/[A-Za-z]/)
+      expect(message.endsWith('다시 시작해 주세요.')).toBe(true)
+    }
   })
 
   it('출력 중 클라이언트가 끊김을 알리면 DISCONNECTED, 끊김 알림보다 예외가 먼저 와도 끊김', async () => {

@@ -35,6 +35,8 @@ export {
 export {
   MARKLIFE_MESSAGES,
   PRINTER_ERROR_CODES,
+  PRINTER_ISSUES,
+  PRINT_ISSUE_MESSAGES,
   PRINTER_MESSAGES,
   RECONNECT_ACTION,
   RETRIED_DETAIL_SUFFIX,
@@ -43,11 +45,13 @@ export {
   densityMessage,
   describeCause,
   isTimeoutCause,
+  niimbotIssueOf,
   printerError,
   printerErrorWithMessage,
   type MarklifeErrorCode,
   type PrinterError,
   type PrinterErrorCode,
+  type PrinterIssue,
   type PrinterResult,
   type PrinterTableErrorCode,
 } from './errors.ts'

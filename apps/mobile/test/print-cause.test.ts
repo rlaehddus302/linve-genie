@@ -58,6 +58,21 @@ describe('printCause', () => {
     expect(cause('TIMEOUT', null)).toBeNull()
   })
 
+  it('프린터가 알린 까닭(덮개·용지·배터리·과열)은 다른 사실보다 먼저 — 사실을 몰라도(null) 낱말·시각·걸린 시간·프로필로 붙인다 (D-ALERTFLOAT-01)', () => {
+    const withIssue = (code: string, f: LinkFacts | null, issue: string | undefined) => printCause({ code, startedAt: T0, failedAt: T0 + 1_500, facts: f, profileId: 'NIIMBOT_B1', issue })
+    for (const issue of ['COVER_OPEN', 'NO_PAPER', 'LOW_BATTERY', 'OVERHEAT']) {
+      expect(withIssue('PRINT_FAILED', null, issue)).toEqual({ reason: issue, at: '2026-11-12T03:25:54.500Z', elapsedMs: 1_500, profileId: 'NIIMBOT_B1' })
+      expect(withIssue('PRINT_FAILED', facts({ app: 'background', lost: { at: T0 + 1000, android: 8 } }), issue)).toMatchObject({ reason: issue, radio: 'on', app: 'background' })
+    }
+    // 모르는 낱말이거나 까닭이 없으면 지금 그대로 (사실 없으면 null, 있으면 UNKNOWN)
+    expect(withIssue('PRINT_FAILED', null, 'SOMETHING')).toBeNull()
+    expect(withIssue('PRINT_FAILED', null, undefined)).toBeNull()
+    expect(withIssue('PRINT_FAILED', facts(), 'SOMETHING')?.reason).toBe('UNKNOWN')
+    // 라벨을 못 그린 실패에는 까닭이 있어도 붙이지 않는다
+    expect(withIssue('IMAGE_TOO_WIDE', null, 'COVER_OPEN')).toBeNull()
+    expect(printCause({ code: 'PRINT_FAILED', startedAt: T0, failedAt: T0, facts: null, profileId: null, issue: 'NO_PAPER' })).not.toHaveProperty('profileId')
+  })
+
   it('남기는 칸은 정해진 것뿐이다 (글·주소 없음)', () => {
     const made = cause('TIMEOUT', facts({ app: 'inactive', leftAt: T0 + 1, lost: { at: T0 + 2, ble: 201, android: 8, ios: 6, att: 1 } }))
     expect(Object.keys(made ?? {}).sort()).toEqual(['android', 'app', 'at', 'att', 'ble', 'elapsedMs', 'ios', 'lostAgoMs', 'profileId', 'radio', 'reason', 'wentBackground'])

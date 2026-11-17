@@ -4,6 +4,7 @@
 //   YOUTUBE_RECONNECT_NEEDED(공식 API 봇 연결 풀림 — 시스템 판매자만, 판매자 연결은 판매자 화면이 알린다).
 // - 같은 일은 정한 시간에 한 번만(계정 로그인 12시간, 막힘·넘김 6시간 — 이 서버 메모리). 문자에는 계정 번호만, 쿠키·채널·판매자 정보는 넣지 않는다.
 // - 보내기 실패는 버린다(알림 때문에 감사·로그가 멈추지 않는다). 번호는 로그·오류에 넣지 않는다.
+// - ENGINE_FAILED(판정 엔진이 처리하지 못한 입력, D-ALERTFLOAT-01): 판매자 화면의 "확인 필요"를 없애고 운영자에게 알린다 — 판매자가 할 일이 없는 서버 버그다. 1시간에 한 번, 날짜·번호만.
 import { SERVICE_NAME } from '../../brand.ts'
 import type { LogRecord } from '../../log.ts'
 import type { SmsSender } from '../../social/phone.ts'
@@ -11,6 +12,7 @@ import { BOT_SELLER_ID } from '../connect.ts'
 
 export const LOGIN_ALERT_MS = 12 * 60 * 60 * 1000
 export const ROUTE_ALERT_MS = 6 * 60 * 60 * 1000
+export const ENGINE_ALERT_MS = 60 * 60 * 1000
 
 export const BOT_ALERT_TEXTS = {
   rejected: (n: number) => `[${SERVICE_NAME}] 감사 채팅 봇 계정 ${String(n)}이 글을 올리지 못해 쉬게 했어요(채널·계정 상태 확인). 그동안은 다른 계정·공식 API로 올려요.`,
@@ -18,6 +20,7 @@ export const BOT_ALERT_TEXTS = {
   blocked: () => `[${SERVICE_NAME}] 유튜브가 서버를 막아 감사 채팅 봇 계정을 모두 잠시 쉬게 했어요. 그동안은 공식 API로 올려요.`,
   failover: () => `[${SERVICE_NAME}] 봇 방식으로 올리지 못한 감사 채팅을 공식 API로 올렸어요. 봇 계정 상태를 확인해 주세요.`,
   official: () => `[${SERVICE_NAME}] 감사 채팅 공식 API 봇 연결이 풀렸어요. 서버에서 youtube-bot connect로 다시 이어 주세요.`,
+  engine: (date: string, seq: number) => `[${SERVICE_NAME}] 판정 엔진이 처리하지 못한 입력이 생겼어요(${date} ${String(seq)}번). 서버 로그 ENGINE_FAILED를 확인해 주세요.`,
 } as const
 
 export interface BotAlertsOptions {
@@ -47,6 +50,7 @@ export class BotAlerts {
       }
     } else if (record.code === 'CHAT_SEND_FAILOVER') this.#send('failover', ROUTE_ALERT_MS, BOT_ALERT_TEXTS.failover())
     else if (record.code === 'YOUTUBE_RECONNECT_NEEDED' && record.seller === BOT_SELLER_ID) this.#send('official', LOGIN_ALERT_MS, BOT_ALERT_TEXTS.official())
+    else if (record.code === 'ENGINE_FAILED') this.#send('engine', ENGINE_ALERT_MS, BOT_ALERT_TEXTS.engine(typeof record.date === 'string' ? record.date : '-', typeof record.seq === 'number' ? record.seq : 0))
   }
 
   #send(key: string, quietMs: number, text: string): void {

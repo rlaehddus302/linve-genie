@@ -62,6 +62,7 @@ import {
   insertLabelSwitch,
   insertLabels,
   insertPrintRequest,
+  issueStands,
   jobsOfLabels,
   jobsWithLabels,
   labelSwitchHistory,
@@ -214,6 +215,11 @@ export interface QueueSummary {
     readonly profileId: string | null
   } | null
   readonly pause: { readonly reason: PauseReason; readonly message: string; readonly backlog: boolean } | null
+  /**
+   * 라벨이 안 나가는 가장 최근 까닭 (D-ALERTFLOAT-01) — 출력이 멈췄거나 출력 기기의 프린터가 끊긴 동안만, 모르면 null.
+   * 실패 결과에 앱이 알린 까닭(ATTEMPT_CAUSE_REASONS)이고, 출력함이 되거나 멈춤이 풀리고 프린터가 이어지면 null로 돌아간다
+   */
+  readonly issue: AttemptCauseReason | null
   readonly waiting: number
   readonly printing: number
   readonly discard: number
@@ -345,9 +351,24 @@ export type ResultInput = { readonly ok: true } | { readonly ok: false; readonly
 /**
  * 출력 기기 앱이 아는 실패 까닭 낱말. 화면에 보이는 값이 아니다(기록·복기용).
  * BLUETOOTH_OFF 휴대폰 블루투스 꺼짐 · BLUETOOTH_DENIED 블루투스 권한 없음 · OUT_OF_RANGE 연결이 시간 초과로 끊김(거리·프린터 전원) ·
- * PRINTER_CLOSED 프린터 쪽에서 끊음(꺼짐·절전) · LINK_LOST 그 밖의 끊김 · APP_BACKGROUND 앱이 뒤로 감 · NO_RESPONSE 이어져 있는데 답이 없음 · UNKNOWN 모름
+ * PRINTER_CLOSED 프린터 쪽에서 끊음(꺼짐·절전) · LINK_LOST 그 밖의 끊김 · APP_BACKGROUND 앱이 뒤로 감 · NO_RESPONSE 이어져 있는데 답이 없음 · UNKNOWN 모름.
+ * 프린터가 알린 오류(D-ALERTFLOAT-01): COVER_OPEN 덮개 열림 · NO_PAPER 용지 없음 · LOW_BATTERY 배터리 부족·이상 · OVERHEAT 과열.
+ * 가장 최근 실패의 까닭은 대기열 줄(issue)에도 두어 출력 요약(QueueSummary.issue)으로 화면에 나간다 — 웹 print-types.ts PrintIssue와 같은 낱말
  */
-export const ATTEMPT_CAUSE_REASONS = ['BLUETOOTH_OFF', 'BLUETOOTH_DENIED', 'OUT_OF_RANGE', 'PRINTER_CLOSED', 'LINK_LOST', 'APP_BACKGROUND', 'NO_RESPONSE', 'UNKNOWN'] as const
+export const ATTEMPT_CAUSE_REASONS = [
+  'BLUETOOTH_OFF',
+  'BLUETOOTH_DENIED',
+  'OUT_OF_RANGE',
+  'PRINTER_CLOSED',
+  'LINK_LOST',
+  'APP_BACKGROUND',
+  'NO_RESPONSE',
+  'COVER_OPEN',
+  'NO_PAPER',
+  'LOW_BATTERY',
+  'OVERHEAT',
+  'UNKNOWN',
+] as const
 export type AttemptCauseReason = (typeof ATTEMPT_CAUSE_REASONS)[number]
 
 export interface AttemptCause {
@@ -359,6 +380,7 @@ export interface AttemptCause {
 }
 
 const CAUSE_REASONS: ReadonlySet<string> = new Set(ATTEMPT_CAUSE_REASONS)
+const isAttemptCauseReason = (value: unknown): value is AttemptCauseReason => typeof value === 'string' && CAUSE_REASONS.has(value)
 const CAUSE_RADIO: ReadonlySet<string> = new Set(['on', 'off', 'unauthorized', 'unsupported', 'unknown'])
 const CAUSE_APP: ReadonlySet<string> = new Set(['active', 'background', 'inactive', 'unknown'])
 /** 수로 받는 칸과 범위: 걸린 시간·끊긴 지 얼마(밀리초), 블루투스 모듈·안드로이드·아이폰·ATT 오류 번호 */
@@ -687,6 +709,7 @@ export class PrintService {
               profileId,
             },
       pause: paused === null ? null : { reason: paused, message: PAUSE_MESSAGES[paused], backlog: queue?.backlog === true },
+      issue: queue !== null && issueStands(queue) && isAttemptCauseReason(queue.issue) ? queue.issue : null,
       ...counts,
       ...(queue?.hideNicknameSuffix ? { hideNicknameSuffix: true } : {}),
       labelsEnabled: queue?.labelsEnabled ?? true,
@@ -1272,6 +1295,8 @@ export class PrintService {
     const patch: QueuePatch = {}
     let paused = queue.paused as PauseReason | null
     if (input.ok) {
+      // 출력함이 됐다 — 라벨이 안 나가던 까닭은 지난 일이다 (D-ALERTFLOAT-01)
+      patch.issue = null
       await finishAttempt(tx, sellerId, attempt.id, 'DONE', now)
       await updateJob(tx, sellerId, job.id, {
         status: 'DONE',
@@ -1288,7 +1313,10 @@ export class PrintService {
     } else {
       const code = input.code === 'DOES_NOT_FIT' && input.item !== null ? `${input.code}:${input.item}` : input.code
       // 앱이 아는 까닭(블루투스 꺼짐·끊김·앱이 뒤로 감 등)과 그 시각을 시도 기록에 같이 남긴다 (F2-2, D-RETRO-43)
-      await finishAttempt(tx, sellerId, attempt.id, code, now, failureOf(parseAttemptCause(input.cause, now)))
+      const cause = parseAttemptCause(input.cause, now)
+      await finishAttempt(tx, sellerId, attempt.id, code, now, failureOf(cause))
+      // 가장 최근 실패의 까닭을 요약에 싣는다 — 까닭을 모르면(옛 앱·시험용 프린터) 앞 까닭을 남기지 않고 지운다 (D-ALERTFLOAT-01)
+      patch.issue = cause?.reason ?? null
       if (job.voided) {
         // 출력 중에 폐기된 작업이 실패로 끝나면 대기로 되돌리지 않는다 (L-8 4)
         await updateJob(tx, sellerId, job.id, { status: 'CANCELLED', attempts: job.attempts + 1, lastError: code })

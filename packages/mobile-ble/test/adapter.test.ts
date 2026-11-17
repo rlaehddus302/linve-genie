@@ -162,6 +162,29 @@ describe('출력 (APP-03 AC3, L-7 마지막 줄 +1행·농도)', () => {
     if (!result.ok) expect(result.error.code).toBe('DISCONNECTED')
     expect(adapter.state).toBe('DISCONNECTED')
   })
+
+  it('프린터가 오류 패킷(In_PrintError)으로 답하면 앱 BLE 길에서도 까닭이 붙는다: 1 덮개·2 용지·3·4 배터리·7 과열, 모르는 번호는 까닭 없음 (D-ALERTFLOAT-01)', async () => {
+    const cases: [number, string | undefined][] = [
+      [1, 'COVER_OPEN'],
+      [2, 'NO_PAPER'],
+      [3, 'LOW_BATTERY'],
+      [4, 'LOW_BATTERY'],
+      [7, 'OVERHEAT'],
+      [9, undefined],
+    ]
+    for (const [code, issue] of cases) {
+      const { fake, adapter } = setup({ printer: { printError: code } })
+      await adapter.connect('bluetooth')
+      const result = await adapter.print(sampleImage())
+      expect(result.ok, String(code)).toBe(false)
+      if (result.ok) continue
+      expect(result.error.code, String(code)).toBe('PRINT_FAILED')
+      expect(result.error.issue, String(code)).toBe(issue)
+      // 연결은 그대로 (다시 시작하면 이어서 출력)
+      expect(adapter.state, String(code)).toBe('CONNECTED')
+      expect(fake.printer.printed).toHaveLength(0)
+    }
+  })
 })
 
 describe('기억·다시 잇기 (D-QS1-01·02, APP-03 "다른 앱으로 가 있어도")', () => {

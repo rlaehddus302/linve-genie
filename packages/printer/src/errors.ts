@@ -65,6 +65,48 @@ export interface PrinterError {
    * RETRIED_TIMEOUT_DETAIL, WRONG_MODEL의 "모델: {모델 이름}". 그 밖엔 없다
    */
   readonly detail?: string
+  /**
+   * 프린터가 알린 까닭 (PRINT_FAILED에만, D-ALERTFLOAT-01) — 덮개 열림·용지 없음·배터리·과열. 모르는 까닭이면 없다.
+   * 출력 기기 앱이 출력 결과의 까닭으로 서버에 올려 라이브 화면이 "라벨이 안 나가요"의 까닭을 보인다
+   */
+  readonly issue?: PrinterIssue
+}
+
+/** 프린터가 알린 출력 실패 까닭 (서버 ATTEMPT_CAUSE_REASONS·웹 PrintIssue와 같은 낱말) */
+export const PRINTER_ISSUES = ['COVER_OPEN', 'NO_PAPER', 'LOW_BATTERY', 'OVERHEAT'] as const
+export type PrinterIssue = (typeof PRINTER_ISSUES)[number]
+
+/** 까닭이 있는 출력 실패의 화면 문장 (PRINT_FAILED 문장 대신) */
+export const PRINT_ISSUE_MESSAGES: Readonly<Record<PrinterIssue, string>> = {
+  COVER_OPEN: '프린터 덮개가 열려 있어요. 덮개를 닫은 뒤 다시 시작해 주세요.',
+  NO_PAPER: '프린터에 라벨이 없어요. 라벨을 넣은 뒤 다시 시작해 주세요.',
+  LOW_BATTERY: '프린터 배터리가 부족해요. 충전한 뒤 다시 시작해 주세요.',
+  OVERHEAT: '프린터가 너무 뜨거워요. 잠시 식힌 뒤 다시 시작해 주세요.',
+}
+
+/**
+ * NIIMBOT 프린터 오류 번호(niimbluelib PrinterErrorCode — PrintError.reasonId) → 까닭.
+ * 1 덮개 열림 · 2 용지 없음 · 3 배터리 부족 · 4 배터리 이상 · 7 과열. 그 밖의 번호는 모른다(붙이지 않는다)
+ */
+const NIIMBOT_REASON_ISSUES: ReadonlyMap<number, PrinterIssue> = new Map([
+  [1, 'COVER_OPEN'],
+  [2, 'NO_PAPER'],
+  [3, 'LOW_BATTERY'],
+  [4, 'LOW_BATTERY'],
+  [7, 'OVERHEAT'],
+])
+
+/** 원래 예외가 niimbluelib PrintError(reasonId 칸)면 그 까닭 — 모양으로 본다(라이브러리 사본이 둘이어도 instanceof에 기대지 않는다) */
+export function niimbotIssueOf(cause: unknown): PrinterIssue | undefined {
+  if (typeof cause !== 'object' || cause === null || !('reasonId' in cause)) return undefined
+  const reasonId = (cause as { readonly reasonId: unknown }).reasonId
+  return typeof reasonId === 'number' ? NIIMBOT_REASON_ISSUES.get(reasonId) : undefined
+}
+
+/** 출력 실패(PRINT_FAILED) — 프린터가 까닭을 알렸으면 그 까닭과 맞는 문장, 아니면 L-7 표 문장 */
+export function printFailed(cause: unknown, issue: PrinterIssue | undefined): PrinterResult {
+  if (issue === undefined) return fail('PRINT_FAILED', cause)
+  return { ok: false, error: { ...printerErrorWithMessage('PRINT_FAILED', PRINT_ISSUE_MESSAGES[issue], cause), issue } }
 }
 
 export type PrinterResult = { readonly ok: true } | { readonly ok: false; readonly error: PrinterError }

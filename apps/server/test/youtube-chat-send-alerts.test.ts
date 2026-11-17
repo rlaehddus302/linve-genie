@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { readOpsAlertPhone } from '../src/config.ts'
 import type { LogRecord } from '../src/log.ts'
 import type { SmsSender } from '../src/social/phone.ts'
-import { BOT_ALERT_TEXTS, BotAlerts, LOGIN_ALERT_MS, ROUTE_ALERT_MS } from '../src/youtube/chat-send/bot-alerts.ts'
+import { BOT_ALERT_TEXTS, BotAlerts, ENGINE_ALERT_MS, LOGIN_ALERT_MS, ROUTE_ALERT_MS } from '../src/youtube/chat-send/bot-alerts.ts'
 import { FakeChatSend, fakeBotCookie } from '../src/youtube/chat-send/fake-chat-send.ts'
 import { InnertubeChatSender } from '../src/youtube/chat-send/innertube-sender.ts'
 import { ChatSenderPool } from '../src/youtube/chat-send/pool.ts'
@@ -135,6 +135,22 @@ describe('D-YT-SEND-22 운영자 문자 알림', () => {
     expect(readOpsAlertPhone({ LIVEJJIM_OPS_ALERT_PHONE: '010-1234-5678' })).toEqual({ phone: '01012345678', invalid: false })
     expect(readOpsAlertPhone({ LIVEJJIM_OPS_ALERT_PHONE: '02-123-4567' })).toEqual({ phone: null, invalid: true })
     expect(readOpsAlertPhone({ LIVEJJIM_OPS_ALERT_PHONE: 'abc' })).toEqual({ phone: null, invalid: true })
+  })
+})
+
+describe('D-ALERTFLOAT-01 엔진이 처리하지 못한 입력 → 운영자 문자 (판매자 화면의 "확인 필요" 대신)', () => {
+  it('ENGINE_FAILED 로그를 보면 날짜·번호만 담아 한 통, 1시간 안의 다음 것은 보내지 않는다', () => {
+    const sms = smsBox()
+    const timer = clockTimer()
+    const alerts = new BotAlerts({ sms, phone: PHONE, now: timer.now })
+    alerts.observe({ level: 'error', code: 'ENGINE_FAILED', seller: 's1', date: '2026-11-17', seq: 42, errorKind: 'unknown' } as LogRecord)
+    alerts.observe({ level: 'error', code: 'ENGINE_FAILED', seller: 's1', date: '2026-11-17', seq: 43, errorKind: 'unknown' } as LogRecord)
+    expect(alerts.sent).toBe(1)
+    expect(BOT_ALERT_TEXTS.engine('2026-11-17', 42)).toContain('2026-11-17 42번')
+    expect(BOT_ALERT_TEXTS.engine('2026-11-17', 42)).not.toContain('s1')
+    timer.advance(ENGINE_ALERT_MS)
+    alerts.observe({ level: 'error', code: 'ENGINE_FAILED', seller: 's1', date: '2026-11-17', seq: 44, errorKind: 'unknown' } as LogRecord)
+    expect(alerts.sent).toBe(2)
   })
 })
 

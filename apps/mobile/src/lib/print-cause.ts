@@ -3,7 +3,8 @@
 // - 까닭은 앱이 본 사실로만 정한다: 휴대폰 블루투스 상태, 앱이 앞에 있었는지, 프린터 쪽에서 끊긴 때와 그 오류 번호, 어댑터의 오류 코드.
 //   사실을 모르면(시험용 프린터처럼 블루투스를 쓰지 않는 연결) 붙이지 않는다 — 오류 코드만으로 짐작한 까닭은 서버가 이미 아는 것(코드)을 되풀이할 뿐이다.
 // - 남기는 것: 까닭 낱말·시각·블루투스 상태·앱 앞/뒤·오류 번호(수)·걸린 시간·프린터 프로필 ID(모델). 기기 주소·이름·오류 문장·라벨 내용은 남기지 않는다.
-// - 화면에 보이는 값이 아니다(판매자 화면 문구는 그대로 — 기록·복기용).
+// - 프린터가 알린 까닭(덮개 열림·용지 없음·배터리·과열 — 어댑터 오류의 issue)이 있으면 그 낱말을 까닭으로 삼는다. 블루투스 사실을 몰라도 붙인다
+//   (D-ALERTFLOAT-01). 서버가 이 까닭을 출력 요약(issue)에 실어 라이브 화면이 "라벨이 안 나가요"의 까닭을 보인다.
 
 /** 휴대폰 블루투스 상태 (@livejjim/mobile-ble BleRadioState와 같은 낱말) */
 export type LinkRadio = 'on' | 'off' | 'unauthorized' | 'unsupported' | 'unknown'
@@ -29,8 +30,13 @@ export interface LinkFacts {
   readonly lost: LinkLost | null
 }
 
+/** 프린터가 알린 까닭 (@livejjim/printer PrinterIssue와 같은 낱말 — D-ALERTFLOAT-01) */
+export const PRINTER_ISSUE_REASONS = ['COVER_OPEN', 'NO_PAPER', 'LOW_BATTERY', 'OVERHEAT'] as const
+export type PrinterIssueReason = (typeof PRINTER_ISSUE_REASONS)[number]
+const isPrinterIssue = (value: unknown): value is PrinterIssueReason => typeof value === 'string' && (PRINTER_ISSUE_REASONS as readonly string[]).includes(value)
+
 /** 서버 print.ts ATTEMPT_CAUSE_REASONS와 같은 낱말 */
-export type PrintCauseReason = 'BLUETOOTH_OFF' | 'BLUETOOTH_DENIED' | 'OUT_OF_RANGE' | 'PRINTER_CLOSED' | 'LINK_LOST' | 'APP_BACKGROUND' | 'NO_RESPONSE' | 'UNKNOWN'
+export type PrintCauseReason = 'BLUETOOTH_OFF' | 'BLUETOOTH_DENIED' | 'OUT_OF_RANGE' | 'PRINTER_CLOSED' | 'LINK_LOST' | 'APP_BACKGROUND' | 'NO_RESPONSE' | PrinterIssueReason | 'UNKNOWN'
 
 /** POST /api/print/result의 cause */
 export interface PrintCause {
@@ -79,21 +85,31 @@ export interface PrintCauseInput {
   /** 네이티브 쪽이 아는 사실 — 모르면(시험용 프린터) null: 까닭을 붙이지 않는다 */
   readonly facts: LinkFacts | null
   readonly profileId: string | null
+  /** 프린터가 알린 까닭 (어댑터 오류의 issue — 덮개·용지·배터리·과열). 없거나 모르는 낱말이면 앱이 본 사실로 정한다 */
+  readonly issue?: string | undefined
 }
 
 /**
- * 까닭 정하기. 차례: 블루투스 꺼짐 → 블루투스 권한 없음 → 이 시도와 이어진 끊김(오류 번호로 거리/프린터/그 밖) →
- * 이 시도 중 앱이 뒤로 감 → 이어져 있는데 답이 없음(시간 초과) → 모름. 까닭을 붙이지 않는 코드거나 사실을 모르면 null
+ * 까닭 정하기. 차례: 프린터가 알린 까닭(덮개·용지·배터리·과열) → 블루투스 꺼짐 → 블루투스 권한 없음 → 이 시도와 이어진 끊김(오류 번호로 거리/프린터/그 밖) →
+ * 이 시도 중 앱이 뒤로 감 → 이어져 있는데 답이 없음(시간 초과) → 모름. 까닭을 붙이지 않는 코드면 null.
+ * 사실을 모르면(시험용 프린터) 프린터가 알린 까닭이 있을 때만 그 낱말·시각·걸린 시간·프로필로 붙이고, 없으면 null
  */
 export function printCause(input: PrintCauseInput): PrintCause | null {
   const { facts, startedAt, failedAt } = input
-  if (!needsCause(input.code) || facts === null) return null
+  if (!needsCause(input.code)) return null
+  const issue = isPrinterIssue(input.issue) ? input.issue : null
   const elapsedMs = Math.max(0, Math.round(failedAt - startedAt))
+  if (facts === null) {
+    if (issue === null) return null
+    return { reason: issue, at: new Date(failedAt).toISOString(), elapsedMs, ...(input.profileId === null ? {} : { profileId: input.profileId }) }
+  }
   const lost = facts.lost !== null && facts.lost.at >= startedAt - LOST_BEFORE_START_MS && facts.lost.at <= failedAt ? facts.lost : null
   // 앱이 지금 뒤에 있거나(모름은 뒤로 치지 않는다), 이 시도 중에 앞에서 벗어난 적이 있다
   const wentBackground = facts.app === 'background' || facts.app === 'inactive' || (facts.leftAt !== null && facts.leftAt >= startedAt && facts.leftAt <= failedAt)
   let reason: PrintCauseReason
-  if (facts.radio === 'off' || input.code === 'BLUETOOTH_OFF') reason = 'BLUETOOTH_OFF'
+  // 프린터가 직접 알린 까닭이 가장 정확하다 (알렸다면 블루투스로 이어져 있었다)
+  if (issue !== null) reason = issue
+  else if (facts.radio === 'off' || input.code === 'BLUETOOTH_OFF') reason = 'BLUETOOTH_OFF'
   else if (facts.radio === 'unauthorized') reason = 'BLUETOOTH_DENIED'
   else if (lost !== null) reason = lostReason(lost)
   else if (wentBackground) reason = 'APP_BACKGROUND'

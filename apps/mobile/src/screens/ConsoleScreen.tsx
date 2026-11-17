@@ -27,7 +27,7 @@ import { useStatementScope } from '../lib/broadcast-groups.ts'
 import { SalesPill } from './console/SalesPill.tsx'
 import { BuyerTotalsPage, TotalsPill } from './console/BuyerTotals.tsx'
 import { BroadcastSalesList } from './console/BroadcastSales.tsx'
-import { AlertStrip } from './console/AlertStrip.tsx'
+import { AlertFloat, FLOAT_ALERT_GAP, FLOAT_ALERT_HEIGHT, floatAlerts, type FloatAction } from './console/AlertFloat.tsx'
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
 import { ConsoleManage, MANAGE_LABEL } from './console/Manage.tsx'
@@ -38,7 +38,7 @@ import { ProductSheet } from './console/ProductEdit.tsx'
 import { AddFab, DIGIT_PAD_HEIGHT, NumberKeys, ProductAddPage } from './console/ProductAdd.tsx'
 import { SlidePage } from './console/parts.tsx'
 import { DecisionsView } from './console/Decisions.tsx'
-import { UnlistedClaims, unlistedNumbers } from './console/UnlistedClaims.tsx'
+import { UnlistedList, unlistedNumbers } from './console/UnlistedClaims.tsx'
 
 import { UndoStrip, noItems, noSubscribe, useUndoQueue } from '../lib/host-queue.tsx'
 import { AlreadyPop, VoicePanel } from './console/VoicePanel.tsx'
@@ -153,7 +153,7 @@ export const SHOW_AFTER_BACK_MS = 600
 /** "그 상품 보기"로 스크롤할 때 그 줄 위에 남기는 자리 (붙는 탭 바 아래에 줄이 보이게) */
 const ROW_PEEK = 64
 
-export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openReviews, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, openStatement, openSearch, openTotals, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 정산서 화면 안에 겹쳐 그린다 */ readonly openStatement?: (buyer: string) => void; /** 머리 돋보기 — 찾기를 진짜 쌓인 화면으로 연다 (D-UX4-204, 상품·찜 기록 하나로 D-UX4-205). 없으면(시험·웹) 이 화면 안에 찾기 칸을 연다 */ readonly openSearch?: () => void; /** 손님별 합계를 진짜 쌓인 화면으로 연다 (D-BUYERSUM-01). 없으면(시험·웹) 이 화면 안에 겹쳐 그린다 */ readonly openTotals?: () => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
+export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded = false, focused = true, openLabels, openLink, openAdd, openAddAt, openManage, openRecord, openStatement, openSearch, openTotals, startPage, refresh = 0 }: { readonly broadcastId: string; readonly seller: boolean; readonly onBack: () => void; readonly onEnded?: () => void; readonly justEnded?: boolean; readonly focused?: boolean; /** 옛 "확인 필요" 알림의 갈 곳 — 판매자 화면에서 그 알림을 없애 쓰지 않는다 (D-ALERTFLOAT-01, 부르는 쪽 호환) */ readonly openReviews?: () => void; readonly openLabels?: () => void; readonly openLink?: (closed: boolean) => void; readonly openAdd?: () => void; /** 번호를 채운 상품 추가를 쌓인 화면으로 연다 (D-RETRO-23) */ readonly openAddAt?: (no: number) => void; readonly openManage?: () => void; /** 끝난 라이브의 [라이브 기록]을 쌓인 화면으로 연다 (D-UX4-157). 없으면(시험·웹) 이 화면 안에서 바꾼다 */ readonly openRecord?: () => void; /** 구매자 정산서를 진짜 쌓인 화면으로 연다 (D-UX4-198). 없으면(시험·웹) 정산서 화면 안에 겹쳐 그린다 */ readonly openStatement?: (buyer: string) => void; /** 머리 돋보기 — 찾기를 진짜 쌓인 화면으로 연다 (D-UX4-204, 상품·찜 기록 하나로 D-UX4-205). 없으면(시험·웹) 이 화면 안에 찾기 칸을 연다 */ readonly openSearch?: () => void; /** 손님별 합계를 진짜 쌓인 화면으로 연다 (D-BUYERSUM-01). 없으면(시험·웹) 이 화면 안에 겹쳐 그린다 */ readonly openTotals?: () => void; /** 'record': 쌓인 라이브 기록 화면 — 정산 내역서를 건너뛰고, 뒤로(onBack)는 정산 내역서로 (D-UX4-157) */ readonly startPage?: 'record'; readonly refresh?: number }) {
   // 탭 바 밑 알림 묶음에 보이는 것이 있는지 (D-TABS-02)
   const [noticesShown, setNoticesShown] = useState(false)
   const services = useServices()
@@ -550,16 +550,25 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   }
   const claimCount = [...data.claims.values()].filter((claim) => claim.broadcast === broadcastId && claim.status !== 'DUPLICATE').length
   const productCountNow = shownProducts(data, broadcastId).length
-  const onAlert = (action: 'pending' | 'attention' | 'decide' | 'labels') => {
-    if (action === 'pending') setSheet('pending')
-    else if (action === 'attention') openReviews?.()
-    else if (action === 'decide') { setDecideFor(null); setSheet('decide') }
+  // 떠 있는 오류 알림 (D-ALERTFLOAT-01): 프린터 → 라벨·프린터 화면, 1등 정하기·취소 요청 → 정하기 판, 등록 안 된 번호 → 번호가 하나면 바로 상품 추가, 여럿이면 번호 판
+  const unlistedClaims = unlisted.reduce((sum, item) => sum + item.count, 0)
+  const alerts = floatAlerts({ counts: alertCounts(data), queue: labelsQueue.queue, rehearsal: broadcast.rehearsal, ended, unlisted: unlistedClaims })
+  const onAlert = (action: FloatAction) => {
+    if (action === 'unlisted') {
+      const only = unlisted.length === 1 ? unlisted[0] : undefined
+      if (only !== undefined) addAt(only.no)
+      else setSheet('pending')
+    } else if (action === 'decide') { setDecideFor(null); setSheet('decide') }
     else openLabels?.()
   }
 
   const padInset = docked ? SPACE.sm : Math.max(inset, SPACE.sm)
   /** (+) 단추·매출 캡슐의 아래 자리 */
   const fabBottom = (docked ? 0 : Math.max(inset, SPACE.md)) + SPACE.md
+  /** 아래 오른쪽에 떠 있는 단추(+·인쇄·매출·합계)가 있으면 오류 알림은 그 위 (단추 58 + 사이) */
+  const bottomButton = (shownTab === 'products' && !searchPad) || shownTab === 'labels' || (shownTab === 'feed' && !closed && claimCount > 0)
+  const floatBottom = fabBottom + (bottomButton ? 58 + SPACE.md : 0)
+  const alertsShown = alerts.length > 0 && !searchPad
   const padHeight = DIGIT_PAD_HEIGHT + padInset + 1
   /** 탭을 바꾸면 찾기 칸을 접는다(찾는 글은 탭마다 남는다) */
   const pickTab = (next: typeof tab) => {
@@ -701,8 +710,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
             {sealed ? <Notice tone="info">30일이 지나 봉인한 날짜예요. 볼 수만 있어요.</Notice> : null}
             {labelsQueue.mine && labelsQueue.queue?.labelsEnabled && paper !== null && paper <= LOW_PAPER ? <Notice tone="warning" alert>{`라벨 용지가 약 ${paper}장 남았어요. 새 롤을 준비해 주세요.`}</Notice> : null}
             {/* 매출은 이 줄에서 빼 화면 아래 (+) 왼쪽 캡슐로 (D-UX4-140) — 알림이 없으면 이 자리는 비운다 */}
-            <AlertStrip counts={alertCounts(data)} queue={labelsQueue.queue} rehearsal={broadcast.rehearsal} ended={ended} onAction={onAlert} />
-            <UnlistedClaims numbers={unlisted} onAdd={addAt} />
+            {/* 오류 알림은 여기(탭 바 밑) 말고 오른쪽 아래에 빨간 캡슐로 뜬다 (D-ALERTFLOAT-01, AlertFloat) */}
             {hostQueue !== null ? <UndoStrip items={hostItems} queue={hostQueue} /> : null}
             <YoutubeWarning yt={yt} closed={closed} />
             <VoicePanel session={services.voice} broadcastId={broadcastId} title={title} seller={seller} ended={ended} listen={services.streamKeep.listen} />
@@ -715,6 +723,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           </View>
           {/* (+) 단추·매출 캡슐에 마지막 줄이 가리지 않게 */}
           {shownTab === 'products' || shownTab === 'labels' || (shownTab === 'feed' && !closed) ? <View style={{ height: 72 }} /> : null}
+          {/* 떠 있는 오류 알림(D-ALERTFLOAT-01)에도 가리지 않게 */}
+          {alertsShown ? <View style={{ height: alerts.length * (FLOAT_ALERT_HEIGHT + FLOAT_ALERT_GAP) }} /> : null}
           {shownTab === 'products' && searchPad ? (
             // 숫자 키에서 시작한 드래그도 목록의 네이티브 스크롤이 받도록 같은 ScrollView에 둔다.
             <Animated.View style={{ position: 'absolute', opacity: padOpacity, zIndex: 12, left: 0, right: 0, top: Math.max(0, viewportHeight - padHeight), transform: [{ translateY: scrollOffset }] }}>
@@ -734,6 +744,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
         {/* 손님별 합계 캡슐 (D-BUYERSUM-01): 라이브 중 [찜 기록] 탭 오른쪽 아래 */}
         {shownTab === 'feed' && !closed && claimCount > 0 ? <TotalsPill bottom={fabBottom} onPress={() => (openTotals === undefined ? setTotalsOpen(true) : openTotals())} /> : null}
         {shownTab === 'products' && !searchPad ? <SalesPill closed={closed} total={sales.total} bottom={fabBottom} besideFab={!closed} onPress={startPage === 'record' ? onBack : () => setSalesPage('sales')} /> : null}
+        {/* 오류 알림 (D-ALERTFLOAT-01): 오른쪽 아래 빨간 캡슐 — 아래 단추(+·인쇄·매출·합계)가 있는 탭은 그 위에. 숫자판을 연 동안은 숨는다 */}
+        {alertsShown ? <AlertFloat items={alerts} bottom={floatBottom} onAction={onAlert} /> : null}
         </View>
         {/* 확인 중(임시 등록) 상품 확인 카드 (D-RETRO-90): 목록과 아래 창 사이, 한 번에 한 장 — 어느 탭에서든 같은 자리에 뜬다 */}
         {/* 확인 중 상품 카드는 띄우지 않는다 (D-UX4-209, 사용자 "저렇게 확인 중 뜨는 팝업 지워.") — 상품 줄을 눌러 자세히에서 확정·거둔다 */}
@@ -751,10 +763,10 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           {sheet === 'decide' && hostQueue !== null ? <DecisionsView queue={hostQueue} {...(decideFor === null || data.products.get(decideFor) === undefined ? {} : { product: data.products.get(decideFor) })} onQueued={close} /> : null}
         </BottomSheet>
         {live ? <ListenSourceSheet visible={sheet === 'listen'} onClose={close} session={services.voice} keep={services.streamKeep} broadcastId={broadcastId} title={streamTitle} stream={stream} /> : null}
-        <BottomSheet visible={sheet === 'pending'} onClose={close} title="보류 찜">
-          {/* 확인 중 상품의 번호로 온 찜도 여기서 기다린다 (D-RETRO-90) */}
-          <Txt step="caption" color="textSub">아직 상품이 없거나 확인 중인 번호의 찜이에요. 그 번호 상품을 올리거나 확정하면 먼저 온 순서대로 정해져요.</Txt>
-          {sheet === 'pending' ? <ClaimFeed only="PENDING" /> : null}
+        {/* 등록 안 된 번호 판 (D-ALERTFLOAT-01 — 옛 "보류 찜" 판): 번호를 누르면 그 번호가 채워진 상품 추가 */}
+        <BottomSheet visible={sheet === 'pending'} onClose={close} title="등록 안 된 번호">
+          <Txt step="body" color="textSub">상품을 올리면 먼저 온 순서대로 정해져요.</Txt>
+          {sheet === 'pending' ? <UnlistedList numbers={unlisted} onAdd={(no) => { close(); addAt(no) }} /> : null}
         </BottomSheet>
         <BuyerTotalsPage visible={totalsOpen} onClose={() => setTotalsOpen(false)} />
         <ProductAddPage

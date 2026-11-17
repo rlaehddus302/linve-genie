@@ -15,7 +15,7 @@ import { SettingsScreen } from '../src/screens/SettingsScreen.tsx'
 import { SessionProvider } from '../src/services.tsx'
 import { THANKS_TITLE, ThanksSwitch } from '../src/screens/console/Manage.tsx'
 import { IconMenuRow, MenuGroup, MenuRow as ConsoleMenuRow, NamePill } from '../src/screens/console/parts.tsx'
-import { AlertStrip } from '../src/screens/console/AlertStrip.tsx'
+import { AlertFloat } from '../src/screens/console/AlertFloat.tsx'
 import { CheckText, TextButton as CustomerTextButton, TextChoices } from '../src/screens/customer-parts.tsx'
 import { ChipButton, MenuRow as OrderMenuRow, TextLink } from '../src/screens/order-parts.tsx'
 import { RowAction, TextAction } from '../src/screens/ParcelAddress.tsx'
@@ -320,7 +320,7 @@ describe('단추 안 글자는 정가운데 (D-UX4-73)', () => {
         <TextAction label="주소 고치기" onPress={none} />
         <RowAction label="복사" onPress={none} />
         <PasteButton onPaste={none} />
-        <AlertStrip counts={{ pending: 2, conflict: 1 } as never} queue={null} rehearsal={false} ended={false} onAction={none} />
+        <AlertFloat items={[{ key: 'decide', text: '1등을 정해 주세요', action: 'decide' }, { key: 'unlisted', text: '등록 안 된 번호에 찜 2건', action: 'unlisted' }]} bottom={0} onAction={none} /> {/* 옛 AlertStrip (D-ALERTFLOAT-01) */}
         <NumberPad value="12" onChange={none} />
         <TabBar active="home" onSelect={none} />
       </>,

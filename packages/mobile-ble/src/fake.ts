@@ -33,6 +33,8 @@ export interface FakeB1Options {
   readonly silent?: readonly number[]
   /** 모델 번호 (기본 B1 = 4096). 다른 값이면 어댑터가 WRONG_MODEL로 거른다 */
   readonly modelId?: number
+  /** 인쇄 시작에 프린터 오류(In_PrintError)로 답한다 — niimbluelib PrinterErrorCode 번호 (1 덮개 열림 · 2 용지 없음 …, D-ALERTFLOAT-01) */
+  readonly printError?: number
 }
 
 /** 바이트 수준 B1 */
@@ -105,7 +107,8 @@ export function createFakeB1(options: FakeB1Options = {}): FakeB1 {
         reply(ResponseCommandId.In_SetLabelType, [1])
         return
       case RequestCommandId.PrintStart:
-        reply(ResponseCommandId.In_PrintStart, [1])
+        if (options.printError !== undefined) reply(ResponseCommandId.In_PrintError, [options.printError])
+        else reply(ResponseCommandId.In_PrintStart, [1])
         return
       case RequestCommandId.PageStart:
         page = { rows: 0, cols: 0, copies: 1, rasterRows: 0, bitmap: new Uint8Array(0), done: false }

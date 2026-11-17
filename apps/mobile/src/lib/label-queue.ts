@@ -11,6 +11,7 @@ import type { PrinterTests } from '../services.tsx'
 // - 대기 라벨 지금 뽑기(printWaiting — F1, D-RETRO-40): 요약을 다시 받고, 끊김 멈춤이면 연결됨을 다시 알려 풀고, 손으로 푸는 멈춤이면 다시 시작을 보낸 뒤
 //   대기 맨 앞부터 받는다. 프린터가 이어져 있지 않으면 받지 않고 "먼저 다시 연결"을 돌려준다(연결은 판매자가 누른 동작 안에서만 — L-7).
 // - 출력이 시간 초과·끊김으로 실패하면 앱이 아는 까닭(블루투스 꺼짐·끊김·앱이 뒤로 감·답 없음)과 시각을 결과에 붙인다(F2-2, D-RETRO-43 — lib/print-cause.ts).
+//   프린터가 알린 까닭(덮개·용지·배터리·과열)이 있으면 그 낱말을 붙인다(D-ALERTFLOAT-01).
 // - 시험용 프린터는 서버가 시험 모드(GET /api/client-config testPrinter)일 때만 고를 수 있다(L-11 15).
 // - 농도는 연결한 프린터의 범위 안에서만(B1 1~5 · Marklife YXQ 1~3). 농도를 받지 않는 프린터(L11)면 보내지 않고, 고른 농도가 범위 밖이면
 //   보내지 않아 프린터 기본값으로 찍는다(D-PRN2-31 — 웹과 같다. 프로필이 바뀌어도 고른 농도를 바꾸지 않는다).
@@ -666,7 +667,8 @@ export class LabelQueue {
           // 시간 초과·끊김이면 앱이 아는 까닭과 시각을 같이 알린다 (F2-2, D-RETRO-43). 까닭을 읽지 못해도 결과는 알린다
           const failedAt = now()
           const facts = await this.#options.ble.linkFacts().catch(() => null)
-          cause = printCause({ code: result.error.code, startedAt, failedAt, facts, profileId })
+          // 프린터가 알린 까닭(덮개·용지·배터리·과열)이 있으면 그것이 까닭이다 — 블루투스 사실을 몰라도 붙인다 (D-ALERTFLOAT-01)
+          cause = printCause({ code: result.error.code, startedAt, failedAt, facts, profileId, issue: result.error.issue })
           this.#set({ printerError: result.error })
         }
       } catch (caught) {

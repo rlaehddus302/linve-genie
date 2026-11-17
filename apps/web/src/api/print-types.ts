@@ -16,11 +16,19 @@ export interface PrintDevice {
   readonly profileId?: string | null
 }
 
+/**
+ * 라벨이 안 나가는 까닭 (D-ALERTFLOAT-01): 출력 기기 앱이 본 사실(블루투스·거리·프린터 꺼짐·앱이 뒤로 감)과 프린터가 알린 오류(덮개·용지·배터리·과열).
+ * 서버 print.ts ATTEMPT_CAUSE_REASONS와 같은 낱말
+ */
+export type PrintIssue = 'BLUETOOTH_OFF' | 'BLUETOOTH_DENIED' | 'OUT_OF_RANGE' | 'PRINTER_CLOSED' | 'LINK_LOST' | 'APP_BACKGROUND' | 'NO_RESPONSE' | 'COVER_OPEN' | 'NO_PAPER' | 'LOW_BATTERY' | 'OVERHEAT' | 'UNKNOWN'
+
 export interface QueueSummary {
   /** 판매자의 출력 기록 판 (바뀔 때마다 는다) */
   readonly rev: number
   readonly device: PrintDevice | null
   readonly pause: { readonly reason: PauseReason; readonly message: string; readonly backlog: boolean } | null
+  /** 라벨이 안 나가는 가장 최근 까닭 — 출력이 멈췄거나 프린터가 끊긴 동안만, 모르면 null (D-ALERTFLOAT-01. 옛 서버는 칸이 없다) */
+  readonly issue?: PrintIssue | null
   readonly waiting: number
   readonly printing: number
   /** 버릴 라벨 장 수 */
