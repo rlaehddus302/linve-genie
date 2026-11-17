@@ -14,14 +14,17 @@
 // D-ADDPIECES-01 (사용자 지시 2026-11-17 "품종 입력 받을 때 버튼이 너무 많아서 난잡하다"): 개수는 품종 다음 단계 "몇 개인가요?"에서 따로 묻는다.
 //   품종 단계는 칸 · [손글씨로 적을게요](둥근 네모) · 품종 후보 한 줄 · 맨 아래 [품종 없이 넘어가기]만.
 // D-ADDPIECES-02 (사용자 지시 2026-11-17): 위로 올라간 값은 이름(번호·가격) 없이 값만. 품종 칸 아래 [손글씨로 적을게요] [품종 없이 넘어갈게요] 한 줄 왼쪽 정렬,
-//   품종 후보 줄은 없앰(손글씨 읽기 참고 낱말로만 쓴다), 단추 그림 없음, 단추는 모두 둥근 네모. 아이폰은 품종 칸 [다음]을 키보드 위에 붙여(InputAccessoryView) 키보드와 같이 올라온다.
+//   품종 후보 줄은 없앰(손글씨 읽기 참고 낱말로만 쓴다), 단추 그림 없음, 단추는 모두 둥근 네모.
+// D-ADDPIECES-03 (사용자 지시 2026-11-17): 답한 값은 큰 칸 자리에서 작아지며 위 줄로 자리 잡고 새 칸은 옅게 아래에서 올라온다. [품종 없이 넘어갈게요]는 늘 보인다.
+//   품종 칸 [다음]은 키보드가 오를 거라는 소식(아이폰 keyboardWillChangeFrame)에 키보드와 같은 시간·곡선으로 올라온다 — 키보드 피하기(KeyboardAvoidingView)를 끄고 이 화면이 직접.
+//   D-ADDPIECES-02의 키보드 위에 붙이기(InputAccessoryView)는 새 구조(Fabric)에서 [다음]이 뜨지 않고 빈 판이 맨 위 번호를 가려 걷었다.
 // 이미 있는 번호 (D-DUPNO-02, 사용자 지시 2026-11-17 "다음 버튼 누르기 전에 곧바로 아래에 빨간 글씨로 이미 등록된 번호에요"):
 //   번호 칸에 판매 중인 상품의 번호를 치는 순간 칸 아래 빨간 글 "이미 등록된 번호예요." — "번호는 999번까지 적을 수 있어요."와 같은 꼴(흔들기·진동, [다음] 흐림).
 //   옛 D-DUPNO-01 묻는 카드 [아니요 | 하나 더 올리기]는 없앴다. 같은 물건을 더 팔려면 그 상품의 [같은 물건 더 팔기](D-STK-02).
 //   확인 중(임시 등록) 상품의 번호는 막지 않는다(D-RETRO-92). [추가하기] 사이 다른 쪽에서 같은 번호가 올라오면 [닫기 | 그 상품 보기](D-RETRO-22) 그대로.
 import { productTitle, splitPieces } from '@livejjim/core/format'
-import { useEffect, useRef, useState } from 'react'
-import { Animated, BackHandler, Easing, InputAccessoryView, PanResponder, Platform, View, useWindowDimensions, type GestureResponderEvent } from 'react-native'
+import { useEffect, useRef, useState, type ComponentRef } from 'react'
+import { AccessibilityInfo, Animated, BackHandler, Easing, Keyboard, PanResponder, Platform, View, useWindowDimensions, type GestureResponderEvent } from 'react-native'
 import type { Product } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { koreanWon } from '../../lib/korean-won.ts'
@@ -30,7 +33,7 @@ import { isTentative } from '../../lib/tentative.ts'
 import { localRecent, useVarietyLists, varietyChoices } from '../../lib/varieties.ts'
 import { formatWon } from '../../lib/words.ts'
 import { tapHaptic } from '../../native/haptics.ts'
-import { FocusInput, BigButton, ButtonRow, ErrorLine, HandwritingButton, HandwritingSheet, PRESS_EASING, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
+import { Appear, FocusInput, BigButton, ButtonRow, ErrorLine, HandwritingButton, HandwritingSheet, PRESS_EASING, PRESS_IN_MS, PRESS_OUT_MS, PressScale, SoftChip, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { edgeStartTracker, edgeSwipeCloses, startsEdgeSwipe, useHoldRouteSwipe } from '../../ui/kit/route-swipe.tsx'
 import { useConsoleApi } from './context.ts'
@@ -46,8 +49,6 @@ export const ASK_PRICE = '가격은 어떻게 되나요?'
 export const ASK_NAME = '어떤 품종인가요?'
 export const ASK_PIECES = '몇 개인가요?'
 export const SKIP_NAME = '품종 없이 넘어갈게요'
-/** 아이폰 품종 칸 키보드 위 [다음] 자리 (D-ADDPIECES-02) */
-const NAME_NEXT_DOCK = 'product-add-name-next'
 export const ASK_ADD = '상품을 추가할까요?'
 /** 확인 중(임시 등록) 상품이 있는 번호를 쳤을 때 (D-RETRO-92): 친 값으로 그 상품을 확정한다 */
 export const ASK_CONFIRM_HELD = '이 값으로 확정할까요?'
@@ -527,14 +528,76 @@ export function BigNumber({ label, question, digits, format, suffix }: { readonl
 
 /** 이미 답한 단계 (위로 올라간 값) — 누르면 그 단계로 돌아가 고친다. 손님 정보 입력(D-UX4-126)도 같이 쓴다.
  * 이름(번호·가격…)은 보이지 않고 값만 (D-ADDPIECES-02, 사용자 지시 "이미 입력한 값의 라벨은 보여주지마") — 읽어 주기에는 이름까지 */
+// 처음 그려질 때(방금 답한 값) 큰 칸 글 크기에서 이 크기로 줄어들며 자리 잡는다 — 새 줄은 막 답한 큰 칸과 같은 자리라 그 글이 작아지며 올라간 것처럼 보인다 (D-ADDPIECES-03)
 export function DoneLine({ label, value, onPress }: { readonly label: string; readonly value: string; readonly onPress: () => void }) {
+  const settle = useSettle()
   return (
-    <Tap role="button" aria-label={`${label} ${value} 고치기`} onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+    <Tap role="button" aria-label={`${label} ${value} 고치기`} onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, transformOrigin: 'left top', transform: [{ scale: settle.interpolate({ inputRange: [0, 1], outputRange: [DONE_FROM, 1] }) }] })}>
       <Txt step="title" weight="bold">
         {value}
       </Txt>
     </Tap>
   )
+}
+
+/** 답한 값이 줄어드는 시간과 시작 크기(큰 칸 글 ÷ 답한 줄 글) */
+export const DONE_MS = 280
+const DONE_FROM = TYPE.amount / TYPE.title
+
+/** 0 → 1 (처음 그려질 때 한 번). 웹(시험)·움직임 줄이기는 바로 1 */
+function useSettle(): Animated.Value {
+  const still = Platform.OS === 'web'
+  const value = useRef(new Animated.Value(still ? 1 : 0)).current
+  useEffect(() => {
+    if (still) return
+    let alive = true
+    const go = (reduce: boolean) => {
+      if (alive) Animated.timing(value, { toValue: 1, duration: reduce ? 0 : DONE_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start()
+    }
+    AccessibilityInfo.isReduceMotionEnabled().then(go, () => go(false))
+    return () => {
+      alive = false
+    }
+  }, [still, value])
+  return value
+}
+
+/** 아이폰 키보드 움직임 곡선(UIKit 곡선 7)에 가까운 곡선 */
+const KEYBOARD_CURVE = Easing.bezier(0.38, 0.7, 0.125, 1)
+
+/**
+ * 키보드와 같이 오르는 [다음] (D-ADDPIECES-03): 키보드 위 끝과 이 화면 아래 끝의 차이만큼 올린다(움직임은 휴대폰 쪽).
+ * 아이폰은 키보드가 움직이기 전에 오는 소식(시간·끝 자리)으로 같은 시간·곡선, 안드로이드는 올라온 뒤 소식이라 짧게 따라간다.
+ * bottom: 화면(이 흐름) 아래 끝의 창 안 높이 — 처음 자리 잡을 때 잰다
+ */
+export function useKeyboardLift(on: boolean) {
+  const lift = useRef(new Animated.Value(0)).current
+  const bottom = useRef<number | null>(null)
+  const holder = useRef<ComponentRef<typeof View> | null>(null)
+  useEffect(() => {
+    if (!on || Platform.OS === 'web') return
+    const move = (top: number, duration: number, curve: (value: number) => number) => {
+      const end = bottom.current
+      if (end === null) return
+      Animated.timing(lift, { toValue: Math.min(0, top - end), duration, easing: curve, useNativeDriver: true }).start()
+    }
+    const subs =
+      Platform.OS === 'ios'
+        ? [Keyboard.addListener('keyboardWillChangeFrame', (event) => move(event.endCoordinates.screenY, event.duration > 0 ? event.duration : 250, KEYBOARD_CURVE))]
+        : [
+            Keyboard.addListener('keyboardDidShow', (event) => move(event.endCoordinates.screenY, 120, Easing.out(Easing.cubic))),
+            Keyboard.addListener('keyboardDidHide', () => move(Number.MAX_SAFE_INTEGER, 120, Easing.out(Easing.cubic))),
+          ]
+    return () => {
+      for (const sub of subs) sub.remove()
+    }
+  }, [on, lift])
+  const measure = () => {
+    holder.current?.measureInWindow((_x, y, _width, height) => {
+      bottom.current = y + height
+    })
+  }
+  return { lift, holder, measure }
 }
 
 /** 숫자판·키보드 바로 위 [다음] — 꽉 찬 띠가 아닌 큰 단추 (D-UX4-43, 사용자 지시 "원래처럼 별도의 버튼으로") */
@@ -616,7 +679,8 @@ export function useStepBack(stepBack: StepBack | undefined, back: () => boolean,
 /**
  * startNo: 번호를 채워 연다 (D-RETRO-23). onShow: 이미 있는 번호일 때 [그 상품 보기] — 그 상품 열쇠 (D-RETRO-22). 없으면 단추를 두지 않는다
  */
-export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: { readonly askName: boolean; readonly onAdded: (key: string) => void; readonly stepBack?: StepBack; readonly startNo?: number; readonly onShow?: (key: string) => void }) {
+// liftKeyboard: 품종 칸 [다음]을 이 화면이 키보드와 같이 올린다 — 감싼 화면이 키보드 피하기를 껐을 때만 (D-ADDPIECES-03)
+export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow, liftKeyboard = false }: { readonly askName: boolean; readonly liftKeyboard?: boolean; readonly onAdded: (key: string) => void; readonly stepBack?: StepBack; readonly startNo?: number; readonly onShow?: (key: string) => void }) {
   const api = useConsoleApi()
   const { p } = useKit()
   const footer = useFooterInset()
@@ -641,10 +705,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
   const [busy, setBusy] = useState(false)
   // 손글씨 판 (D-HANDWRITE-01) — 번호·가격 단계에서만
   const [pen, setPen] = useState(false)
-  // 아이폰 품종 칸: 초점이 있는 동안 [다음]은 키보드 위에 붙는다(키보드와 같이 오르내린다). 처음엔 곧 초점을 받으므로 붙은 쪽으로 둔다 (D-ADDPIECES-02)
-  const [nameBlurred, setNameBlurred] = useState(false)
-  const stepNow = useRef(step)
-  stepNow.current = step
+  const keyboard = useKeyboardLift(liftKeyboard)
   const clearProblem = () => {
     setError(null)
     setSame(null)
@@ -799,14 +860,13 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
   }
 
   const nextOff = active.trim() === '' || shownError !== null
-  const dock = Platform.OS === 'ios' && step === 'name'
-  const nameDocked = dock && !nameBlurred
   const onNext = step === 'no' ? nextFromNo : step === 'price' ? nextFromPrice : step === 'name' ? () => setStep('pieces') : () => setStep('confirm')
   return (
-    <Animated.View {...edgeHandlers} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
+    <Animated.View {...edgeHandlers} ref={keyboard.holder} onLayout={keyboard.measure} style={{ flex: 1, transform: [{ translateX: swipe }] }}>
       <View style={{ flex: 1, paddingHorizontal: SPACE.xxl, paddingTop: SPACE.xxl, gap: SPACE.xxl }}>
         {done.map((line) => <DoneLine key={line.step} label={line.label} value={line.value} onPress={() => { clearProblem(); setStep(line.step) }} />)}
-        <View style={{ gap: SPACE.sm }}>
+        {/* 새로 묻는 칸은 옅게 아래에서 올라온다 (D-ADDPIECES-03) */}
+        <Appear key={step} style={{ gap: SPACE.sm }}>
           {step === 'name' ? (
             <>
               <FocusInput
@@ -819,16 +879,13 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
                 maxLength={40}
                 returnKeyType="next"
                 onSubmitEditing={() => { if (name.trim() !== '') setStep('pieces') }}
-                onFocus={() => setNameBlurred(false)}
-                // 단계를 떠나며 칸이 사라질 때의 놓침은 셈하지 않는다 — 돌아오면 다시 키보드 위에 붙는다
-                onBlur={() => { if (stepNow.current === 'name') setNameBlurred(true) }}
-                {...(Platform.OS === 'ios' ? { inputAccessoryViewID: NAME_NEXT_DOCK } : {})}
                 style={{ fontSize: BIG, paddingVertical: 0, color: p.text, ...font(WEIGHT.bold) }}
               />
               {/* 칸 아래 한 줄 왼쪽 정렬 (D-ADDPIECES-02): 휴대폰을 눕혀 두고 손가락으로 품종 쓰기(D-HANDWRITE-02) · 토스 회색 칩(D-UX4-43). 개수는 다음 단계 (D-ADDPIECES-01) */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap' }}>
                 <HandwritingButton label="품종" onPress={() => setPen(true)} />
-                {name.trim() === '' ? <SoftChip label={SKIP_NAME} onPress={() => setStep('pieces')} /> : null}
+                {/* 늘 보인다 (D-ADDPIECES-03) — 적어 둔 글이 있으면 지우고 넘어간다(단추 말 그대로 품종 없이) */}
+                <SoftChip label={SKIP_NAME} onPress={() => { setName(''); setStep('pieces') }} />
               </View>
             </>
           ) : step === 'pieces' ? (
@@ -853,20 +910,16 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow }: 
           ) : null}
           {shownError !== null ? <ErrorLine large>{shownError}</ErrorLine> : null}
           {sameShown !== null ? <SameNumberLine product={sameShown} /> : null}
-        </View>
+        </Appear>
       </View>
       {/* 그사이 같은 번호가 올라왔으면 [다음] 자리에 [닫기 | 그 상품 보기] (D-RETRO-22) */}
       {sameButtons !== null ? (
         <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.sm, paddingBottom: SPACE.sm }}>{sameButtons}</View>
-      ) : nameDocked ? null : (
-        <NextButton onPress={onNext} disabled={nextOff} />
-      )}
-      {/* 아이폰 품종 칸: 키보드 위에 붙은 [다음] — 휴대폰이 키보드와 한 몸으로 움직인다(키보드 피하기보다 늦지 않다, D-ADDPIECES-02) */}
-      {dock ? (
-        <InputAccessoryView nativeID={NAME_NEXT_DOCK} backgroundColor={p.surface}>
+      ) : (
+        <Animated.View style={{ transform: [{ translateY: keyboard.lift }] }}>
           <NextButton onPress={onNext} disabled={nextOff} />
-        </InputAccessoryView>
-      ) : null}
+        </Animated.View>
+      )}
       {typing ? (
         <View style={{ paddingBottom: footer }}>
           <NumberKeys doubleZero={step === 'price'} onKey={type} />

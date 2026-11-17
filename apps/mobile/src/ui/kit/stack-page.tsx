@@ -8,7 +8,8 @@ import { KEYBOARD_AVOID } from './sheets.tsx'
 import { GUTTER, SPACE } from './tokens.ts'
 import { useKit, usePageTop, useTopInset, useWhiteTop } from './theme.tsx'
 
-export function StackPage({ title, name, onBack, backLabel = '뒤로', gray = false, scroll = true, footer, children, testID }: { readonly title?: string; readonly name: string; readonly onBack: () => void; readonly backLabel?: string; readonly gray?: boolean; readonly scroll?: boolean; readonly footer?: ReactNode; readonly children?: ReactNode; readonly testID?: string }) {
+// avoidKeyboard: false면 키보드 피하기를 하지 않는다 — 화면이 스스로 단추를 키보드와 같이 올릴 때(상품 추가 품종 칸, D-ADDPIECES-03)
+export function StackPage({ title, name, onBack, backLabel = '뒤로', gray = false, scroll = true, avoidKeyboard = true, footer, children, testID }: { readonly title?: string; readonly name: string; readonly onBack: () => void; readonly backLabel?: string; readonly gray?: boolean; readonly scroll?: boolean; readonly avoidKeyboard?: boolean; readonly footer?: ReactNode; readonly children?: ReactNode; readonly testID?: string }) {
   const { p } = useKit()
   const top = usePageTop()
   // 흰 화면이면 상태 막대 자리도 흰색 (D-UX4-97 — 경로 틀 RouteFrame이 칠한다)
@@ -24,7 +25,7 @@ export function StackPage({ title, name, onBack, backLabel = '뒤로', gray = fa
   )
   return (
     <View role="main" aria-label={name} testID={testID} style={{ flex: 1, backgroundColor: gray ? p.background : p.surface, paddingTop: top }}>
-      <KeyboardAvoidingView behavior={KEYBOARD_AVOID} keyboardVerticalOffset={offset} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={avoidKeyboard ? KEYBOARD_AVOID : undefined} enabled={avoidKeyboard} keyboardVerticalOffset={offset} style={{ flex: 1 }}>
         <NavBar onBack={onBack} backLabel={backLabel} {...(title === undefined ? {} : { title })} />
         {body}
         {footer}

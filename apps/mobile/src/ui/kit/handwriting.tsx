@@ -21,7 +21,10 @@ export const HANDWRITING_WORDS = {
   button: '손글씨',
   /** 단추 글 (D-ADDPIECES-01, 사용자 지시 2026-11-17 "[손글씨로 적을게요]로 이름 바꾸고 … 둥근 네모로") */
   write: '손글씨로 적을게요',
-  description: '손가락으로 크게 써 주세요. 잠깐 멈추면 글자로 바뀌어요. 두세 글자씩 나눠 써도 이어 붙어요.',
+  // D-ADDPIECES-03 (사용자 지시 2026-11-17)
+  description: '쓰고나서 잠깐 기다리면 글자로 바뀌어요.\n한 번 더 쓰면 이전 글자에 이어 붙어요.',
+  /** 판 제목 뒤 말 — "품종 손글씨 입력" */
+  title: '손글씨 입력',
   padHint: '여기에 크게 써 주세요',
   padLabel: '손글씨 쓰는 곳',
   empty: '쓴 글자가 여기 보여요',
@@ -135,8 +138,7 @@ export function HandwritingPad({ ink, height, onPenDown, onStroke, onWidth, test
       }}
       style={{ height, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: p.surfaceAlt, overflow: 'hidden' }}
     >
-      {/* 글자 줄 안내: 가운데 아래쪽 옅은 밑줄 하나 */}
-      <View pointerEvents="none" aria-hidden style={{ position: 'absolute', left: SPACE.xl, right: SPACE.xl, top: Math.round(height * 0.8), height: 2, borderRadius: 1, borderCurve: 'continuous', backgroundColor: p.line }} />
+      {/* 옛 "글자 줄 안내" 밑줄은 그림 안내일 뿐 읽기에 쓰지 않아 없앴다 (D-ADDPIECES-03) */}
       {empty ? (
         <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
           <Txt step="bodyLarge" ink={p.placeholder} center>
@@ -261,7 +263,7 @@ export function HandwritingSheet({ visible, onClose, label, onInsert, maxLength,
     <BottomSheet
       visible={visible}
       onClose={onClose}
-      title={label}
+      title={`${label} ${HANDWRITING_WORDS.title}`}
       description={HANDWRITING_WORDS.description}
       half
       contentDrag={false}

@@ -151,7 +151,8 @@ describe('글자 칸의 [손글씨] 단추', () => {
     render(<UnderlineField label="품종" value="" handwriting onChangeText={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: '품종 손글씨로 쓰기' }))
     await act(async () => {})
-    const sheet = screen.getByRole('dialog', { name: '품종' })
+    // 제목은 "품종 손글씨 입력" (D-ADDPIECES-03 — 옛 기대는 칸 이름 "품종"만)
+    const sheet = screen.getByRole('dialog', { name: '품종 손글씨 입력' })
     expect(sheet.textContent).toContain(HANDWRITING_WORDS.description)
     expect(screen.getByRole('img', { name: HANDWRITING_WORDS.padLabel })).toBeTruthy()
     const clear = screen.getByRole('button', { name: HANDWRITING_WORDS.clear })
@@ -217,7 +218,7 @@ describe('손으로 써서 넣기', () => {
     expect(ink.calls[0]?.hints).toEqual(['핑크프릴', '백금'])
     fireEvent.click(screen.getByRole('button', { name: HANDWRITING_WORDS.insert }))
     expect(onInsert).toHaveBeenCalledWith('핑크프릴')
-    expect(screen.queryByRole('dialog', { name: '품종' })).toBeNull()
+    expect(screen.queryByRole('dialog', { name: '품종 손글씨 입력' })).toBeNull()
   })
 
   it('"혹시" 후보를 누르면 그 글로 바뀐다', async () => {

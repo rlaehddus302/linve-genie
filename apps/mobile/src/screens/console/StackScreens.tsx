@@ -21,10 +21,11 @@ export function ProductAddScreen({ broadcastId, onBack, startNo }: { readonly br
   // 머리 ‹: 첫 단계(번호)가 아니면 앞 단계로, 첫 단계면 화면을 닫는다 (D-UX4-111)
   const stepBack = useRef<(() => boolean) | null>(null)
   return (
-    <StackPage name={ADD_TITLE} title={ADD_TITLE} onBack={() => { if (stepBack.current?.() !== true) onBack() }} scroll={false} testID="product-add">
+    <StackPage name={ADD_TITLE} title={ADD_TITLE} onBack={() => { if (stepBack.current?.() !== true) onBack() }} scroll={false} avoidKeyboard={false} testID="product-add">
       <ScopeConsole broadcastId={broadcastId} waiting={<Loading />}>
         {({ broadcast }) => (
           <ProductAddFlow
+            liftKeyboard
             stepBack={stepBack}
             askName={broadcast.title.includes('다육이')}
             onAdded={(key) => {
