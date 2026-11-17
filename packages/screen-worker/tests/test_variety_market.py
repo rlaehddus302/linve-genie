@@ -50,6 +50,9 @@ class PickTest(unittest.TestCase):
         self.assertEqual(pick(["창록금"])[0], "창 녹금")                                 # 창록 → 창녹, 창과 무늬를 따로
         self.assertEqual(pick(["색금창"])[0], "창 색금")
         self.assertEqual(pick(["SP색금"])[0], "SP 색금")                                 # 품종 이름이 없으면 SP가 품종
+        self.assertEqual(pick(["몰디브 생금"])[0], "몰디브 색금")                         # 생금·설금 → 색금(D-RECOG-45)
+        self.assertEqual(pick(["소믈리에 설금 무지"])[0], "소믈리에 색금 무지")
+        self.assertEqual(pick(["실생금"])[0], "실생 금")                                  # 실생 뒤는 그대로
 
     def test_split_can_be_turned_off(self):
         old = M.SPLIT
@@ -83,6 +86,8 @@ class PickTest(unittest.TestCase):
 class WorkerTest(unittest.TestCase):
     def test_market_is_the_default_and_registers_the_dictionary_name(self):
         self.assertEqual(llm_live.NAME_MODE, "market")
+        if llm_live.BACKEND == "claude" and "LLM_REG_MODEL" not in __import__("os").environ:
+            self.assertEqual(llm_live.MODEL, "opus")                                       # 등록 모델 Opus(D-RECOG-45)
         st = Stage(self)
         st.show(0, 9, 10)
         st.say(0, "10번 몰디부 만원", row(0, 10, 10000, "몰디부", no_from="말+화면"))

@@ -45,7 +45,9 @@ from .screen import EXPIRE, STABLE, Screen
 HERE = os.path.dirname(os.path.abspath(__file__))
 SYS = os.path.join(HERE, "prompts", os.environ.get("LLM_REG_PROMPT", "sales_instruct_system_regstt8k2.txt"))
 BACKEND = os.environ.get("LLM_REG_BACKEND", "claude")          # claude = Claude 구독(D-RECOG-40, 기본) / codex = Codex 구독(예전 — 무료 요금제에서는 sol이 거절된다)
-MODEL = os.environ.get("LLM_REG_MODEL", "sonnet" if BACKEND == "claude" else "gpt-5.6-sol")   # Claude는 별칭(sonnet·haiku) 또는 claude-… 이름
+# Claude 등록 모델은 Opus(D-RECOG-45): 9방송 같은 물음에서 Sonnet보다 품종 +1.9%p(73.5 → 75.4%, 이름 빈칸 95 → 68)·번호 933 → 937·가격 887 → 893,
+#   답 10.3초 → 6.2초, 물음당 비용(API 값) 1.23배(생각·답이 짧다). 되돌리기 LLM_REG_MODEL=sonnet
+MODEL = os.environ.get("LLM_REG_MODEL", "opus" if BACKEND == "claude" else "gpt-5.6-sol")   # Claude는 별칭(opus·sonnet·haiku) 또는 claude-… 이름
 EFFORT = os.environ.get("LLM_REG_EFFORT", "low")
 WINDOW = float(os.environ.get("LLM_REG_WINDOW", 60))   # 물을 때 넣는 최근 줄의 길이(방송 초)
 SAFETY = float(os.environ.get("LLM_REG_SAFETY", 60))   # 이벤트 없이 이만큼(방송 초) 지나면 한 번 묻는다
