@@ -687,11 +687,16 @@ export class PrintService {
     this.#options.publish(sellerId, { rev: queue.rev, queue, jobs, labels: labelViews })
   }
 
+  /** 자동 라벨을 저절로 받는 라이브 날짜의 시작 — 어제(KST) (D-LIVEPRINT-01) */
+  #liveFrom(): string {
+    return kstDate(this.#now().getTime() - DAY_MS)
+  }
+
   // ── 조회 ─────────────────────────────────────────────────────────────────
 
   async summary(sellerId: string): Promise<QueueSummary> {
     const queue = await readQueue(this.#db, sellerId)
-    const counts = await queueCounts(this.#db, sellerId)
+    const counts = await queueCounts(this.#db, sellerId, this.#liveFrom())
     return this.#summaryOf(sellerId, queue, counts)
   }
 
@@ -924,7 +929,7 @@ export class PrintService {
     const outcome = await this.#db.transaction(async (tx) => {
       const queue = await lockQueue(tx, sellerId, now)
       if (!queue.labelsEnabled) return { kind: 'off' as const }
-      const counts = async () => queueCounts(tx, sellerId)
+      const counts = async () => queueCounts(tx, sellerId, this.#liveFrom())
       if (queue.deviceId === deviceId) {
         // 같은 기기가 다시 "이 기기에서 출력"을 누르면 출력 그만하기를 거둔다(출력 중인 장이 끝나도 출력 기기로 남는다, L-11 10). 멈춤은 그대로
         await updateQueue(tx, sellerId, { deviceName: name, printerProfileId: profileId, releasing: false }, now)
@@ -1062,7 +1067,7 @@ export class PrintService {
     // 출력 기기가 아니면 아무것도 쓰지 않는다 (대기열 줄도 만들지 않는다, AC-I1-06)
     if (current?.deviceId !== deviceId) return { kind: 'not_device' }
     for (let round = 0; round < CLAIM_ROUNDS; round++) {
-      const liveFrom = kstDate(this.#now().getTime() - DAY_MS)
+      const liveFrom = this.#liveFrom()
       const peek = await headWaitingJob(this.#db, sellerId, liveFrom)
       let ctx: StateContext | null = null
       if (peek !== null && peek.job.kind === 'product') {
@@ -1932,7 +1937,7 @@ export class PrintService {
   /** 지금 켬/끔·바꾼 기록 최근 20줄(새것 먼저)·대기 장 수. 아무것도 쓰지 않는다 (대기열 줄도 만들지 않는다) */
   async labelSettings(sellerId: string): Promise<LabelSettings> {
     const queue = await readQueue(this.#db, sellerId)
-    const { waiting } = await queueCounts(this.#db, sellerId)
+    const { waiting } = await queueCounts(this.#db, sellerId, this.#liveFrom())
     const history = await labelSwitchHistory(this.#db, sellerId, LABEL_HISTORY_LIMIT)
     return { enabled: queue?.labelsEnabled ?? true, history: history.map(entryOf), waiting, rev: queue?.rev ?? 0 }
   }
@@ -1964,7 +1969,7 @@ export class PrintService {
       if (queue.labelsEnabled === enabled) return null
       const patch: QueuePatch = { labelsEnabled: enabled }
       if (enabled) {
-        const { waiting } = await queueCounts(tx, sellerId)
+        const { waiting } = await queueCounts(tx, sellerId, this.#liveFrom())
         if (waiting > 0 && (queue.paused === null || queue.paused === 'DISCONNECTED')) {
           patch.paused = 'SELLER'
           patch.backlog = true

@@ -28,7 +28,9 @@ describe('D-LIVEPRINT-01 끝난 라이브 라벨은 저절로 나오지 않는�
     const old = await offlineLive(world, seller, [1, 2])
     expect((await expectOk(end(world, seller, old))).status).toBe(200)
     const now = await offlineLive(world, seller, [7])
-    expect((await p.overview()).queue.waiting).toBe(3)
+    // 전체 대기 수는 저절로 나갈 라벨만 — 끝난 라이브 라벨은 그 라이브 라벨 탭에서만 대기로 보인다 (D-LIVEPRINT-02. 옛 기대: 3)
+    expect((await p.overview()).queue.waiting).toBe(1)
+    expect((await p.labels()).labels.filter((label) => label['broadcast'] === old && label['state'] === 'WAITING')).toHaveLength(2)
 
     // 프린터를 다시 이으면 지금 라이브 라벨(7번)만 나온다
     await expectOk(p.state(DEVICE_A, true))
@@ -36,12 +38,14 @@ describe('D-LIVEPRINT-01 끝난 라이브 라벨은 저절로 나오지 않는�
     expect(first.job?.label.no).toBe(7)
     expect(await p.done(DEVICE_A, first.job?.attempt ?? '')).toBe(true)
     expect(await p.claim(DEVICE_A)).toMatchObject({ job: null, reason: 'EMPTY' })
-    // 끝난 라이브 라벨은 지워지지 않고 대기로 남아 있다
-    expect((await p.overview()).queue.waiting).toBe(2)
+    // 끝난 라이브 라벨은 지워지지 않고 그 라이브에 대기로 남아 있다 — 전체 대기 수에는 세지 않는다 (D-LIVEPRINT-02)
+    expect((await p.overview()).queue.waiting).toBe(0)
+    expect((await p.labels()).labels.filter((label) => label['broadcast'] === old && label['state'] === 'WAITING')).toHaveLength(2)
 
     // 끝난 라이브 라벨 탭에서 출력 → 먼저 들어온 것부터 받는다
     const released = await expectOk(printWaiting(world, seller, old))
     expect(released.body).toEqual({ released: 2 })
+    expect((await p.overview()).queue.waiting).toBe(2)
     const a = await p.claim(DEVICE_A)
     expect(a.job?.label.no).toBe(1)
     expect(a.job?.reason).toBe('manual')

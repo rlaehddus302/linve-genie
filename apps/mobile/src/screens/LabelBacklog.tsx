@@ -108,14 +108,43 @@ function WaitingFeedback({ work, side }: { readonly work: ReturnType<typeof useW
   )
 }
 
+/** 그 라이브의 대기 라벨 수 (라벨 상태가 대기인 그 라이브 상품 라벨 — 서버 라벨 목록). 라이브 밖이거나 세지 못하면 0 */
+export function liveWaitingCount(labels: readonly Pick<LabelView, 'kind' | 'broadcast' | 'state'>[], broadcastId: string): number {
+  return labels.filter((label) => label.kind === 'product' && label.broadcast === broadcastId && label.state === 'WAITING').length
+}
+
+function useLiveWaiting(broadcastId: string | null, date: string | null, rev: number | undefined, seq: number | undefined): number {
+  const [count, setCount] = useState(0)
+  useEffect(() => {
+    if (broadcastId === null || date === null) {
+      setCount(0)
+      return
+    }
+    let alive = true
+    get<{ labels: LabelView[] }>(withQuery('/api/print/labels', { date })).then(
+      (view) => {
+        if (alive) setCount(liveWaitingCount(view.labels, broadcastId))
+      },
+      // 세지 못하면 그대로 둔다 (다음 바뀜 때 다시 센다)
+      () => undefined,
+    )
+    return () => {
+      alive = false
+    }
+  }, [broadcastId, date, rev, seq])
+  return count
+}
+
 /** 라벨 탭 [대기 중인 라벨 모두 출력하기] (D-PRINTALL-01) — 대기 라벨이 있거나 결과·안내가 남아 있을 때만 */
 export function PrintAllWaiting() {
   const work = useWaitingPrint()
   const api = useContext(ConsoleContext)
   const queue = work.snapshot.queue
-  const waiting = queue?.labelsEnabled === true ? queue.waiting : 0
   // 이 라이브의 대기 라벨도 내보낸다 (D-LIVEPRINT-01): 끝난 라이브의 자동 라벨은 저절로 나가지 않으므로 이 탭에서 누를 때 손으로 넣은 작업으로 바꾼 뒤 뽑는다
   const live = api !== null && !api.sealed && !api.data.rehearsal ? api.b : null
+  // 라이브 화면 안이면 이 라이브의 대기 라벨 수로 단추를 보인다 — 전체 대기 수에는 끝난 라이브 라벨이 들어가지 않는다 (D-LIVEPRINT-02)
+  const liveWaiting = useLiveWaiting(live, api?.data.date ?? null, queue?.rev, api?.data.seq)
+  const waiting = queue?.labelsEnabled !== true ? 0 : live !== null ? liveWaiting : queue.waiting
   const printAll = async () => {
     if (live !== null) await withRetry(() => post('/api/print/labels/print-waiting', { b: live }))
     await work.printWaiting()

@@ -8,7 +8,7 @@ import type { LabelView, QueueSummary } from '@livejjim/web/src/api/print-types.
 import type { LinkView } from '@livejjim/web/src/api/types.ts'
 import { fixPlan } from '../src/lib/label-fix.ts'
 import { FIX_AMOUNT_KEPT, FIX_DONE, FIX_DONE_SAME, FIX_LABEL_ONLY, FIX_NUMBER_LABEL_ONLY, FIX_PRICE_LABEL_ONLY, FIX_PRODUCT_TOO, FIX_QUESTION, PRINT_ALL_WAITING, WAITING_NEED_PRINTER, WAITING_RECONNECT, fixDescription, keepReconnectingMessage, missingQueued, missingRowTitle, waitingResult } from '../src/lib/print-words.ts'
-import { PrintAllWaiting, missingLabelCount } from '../src/screens/LabelBacklog.tsx'
+import { PrintAllWaiting, liveWaitingCount, missingLabelCount } from '../src/screens/LabelBacklog.tsx'
 import { LABEL_PRINT_ROWS } from '../src/screens/LabelPrintScreen.tsx'
 import { PrintHistory } from '../src/screens/PrintHistory.tsx'
 import { ScopeConsole } from '../src/screens/console/scope.tsx'
@@ -138,6 +138,8 @@ describe('F1 라이브 관리의 쌓인 라벨 줄', () => {
 
   it('세는 법·문구', () => {
     expect(missingLabelCount([labelOf(1, 'a'), labelOf(2, 'b', { canPrint: false }), labelOf(3, 'c', { broadcast: 'b2' }), labelOf(4, 'd', { kind: 'packing' })], 'b1')).toBe(1)
+    // 라이브 라벨 탭의 출력 단추는 그 라이브의 대기 라벨 수로 보인다 (D-LIVEPRINT-02 — 전체 대기 수에는 끝난 라이브 라벨이 없다)
+    expect(liveWaitingCount([labelOf(1, 'a', { state: 'WAITING' }), labelOf(2, 'b', { state: 'PRINTED' }), labelOf(3, 'c', { state: 'WAITING', broadcast: 'b2' }), labelOf(4, 'd', { state: 'WAITING', kind: 'packing' })], 'b1')).toBe(1)
     expect(PRINT_ALL_WAITING).toBe('대기 중인 라벨 모두 출력하기') // D-PRINTALL-01 (옛 waitingRowTitle '대기 2장 지금 뽑기')
     expect(missingRowTitle(6)).toBe('라벨 없는 판매 6건 뽑기')
     expect(missingQueued(0)).toBe('새로 넣을 라벨이 없어요. 이미 다 넣었어요.')

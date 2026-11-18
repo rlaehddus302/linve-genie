@@ -78,15 +78,20 @@ export async function hasOpenBroadcast(db: Db, sellerId: string): Promise<boolea
   return rows.length > 0
 }
 
-/** 대기·출력 중·버릴 라벨 장 수 (실제 범위만) */
-export async function queueCounts(db: Db, sellerId: string): Promise<{ waiting: number; printing: number; discard: number }> {
+/**
+ * 대기·출력 중·버릴 라벨 장 수 (실제 범위만). 대기는 출력 기기가 저절로 받을 작업만 센다 — 끝난 라이브의 자동 라벨(printableNow가 아님)은
+ * 그 라이브 라벨 탭에만 대기로 보이고 여기 장 수에는 넣지 않는다 (D-LIVEPRINT-02)
+ */
+export async function queueCounts(db: Db, sellerId: string, liveFrom: string): Promise<{ waiting: number; printing: number; discard: number }> {
   const rows = await db
     .select({
-      waiting: sql<number>`count(*) filter (where ${printJobs.status} = 'WAITING')::int`,
+      waiting: sql<number>`count(*) filter (where ${printJobs.status} = 'WAITING' and ${printableNow(liveFrom)})::int`,
       printing: sql<number>`count(*) filter (where ${printJobs.status} = 'PRINTING')::int`,
       discard: sql<number>`count(*) filter (where ${printJobs.status} = 'DONE' and ${printJobs.voided} and ${printJobs.discardedAt} is null)::int`,
     })
     .from(printJobs)
+    .leftJoin(printLabels, and(eq(printLabels.id, printJobs.labelId), eq(printLabels.sellerId, sellerId)))
+    .leftJoin(broadcasts, and(eq(broadcasts.id, printLabels.broadcast), eq(broadcasts.sellerId, sellerId)))
     .where(and(eq(printJobs.sellerId, sellerId), sql`(${printJobs.status} in ('WAITING', 'PRINTING') or (${printJobs.voided} and ${printJobs.discardedAt} is null))`))
   const row = rows[0]
   return { waiting: Number(row?.waiting ?? 0), printing: Number(row?.printing ?? 0), discard: Number(row?.discard ?? 0) }
