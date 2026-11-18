@@ -598,7 +598,7 @@ export class PrintService {
         scopeId,
         first.seq,
         last.seq,
-        (effect: LabelEffectBody, seq: number) => JSON.stringify(productLabelBuyer(stateAt(seq), { origin: claims.get(effect.claim)?.origin ?? '', buyer: effect.buyer, named: claims.get(effect.claim)?.named === true })),
+        (effect: LabelEffectBody, seq: number) => JSON.stringify(productLabelBuyer(stateAt(seq), { buyer: effect.buyer })),
         now,
         // 찜 금액이 없는 확정 찜은 작업(·라벨 키)을 만들지 않는다 (D-O3-15)
         (effect: LabelEffectBody) => {

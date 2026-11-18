@@ -141,7 +141,7 @@ describe('AC-I1-04 엔진 상태 → 라벨 데이터 (L-9)', () => {
     expect((await p.claim(DEVICE_A)).job).toBeNull()
   })
 
-  it('(라) 문자찜 지정 구매자가 유튜브 채널이어도 문자찜 (마) 문자 구매자를 유튜브 시청자에 합쳐도 문자찜 라벨은 문자찜, 유튜브 쪽은 그 채널 이름', async () => {
+  it('(라) 문자찜 지정 구매자가 유튜브 채널이면 그 채널 이름(D-CLAIMADD-04) (마) 문자 구매자를 유튜브 시청자에 합쳐도 문자 구매자의 찜 라벨은 문자찜, 유튜브 쪽은 그 채널 이름', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     const b = await createBroadcast(world, seller, { date: DAY })
@@ -158,14 +158,14 @@ describe('AC-I1-04 엔진 상태 → 라벨 데이터 (L-9)', () => {
     const jobs = (await p.overview()).jobs
     const byNo = new Map(jobs.map((job) => [job.label.no, job]))
     expect(byNo.get(16)?.label.buyer).toEqual({ kind: 'youtube', name: '홍길동' })
-    expect(byNo.get(15)?.label.buyer).toEqual({ kind: 'sms' })
+    expect(byNo.get(15)?.label.buyer).toEqual({ kind: 'youtube', name: '홍길동' })
     expect(byNo.get(17)?.label.buyer).toEqual({ kind: 'sms' })
     // 라벨 데이터·응답에 메모·전화번호·뒤 4자리가 없다 (AC-I1-17)
     const text = JSON.stringify(await p.overview()) + JSON.stringify(await p.labels())
     expect(text).not.toMatch(/김영희|박 이모|5678|010|phone/)
   })
 
-  it('(바) 판매자가 채팅 손님을 골라 "닉네임으로 보이기"(named)로 넣은 문자찜은 그 채널 이름, 문자 구매자는 named여도 문자찜 (D-CLAIMADD-03)', async () => {
+  it('(바) 판매자가 채팅 손님을 골라 넣은 문자찜은 "닉네임으로 보이기"(named)를 켜든 끄든 라벨이 그 채널 이름, 문자 구매자는 named여도 문자찜 (D-CLAIMADD-03·04)', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     const b = await createBroadcast(world, seller, { date: DAY })
@@ -179,7 +179,8 @@ describe('AC-I1-04 엔진 상태 → 라벨 데이터 (L-9)', () => {
     const p = printApi(world, seller)
     const byNo = new Map((await p.overview()).jobs.map((job) => [job.label.no, job]))
     expect(byNo.get(15)?.label.buyer).toEqual({ kind: 'youtube', name: '홍길동' })
-    expect(byNo.get(16)?.label.buyer).toEqual({ kind: 'sms' })
+    // 스위치를 켜지 않고 닉네임 손님을 골라 넣어도 라벨은 닉네임 (D-CLAIMADD-04, 사용자 "98번 찜 넣기 해서 봄가을 닉네임 골랐는데 라벨에는 문자찜으로 나오는 버그")
+    expect(byNo.get(16)?.label.buyer).toEqual({ kind: 'youtube', name: '홍길동' })
     expect(byNo.get(17)?.label.buyer).toEqual({ kind: 'sms' })
     // 손으로 넣은 두 찜 모두 그 채팅 손님 한 사람의 찜이다(정산 합산)
     const claims = await claimsOf(world, seller)

@@ -138,7 +138,7 @@ export interface SmsClaimInput {
   /** 끝 네 자리가 같은 손님이 있어도 새 손님으로 넣기 */
   readonly newBuyer?: boolean
   /**
-   * 닉네임으로 보이기 (D-CLAIMADD-03): 고른 손님(buyer)이 채팅 손님일 때만 싣는다 — 라벨·감사 채팅 이름이 "문자찜" 대신 그 닉네임.
+   * 닉네임으로 보이기 (D-CLAIMADD-03): 고른 손님(buyer)이 채팅 손님일 때만 싣는다 — 감사 채팅 이름이 "문자찜" 대신 그 닉네임(라벨은 이것과 상관없이 닉네임, D-CLAIMADD-04).
    * 판정(찜·대기)·정산은 같다. 기본은 끔(문자찜으로 — 닉네임을 드러내지 않는다)
    */
   readonly named?: boolean

@@ -1,9 +1,10 @@
 // 엔진 상태 → 라벨 데이터 (LABEL_RULES L-9, L-10, D-I1-04·D-I1-10). 판정은 하지 않는다 — 코어 조회 함수의 결과만 읽는다.
 // - 상품 라벨: no·name = 그 찜이 속한 상품의 지금 번호·품종(개수가 2 이상이면 "채홍 3개", D-PIECES-01), price = 그 찜의 가격 스냅샷, date = 그 방송의 날짜(범위 날짜),
 //   buyer = 그 라벨 키에 고정된 구매자(라벨 키의 첫 작업 때 정한다).
-// - 상품 라벨의 구매자 규칙(첫 작업 때): 문자찜으로 생긴 찜이거나 찜의 구매자 자신이 문자 구매자면 { kind: 'sms' },
+// - 상품 라벨의 구매자 규칙(첫 작업 때): 찜의 구매자 자신이 문자 구매자면 { kind: 'sms' },
 //   아니면 { kind: 'youtube', name: 찜의 구매자 자신의 지금 표시 이름 } — 합친 상대의 이름이 아니다.
-//   판매자가 "닉네임으로 보이기"로 넣은 문자찜(named, D-CLAIMADD-03)은 문자찜으로 생긴 찜이어도 구매자가 채팅 손님이면 그 닉네임이다.
+//   문자찜으로 생긴 찜이어도 구매자가 채팅 손님(찜 넣기에서 닉네임으로 고른 손님 등)이면 그 닉네임이다 — 라벨은 판매자만 보고 포장 라벨과 같은 이름이라야
+//   분류할 때 헷갈리지 않는다 (D-CLAIMADD-04). 공개되는 감사 채팅 이름은 그대로 "닉네임으로 보이기"(named, D-CLAIMADD-03)를 따른다.
 // - 포장 라벨: (지금의 구매자, 날짜) 정산 묶음 — 그날 방송 선언 순서대로 1등 상품 번호, 코어 정산의 상품 합계, 지금의 구매자 표시 이름.
 // - 옵션 방송 (O3, D-O3-01·03): 상품 라벨 price = 찜 금액, variant = 옵션 글(있을 때만), qty = 수량(2 이상일 때만).
 //   포장 라벨은 변형마다 항목(같은 변형은 수량을 더함), 옵션 없는 수량 1은 정수 번호 그대로.
@@ -36,10 +37,9 @@ export function buildClaimIndex(state: EngineState): ClaimIndex {
 
 /**
  * 상품 라벨의 구매자 (L-9, D-I1-04) — 라벨 키의 첫 작업을 만드는 순간의 상태로 정한다.
- * origin = 그 찜이 생긴 경로, buyer = 찜의 구매자 자신 (합친 결과가 아니다)
+ * buyer = 찜의 구매자 자신 (합친 결과가 아니다). 찜이 생긴 경로(문자찜인지)는 보지 않는다 (D-CLAIMADD-04)
  */
-export function productLabelBuyer(state: EngineState, claim: { readonly origin: string; readonly buyer: string; readonly named?: boolean }): LabelBuyer {
-  if (claim.origin === 'sms' && claim.named !== true) return { kind: 'sms' }
+export function productLabelBuyer(state: EngineState, claim: { readonly buyer: string }): LabelBuyer {
   const buyer = getBuyer(state, claim.buyer)
   if (buyer === null || buyer.kind === 'sms') return { kind: 'sms' }
   return { kind: 'youtube', name: buyer.display }

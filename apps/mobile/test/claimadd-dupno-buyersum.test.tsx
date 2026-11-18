@@ -80,7 +80,7 @@ describe('찜 넣기 [닉네임으로 보이기] (D-CLAIMADD-03)', () => {
     await within(form).findByRole('group', { name: '최근 채팅 손님' })
     const toggle = within(form).getByRole('switch', { name: `${CLAIM_ADD_NAMED} — 꺼짐` })
     expect(toggle).toBeTruthy()
-    expect(within(form).getByText('켜면 라벨과 감사 채팅에 "문자찜" 대신 손님 닉네임이 나와요')).toBeTruthy()
+    expect(within(form).getByText('켜면 감사 채팅에도 "문자찜" 대신 손님 닉네임이 나와요. 라벨에는 늘 닉네임이 나와요')).toBeTruthy()
     fireEvent.click(within(form).getByRole('button', { name: '이두리 손님으로 26번에 찜 넣기' }))
     await waitFor(() => expect(world.events.length).toBe(1))
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 26, buyer: 'u8' })
