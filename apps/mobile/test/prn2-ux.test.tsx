@@ -30,7 +30,7 @@ async function connected(profile: typeof B1_PROFILE | typeof BAUATO_PPA2L | type
   world.server.on('GET', /^\/api\/print\/test-bitmap\?size=[a-z0-9]+$/, () => ({ body: { width: 8, height: 2, data: '/4E=' } }))
   world.services.labels.start()
   render(world.wrap(<LabelsScreen onBack={() => {}} />))
-  await waitFor(() => expect(screen.getByText('출력 기기 없음')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('라벨을 출력할 기기를 아직 정하지 않았어요') /* D-PRNUX-01 — 옛: '출력 기기 없음' */).toBeTruthy())
   await flush()
   return world
 }
@@ -56,7 +56,7 @@ describe('UX-PRN2-007 보내기 단추 글', () => {
 describe('UX-PRN2-001 "아니요" 뒤 도움말 (웹과 같은 목록)', () => {
   it('바우아토: 맨 위에 Luck Jingle 앱으로 그림 파일, NIIMBOT 줄 없음 — 보내기 단추는 그 앱 이름', async () => {
     const world = await connected(BAUATO_PPA2L)
-    fireEvent.click(screen.getByRole('button', { name: '블루투스로 연결' }))
+    fireEvent.click(screen.getByRole('button', { name: '프린터 연결' }) /* D-PRNUX-01 — 옛: '블루투스로 연결' */)
     await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
     await pressTestPrint()
     const result = await screen.findByRole('group', { name: '테스트 인쇄 결과' })
@@ -75,7 +75,7 @@ describe('UX-PRN2-001 "아니요" 뒤 도움말 (웹과 같은 목록)', () => {
 
   it('B1(확인됨): 잘 찍는 동안 테스트 라벨 보내기가 없고, "아니요" 뒤에 B1 도움말과 함께 보인다', async () => {
     const world = await connected(B1_PROFILE)
-    fireEvent.click(screen.getByRole('button', { name: '블루투스로 연결' }))
+    fireEvent.click(screen.getByRole('button', { name: '프린터 연결' }) /* D-PRNUX-01 — 옛: '블루투스로 연결' */)
     await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
     expect(screen.queryByRole('button', { name: /^테스트 라벨을/ })).toBeNull()
     await pressTestPrint()
@@ -123,11 +123,11 @@ describe('UX-PRN2-005·006 출력 기기의 실험 기종', () => {
     asDevice(world, state)
     world.services.labels.start()
     render(world.wrap(<LabelsScreen onBack={() => {}} />))
-    await waitFor(() => expect(screen.getByText('이 기기가 출력 기기예요 · 내 휴대폰')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: '블루투스로 연결' }))
+    await waitFor(() => expect(screen.getByText('이 휴대폰이 라벨을 받아 출력해요') /* D-PRNUX-01 — 옛: '이 기기가 출력 기기예요 · 내 휴대폰' */).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '프린터 연결' }) /* D-PRNUX-01 — 옛: '블루투스로 연결' */)
     await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
     await world.services.labels.reload()
-    const queueCard = screen.getByRole('group', { name: '대기열' })
+    const queueCard = screen.getByRole('group', { name: '라벨 출력' }) /* D-PRNUX-01 — 옛: '대기열' */
     expect(within(queueCard).queryByRole('button', { name: '테스트 인쇄' })).toBeNull()
     expect(world.server.callsTo('GET', /test-bitmap/)).toHaveLength(0)
     world.services.labels.stop()
@@ -140,8 +140,8 @@ describe('UX-PRN2-005·006 출력 기기의 실험 기종', () => {
     asDevice(world, state)
     world.services.labels.start()
     render(world.wrap(<LabelsScreen onBack={() => {}} />))
-    await waitFor(() => expect(screen.getByText('이 기기가 출력 기기예요 · 내 휴대폰')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: '블루투스로 연결' }))
+    await waitFor(() => expect(screen.getByText('이 휴대폰이 라벨을 받아 출력해요') /* D-PRNUX-01 — 옛: '이 기기가 출력 기기예요 · 내 휴대폰' */).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '프린터 연결' }) /* D-PRNUX-01 — 옛: '블루투스로 연결' */)
     await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
     await pressTestPrint()
     fireEvent.click(within(await screen.findByRole('group', { name: '테스트 인쇄 결과' })).getByRole('button', { name: '예' }))
@@ -173,7 +173,7 @@ describe('UX-PRN2-008 글자 크기 (본문 15px·꼬리표 13px, D-UX3-74)', ()
   // D-UX3-19: 옛 문장 '실험 중인 프린터는 테스트 인쇄를…'
   it('테스트 없이 출력 기기를 선택할 수 있다', async () => {
     const world = await connected(BAUATO_PPA2L)
-    fireEvent.click(screen.getByRole('button', { name: '블루투스로 연결' }))
+    fireEvent.click(screen.getByRole('button', { name: '프린터 연결' }) /* D-PRNUX-01 — 옛: '블루투스로 연결' */)
     await waitFor(() => expect(screen.getByText('연결됨')).toBeTruthy())
     expect(screen.queryByText(/테스트 인쇄를 하고 "예"를 누른 뒤/)).toBeNull()
     expect(screen.getByRole('button', { name: '이 기기에서 출력' })).toBeTruthy()

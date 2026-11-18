@@ -22,7 +22,7 @@ describe('출력 상태 화면의 다시 잇는 문장', () => {
     world.server.on('POST', /^\/api\/print\/device\/state$/, () => ({ body: {} }))
     world.services.labels.start()
     render(world.wrap(<LabelsScreen onBack={() => {}} />))
-    await waitFor(() => expect(screen.getByText('이 기기가 출력 기기예요 · 내 휴대폰')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('이 휴대폰이 라벨을 받아 출력해요') /* D-PRNUX-01 — 옛: '이 기기가 출력 기기예요 · 내 휴대폰' */).toBeTruthy())
     const auto = async (state: typeof world.ble.autoReconnect) => {
       await act(async () => {
         world.ble.autoReconnect = state

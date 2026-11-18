@@ -4,11 +4,15 @@
 // - 서버가 시험 모드일 때만 "시험용 프린터 — 실제로 출력되지 않아요"(L-11 15).
 // - 저절로 다시 잇는 동안·그친 뒤 한 줄(웹과 같은 문장, L-11 8). 인쇄 농도 칸은 연결한 프린터의 범위(B1 1~5 · YXQ 1~3), 농도가 없는 프린터면 숨긴다.
 // - 연결된 프린터는 테스트 없이 사용한다. 테스트 인쇄는 판매자가 원할 때 한 장만 요청한다.
+// - 한 화면 두 칸으로 줄임 (D-PRNUX-01, 사용자 "블루투스로 연결·다시 연결이 뭔 차이인지, 출력 기기·대기열은 왜 있는지"):
+//   프린터 칸은 주 단추 하나([다시 연결] — 기억한 프린터가 없으면 [프린터 연결]) + 글자 단추 "다른 프린터 고르기", 테스트 라벨 보내기는 문제가 있을 때만,
+//   농도는 이어졌을 때만. 옛 "출력 기기"·"대기열" 칸은 "라벨 출력" 한 칸(누가 출력하는지 · 기다리는 장 수 · 멈춤), 기기 이름 칸 없음(기기 종류로),
+//   끊김 멈춤에는 [다시 시작]을 두지 않는다(프린터를 이으면 저절로 풀리고, 끊긴 채 누르면 서버가 거절한다).
 // - 토스식 다듬기 (D-UX3-94): 쪽 여백 20·흰 카드, 카드 이름은 회색 본문(상태 꼬리표는 오른쪽), 단추는 둘씩 좌우로(부정·보조 왼쪽, 주 단추 오른쪽 —
 //   옛: "예" 왼쪽·"아니요" 오른쪽, 단추가 줄 넘김으로 쌓임), 곁길 일(시험용 프린터·테스트 라벨 보내기·다시 불러오기)은 글자 단추, 농도는 알약.
 import { printerProfile, printerSupportStage } from '@livejjim/printer'
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { ScrollView, View } from 'react-native'
+import { Platform, ScrollView, View } from 'react-native'
 import { isApiError } from '../api/client.ts'
 import { LOW_PAPER, labelPaper, useLabelPaper } from '../lib/label-paper.ts'
 import { testHelp } from '../lib/test-help.ts'
@@ -27,6 +31,26 @@ export const KEEP_SCREEN_ON = '출력하는 동안 이 화면을 켜 두세요.'
 export const TEST_QUESTION = '테스트 라벨의 네 변 테두리와 한글이 모두 또렷하게 보이나요?'
 export const replaceQuestion = (name: string): string => `지금은 다른 기기 '${name}'에서 출력하고 있어요. 이 기기로 바꿀까요?`
 export const BLUETOOTH_METHOD = '블루투스로 연결'
+/** 기억한 프린터가 없을 때의 주 단추 (D-PRNUX-01) */
+export const CONNECT_PRINTER = '프린터 연결'
+/** 기억한 프린터가 있을 때 고르기 창으로 가는 글자 단추 (옛 [블루투스로 연결] — D-PRNUX-01) */
+export const PICK_OTHER_PRINTER = '다른 프린터 고르기'
+export const OUTPUT_CARD_TITLE = '라벨 출력'
+/** 출력 기기 이름은 기기 종류로 (이름 칸 없음 — D-PRNUX-01) */
+export const deviceDefaultName = (): string => (Platform.OS === 'ios' ? '아이폰' : '안드로이드 폰')
+/** "라벨 출력" 칸 첫 줄 — 누가 출력하는지 (D-PRNUX-01) */
+export function outputLine(device: { readonly name: string; readonly live: boolean } | null, mine: boolean): string {
+  if (mine) return '이 휴대폰이 라벨을 받아 출력해요'
+  if (device === null) return '라벨을 출력할 기기를 아직 정하지 않았어요'
+  return `'${device.name}'에서 라벨을 출력해요${device.live ? '' : ' · 지금 꺼져 있어요'}`
+}
+/** "라벨 출력" 칸 장 수 줄 — 0장인 칸은 빼고 (D-PRNUX-01) */
+export function countLine(queue: { readonly waiting: number; readonly printing: number; readonly discard: number }): string {
+  const parts = [queue.waiting === 0 ? '기다리는 라벨 없음' : `기다리는 라벨 ${String(queue.waiting)}장`]
+  if (queue.printing > 0) parts.push(`찍는 중 ${String(queue.printing)}장`)
+  if (queue.discard > 0) parts.push(`버릴 라벨 ${String(queue.discard)}장`)
+  return parts.join(' · ')
+}
 export const JOB_CARD_TITLE = '찍는 중인 라벨'
 /** 이은 프린터의 제조사 앱 이름 (모르면 "제조사 앱") — 단추 글이 어디로 보내는지 말한다 (UX-PRN2-007) */
 export const fallbackAppName = (profileId: string | null): string => (profileId === null ? undefined : printerProfile(profileId))?.fallbackApp ?? '제조사 앱'
@@ -72,7 +96,7 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
   const { p } = useKit()
   const room = useTabBarRoom()
   const snapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
-  const [name, setName] = useState('내 휴대폰')
+  const name = deviceDefaultName()
   const [taken, setTaken] = useState<string | null>(null)
   const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -90,7 +114,8 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
   }, [snapshot.testing, snapshot.testPrinted])
   const app = fallbackAppName(linked ? snapshot.profileId : null)
   const help = testHelp(snapshot.profileId, snapshot.testSize ?? profile?.defaultSize ?? '50x30')
-  const showTestShare = !linked || experimental || answeredNo || snapshot.printerError !== null
+  // 테스트 라벨을 제조사 앱으로 보내기는 바로 찍기에 문제가 있을 때만 (실험 기종·테스트 "아니요"·프린터 오류 — D-PRNUX-01, 옛: 끊겨 있어도 늘)
+  const showTestShare = experimental || answeredNo || snapshot.printerError !== null
   const printTest = () =>
     void run(async () => {
       await labels.printTest()
@@ -156,12 +181,14 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
               {AUTO_RECONNECT_GAVE_UP}
             </Notice>
           ) : null}
-          {/* 끊김: [블루투스로 연결] 왼쪽 · 기억한 프린터가 있으면 [다시 연결](주) 오른쪽. 이어짐: [연결 끊기] 왼쪽 · [테스트 인쇄] 오른쪽 */}
+          {/* 끊김: 주 단추 하나 — 기억한 프린터가 있으면 [다시 연결](고르기 창 없이), 없으면 [프린터 연결](고르기 창). 다른 프린터는 아래 글자 단추 (D-PRNUX-01).
+              이어짐: [연결 끊기] 왼쪽 · [테스트 인쇄] 오른쪽 */}
           {disconnected ? (
-            <ButtonRow>
-              <BigButton kind={showReconnect ? 'outline' : 'primary'} label={BLUETOOTH_METHOD} disabled={busy} onPress={() => void run(() => labels.connect('bluetooth'))} />
-              {showReconnect ? <BigButton label={PRINT_ACTION.reconnect} disabled={busy} onPress={() => void run(() => labels.reconnect())} /> : null}
-            </ButtonRow>
+            showReconnect ? (
+              <BigButton label={PRINT_ACTION.reconnect} disabled={busy} onPress={() => void run(() => labels.reconnect())} />
+            ) : (
+              <BigButton label={CONNECT_PRINTER} disabled={busy} onPress={() => void run(() => labels.connect('bluetooth'))} />
+            )
           ) : null}
           {snapshot.printer === 'CONNECTED' ? (
             <ButtonRow>
@@ -169,9 +196,10 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
               <BigButton kind="secondary" label="테스트 인쇄" disabled={busy || snapshot.testing || snapshot.busy || snapshot.job !== null} onPress={printTest} />
             </ButtonRow>
           ) : null}
-          {(disconnected && snapshot.testPrinter) || showTestShare ? (
+          {(disconnected && (snapshot.testPrinter || showReconnect)) || showTestShare ? (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: SPACE.xs }}>
               {/* 보이는 글은 짧게(한글이 낱말 가운데서 끊기지 않게), 뜻 전체는 이름과 아래 한 줄로 */}
+              {showReconnect ? <TextAction label={PICK_OTHER_PRINTER} disabled={busy} onPress={() => void run(() => labels.connect('bluetooth'))} /> : null}
               {disconnected && snapshot.testPrinter ? <TextAction label="시험용 프린터" ariaLabel={TEST_PRINTER_METHOD} disabled={busy} onPress={() => void run(() => labels.connect('test'))} /> : null}
               {showTestShare ? <TextAction label={testShareLabel(app)} disabled={busy} onPress={() => void run(async () => void (await labels.shareTest()))} /> : null}
             </View>
@@ -210,7 +238,8 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
             </Notice>
           ) : null}
           {labels.paperDeviceId != null ? <PaperSettings key={labels.paperDeviceId} deviceId={labels.paperDeviceId} /> : null}
-          {snapshot.densityRange !== null ? (
+          {/* 농도는 이어졌을 때만 (D-PRNUX-01) */}
+          {linked && snapshot.densityRange !== null ? (
             <View style={{ gap: SPACE.sm }}>
               <Txt color="textSub">인쇄 농도</Txt>
               {/* 숫자 알약은 한 줄에 — 마지막 숫자만 다음 줄로 떨어지지 않게 */}
@@ -223,47 +252,47 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
           ) : null}
         </Card>
 
-        <Card label="출력 기기">
-          <CardHead title="출력 기기" />
-          {queue === null ? null : queue.device === null ? <Txt step="bodyLarge" weight="book">출력 기기 없음</Txt> : snapshot.mine ? <Txt step="bodyLarge" weight="medium">{`이 기기가 출력 기기예요 · ${queue.device.name}`}</Txt> : <Txt step="bodyLarge" weight="book">{`출력 기기: ${queue.device.name}${queue.device.live ? '' : ' (연결되어 있지 않아요)'}`}</Txt>}
-          {/* "이 기기에서 출력"이 왜 안 보이는지 — 핵심 문장이라 본문 크기 (UX-PRN2-008) */}
-          {!snapshot.mine ? (
-            <>
-              <Field label="기기 이름" value={name} onChangeText={setName} maxLength={DEVICE_NAME_MAX} />
-              <BigButton label={PRINT_ACTION.thisDevice} disabled={busy} onPress={() => void become(false)} />
-              {taken !== null ? (
-                <View role="dialog" aria-label="출력 기기 바꾸기" style={{ gap: SPACE.md }}>
-                  <Txt>{replaceQuestion(taken)}</Txt>
-                  {/* 아니요 왼쪽 · 바꾸기 오른쪽 (D-UX4-01 — 옛: 바꾸기 왼쪽) */}
-                  <ButtonRow>
-                    <BigButton kind="outline" label="아니요" onPress={() => setTaken(null)} />
-                    <BigButton label="이 기기로 바꾸기" disabled={busy} onPress={() => void become(true)} />
-                  </ButtonRow>
-                </View>
-              ) : null}
-            </>
-          ) : snapshot.mine ? (
-            <BigButton kind="outline" label={PRINT_ACTION.release} disabled={busy} onPress={() => void run(() => labels.release())} />
-          ) : null}
-          {snapshot.mine ? <Txt step="caption" color="textSub">{`${KEEP_SCREEN_ON} 다른 앱으로 가 있어도 프린터 연결은 끊지 않아요.`}</Txt> : null}
-        </Card>
-
-        <Card label="대기열">
-          <CardHead title="대기열" />
+        {/* 옛 "출력 기기"·"대기열" 두 칸을 한 칸으로 (D-PRNUX-01): 누가 출력하는지 → 기다리는 장 수 → 멈춤 → 단추 */}
+        <Card label={OUTPUT_CARD_TITLE}>
+          <CardHead title={OUTPUT_CARD_TITLE} />
           {/* 불러오는 동안은 비워 둔다 (D-UX4-83) */}
           {queue === null ? null : (
             <>
-              <Txt step="bodyLarge" weight="book">{`대기 ${String(queue.waiting)}장 · 출력 중 ${String(queue.printing)}장 · 버릴 라벨 ${String(queue.discard)}장 · 이 앱에서 찍은 ${String(snapshot.printed)}장`}</Txt>
-              {queue.pause !== null ? (
-                <Notice tone="danger" alert>
-                  {`출력 멈춤 · ${queue.pause.message}`}
-                </Notice>
-              ) : null}
-              {/* [출력 멈추기]는 없앴다 — 라벨 출력 켜고 끄기로 대신한다 (D-PRINTOFF-01). 멈춰 있으면(실패·옛 멈춤) [다시 시작]만 */}
-              {queue.pause === null ? null : (
-                <ButtonRow>
+              <View style={{ gap: 2 }}>
+                <Txt step="bodyLarge" weight="medium">{outputLine(queue.device, snapshot.mine)}</Txt>
+                <Txt color="textSub">{countLine(queue)}</Txt>
+              </View>
+              {/* 이 기기의 프린터가 끊겨 멈췄으면 위 [다시 연결]이 푸는 길 — 빨간 줄·[다시 시작] 대신 한 줄 안내 (D-PRNUX-01) */}
+              {queue.pause !== null && snapshot.mine && queue.pause.reason === 'DISCONNECTED' ? (
+                <Notice tone="warning">프린터를 다시 연결하면 이어서 출력해요.</Notice>
+              ) : queue.pause !== null ? (
+                <>
+                  <Notice tone="danger" alert>
+                    {`출력 멈춤 · ${queue.pause.message}`}
+                  </Notice>
+                  {/* [출력 멈추기]는 없앴다 — 라벨 출력 켜고 끄기로 대신한다 (D-PRINTOFF-01). 멈춰 있으면(실패·옛 멈춤) [다시 시작]만 */}
                   <BigButton kind="primary" label={PRINT_ACTION.restart} disabled={busy} onPress={() => void run(() => labels.restart())} />
-                </ButtonRow>
+                </>
+              ) : null}
+              {!snapshot.mine ? (
+                <>
+                  <BigButton kind={queue.pause === null ? 'primary' : 'secondary'} label={PRINT_ACTION.thisDevice} disabled={busy} onPress={() => void become(false)} />
+                  {taken !== null ? (
+                    <View role="dialog" aria-label="출력 기기 바꾸기" style={{ gap: SPACE.md }}>
+                      <Txt>{replaceQuestion(taken)}</Txt>
+                      {/* 아니요 왼쪽 · 바꾸기 오른쪽 (D-UX4-01 — 옛: 바꾸기 왼쪽) */}
+                      <ButtonRow>
+                        <BigButton kind="outline" label="아니요" onPress={() => setTaken(null)} />
+                        <BigButton label="이 기기로 바꾸기" disabled={busy} onPress={() => void become(true)} />
+                      </ButtonRow>
+                    </View>
+                  ) : null}
+                </>
+              ) : (
+                <View style={{ gap: SPACE.xs }}>
+                  <Txt step="caption" color="textSub">{`${KEEP_SCREEN_ON} 다른 앱으로 가 있어도 프린터 연결은 끊지 않아요.`}</Txt>
+                  <TextAction label={PRINT_ACTION.release} chevron={false} disabled={busy} onPress={() => void run(() => labels.release())} />
+                </View>
               )}
             </>
           )}
