@@ -332,6 +332,16 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
     return outcome(c, await print.printMissing(sellerOf(c), accountOf(c), requestId, b))
   })
 
+  // 그 라이브의 대기 라벨 출력 (D-LIVEPRINT-01): 끝난 라이브라 저절로 나가지 않던 대기 라벨을 손으로 넣은 작업으로 — 대기 순서 그대로
+  api.post('/print/labels/print-waiting', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['b'])
+    if (extra !== null) return extra
+    const b = own(input, 'b')
+    if (typeof b !== 'string' || !REF_RE.test(b)) return invalid([{ field: 'b', message: '방송을 골라 주세요.' }])
+    return outcome(c, await print.printLiveWaiting(sellerOf(c), accountOf(c), b))
+  })
+
   api.post('/print/labels/reprint', async (c) => {
     const input = body(c)
     const requestId = requestIdOf(input)

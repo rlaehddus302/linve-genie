@@ -299,8 +299,8 @@ export class LabelQueue {
       this.#set({ printer: state })
       this.#syncPrinter()
       if (state === 'CONNECTED') {
-        // 연결됨을 알린 뒤에 받는다 — 지난 라벨이 쌓여 있으면 서버가 쌓인 라벨 멈춤으로 두므로 먼저 찍지 않게 (D-STALEPRINT-01)
-        void this.#report(true).finally(() => void this.pump())
+        void this.#report(true)
+        void this.pump()
       } else if (state === 'DISCONNECTED') void this.#report(false)
     })
     this.#connect()
@@ -531,12 +531,6 @@ export class LabelQueue {
 
   async restart(): Promise<void> {
     await post('/api/print/restart', {})
-    await this.reload()
-  }
-
-  /** 대기 라벨 모두 빼기 (L-11 9 — 출력 안 함, 기록은 남는다). 쌓인 라벨 멈춤이었으면 서버가 멈춤을 푼다 (D-STALEPRINT-01) */
-  async cancelAll(): Promise<void> {
-    await post('/api/print/jobs/cancel-all', { confirm: true })
     await this.reload()
   }
 

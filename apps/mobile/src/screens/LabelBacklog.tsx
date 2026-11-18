@@ -1,5 +1,6 @@
 // 쌓인 라벨 출력 (11월 12일 라이브 복기 F1·F1-2, D-RETRO-40·41 → D-PRINTALL-01).
 // - [대기 중인 라벨 모두 출력하기] (PrintAllWaiting — D-PRINTALL-01, 사용자 지시 2026-11-17): 라이브 화면 라벨 탭 목록 위. 대기 라벨이 있을 때만 보이고,
+//   먼저 이 라이브의 대기 라벨을 내보낸다(POST /api/print/labels/print-waiting — 끝난 라이브의 자동 라벨은 저절로 나가지 않는다, D-LIVEPRINT-01).
 //   누르면 대기열이 끊김·멈춤이어도 풀고 다시 읽어 차례로 뽑는다(LabelQueue.printWaiting). 프린터가 이어져 있지 않으면 먼저 [다시 연결]로 안내한다 —
 //   이어지면 바로 이어서 뽑는다. 옛 라이브 관리 "대기 n장 지금 뽑기" 줄(D-RETRO-40)은 여기로 옮겼다(대기 라벨은 라벨 탭에서 본다).
 // - "라벨 없는 판매 n건 뽑기" (LabelBacklog): 라이브 관리 "라벨·프린터" 줄들 사이. 라벨 출력을 꺼 둔 동안 확정돼 라벨이 없는 판매(지금 1등인데
@@ -110,12 +111,19 @@ function WaitingFeedback({ work, side }: { readonly work: ReturnType<typeof useW
 /** 라벨 탭 [대기 중인 라벨 모두 출력하기] (D-PRINTALL-01) — 대기 라벨이 있거나 결과·안내가 남아 있을 때만 */
 export function PrintAllWaiting() {
   const work = useWaitingPrint()
+  const api = useContext(ConsoleContext)
   const queue = work.snapshot.queue
   const waiting = queue?.labelsEnabled === true ? queue.waiting : 0
+  // 이 라이브의 대기 라벨도 내보낸다 (D-LIVEPRINT-01): 끝난 라이브의 자동 라벨은 저절로 나가지 않으므로 이 탭에서 누를 때 손으로 넣은 작업으로 바꾼 뒤 뽑는다
+  const live = api !== null && !api.sealed && !api.data.rehearsal ? api.b : null
+  const printAll = async () => {
+    if (live !== null) await withRetry(() => post('/api/print/labels/print-waiting', { b: live }))
+    await work.printWaiting()
+  }
   if (waiting === 0 && work.note === null && !work.needPrinter) return null
   return (
     <View testID="print-all-waiting" style={{ gap: SPACE.sm }}>
-      {waiting > 0 ? <BigButton label={PRINT_ALL_WAITING} testID="print-all-waiting-go" busy={work.busy === 'waiting'} disabled={work.busy !== null} onPress={() => void work.run('waiting', () => work.printWaiting())} /> : null}
+      {waiting > 0 ? <BigButton label={PRINT_ALL_WAITING} testID="print-all-waiting-go" busy={work.busy === 'waiting'} disabled={work.busy !== null} onPress={() => void work.run('waiting', printAll)} /> : null}
       <WaitingFeedback work={work} side={0} />
     </View>
   )
