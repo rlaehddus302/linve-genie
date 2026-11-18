@@ -256,7 +256,9 @@ describe('상품 자세히 [찜 넣기] (D-RETRO-54)', () => {
     await waitFor(() => expect(world.events.length).toBe(1))
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 15 })
     const sheet = screen.getByTestId('product-sheet')
-    expect(await within(sheet).findByText(/^넣었어요 — .* · 대기 2$/)).toBeTruthy()
+    // D-PILLX-01 (사용자 지시 2026-11-18 "넣었어요 이딴 알림 지우고"): 옛 기대는 "넣었어요 — … · 대기 2" 한 줄. 이제 알림 없이 이름 알약이 하나 는다
+    await waitFor(() => expect(within(within(sheet).getByRole('list', { name: '15번 찜·대기' })).getAllByRole('button')).toHaveLength(3))
+    expect(within(sheet).queryByText(/^넣었어요/)).toBeNull()
     expect(within(sheet).queryByRole('group', { name: '찜 넣기' })).toBeNull()
     expect(within(sheet).getByRole('button', { name: '상품 삭제 — 15번' })).toBeTruthy()
   }, SLOW)
@@ -302,5 +304,17 @@ describe('상품 자세히 [찜 넣기] (D-RETRO-54)', () => {
     const sheet = await screen.findByTestId('product-sheet')
     expect(within(sheet).getByRole('button', { name: '상품 삭제 — 15번' })).toBeTruthy()
     expect(within(sheet).queryByRole('button', { name: '찜 넣기 — 15번' })).toBeNull()
+  }, SLOW)
+})
+
+describe('상품 자세히 이름 알약 (D-PILLX-01)', () => {
+  it('지울 수 있는 찜·대기 알약은 오른쪽에 × — 끝난 라이브처럼 누를 수 없으면 없다', async () => {
+    const world = makeWorld({ products: [product(15), product(7)] })
+    await open(world, SAMPLE)
+    fireEvent.click(within(await screen.findByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 15번' }))
+    const sheet = await screen.findByTestId('product-sheet')
+    const pills = within(within(sheet).getByRole('list', { name: '15번 찜·대기' })).getAllByRole('button')
+    expect(pills.length).toBeGreaterThan(0)
+    for (const pill of pills) expect(within(pill).getByTestId('pill-remove-mark')).toBeTruthy()
   }, SLOW)
 })

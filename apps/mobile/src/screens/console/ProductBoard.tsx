@@ -537,7 +537,8 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
   // 같은 물건 더 팔기 (D-STK-02): 누른 순간의 찜이 될 손님(ID·이름)과 새 재고를 붙들어 둔다 — 보낼 때 그 손님이 여전히 대기 1번인지 본다
   const [askMore, setAskMore] = useState<{ readonly next: string | null; readonly name: string | null; readonly stock: number } | null>(null)
   const [busy, setBusy] = useState(false)
-  // 찜 넣기 (D-RETRO-54): 칸을 연 동안은 메뉴 줄 대신 칸을 보인다. added: 넣은 결과 한 줄
+  // 찜 넣기 (D-RETRO-54): 칸을 연 동안은 메뉴 줄 대신 칸을 보인다. added: 찜이 생기지 않았을 때만 주의 한 줄 —
+  // 넣었으면 알림 없이 위 이름 알약으로 보인다 (D-PILLX-01, 사용자 지시 2026-11-18 "넣었어요 이딴 알림 지우고")
   const [adding, setAdding] = useState(false)
   const [added, setAdded] = useState<ClaimAdded | null>(null)
   // 다른 상품으로 바뀌면(번호를 바꿔 열쇠가 바뀐 때 포함) 넣던 칸·결과 줄을 치운다
@@ -625,7 +626,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
             const name = feedBuyerName(api.data, api.names, claim.currentBuyer)
             const tone = pillToneOf(claim)
             const word = tone === 'win' ? '찜' : tone === 'conflict' ? '겹침' : tone === 'pending' ? '보류' : '대기'
-            return <NamePill key={claim.id} text={name} tone={tone} ariaLabel={`${name} ${word}`} {...(closed ? {} : { onPress: () => setAskClaim({ id: claim.id, name }) })} />
+            return <NamePill key={claim.id} text={name} tone={tone} ariaLabel={`${name} ${word}`} {...(closed ? {} : { removable: true, onPress: () => setAskClaim({ id: claim.id, name }) })} />
           })}
         </View>
       )}
@@ -633,7 +634,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
       <OutsideWait key={product.key} product={product} />
       {added !== null ? <Notice tone={added.tone}>{added.text}</Notice> : null}
       {adding && !closed ? (
-        <ClaimAddForm product={product} onClose={() => setAdding(false)} onAdded={(line) => { animateNextLayout(); setAdded(line); setAdding(false) }} />
+        <ClaimAddForm product={product} onClose={() => setAdding(false)} onAdded={(line) => { animateNextLayout(); setAdded(line.tone === 'warning' ? line : null); setAdding(false) }} />
       ) : (
       <View role="group" aria-label="상품 메뉴" style={{ gap: SPACE.xs }}>
         {/* 라벨 출력이 꺼져 있으면 여기서 바로 켠다 — 프린터가 없어도 켜 두면 라벨이 대기열에 쌓인다 (D-LBL-NOPRN-01, 옛: "관리에서 ‘라벨 출력’을 켜 주세요" 글만) */}

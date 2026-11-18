@@ -176,6 +176,17 @@ export function IconMenuRow({ emoji, tint, title, subtitle, onPress, testID, ari
   )
 }
 
+/** 알약 오른쪽 작은 × (선 두 개 — 글꼴마다 모양이 달라지지 않게) */
+function RemoveMark({ color }: { readonly color: string }) {
+  const bar = { position: 'absolute' as const, left: 0, top: 4.75, width: 11, height: 1.5, backgroundColor: color }
+  return (
+    <View aria-hidden testID="pill-remove-mark" style={{ width: 11, height: 11, opacity: 0.7 }}>
+      <View style={{ ...bar, transform: [{ rotate: '45deg' }] }} />
+      <View style={{ ...bar, transform: [{ rotate: '-45deg' }] }} />
+    </View>
+  )
+}
+
 /** 휴지통 줄 바탕 (밝은 빨강 — 흰 휴지통 그림이 잘 보이게) */
 export const TRASH_TINT = '#FF5A5F'
 
@@ -185,14 +196,18 @@ export type PillTone = 'win' | 'wait' | 'pending' | 'conflict'
  * 이름 알약 (D-UX4-26, 사용자 지시 2026-11-09 "닉네임 알약 사이즈를 바깥에 있는 상품, 찜기록 알약 버튼만큼"): 높이 36·좌우 14·본문 큰 글자.
  * 찜(1등) 금색, 대기 회색, 보류 주황, 겹침 빨강 — 상품 줄·찜 기록과 같은 색.
  */
-export function NamePill({ text, tone, onPress, ariaLabel, square = false }: { readonly text: string; readonly tone: PillTone; readonly onPress?: () => void; readonly ariaLabel: string; readonly square?: boolean }) {
+export function NamePill({ text, tone, onPress, ariaLabel, square = false, removable = false }: { readonly text: string; readonly tone: PillTone; readonly onPress?: () => void; readonly ariaLabel: string; readonly square?: boolean; readonly removable?: boolean }) {
   const { p, tones } = useKit()
   const pair = tone === 'win' ? { bg: p.goldBg, fg: p.goldText } : tone === 'pending' ? { bg: p.warnBg, fg: p.warnText } : tone === 'conflict' ? tones.danger : { bg: p.soft, fg: p.textSub }
   const shape = { minHeight: 36, paddingHorizontal: SPACE.md + 2, borderRadius: square ? 10 : RADIUS.pill, borderCurve: 'continuous' as const, alignItems: 'center' as const, justifyContent: 'center' as const }
+  // removable (D-PILLX-01, 사용자 지시 2026-11-18 "오른쪽에 x 표시해서 누르면 지우는거구나 알 수 있게"): 이름 오른쪽에 작은 ×
   const label = (
-    <Txt step="bodyLarge" weight={tone === 'wait' ? 'medium' : 'bold'} ink={pair.fg} numberOfLines={1}>
-      {text}
-    </Txt>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs + 2 }}>
+      <Txt step="bodyLarge" weight={tone === 'wait' ? 'medium' : 'bold'} ink={pair.fg} numberOfLines={1}>
+        {text}
+      </Txt>
+      {removable ? <RemoveMark color={pair.fg} /> : null}
+    </View>
   )
   if (onPress === undefined) return <View aria-label={ariaLabel} style={{ ...shape, backgroundColor: pair.bg }}>{label}</View>
   return (

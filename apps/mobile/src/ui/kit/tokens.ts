@@ -73,6 +73,10 @@ export interface Palette {
   /** 방송 상품 줄의 [찜 닉네임] 꼬리표 바탕·글자 — 금색 (D-UX3-78) */
   readonly goldBg: string
   readonly goldText: string
+  /** 금색(찜) 알약 눌림 — 회색으로 바뀌지 않게 진한 금색 (D-PILLX-01) */
+  readonly goldPressed: string
+  /** 빨강(겹침) 알약 눌림 */
+  readonly dangerSoftPressed: string
   /** 방송 상태 표시 (D-UX4-22, 사용자 지시 2026-11-09 "정상 상태면 밝은 초록색, 아니라면 밝은 빨간색"): 바탕·글자·점 */
   readonly liveOkBg: string
   readonly liveOkText: string
@@ -148,6 +152,8 @@ const LIGHT: Palette = {
   // 찜한 사람 꼬리표 금색 (D-UX3-78, 사용자 지시 2026-11-09 "배경 색은 금색 같은 색으로") — 글자 대비 4.5 이상
   goldBg: '#F8E3A3',
   goldText: '#5A4100',
+  goldPressed: '#F0D27E',
+  dangerSoftPressed: '#F9D5D1',
   // 방송 상태 (D-UX4-22): 점은 밝게, 글자는 옅은 바탕 위 대비 4.5 이상
   liveOkBg: '#E6F7EE',
   liveOkText: '#07803F',
@@ -263,6 +269,8 @@ export function pressedFill(p: Palette, base: string): string {
   if (base === p.soft) return p.softPressed
   if (base === p.secondary || base === p.freshBg) return p.secondaryPressed
   if (base === p.warnBg) return p.warnPressed
+  if (base === p.goldBg) return p.goldPressed
+  if (base === LIGHT_TONES.danger.bg) return p.dangerSoftPressed
   return p.pressed
 }
 
@@ -318,6 +326,8 @@ export function contrastPairs(scheme: Scheme): readonly ContrastPair[] {
     { name: '본문/주의바탕', fg: p.text, bg: p.warnBg, min: 4.5 },
     { name: '설명/주의바탕', fg: p.textSub, bg: p.warnBg, min: 4.5 },
     { name: '찜 꼬리표/금색', fg: p.goldText, bg: p.goldBg, min: 4.5 },
+    { name: '찜 꼬리표/금색 눌림', fg: p.goldText, bg: p.goldPressed, min: 4.5 },
+    { name: '겹침 꼬리표 눌림', fg: LIGHT_TONES.danger.fg, bg: p.dangerSoftPressed, min: 4.5 },
     { name: '라이브 상태 정상', fg: p.liveOkText, bg: p.liveOkBg, min: 4.5 },
     { name: '라이브 상태 문제', fg: p.liveBadText, bg: p.liveBadBg, min: 4.5 },
     { name: '라이브 상태 다시 연결하는 중', fg: p.liveWarnText, bg: p.liveWarnBg, min: 4.5 },

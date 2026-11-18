@@ -12,7 +12,7 @@ import { liveLinkOf } from '../src/lib/live-link.ts'
 import { NewBroadcastAddressScreen, NewBroadcastCategoryScreen, SALE_CATEGORIES, categoryBroadcastTitle } from '../src/screens/NewBroadcastScreen.tsx'
 import { MoreScreen } from '../src/screens/MoreScreen.tsx'
 import { TabFrame, tabEnterSide } from '../src/screens/TabFrame.tsx'
-import { BACK_ICON, FIELD_LABEL_MS, FIELD_ROW, PALETTE, TABS, TabBar, UnderlineField, pressedFill, useTabBarRoom } from '../src/ui/kit/index.ts'
+import { BACK_ICON, FIELD_LABEL_MS, FIELD_ROW, PALETTE, TABS, TONES, TabBar, UnderlineField, pressedFill, useTabBarRoom } from '../src/ui/kit/index.ts'
 import { TYPE, WEIGHT } from '../src/ui/kit/tokens.ts'
 import { TabIcon } from '../src/ui/kit/tab-icons.tsx'
 import { makeWorld } from './screen-support.tsx'
@@ -116,6 +116,10 @@ describe('누르는 동안 바탕 (D-UX3-03)', () => {
     expect(pressedFill(p, p.primary)).toBe(p.primaryPressed)
     expect(pressedFill(p, p.soft)).toBe(p.softPressed)
     expect(pressedFill(p, p.warnBg)).toBe(p.warnPressed)
+    // 찜 금색·겹침 빨강 알약도 제 색이 진해진다 — 회색으로 바뀌지 않는다 (D-PILLX-01, 사용자 "찜 금색 버튼 꾹 누르면 배경 회색 되는 버그")
+    expect(pressedFill(p, p.goldBg)).toBe(p.goldPressed)
+    expect(pressedFill(p, TONES.light.danger.bg)).toBe(p.dangerSoftPressed)
+    for (const [base, pressed] of [[p.goldBg, p.goldPressed], [TONES.light.danger.bg, p.dangerSoftPressed]] as const) expect(luma(pressed)).toBeLessThan(luma(base))
     for (const [base, pressed] of [[p.surface, p.pressed], [p.soft, p.softPressed], [p.primary, p.primaryPressed]] as const) expect(luma(pressed)).toBeLessThan(luma(base))
   })
 })
