@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Animated, Easing, Platform, Pressable, Text, TextInput, View, type TextInputInstance, type TextInputProps } from 'react-native'
 import { errorHaptic } from '../../native/haptics.ts'
-import { LINE, RADIUS, SPACE, TOUCH, TYPE, WEIGHT } from './tokens.ts'
+import { LINE, MAX_FONT_SCALE, RADIUS, SPACE, TOUCH, TYPE, WEIGHT } from './tokens.ts'
 import { Txt, useKit } from './theme.tsx'
 import { font } from './font.ts'
 import { Tap } from './press.tsx'
@@ -141,7 +141,7 @@ export function UnderlineField({ label, help, error, again, unit, trailing, hand
             aria-label={label}
             aria-invalid={bad}
             allowFontScaling={!forced}
-            maxFontSizeMultiplier={2}
+            maxFontSizeMultiplier={MAX_FONT_SCALE}
             placeholder={example && !empty ? '' : (placeholder ?? '')}
             placeholderTextColor={p.placeholder}
             onFocus={(event) => {

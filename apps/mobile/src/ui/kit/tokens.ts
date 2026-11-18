@@ -246,10 +246,13 @@ export const RADIUS = { sm: 10, md: 12, lg: 16, xl: 20, xxl: 24, pill: 999 } as 
 /** 누르는 크기: 줄 최소 48, 큰 버튼 54(토스 "확인"), 숫자판 키 60. 서로 붙은 것은 gap(8) 이상 띄운다. */
 export const TOUCH = { min: 48, button: 54, key: 60, gap: 8 } as const
 
-/** 시스템 큰 글자를 이 배율까지만 따른다 (안드로이드 최대 200%). */
-export const MAX_FONT_SCALE = 2
+/**
+ * 시스템 큰 글자를 이 배율까지만 따른다 (D-FONTCAP-01, 사용자 지시 2026-11-18 "os 설정에서 글자 크기 크게 해놓으면 … 글자가 다 넘쳐서"):
+ * 옛 2배(안드로이드 최대 200%)는 줄·알약·단추 글자가 칸을 넘쳤다 — 조금만 따라 커지고 그 위는 자른다.
+ */
+export const MAX_FONT_SCALE = 1.15
 
-/** 이 배율 이상이면 가로로 놓던 것(제목|값, 버튼 둘)을 세로로 쌓는다. */
+/** (배율을 MAX_FONT_SCALE로 자르므로 지금은 쓰이지 않는다 — 시험·견본의 강제 배율 1.5 이상만) 이 배율 이상이면 가로로 놓던 것(제목|값, 버튼 둘)을 세로로 쌓는다. */
 export const STACK_AT_SCALE = 1.5
 
 export const SHADOW = {

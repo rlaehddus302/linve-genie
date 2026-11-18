@@ -4,7 +4,7 @@
 import type { ReactNode } from 'react'
 import { ActivityIndicator, View, type TextInputProps } from 'react-native'
 import Svg, { Circle, Path } from 'react-native-svg'
-import { FocusInput, ClearButton, font, Icon, RADIUS, SPACE, TOUCH, TYPE, Txt, useKit, WEIGHT, type Tone, Tap } from '../ui/kit/index.ts'
+import { FocusInput, ClearButton, font, Icon, MAX_FONT_SCALE, RADIUS, SPACE, TOUCH, TYPE, Txt, useKit, WEIGHT, type Tone, Tap } from '../ui/kit/index.ts'
 import type { TxtColor } from '../ui/kit/theme.tsx'
 
 /** 돋보기 (장식 — 칸 이름은 aria-label) */
@@ -49,7 +49,7 @@ export function SearchField({ label, value, onChangeText, placeholder, keyboardT
         } : {})}
         returnKeyType="search"
         allowFontScaling={!forced}
-        maxFontSizeMultiplier={2}
+        maxFontSizeMultiplier={MAX_FONT_SCALE}
         style={{ flex: 1, minHeight: TOUCH.min, fontSize: size, ...font(WEIGHT.book), color: p.text, padding: 0 }}
       />
       {value === '' ? null : <ClearButton label={`${label} 지우기`} onPress={() => onChangeText('')} />}

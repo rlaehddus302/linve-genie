@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react'
 import { Platform, ScrollView, Text, View, type TextInputProps } from 'react-native'
 import { Tap } from './kit/press.tsx'
-import { RADIUS, SHADOW, GUTTER, SPACE, TOUCH, pressedFill } from './kit/tokens.ts'
+import { MAX_FONT_SCALE, RADIUS, SHADOW, GUTTER, SPACE, TOUCH, pressedFill } from './kit/tokens.ts'
 import { Txt, useKit, useTabBarRoom, type TxtColor } from './kit/theme.tsx'
 import { AlertMark, UnderlineField } from './kit/inputs.tsx'
 import type { Tone } from './theme.ts'
@@ -63,6 +63,7 @@ export function Code({ children, label }: { readonly children: string; readonly 
   return (
     <Text
       selectable
+      maxFontSizeMultiplier={MAX_FONT_SCALE}
       style={{ fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }), fontWeight: '700', color: p.text, backgroundColor: p.surfaceAlt }}
       aria-label={label ?? children}
     >

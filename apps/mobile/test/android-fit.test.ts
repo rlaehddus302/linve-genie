@@ -3,9 +3,9 @@ import { createRequire } from 'node:module'
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { BUTTON_NAV_MIN_INSET, TAB_BAR_SHADOW, tabBarBottom } from '../src/ui/kit/app.tsx'
+import { BUTTON_NAV_MIN_INSET, TAB_BAR_SHADOW, headerTop, tabBarBottom, tabBarSide } from '../src/ui/kit/app.tsx'
 import { keyboardAvoidFor } from '../src/ui/kit/sheets.tsx'
-import { SPACE } from '../src/ui/kit/tokens.ts'
+import { MAX_FONT_SCALE, SPACE } from '../src/ui/kit/tokens.ts'
 
 const require = createRequire(import.meta.url)
 const plugin = require('../plugins/with-android-release.js') as { REMOVED_PERMISSIONS: string[] }
@@ -75,5 +75,29 @@ describe('아래 탭 그림자 (D-UX3-71)', () => {
     const tabBar = source.slice(source.indexOf('export function TabBar('), source.indexOf('/** 큰 초록 카드 버튼'))
     expect(tabBar).toContain('boxShadow: TAB_BAR_SHADOW')
     expect(tabBar).not.toMatch(/elevation:|shadowOpacity:|SHADOW\./)
+  })
+})
+
+describe('안드로이드 위 여백·아래 탭 너비·큰 글자 (D-ANDTOP-01, D-TABFIT-01, D-FONTCAP-01)', () => {
+  it('머리 줄은 안드로이드에서만 상태 막대 아래로 12 더 띄운다', () => {
+    expect(headerTop('android')).toBe(SPACE.md)
+    expect(headerTop('ios')).toBe(0)
+  })
+
+  it('좁은 화면(400 미만)은 아래 탭 양옆을 12로 줄이고, 넓은 화면은 20 그대로', () => {
+    expect(tabBarSide(360)).toBe(SPACE.md)
+    expect(tabBarSide(393)).toBe(SPACE.md)
+    expect(tabBarSide(430)).toBe(SPACE.xl)
+    expect(tabBarSide(0)).toBe(SPACE.xl)
+  })
+
+  it('아래 탭 글자는 시스템 큰 글자를 따르지 않는다', () => {
+    const source = readFileSync(join(import.meta.dirname, '../src/ui/kit/app.tsx'), 'utf8')
+    const tabBar = source.slice(source.indexOf('export function TabBar('), source.indexOf('/** 큰 초록 카드 버튼'))
+    expect(tabBar).toMatch(/<Txt step="tab"[^>]*\bfixed\b/)
+  })
+
+  it('시스템 큰 글자는 1.15배까지만 따른다', () => {
+    expect(MAX_FONT_SCALE).toBe(1.15)
   })
 })

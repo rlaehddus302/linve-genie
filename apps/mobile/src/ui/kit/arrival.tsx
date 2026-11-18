@@ -4,6 +4,7 @@
 // 넘어오는 동안 키보드가 같이 올라오지 않는다. 이미 넘어온 화면 안에서 새로 생긴 칸(단계 바꿈)은 바로 초점 — 키보드가 내려갔다 다시 오르지 않는다.
 // 앱 안 모든 칸은 autoFocus를 react-native TextInput에 바로 주지 않고 FocusInput(또는 TextField·UnderlineField·SearchField)으로 준다 — test/focus-after-arrival.test.tsx가 지킨다.
 import { createContext, forwardRef, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { MAX_FONT_SCALE } from './tokens.ts'
 import { Platform, TextInput, type TextInputInstance, type TextInputProps } from 'react-native'
 
 const ArrivedContext = createContext(true)
@@ -66,7 +67,9 @@ export const FocusInput = forwardRef<TextInputInstance, TextInputProps>(function
   const inner = useRef<TextInputInstance | null>(null)
   const focusNow = useDeferredAutoFocus(inner, autoFocus === true)
   return (
+    // 시스템 큰 글자는 MAX_FONT_SCALE까지만 (D-FONTCAP-01) — 따로 준 값이 있으면 그것
     <TextInput
+      maxFontSizeMultiplier={MAX_FONT_SCALE}
       {...input}
       ref={(node) => {
         inner.current = node

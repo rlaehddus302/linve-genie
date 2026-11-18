@@ -50,6 +50,7 @@ import { SlideSwitch } from '../ui/kit/slide.tsx'
 import { LOGIN_FAILED_HINT, OFFLINE_AT_START_MESSAGE, SERVICE_NAME, SESSION_EXPIRED_MESSAGE, SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/words.ts'
 import { useBottomInset, useKit } from '../ui/kit/theme.tsx'
 import { font } from '../ui/kit/font.ts'
+import { MAX_FONT_SCALE } from '../ui/kit/tokens.ts'
 import { BigButton, Field, Hint, Notice, Stack } from '../ui/parts.tsx'
 
 /** 숨은 아이디 칸: 서비스명을 이 시간 안에 이만큼 누르면 연다 */
@@ -335,7 +336,7 @@ export function LoginScreen({
 function LoginFooter() {
   const { p } = useKit()
   const link = (label: string, onPress: () => void, size: number, color: string, ariaLabel = label) => (
-    <Text role="link" aria-label={ariaLabel} onPress={onPress} suppressHighlighting={false} style={{ color, fontSize: size, ...font() }}>
+    <Text maxFontSizeMultiplier={MAX_FONT_SCALE} role="link" aria-label={ariaLabel} onPress={onPress} suppressHighlighting={false} style={{ color, fontSize: size, ...font() }}>
       {label}
     </Text>
   )
@@ -345,7 +346,7 @@ function LoginFooter() {
         {link('이용약관', () => void openWeb('/terms'), 13, p.textSub)}
         {link('개인정보처리방침', () => void openWeb('/privacy'), 13, p.textSub)}
       </View>
-      <Text style={{ color: '#6B7684', fontSize: 12, ...font() }}>
+      <Text maxFontSizeMultiplier={MAX_FONT_SCALE} style={{ color: '#6B7684', fontSize: 12, ...font() }}>
         {'고객센터 '}
         {link(SUPPORT_PHONE, () => void Linking.openURL(`tel:${SUPPORT_PHONE.replaceAll('-', '')}`), 12, '#6B7684', `고객센터 전화 ${SUPPORT_PHONE}`)}
         {'  |  '}

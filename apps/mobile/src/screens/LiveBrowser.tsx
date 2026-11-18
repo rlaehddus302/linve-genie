@@ -8,7 +8,7 @@
 import { forwardRef, useImperativeHandle, useRef, useState, type ComponentType, type Ref } from 'react'
 import { Modal, Platform, TextInput, View } from 'react-native'
 import { browserHost, browserLiveLink } from '../lib/live-browser.ts'
-import { BigButton, BottomCTA, HeaderTextButton, Icon, NAV, RADIUS, SPACE, Tap, Txt, useKit, useTopInset } from '../ui/kit/index.ts'
+import { BigButton, BottomCTA, HeaderTextButton, Icon, MAX_FONT_SCALE, NAV, RADIUS, SPACE, Tap, Txt, useKit, useTopInset } from '../ui/kit/index.ts'
 import { font } from '../ui/kit/font.ts'
 
 export interface LiveBrowserViewHandle {
@@ -39,6 +39,7 @@ const AddressOnlyView = forwardRef<LiveBrowserViewHandle, LiveBrowserViewProps>(
         이 기기에서는 웹 화면을 열 수 없어요. 라이브 주소를 넣어 보세요.
       </Txt>
       <TextInput
+        maxFontSizeMultiplier={MAX_FONT_SCALE}
         aria-label="주소"
         value={value}
         autoCapitalize="none"

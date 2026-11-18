@@ -16,7 +16,7 @@ import { RETRY_NOW } from '../lib/words.ts'
 import { nativeWebSession } from '../native/index.ts'
 import { EpostView, type EpostViewHandle } from '../native/epost-view.tsx'
 import { AppHeader, BigButton, BottomSheet, ButtonRow, ConfirmSheet, SmallButton, Txt, useKit } from '../ui/kit/index.ts'
-import { RADIUS, SPACE } from '../ui/kit/tokens.ts'
+import { MAX_FONT_SCALE, RADIUS, SPACE } from '../ui/kit/tokens.ts'
 import { font } from '../ui/kit/font.ts'
 import { Loading, Notice, Tag } from '../ui/parts.tsx'
 
@@ -496,6 +496,7 @@ export function EpostScreen({ date, buyers, nav }: { readonly date: string; read
       >
         <Txt color="textSub">{batch ? `${RECEIPT_HELP} 목록에 넣은 주문 ${String(linkTargets().length)}개에 같은 번호를 연결해요.` : RECEIPT_HELP}</Txt>
         <TextInput
+          maxFontSizeMultiplier={MAX_FONT_SCALE}
           aria-label="접수번호"
           value={receipt}
           onChangeText={(text) => {

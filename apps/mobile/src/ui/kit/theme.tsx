@@ -1,5 +1,5 @@
 // 디자인 바탕 연결: 밝은 색(어두운 모드도 같은 색, D-UX2-01), 글자 확대 배율, 글자 조각(Txt), 안전 영역.
-// 시스템 큰 글자는 MAX_FONT_SCALE(2배)까지만 따라가고, 배율이 크면 가로로 놓던 것을 세로로 쌓는다.
+// 시스템 큰 글자는 MAX_FONT_SCALE(1.15배, D-FONTCAP-01)까지만 따라가고, 배율이 크면 가로로 놓던 것을 세로로 쌓는다.
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { Text, useWindowDimensions, type TextProps } from 'react-native'
 import { HEADLINE_LINE, LINE, MAX_FONT_SCALE, PALETTE, STACK_AT_SCALE, TONES, TYPE, WEIGHT, type Palette, type Scheme, type TypeStep } from './tokens.ts'
@@ -22,7 +22,7 @@ export interface Kit {
   readonly scheme: Scheme
   readonly p: Palette
   readonly tones: (typeof TONES)[Scheme]
-  /** 시스템 배율을 2배로 자른 값 */
+  /** 시스템 배율을 MAX_FONT_SCALE로 자른 값 */
   readonly fontScale: number
   /** 배율이 커서 가로 배치를 세로로 바꿔야 하는가 */
   readonly stacked: boolean
@@ -124,17 +124,19 @@ export interface TxtProps extends Omit<TextProps, 'style'> {
   readonly center?: boolean
   /** 오른쪽 맞춤 (토스 상세 내역의 값 칸 — 여러 줄이어도 오른쪽에 붙는다, D-UX4-125) */
   readonly right?: boolean
+  /** 시스템 큰 글자를 따르지 않는다 — 높이가 정해진 아래 탭 글자처럼 커지면 막대가 뚱뚱해지는 곳만 (D-TABFIT-01) */
+  readonly fixed?: boolean
 }
 
 /** 모든 글은 이것으로: 크기 단계·줄 높이·글꼴(Pretendard, D-UX3-69)·색·큰 글자 상한을 한 곳에서 지킨다. */
-export function Txt({ step = 'body', weight = 'regular', color = 'text', ink, center, right, children, ...rest }: TxtProps) {
+export function Txt({ step = 'body', weight = 'regular', color = 'text', ink, center, right, fixed = false, children, ...rest }: TxtProps) {
   const { p, fontScale, forced } = useKit()
   const base = TYPE[step]
-  const size = forced ? base * fontScale : base
+  const size = forced && !fixed ? base * fontScale : base
   return (
     <Text
       {...rest}
-      allowFontScaling={!forced}
+      allowFontScaling={!forced && !fixed}
       maxFontSizeMultiplier={MAX_FONT_SCALE}
       style={{ fontSize: size, lineHeight: Math.round(size * (step === 'headline' ? HEADLINE_LINE : LINE)), ...font(WEIGHT[weight]), color: ink ?? p[color], textAlign: center === true ? 'center' : right === true ? 'right' : undefined }}
     >

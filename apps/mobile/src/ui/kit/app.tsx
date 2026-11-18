@@ -2,7 +2,7 @@
 // 누르는 동안은 흐려지지 않고 바탕이 진해진다(D-UX3-03).
 // 아이콘은 그림 파일·글꼴 없이 View 선으로 그린다(새 패키지를 넣지 않는다). 아이콘만으로 뜻을 전하지 않고 늘 글자와 함께 둔다.
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
-import { Animated, Easing, Platform, Pressable, View, type ViewStyle } from 'react-native'
+import { Animated, Easing, Platform, Pressable, View, useWindowDimensions, type ViewStyle } from 'react-native'
 import Svg, { Circle, Path } from 'react-native-svg'
 import { PAGE, RADIUS, SPACE, TOUCH } from './tokens.ts'
 import { Txt, useBottomInset, useKit } from './theme.tsx'
@@ -200,6 +200,14 @@ export function BackButton({ label = '뒤로', onPress }: { readonly label?: str
 export const NAV = { row: 48, below: SPACE.xs, left: PAGE.backLeft, right: SPACE.md, titleLift: -2.5 } as const
 
 /**
+ * 머리 줄 위 여백 (D-ANDTOP-01, 사용자 지시 2026-11-18 "맨 위에 여백이 너무 없고"): 아이폰은 상태 막대(다이내믹 아일랜드 ~54)가 깊어 머리가 바로 붙어도 숨이 있지만,
+ * 안드로이드 상태 막대는 얕아(~24–32) 머리 줄이 화면 위 끝에 붙어 보였다 — 안드로이드만 12 더 띄운다.
+ */
+export function headerTop(os: string = Platform.OS): number {
+  return os === 'android' ? SPACE.md : 0
+}
+
+/**
  * 쌓인 화면 머리 하나 (D-UX4-40, 사용자 지시 2026-11-09 "모든 화면 … 뒤로가기 버튼과 제목 글자의 위치, 크기, 모양을 통일해. 기준은 사진 1"):
  * 왼쪽 뒤로 ‹ · 가운데 제목(17·중간 굵기, 한 줄) · 오른쪽 조각(글자 단추 "관리"·상태). 뒤로·제목·오른쪽은 늘 같은 줄 높이 48 가운데에 놓인다.
  * 제목은 화면 가운데 — 오른쪽 조각이 넓으면 그만큼 양쪽을 비워 겹치지 않는다. 모든 쌓인 화면·입력 화면 틀·밀려 들어오는 화면이 이것만 쓴다.
@@ -208,8 +216,9 @@ export function NavBar({ title, onBack, backLabel = '뒤로', right, testID }: {
   const [rightWidth, setRightWidth] = useState(0)
   // 제목 양쪽 빈자리: 뒤로 단추 자리(8+48)와 오른쪽 조각 중 넓은 쪽 + 8
   const side = Math.max(NAV.left + 48, NAV.right + rightWidth) + SPACE.sm
+  const top = headerTop()
   return (
-    <View testID={testID} style={{ minHeight: NAV.row + NAV.below, paddingBottom: NAV.below, paddingLeft: NAV.left, paddingRight: NAV.right, flexDirection: 'row', alignItems: 'center' }}>
+    <View testID={testID} style={{ minHeight: top + NAV.row + NAV.below, paddingTop: top, paddingBottom: NAV.below, paddingLeft: NAV.left, paddingRight: NAV.right, flexDirection: 'row', alignItems: 'center' }}>
       {onBack === undefined ? <View style={{ width: 48, height: NAV.row }} /> : <BackButton label={backLabel} onPress={onBack} />}
       <View style={{ flex: 1 }} />
       {right === undefined ? null : (
@@ -219,7 +228,7 @@ export function NavBar({ title, onBack, backLabel = '뒤로', right, testID }: {
       )}
       {title === undefined || title === '' ? null : (
         // Pretendard 한글은 줄 높이 안에서 조금 아래에 그려져 뒤로 ‹보다 낮아 보인다 — 2.5 올린다 (D-UX3-88)
-        <View pointerEvents="none" style={{ position: 'absolute', top: 0, height: NAV.row, left: side, right: side, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: NAV.titleLift }] }}>
+        <View pointerEvents="none" style={{ position: 'absolute', top, height: NAV.row, left: side, right: side, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: NAV.titleLift }] }}>
           <Txt step="nav" weight="medium" role="heading" aria-level={1} numberOfLines={1}>
             {title}
           </Txt>
@@ -268,7 +277,7 @@ export function HeaderTextButton({ label, ariaLabel, onPress, testID }: { readon
 export function AppHeader({ title, onBack, backLabel = '뒤로', right, left, testID }: { readonly title: string; readonly onBack?: () => void; readonly backLabel?: string; readonly right?: ReactNode; readonly left?: ReactNode; readonly testID?: string }) {
   if (onBack !== undefined) return <NavBar title={title} onBack={onBack} backLabel={backLabel} right={right} {...(testID === undefined ? {} : { testID })} />
   return (
-    <View testID={testID} style={{ minHeight: NAV.row + NAV.below, paddingBottom: NAV.below, paddingLeft: SPACE.xl, paddingRight: NAV.right, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
+    <View testID={testID} style={{ minHeight: headerTop() + NAV.row + NAV.below, paddingTop: headerTop(), paddingBottom: NAV.below, paddingLeft: SPACE.xl, paddingRight: NAV.right, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
       <View style={{ flex: 1, minHeight: NAV.row, justifyContent: 'center' }}>
         {left ?? (
           <View style={{ transform: [{ translateY: NAV.titleLift }] }}>
@@ -327,6 +336,15 @@ export function tabBarBottom(inset: number, os: string = Platform.OS): number {
   return Math.max(inset - 14, SPACE.sm)
 }
 
+/**
+ * 아래 탭 양옆 여백 (D-TABFIT-01, 사용자 지시 2026-11-18 "맨 아래 네비게이션 바가 너비가 모자라서 뚱뚱해지네"): 넓은 화면(아이폰 393~)은 20,
+ * 좁은 화면(안드로이드 360~, 화면 크기를 키운 기기)은 12 — 칸이 좁아 둥근 막대가 높이에 비해 뭉툭해 보이던 것.
+ */
+export const TAB_NARROW_WIDTH = 400
+export function tabBarSide(width: number): number {
+  return width > 0 && width < TAB_NARROW_WIDTH ? SPACE.md : SPACE.xl
+}
+
 /** 아래 탭 그림자: 위쪽으로 아주 옅게(아이폰에서 쓰던 0,-4 · 흐림 8 · 3%). 두 기기 모두 boxShadow로 같게 그린다 (D-UX3-71) */
 export const TAB_BAR_SHADOW = '0px -4px 8px rgba(0, 0, 0, 0.03)'
 
@@ -344,6 +362,7 @@ export function setTabBarBackdrop(next: ComponentType | null): void {
 export function TabBar({ active, from = null, onSelect, onHeight }: { readonly active: TabKey; readonly from?: TabKey | null; readonly onSelect: (key: TabKey) => void; readonly onHeight?: (height: number) => void }) {
   const { p } = useKit()
   const inset = useBottomInset()
+  const screen = useWindowDimensions().width
   const [width, setWidth] = useState(0)
   const target = tabIndex(active)
   const start = from === null ? target : tabIndex(from)
@@ -355,7 +374,7 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
   const gap = 2
   const cell = width === 0 ? 0 : (width - gap * (TABS.length - 1)) / TABS.length
   return (
-    <View pointerEvents="box-none" onLayout={(event) => onHeight?.(event.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: SPACE.xl, paddingTop: SPACE.xs, paddingBottom: tabBarBottom(inset) }}>
+    <View pointerEvents="box-none" onLayout={(event) => onHeight?.(event.nativeEvent.layout.height)} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: tabBarSide(screen), paddingTop: SPACE.xs, paddingBottom: tabBarBottom(inset) }}>
       {/* 그림자는 겉에(둥글게 자르면 그림자도 잘린다), 흐림·반투명은 안에서 둥글게 자른다.
           그림자는 boxShadow 하나로 두 기기 같게 (D-UX3-71): 안드로이드 elevation은 늘 아래로 진한 그림자를 그려 탭 밑에 회색 줄이 보였다 */}
       <View style={{ borderRadius: RADIUS.pill, borderCurve: 'continuous', boxShadow: TAB_BAR_SHADOW }}>
@@ -379,7 +398,7 @@ export function TabBar({ active, from = null, onSelect, onHeight }: { readonly a
                 {() => (
                   <>
                     <TabIcon name={tab.icon} color={ink} size={26} filled={on} cut={p.surface} />
-                    <Txt step="tab" weight="medium" ink={ink}>
+                    <Txt step="tab" weight="medium" ink={ink} fixed numberOfLines={1}>
                       {tab.word}
                     </Txt>
                   </>
