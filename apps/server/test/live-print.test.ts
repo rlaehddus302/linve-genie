@@ -1,5 +1,5 @@
 // 라이브별 라벨 출력 (D-LIVEPRINT-01, LABEL_RULES L-11 4 보강, 사용자 "오랜만에 프린터 연결했더니 옛날 라벨들이 줄줄이 나온다"):
-// - 출력 기기는 지금 라이브(끝나지 않았고 날짜가 어제 이후)의 자동 라벨과 손으로 넣은 작업만 저절로 받는다
+// - 출력 기기는 지금 라이브(끝나지 않았고 만든 지 12시간 안 — D-LIVEPRINT-03)의 자동 라벨과 손으로 넣은 작업만 저절로 받는다
 // - 끝난 라이브의 자동 라벨은 대기로 남는다(지우지 않는다). 그 라이브 라벨 탭에서 출력을 누르면(print-waiting) 받는다
 import { describe, expect, it } from 'vitest'
 import { DAY, DEVICE_A, becomeDevice, chat, printApi, register } from './print-support.ts'
@@ -70,16 +70,32 @@ describe('D-LIVEPRINT-01 끝난 라이브 라벨은 저절로 나오지 않는�
     expect((await p.claim(DEVICE_A)).job?.label.no).toBe(3)
   })
 
-  it('어제 날짜 라이브(자정을 넘긴 라이브)는 끝내지 않았으면 그대로 이어 찍는다', async () => {
+  it('끝내지 않은 라이브도 만든 지 12시간이 넘은 자동 라벨은 저절로 나오지 않는다 — 어제 라이브를 끝내지 않은 채 다음 날 프린터를 이은 경우 (D-LIVEPRINT-03. 옛 기대: 어제 날짜면 이어 찍음)', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
     const p = printApi(world, seller)
     await becomeDevice(world, seller)
     await expectOk(p.state(DEVICE_A, false))
-    await offlineLive(world, seller, [4])
-    world.clock.advance(14 * 60 * 60 * 1000)
+    const b = await offlineLive(world, seller, [4, 5])
+    world.clock.advance(13 * 60 * 60 * 1000)
     await expectOk(p.state(DEVICE_A, true))
+    expect((await p.overview()).queue.waiting).toBe(0)
+    expect(await p.claim(DEVICE_A)).toMatchObject({ job: null, reason: 'EMPTY' })
+    expect((await expectOk(printWaiting(world, seller, b))).body).toEqual({ released: 2 })
     expect((await p.claim(DEVICE_A)).job?.label.no).toBe(4)
+  })
+
+  it('라이브 중 끊겼다 몇 시간 뒤 다시 이으면(12시간 안) 그대로 이어 찍는다', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const p = printApi(world, seller)
+    await becomeDevice(world, seller)
+    await expectOk(p.state(DEVICE_A, false))
+    await offlineLive(world, seller, [6])
+    world.clock.advance(11 * 60 * 60 * 1000)
+    await expectOk(p.state(DEVICE_A, true))
+    expect((await p.overview()).queue.waiting).toBe(1)
+    expect((await p.claim(DEVICE_A)).job?.label.no).toBe(6)
   })
 
   it('다른 판매자의 라이브·없는 라이브는 받지 않는다', async () => {

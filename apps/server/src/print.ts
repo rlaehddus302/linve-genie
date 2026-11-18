@@ -474,8 +474,8 @@ const CLAIM_ROUNDS = 200
  */
 export const RECLAIM_AFTER_MS = 2000
 
-/** 하루 (자동 라벨을 저절로 받는 라이브 날짜의 끝 — 어제 KST부터, D-LIVEPRINT-01) */
-const DAY_MS = 24 * 60 * 60 * 1000
+/** 지금 라이브의 자동 라벨로 보는 때 — 만든 지 12시간 안 (D-LIVEPRINT-03, 한 라이브는 이보다 짧다. 옛 D-LIVEPRINT-01: 라이브 날짜가 어제 이후) */
+const LIVE_WINDOW_MS = 12 * 60 * 60 * 1000
 
 /** 지우는 글자: 제어 문자(C0·C1)와 보이지 않는 서식 글자 (폭 없는 공백·방향 표시·줄 나눔 기호·BOM) */
 function isInvisible(code: number): boolean {
@@ -687,9 +687,9 @@ export class PrintService {
     this.#options.publish(sellerId, { rev: queue.rev, queue, jobs, labels: labelViews })
   }
 
-  /** 자동 라벨을 저절로 받는 라이브 날짜의 시작 — 어제(KST) (D-LIVEPRINT-01) */
-  #liveFrom(): string {
-    return kstDate(this.#now().getTime() - DAY_MS)
+  /** 자동 라벨을 저절로 받는 때의 시작 — 12시간 전에 만든 작업부터 (D-LIVEPRINT-03) */
+  #liveFrom(): Date {
+    return new Date(this.#now().getTime() - LIVE_WINDOW_MS)
   }
 
   // ── 조회 ─────────────────────────────────────────────────────────────────

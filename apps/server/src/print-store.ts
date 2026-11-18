@@ -82,7 +82,7 @@ export async function hasOpenBroadcast(db: Db, sellerId: string): Promise<boolea
  * 대기·출력 중·버릴 라벨 장 수 (실제 범위만). 대기는 출력 기기가 저절로 받을 작업만 센다 — 끝난 라이브의 자동 라벨(printableNow가 아님)은
  * 그 라이브 라벨 탭에만 대기로 보이고 여기 장 수에는 넣지 않는다 (D-LIVEPRINT-02)
  */
-export async function queueCounts(db: Db, sellerId: string, liveFrom: string): Promise<{ waiting: number; printing: number; discard: number }> {
+export async function queueCounts(db: Db, sellerId: string, liveFrom: Date): Promise<{ waiting: number; printing: number; discard: number }> {
   const rows = await db
     .select({
       waiting: sql<number>`count(*) filter (where ${printJobs.status} = 'WAITING' and ${printableNow(liveFrom)})::int`,
@@ -319,11 +319,12 @@ export interface JobWithLabel {
 
 /**
  * 출력 기기가 저절로 받을 수 있는 대기 작업인지 (D-LIVEPRINT-01): 손으로 넣은 작업(라벨 출력·다시 출력·포장·라벨 탭에서 출력)은 늘,
- * 자동 작업은 그 라이브가 아직 끝나지 않았고 라이브 날짜가 liveFrom(어제, KST) 이후일 때만. 끝난 라이브의 자동 라벨은 대기로 남고
+ * 자동 작업은 그 라이브가 아직 끝나지 않았고 작업을 만든 때가 liveFrom(12시간 전) 이후일 때만 (D-LIVEPRINT-03 — 옛: 라이브 날짜가 어제 이후.
+ * 끝내기를 누르지 않은 어제 라이브 라벨이 다음 날 다시 나왔다). 끝난(또는 지난) 라이브의 자동 라벨은 대기로 남고
  * (지우지 않는다) 판매자가 그 라이브 라벨 탭에서 출력을 누르면 손으로 넣은 작업이 된다(releaseLiveWaiting)
  */
-function printableNow(liveFrom: string) {
-  return or(ne(printJobs.reason, 'auto'), and(isNull(broadcasts.endedAt), gte(printJobs.date, liveFrom)))
+function printableNow(liveFrom: Date) {
+  return or(ne(printJobs.reason, 'auto'), and(isNull(broadcasts.endedAt), gte(printJobs.createdAt, liveFrom)))
 }
 
 /**
@@ -344,7 +345,7 @@ export async function releaseLiveWaiting(tx: Db, sellerId: string, broadcastId: 
 }
 
 /** 판매자의 모든 실제 범위를 통틀어 대기 맨 앞 작업 (L-11 4). 리허설 범위는 보지 않는다 */
-export async function headWaitingJob(db: Db, sellerId: string, liveFrom: string): Promise<JobWithLabel | null> {
+export async function headWaitingJob(db: Db, sellerId: string, liveFrom: Date): Promise<JobWithLabel | null> {
   const rows = await db
     .select({ job: printJobs, label: printLabels })
     .from(printJobs)
