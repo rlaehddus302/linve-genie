@@ -25,6 +25,8 @@ describe('상품 줄 꼬리표 (D-UX3-78)', () => {
     expect(buyerTagText({ kind: 'sms', phoneLast4: '0937' }, '010-1234-0937', true)).toBe('문자-0937')
     expect(buyerTagText({ kind: 'sms', phoneLast4: '0937' }, '김', false)).toBe('문자-0937')
     expect(buyerTagText({ kind: 'sms', phoneLast4: null }, '이름만손님', true)).toBe('이름만손님')
+    // 끝 네 자리 없는 문자 손님은 같은 이름 손님을 가르는 "· 문자 17:48:38" 없이 제 이름만 (D-SMSNAME-01)
+    expect(buyerTagText({ kind: 'sms', phoneLast4: null, display: '문자찜' }, '문자찜 · 문자 17:48:38', true)).toBe('문자찜')
   })
 
   // 옛 기대: 1등 바로 뒤 손님 꼬리표(CR-7). 새 기대(D-UX4-24): 닉네임만 — 손님 꼬리표는 줄에 붙이지 않는다

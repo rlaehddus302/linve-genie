@@ -8,6 +8,7 @@ import { BuyerNames } from '../src/lib/derive.ts'
 import { FEED_VIEW_DEFAULT, FEED_VIEW_KEY, getFeedView, parseFeedView, resetFeedView, setFeedView, wireFeedView } from '../src/lib/feed-view.ts'
 import { fromFull } from '../src/lib/scope-data.ts'
 import { addedLine, recentChatBuyers } from '../src/screens/console/ClaimAdd.tsx'
+import { productBuyerName } from '../src/screens/console/feed-rows.ts'
 import { raisePlan, smsClaimEvent } from '../src/screens/console/claim-actions.ts'
 import { compareNames, feedClock, feedMatches, feedPickable, feedRows, filterFeed, nameCharRank, searchText } from '../src/screens/console/feed-rows.ts'
 import type { ChatMessage } from '@livejjim/web/src/api/types.ts'
@@ -290,5 +291,18 @@ describe('찜 넣기 (D-RETRO-54)', () => {
     })
     expect(addedLine(data, names, 21)).toEqual({ tone: 'success', text: '넣었어요 — 문자-0937 · 대기 1' })
     expect(addedLine(data, names, 22)).toEqual({ tone: 'warning', text: '새 찜이 생기지 않았어요. 이미 찜한 손님인지 확인해 주세요.' })
+  })
+
+  it('상품 화면 이름: 끝 네 자리 없는 문자 손님이 여럿이어도 "문자찜"만 — 찜 기록 이름은 그대로 가른다 (D-SMSNAME-01)', () => {
+    const { data, names } = world({
+      products: [product(15, { winners: ['s1'], winnerClaims: ['c1'] }), product(16, { winners: ['s2'], winnerClaims: ['c2'] })],
+      claims: [claim('c1', 15, 's1', { origin: 'sms' }), claim('c2', 16, 's2', { origin: 'sms', seq: 9 })],
+      buyers: [buyer('s1', '문자찜', { kind: 'sms' }), buyer('s2', '문자찜', { kind: 'sms' }), buyer('s3', '문자찜', { kind: 'sms', phoneLast4: '0937' }), buyer('u1', '홍길동')],
+    })
+    expect(productBuyerName(data, names, 's1')).toBe('문자찜')
+    expect(productBuyerName(data, names, 's2')).toBe('문자찜')
+    expect(productBuyerName(data, names, 's3')).toBe('문자-0937')
+    expect(productBuyerName(data, names, 'u1')).toBe('홍길동')
+    expect(names.name('s1')).not.toBe(names.name('s2'))
   })
 })

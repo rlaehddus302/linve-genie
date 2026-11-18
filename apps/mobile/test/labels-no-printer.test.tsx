@@ -28,10 +28,10 @@ const LABEL: LabelView = {
   winner: true, data: null, canPrint: true, canReprint: false, buyer: { kind: 'youtube', name: '홍길동' },
 } as unknown as LabelView
 
-async function open(world: World, labelsEnabled: boolean, printer: boolean) {
+async function open(world: World, labelsEnabled: boolean, printer: boolean, label: LabelView = LABEL) {
   let enabled = labelsEnabled
   world.server.on('GET', /^\/api\/print$/, () => ({ body: { queue: queueOf(enabled, printer), jobs: [], discard: [] } }))
-  world.server.on('GET', /^\/api\/print\/labels/, () => ({ body: { date: '2026-10-29', labels: enabled ? [LABEL] : [] } }))
+  world.server.on('GET', /^\/api\/print\/labels/, () => ({ body: { date: '2026-10-29', labels: enabled ? [label] : [] } }))
   world.server.on('PUT', /^\/api\/settings\/labels$/, (call) => {
     enabled = call.body?.enabled === true
     return { body: { enabled, changed: true } }
@@ -103,6 +103,18 @@ describe('프린터 없이도 라벨 (D-LBL-NOPRN-01)', () => {
     await waitFor(() => expect(world.server.callsTo('PUT', /^\/api\/settings\/labels$/)[0]?.body).toEqual({ enabled: true }))
     expect(await within(detail).findByRole('button', { name: '홍길동 · 라벨 인쇄' }, { timeout: 3000 })).toBeTruthy()
     expect(within(detail).queryByText(LABELS_OFF_LINE)).toBeNull()
+    world.services.labels.stop()
+  }, SLOW)
+
+  // D-LBLROW-02 (사용자 2026-11-18 "라벨 대기 이 텍스트는 왜 뜨는거임? 라벨 출력 버튼은 어디감?"): 옛 기대는 낱말 "라벨 대기" 한 줄
+  it('이미 대기열에 있는 라벨은 같은 모양의 누를 수 없는 줄 "홍길동 · 라벨 출력 기다리는 중" — 인쇄 단추는 없다(두 장 나오지 않게)', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    await open(world, true, false, { ...LABEL, state: 'WAITING', word: '라벨 대기', canPrint: false, canReprint: false } as LabelView)
+    const detail = await openDetail()
+    const row = await within(detail).findByTestId('label-row-static')
+    expect(row.textContent).toBe('🏷️홍길동 · 라벨 출력 기다리는 중')
+    expect(within(detail).queryByRole('button', { name: /라벨 인쇄/ })).toBeNull()
+    expect(within(detail).queryByText('라벨 대기')).toBeNull()
     world.services.labels.stop()
   }, SLOW)
 })

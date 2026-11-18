@@ -81,6 +81,13 @@ export function feedBuyerName(data: ScopeData, names: Pick<BuyerNames, 'name'>, 
   return names.name(buyerId)
 }
 
+/** 상품 화면(상품 줄·상품 자세히 알약·대기 밖)의 손님 이름 — 끝 네 자리 없는 문자 손님은 제 이름만 (D-SMSNAME-01) */
+export function productBuyerName(data: ScopeData, names: Pick<BuyerNames, 'name'>, buyerId: string): string {
+  const buyer = data.buyers.get(buyerId)
+  if (buyer?.kind === 'sms' && (buyer.phoneLast4 === null || buyer.phoneLast4.trim() === '') && buyer.display.trim() !== '') return buyer.display
+  return feedBuyerName(data, names, buyerId)
+}
+
 // ── 이름순: 한글 → 영문 → 숫자 → 기호 (D-UX4-153 — D-RETRO-51의 글자 번호 순서를 바꿈) ──────────
 // 옛: 글자 번호 순서 그대로라 영문·숫자 이름(글자 번호가 작다)이 한글 이름보다 앞에 섰다.
 // 글자마다 무리를 먼저 견주고(한글 0 · 영문 1 · 숫자 2 · 그 밖 3), 같은 무리면 글자 번호 순서(영문은 대소문자 무시) — 한글 음절은 글자 번호 순서가 가나다순이다.

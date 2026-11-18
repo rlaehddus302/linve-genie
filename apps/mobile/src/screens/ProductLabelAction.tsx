@@ -14,9 +14,15 @@ export type { LabelEdits }
  * 메뉴 줄과 같은 아이콘 줄 "🏷️ 손님 · 라벨 인쇄". 누르면 대기열에 넣고(같은 요청 번호로 다시 보내도 한 장) 넣었으면 onQueued(판 닫기),
  * 못 넣었으면 onError(판에 오류 한 줄 — 판은 열어 둔다). 뽑을 수 없는 라벨은 그 낱말만.
  */
-export function ProductLabelRow({ label, edits, title, onQueued, onError }: { label: LabelView; edits?: LabelEdits; title: string; onQueued: () => void; onError: (message: string | null) => void }) {
+export function ProductLabelRow({ label, edits, who, onQueued, onError }: { label: LabelView; edits?: LabelEdits; who: string; onQueued: () => void; onError: (message: string | null) => void }) {
   const queue = useQueueLabel()
-  if (!label.canReprint && !label.canPrint) return label.word ? <Txt color="textSub">{label.word}</Txt> : null
+  // 뽑을 수 없는 라벨(이미 대기열에 있음·출력 중·폐기)은 같은 모양의 누를 수 없는 줄 (D-LBLROW-02, 사용자 2026-11-18 "라벨 대기 이 텍스트는 왜 뜨는거임? 라벨 출력 버튼은 어디감?").
+  // 옛: 라벨 낱말("라벨 대기")만 한 줄 — 누구 라벨인지, 이미 넣어 둔 것인지 알 수 없었다
+  if (!label.canReprint && !label.canPrint) {
+    const state = STATE_ROW[label.state] ?? label.word
+    return state === '' ? null : <IconMenuRow emoji="🏷️" tint="#EEF0EC" title={`${who} · ${state}`} testID="label-row-static" />
+  }
+  const title = `${who} · ${label.canPrint ? '라벨 인쇄' : '라벨 다시 인쇄'}`
   const action = label.canReprint ? 'reprint' : 'print'
   const body = { b: label.broadcast, claim: label.claim, ...(label.canReprint ? { version: label.version, ...(edits ? { edits } : {}) } : {}) }
   const press = () => {
@@ -30,6 +36,11 @@ export function ProductLabelRow({ label, edits, title, onQueued, onError }: { la
 }
 
 const LABEL_QUEUING = '라벨 넣는 중…'
+/** 누를 수 없는 라벨 줄의 낱말 — 서버 낱말("라벨 대기")보다 무슨 일인지 알 수 있게 */
+const STATE_ROW: Readonly<Partial<Record<LabelView['state'], string>>> = {
+  WAITING: '라벨 출력 기다리는 중',
+  PRINTING: '라벨 나오는 중',
+}
 const QUEUE_FAILED = '라벨을 대기열에 넣지 못했어요. 다시 눌러 주세요.'
 
 /** 라벨을 대기열에 넣기 — 넣는 중엔 다시 보내지 않고, 같은 내용을 다시 보내면 같은 요청 번호. 답: 오류 문구 또는 null(넣었다) */

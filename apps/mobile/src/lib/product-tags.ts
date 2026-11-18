@@ -20,8 +20,10 @@ export const TAG_GAP = 4
  * 유튜브 손님은 닉네임만, 문자 손님은 "문자-끝4자리"(전화번호 전체는 보이지 않는다, 찜 기록과 같은 꼴). 끝자리가 없는 문자 손님은 문자에 적힌 이름.
  * 1등·대기는 낱말이 아니라 색(금색·회색)으로만 나눈다 — 옛 "찜 닉네임"·"문자찜 0937"(D-UX3-78). winner는 색을 정하는 쪽이 쓴다.
  */
-export function buyerTagText(buyer: Pick<Buyer, 'kind' | 'phoneLast4'> | undefined, name: string, _winner?: boolean): string {
-  if (buyer?.kind === 'sms') return buyer.phoneLast4 !== null && buyer.phoneLast4.trim() !== '' ? `문자-${buyer.phoneLast4}` : name
+// 끝 네 자리 없는 문자 손님은 제 이름("문자찜"·"문자찜(이름)")만 — 같은 이름 손님을 가르는 "· 문자 17:48:38"은 상품 화면에 붙이지 않는다
+// (D-SMSNAME-01, 사용자 2026-11-18 "문자찜 넣기 했는데 왜 저따구로 등록됨?"). 찜 기록·손님별 합계는 손님을 갈라야 해서 그대로
+export function buyerTagText(buyer: (Pick<Buyer, 'kind' | 'phoneLast4'> & { readonly display?: string }) | undefined, name: string, _winner?: boolean): string {
+  if (buyer?.kind === 'sms') return buyer.phoneLast4 !== null && buyer.phoneLast4.trim() !== '' ? `문자-${buyer.phoneLast4}` : buyer.display !== undefined && buyer.display.trim() !== '' ? buyer.display : name
   return name
 }
 

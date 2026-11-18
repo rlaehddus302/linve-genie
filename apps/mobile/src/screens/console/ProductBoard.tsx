@@ -35,7 +35,7 @@ import { GUTTER, MAX_FONT_SCALE, RADIUS, SPACE, TOUCH, TYPE, pressedFill } from 
 import { Notice } from '../../ui/parts.tsx'
 import { ACTIVE_CLAIM, PRODUCT_DELETING, SELL_FEWER, SELL_MORE, deleteClaim, deleteProduct, sellFewer, sellFewerStock, sellMore, sellMoreDescription, sellMorePlan, stockWords, useSheetHandoff } from './claim-actions.ts'
 import { CLAIM_ADD, ClaimAddForm, type ClaimAdded } from './ClaimAdd.tsx'
-import { feedBuyerName } from './feed-rows.ts'
+import { feedBuyerName, productBuyerName } from './feed-rows.ts'
 import { useConsoleApi } from './context.ts'
 import { IconMenuRow, NamePill, TRASH_TINT, type PillTone } from './parts.tsx'
 import { TentativePanel } from './TentativeCard.tsx'
@@ -623,7 +623,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
       {claims.length === 0 ? null : (
         <View role="list" aria-label={`${String(product.no)}번 찜·대기`} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm }}>
           {claims.map((claim) => {
-            const name = feedBuyerName(api.data, api.names, claim.currentBuyer)
+            const name = productBuyerName(api.data, api.names, claim.currentBuyer)
             const tone = pillToneOf(claim)
             const word = tone === 'win' ? '찜' : tone === 'conflict' ? '겹침' : tone === 'pending' ? '보류' : '대기'
             return <NamePill key={claim.id} text={name} tone={tone} ariaLabel={`${name} ${word}`} {...(closed ? {} : { removable: true, onPress: () => setAskClaim({ id: claim.id, name }) })} />
@@ -646,7 +646,7 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
         {/* 가격·품종을 고쳐 뽑아 둔 라벨과 달라졌으면 먼저 알린다 (D-RETRO-20) — 서버가 "재출력 필요"로 본 라벨 */}
         {winnerLabels.some((label) => label.reprintNeeded && label.canReprint) ? <Txt step="caption" weight="bold" color="warnText" role="note">{REPRINT_HINT}</Txt> : null}
         {winnerLabels.map((label) => (
-          <ProductLabelRow key={label.key} label={label} title={`${label.buyer.kind === 'youtube' ? displayNickname(label.buyer.name, api.names.hideSuffix) : '문자찜'} · ${label.canPrint ? '라벨 인쇄' : '라벨 다시 인쇄'}`}
+          <ProductLabelRow key={label.key} label={label} who={label.buyer.kind === 'youtube' ? displayNickname(label.buyer.name, api.names.hideSuffix) : '문자찜'}
             onError={setError} onQueued={() => onDone?.()} />
         ))}
         {!closed && !tentative && (product.status === 'READY' || product.status === 'HOLD') ? <IconMenuRow emoji="▶️" tint="#E6F2EB" title="판매 시작" ariaLabel={`판매 시작 — ${String(product.no)}번`} onPress={() => void open()} /> : null}

@@ -157,21 +157,29 @@ function Chevron() {
 }
 
 /** 아이콘 줄 (토스 "전체" 메뉴처럼): 왼쪽 둥근 네모 안 그림 글자 · 이름. tint는 둥근 네모 바탕 */
-export function IconMenuRow({ emoji, tint, title, subtitle, onPress, testID, ariaLabel }: { readonly emoji: string; readonly tint: string; readonly title: string; readonly subtitle?: string; readonly onPress: () => void; readonly testID?: string; readonly ariaLabel?: string }) {
+export function IconMenuRow({ emoji, tint, title, subtitle, onPress, testID, ariaLabel }: { readonly emoji: string; readonly tint: string; readonly title: string; readonly subtitle?: string; readonly onPress?: () => void; readonly testID?: string; readonly ariaLabel?: string }) {
   const { p } = useKit()
-  return (
-    <Tap role="button" aria-label={ariaLabel ?? title} testID={testID} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, minHeight: 60, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+  const body = (
+    <>
       <View aria-hidden style={{ width: 40, height: 40, borderRadius: 13, borderCurve: 'continuous', backgroundColor: tint, alignItems: 'center', justifyContent: 'center' }}>
         <Txt step="lead">
           {emoji}
         </Txt>
       </View>
       <View style={{ flexShrink: 1 }}>
-        <Txt step="bodyLarge" weight="medium" numberOfLines={1}>
+        <Txt step="bodyLarge" weight="medium" numberOfLines={1} {...(onPress === undefined ? { color: 'textSub' as const } : {})}>
           {title}
         </Txt>
         {subtitle === undefined || subtitle === '' ? null : <Txt step="caption" color="textSub" numberOfLines={1}>{subtitle}</Txt>}
       </View>
+    </>
+  )
+  const row = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: SPACE.md + 2, minHeight: 60, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous' as const }
+  // 누를 수 없는 줄 (D-LBLROW-02 — 라벨이 대기열에서 기다리는 중 등): 같은 모양, 글자만 옅게
+  if (onPress === undefined) return <View role="group" aria-label={ariaLabel ?? title} testID={testID} style={row}>{body}</View>
+  return (
+    <Tap role="button" aria-label={ariaLabel ?? title} testID={testID} onPress={onPress} style={({ pressed }) => ({ ...row, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      {body}
     </Tap>
   )
 }

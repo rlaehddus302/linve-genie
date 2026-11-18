@@ -10,7 +10,7 @@ import type { ScopeData } from '../../lib/scope-data.ts'
 import { Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
-import { feedBuyerName } from './feed-rows.ts'
+import { productBuyerName } from './feed-rows.ts'
 import { NamePill } from './parts.tsx'
 
 /** 흐린 꼬리표·이름의 불투명도 */
@@ -69,7 +69,7 @@ export function OutsideWait({ product }: { readonly product: Product }) {
           <Txt step="caption" color="textSub">{OUTSIDE_NOTE}</Txt>
           <View role="list" aria-label={`${String(product.no)}번 ${title}`} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, opacity: OUTSIDE_DIM }}>
             {buyers.map((id) => {
-              const name = feedBuyerName(api.data, api.names, id)
+              const name = productBuyerName(api.data, api.names, id)
               return (
                 <View key={id} role="listitem">
                   <NamePill text={name} tone="wait" ariaLabel={`${name} 대기 밖`} />
