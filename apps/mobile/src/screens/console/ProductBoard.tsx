@@ -14,13 +14,13 @@
 // 목록 위 도구 줄(ProductToolbar — 번호 검색칸 / [찜 된 것만] 걸러 보기 칩 · [목록 순서])은 따로 꺼내 쓸 수 있다(D-UX4-150): ProductList toolbar={false}면 목록만 그린다.
 // D-STK-02 (사용자 지시 2026-11-16 "동일 상품 번호에 여러 개 … 뒷사람도 라벨"): 메뉴 줄 [같은 물건 더 팔기] — 재고를 하나 늘려 대기 1번 손님이 찜(1등)이 되고 라벨을 뽑는다.
 //   팝업 "같은 물건을 하나 더 팔까요?" [닫기 | 더 팔기]에 찜이 될 손님 이름. 재고 2 이상이면 손님 알약 위에 "같은 물건 3개 중 1개 남음", 빈 자리가 있으면 [하나 덜 팔기].
-// D-RETRO-54 (복기 F7): 메뉴 줄 [찜 넣기] — 누르면 메뉴 자리에 손님 이름·전화번호 끝 네 자리 칸이 나오고 [닫기 | 찜 넣기]로 그 상품에 문자찜을 넣는다(ClaimAdd). 옵션 상품·끝난 라이브는 없다.
+// D-RETRO-54 (복기 F7)·D-CLAIMADD-05: 메뉴 줄 [찜 넣기] — 누르면 메뉴 자리에 [문자찜]·최근 채팅 손님 줄이 나와 그 상품에 문자찜을 넣는다(ClaimAdd). 옵션 상품·끝난 라이브는 없다.
 import { displayNickname, productTitle } from '@livejjim/core/format'
 import { memo, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react'
 import { Animated, Easing, Keyboard, LayoutAnimation, Platform, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
-import { ProductLabelAction, QueueLabelButton } from '../ProductLabelAction.tsx'
+import { ProductLabelRow } from '../ProductLabelAction.tsx'
 import { SearchField } from '../customer-parts.tsx'
 import { isApiError } from '../../api/client.ts'
 import { boardProducts, claimsOfProduct, productSlots, type BuyerNames } from '../../lib/derive.ts'
@@ -29,7 +29,7 @@ import { isTentative, tentativeAttention, waitingAt } from '../../lib/tentative.
 import type { ScopeData } from '../../lib/scope-data.ts'
 import { DEFAULT_PRODUCT_SORT, PRODUCT_SORTS, SORT_TITLE, sortProducts, sortWord, type ProductSort } from '../../lib/product-sort.ts'
 import { NO_PRODUCTS_YET, NO_PRODUCTS_YET_BODY, priceWords } from '../../lib/words.ts'
-import { LABELS_NO_PRINTER, LABELS_OFF_LINE, LABELS_TURN_ON, LABELS_TURN_ON_FAILED } from '../../lib/print-words.ts'
+import { LABELS_OFF_LINE, LABELS_TURN_ON, LABELS_TURN_ON_FAILED } from '../../lib/print-words.ts'
 import { BottomSheet, EmptyFill, ErrorLine, PopupDialog, SheetChoices, Txt, useKit, Tap } from '../../ui/kit/index.ts'
 import { GUTTER, MAX_FONT_SCALE, RADIUS, SPACE, TOUCH, TYPE, pressedFill } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
@@ -537,7 +537,6 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
   // 같은 물건 더 팔기 (D-STK-02): 누른 순간의 찜이 될 손님(ID·이름)과 새 재고를 붙들어 둔다 — 보낼 때 그 손님이 여전히 대기 1번인지 본다
   const [askMore, setAskMore] = useState<{ readonly next: string | null; readonly name: string | null; readonly stock: number } | null>(null)
   const [busy, setBusy] = useState(false)
-  const [copy, setCopy] = useState(0)
   // 찜 넣기 (D-RETRO-54): 칸을 연 동안은 메뉴 줄 대신 칸을 보인다. added: 넣은 결과 한 줄
   const [adding, setAdding] = useState(false)
   const [added, setAdded] = useState<ClaimAdded | null>(null)
@@ -642,16 +641,12 @@ export function ProductDetail({ product, fields, onDecide, onDone }: { readonly 
         {api.labelsOff && api.turnLabelsOn !== undefined ? (
           <IconMenuRow emoji="🏷️" tint="#EAF1F7" title={LABELS_TURN_ON} testID="labels-turn-on" onPress={() => { const on = api.turnLabelsOn; if (on !== undefined) void run(on, LABELS_TURN_ON_FAILED) }} />
         ) : null}
-        {api.productLabels !== undefined && api.printerMissing === true ? <Txt step="caption" color="textSub" role="note" testID="labels-no-printer">{LABELS_NO_PRINTER}</Txt> : null}
-        {/* 가격이 빈 상품은 라벨을 뽑지 않는다 — 가격 자리를 비우거나 0원으로 찍지 않게 (D-RECOG-22) */}
-        {api.productLabels !== undefined && productSlots(product).winnerClaims.length === 0 && product.price !== null ? (
-          <QueueLabelButton key={`${product.id}:${copy}`} action="direct" title="상품 라벨 인쇄" disabled={false}
-            body={{ b: api.b, no: product.no, name: product.name, price: product.price }} onQueued={() => setCopy((n) => n + 1)} />
-        ) : null}
+        {/* 1등 라벨만 (D-LBLROW-01): 찜이 없는 상품엔 라벨 줄이 없다 — 먼저 [찜 넣기]. 옛: 찜 없이 [상품 라벨 인쇄](손님 없는 라벨)·"프린터가 없어도 …" 안내·[한 장 더 준비] */}
         {/* 가격·품종을 고쳐 뽑아 둔 라벨과 달라졌으면 먼저 알린다 (D-RETRO-20) — 서버가 "재출력 필요"로 본 라벨 */}
         {winnerLabels.some((label) => label.reprintNeeded && label.canReprint) ? <Txt step="caption" weight="bold" color="warnText" role="note">{REPRINT_HINT}</Txt> : null}
         {winnerLabels.map((label) => (
-          <ProductLabelAction key={label.key} label={label} title={`${label.buyer.kind === 'youtube' ? displayNickname(label.buyer.name, api.names.hideSuffix) : '문자찜'} · ${label.canPrint ? '라벨 인쇄' : '라벨 다시 인쇄'}`} />
+          <ProductLabelRow key={label.key} label={label} title={`${label.buyer.kind === 'youtube' ? displayNickname(label.buyer.name, api.names.hideSuffix) : '문자찜'} · ${label.canPrint ? '라벨 인쇄' : '라벨 다시 인쇄'}`}
+            onError={setError} onQueued={() => onDone?.()} />
         ))}
         {!closed && !tentative && (product.status === 'READY' || product.status === 'HOLD') ? <IconMenuRow emoji="▶️" tint="#E6F2EB" title="판매 시작" ariaLabel={`판매 시작 — ${String(product.no)}번`} onPress={() => void open()} /> : null}
         {!closed && !product.hasOptions ? <IconMenuRow emoji="✍️" tint="#F8E3A3" title={CLAIM_ADD} ariaLabel={`${CLAIM_ADD} — ${String(product.no)}번`} onPress={() => { setError(null); setAdded(null); setAdding(true) }} /> : null}

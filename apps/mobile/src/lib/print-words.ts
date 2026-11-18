@@ -69,5 +69,3 @@ export const FIX_PRODUCT_FAILED = '상품을 고치지 못했어요. 다시 눌�
 export const LABELS_OFF_LINE = '라벨 출력이 꺼져 있어요.'
 export const LABELS_TURN_ON = '라벨 출력 켜기'
 export const LABELS_TURN_ON_FAILED = '라벨 출력을 켜지 못했어요. 다시 눌러 주세요.'
-/** 상품 자세히: 라벨은 켜져 있는데 이어진 프린터가 없을 때 */
-export const LABELS_NO_PRINTER = '프린터가 없어도 라벨은 대기열에 쌓여요. 프린터를 이으면 차례로 뽑을 수 있어요.'

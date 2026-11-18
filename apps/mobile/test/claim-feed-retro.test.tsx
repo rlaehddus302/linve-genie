@@ -231,58 +231,37 @@ describe('상품 자세히 [찜 넣기] (D-RETRO-54)', () => {
     return within(sheet).findByRole('group', { name: '찜 넣기' })
   }
 
-  it('손님 이름·전화번호 끝 네 자리를 적고 [닫기 | 찜 넣기] — 문자찜 쓰기를 보내고(전화번호 전체는 없다) 결과 한 줄을 보인 뒤 칸을 닫는다', async () => {
+  // 스펙 변경 (D-CLAIMADD-05, 사용자 지시 2026-11-18 "그냥 문자찜으로 넣거나 아니면 최근 채팅친 사람 닉네임으로 넣거나. 맨 위에는 '문자찜', 그 아래는
+  // 최근 채팅 닉네임 순 … 그외는 다 지워"). 옛 기대: 제목 "15번에 찜 넣기", 손님 이름·전화번호 끝 네 자리 칸과 [닫기 | 찜 넣기/문자찜으로 넣기] 한 줄,
+  // 끝 네 자리 숫자 네 개 검사, 이미 있는 손님 후보 고르기, 끝 네 자리 겹침 때 서버 후보·[새 손님으로 넣기], 최근 채팅 손님 캡슐(named 없음).
+  it('맨 위 [문자찜] 줄 → 이름·번호 없는 문자찜을 보내고 결과 한 줄을 보인 뒤 칸을 닫는다 — 이름·끝 네 자리 칸·제목은 없다 (D-CLAIMADD-05)', async () => {
     const world = makeWorld({ products: [product(15), product(7)] })
     await open(world, SAMPLE)
     const form = await openAdd(world)
-    expect(within(form).getByText('15번에 찜 넣기')).toBeTruthy()
     // 칸을 연 동안 메뉴 줄(상품 삭제 등)은 숨는다
     expect(screen.queryByRole('button', { name: '상품 삭제 — 15번' })).toBeNull()
-    const buttons = () => within(form).getAllByRole('button').filter((button) => ['닫기', '15번에 찜 넣기', '15번에 문자찜으로 넣기'].includes(button.getAttribute('aria-label') ?? ''))
-    // 부정 왼쪽 · 긍정 오른쪽, 한 줄 (D-UX4-01)
-    // D-CLAIMADD-02 (사용자 지시 2026-11-16 "문자찜 버튼 눌러서 넣도록"): 옛 기대는 아무것도 적지 않으면 [찜 넣기]가 꺼져 있었다.
-    // 이제 아무것도 적지 않으면 오른쪽 단추가 [문자찜으로 넣기]로 켜져 있고, 적으면 [찜 넣기]
-    expect(buttons().map((button) => button.getAttribute('aria-label'))).toEqual(['닫기', '15번에 문자찜으로 넣기'])
-    expect(getComputedStyle(buttons()[0]!.parentElement!.parentElement!).flexDirection).toBe('row')
-    expect(buttons()[1]?.getAttribute('aria-disabled')).not.toBe('true')
-    fireEvent.change(within(form).getByLabelText('손님 이름'), { target: { value: '박하나' } })
-    expect(buttons().map((button) => button.getAttribute('aria-label'))).toEqual(['닫기', '15번에 찜 넣기'])
-    // 끝 네 자리 칸은 숫자 네 개만 — 전화번호 전체를 붙여도 남지 않는다
-    fireEvent.change(within(form).getByLabelText('전화번호 끝 네 자리'), { target: { value: '010-1234-5678' } })
-    expect((within(form).getByLabelText('전화번호 끝 네 자리') as HTMLInputElement).value).toBe('0101')
-    fireEvent.change(within(form).getByLabelText('전화번호 끝 네 자리'), { target: { value: '56' } })
-    fireEvent.click(buttons()[1]!)
-    expect(await within(form).findByText('끝 네 자리는 숫자 네 개로 적어 주세요.')).toBeTruthy()
-    expect(world.events.length).toBe(0)
-    fireEvent.change(within(form).getByLabelText('전화번호 끝 네 자리'), { target: { value: '5678' } })
-    // 넣은 뒤 따라잡기: 새 문자 손님이 대기 2번으로 들어왔다
+    expect(within(form).queryByLabelText('손님 이름')).toBeNull()
+    expect(within(form).queryByLabelText('전화번호 끝 네 자리')).toBeNull()
+    expect(within(form).queryByRole('switch')).toBeNull()
+    expect(within(form).queryByText('15번에 찜 넣기')).toBeNull()
+    expect(within(form).getAllByRole('button')[0]?.getAttribute('aria-label')).toBe('15번에 문자찜으로 넣기')
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=7$/, () => ({
       body: changes(7, 8, {
         products: [product(15, { name: '핑크프릴', price: 35_000, status: 'SOLD', winners: ['u1'], winnerClaims: ['c1'], waitlist: ['u2', 's9'], waitlistClaims: ['c2', 'c9'] })],
         claims: [claim('c9', 15, 's9', { status: 'WAITLISTED', origin: 'sms', seq: 8 })],
-        buyers: [buyer('s9', '문자찜(박하나)', { kind: 'sms', phoneLast4: '5678' })],
+        buyers: [buyer('s9', '문자찜', { kind: 'sms' })],
       }),
     }))
-    fireEvent.click(buttons()[1]!)
-    await waitFor(() => expect(world.events.length).toBe(1))
-    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 15, memo: '박하나', last4: '5678' })
-    const sheet = screen.getByTestId('product-sheet')
-    expect(await within(sheet).findByText('넣었어요 — 문자-5678 · 대기 2')).toBeTruthy()
-    expect(within(sheet).queryByRole('group', { name: '찜 넣기' })).toBeNull()
-    expect(within(sheet).getByRole('button', { name: '상품 삭제 — 15번' })).toBeTruthy()
-    expect(within(within(sheet).getByRole('list', { name: '15번 찜·대기' })).getByText('문자-5678')).toBeTruthy()
-  }, SLOW)
-
-  it('아무것도 적지 않고 [문자찜으로 넣기] — 이름·끝 네 자리 없는 문자찜을 보낸다 (D-CLAIMADD-02)', async () => {
-    const world = makeWorld({ products: [product(15), product(7)] })
-    await open(world, SAMPLE)
-    const form = await openAdd(world)
     fireEvent.click(within(form).getByRole('button', { name: '15번에 문자찜으로 넣기' }))
     await waitFor(() => expect(world.events.length).toBe(1))
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 15 })
+    const sheet = screen.getByTestId('product-sheet')
+    expect(await within(sheet).findByText(/^넣었어요 — .* · 대기 2$/)).toBeTruthy()
+    expect(within(sheet).queryByRole('group', { name: '찜 넣기' })).toBeNull()
+    expect(within(sheet).getByRole('button', { name: '상품 삭제 — 15번' })).toBeTruthy()
   }, SLOW)
 
-  it('최근 채팅 손님을 누르면 그 손님으로 바로 넣는다 — 이미 15번을 찜한 손님·방송자는 보이지 않는다 (D-CLAIMADD-01)', async () => {
+  it('최근 채팅 손님 줄을 누르면 그 손님 닉네임으로 바로 넣는다(named) — 이미 15번을 찜한 손님·방송자는 보이지 않는다 (D-CLAIMADD-01·05)', async () => {
     const world = makeWorld({ products: [product(15), product(7)] })
     const message = (seq: number, channel: string, text: string, owner = false) => ({
       id: `m${String(seq)}`, broadcast: 'b1', channel, nick: channel, text, owner, seq, at: '2026-10-29T11:00:00.000Z', publishedAt: '2026-10-29T11:00:00.000Z',
@@ -294,68 +273,26 @@ describe('상품 자세히 [찜 넣기] (D-RETRO-54)', () => {
     await open(world, { ...SAMPLE, buyers: [...SAMPLE.buyers, buyer('u7', '박하나'), buyer('u8', '이두리'), buyer('own', '방송자')] })
     const form = await openAdd(world)
     const recent = await within(form).findByRole('group', { name: '최근 채팅 손님' })
-    expect(within(recent).getAllByRole('button').map((button) => button.textContent)).toEqual(['이두리 · 418. 하고94.…', '박하나 · 안녕하세요'])
+    // 새 채팅부터 — 닉네임 아래 채팅 앞부분
+    expect(within(recent).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['이두리 손님으로 15번에 찜 넣기', '박하나 손님으로 15번에 찜 넣기'])
+    expect(within(recent).getByText('418. 하고94.…')).toBeTruthy()
+    // [문자찜]이 맨 위, 최근 채팅 손님이 그 아래
+    const all = within(form).getAllByRole('button').map((button) => button.getAttribute('aria-label'))
+    expect(all.indexOf('15번에 문자찜으로 넣기')).toBeLessThan(all.indexOf('이두리 손님으로 15번에 찜 넣기'))
     fireEvent.click(within(recent).getByRole('button', { name: '이두리 손님으로 15번에 찜 넣기' }))
     await waitFor(() => expect(world.events.length).toBe(1))
-    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 15, buyer: 'u8' })
+    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 15, buyer: 'u8', named: true })
   }, SLOW)
 
-  it('이미 있는 손님은 눌러 고른다 — 고른 손님으로만 보내고 이름은 바꾸지 않는다. [닫기]는 아무것도 보내지 않고 메뉴로 돌아간다', async () => {
+  it('[닫기]는 아무것도 보내지 않고 메뉴로 돌아간다', async () => {
     const world = makeWorld({ products: [product(15), product(7)] })
-    await open(world, { ...SAMPLE, buyers: [...SAMPLE.buyers, buyer('u7', '박하나')] })
+    await open(world, SAMPLE)
     const form = await openAdd(world)
-    fireEvent.change(within(form).getByLabelText('손님 이름'), { target: { value: '박' } })
-    const picks = within(form).getByRole('group', { name: '이미 있는 손님' })
-    // 이미 15번을 찜한 손님(홍길동·김영희)은 후보에 없다
-    expect(within(picks).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['박하나 고르기'])
-    fireEvent.click(within(picks).getByRole('button', { name: '박하나 고르기' }))
-    expect(within(form).queryByLabelText('손님 이름')).toBeNull()
-    expect(within(form).getByLabelText('고른 손님 박하나')).toBeTruthy()
-    fireEvent.click(within(form).getByRole('button', { name: '15번에 찜 넣기' }))
-    await waitFor(() => expect(world.events.length).toBe(1))
-    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 15, buyer: 'u7' })
-    // 다시 열어 [닫기]
-    const sheet = screen.getByTestId('product-sheet')
-    await waitFor(() => expect(within(sheet).queryByRole('group', { name: '찜 넣기' })).toBeNull())
-    fireEvent.click(within(sheet).getByRole('button', { name: '찜 넣기 — 15번' }))
-    fireEvent.click(within(await within(sheet).findByRole('group', { name: '찜 넣기' })).getByRole('button', { name: '닫기' }))
-    expect(within(sheet).queryByRole('group', { name: '찜 넣기' })).toBeNull()
-    expect(within(sheet).getByRole('button', { name: '찜 넣기 — 15번' })).toBeTruthy()
-    expect(world.events.length).toBe(1)
-  }, SLOW)
-
-  it('끝 네 자리가 같은 손님이 여럿이면 서버가 준 후보에서 고르거나 [새 손님으로 넣기]', async () => {
-    const world = makeWorld({ products: [product(15), product(7)] })
-    await open(world, { ...SAMPLE, buyers: [...SAMPLE.buyers, buyer('s2', '문자찜(가)', { kind: 'sms', phoneLast4: '0937' })] })
-    let sent = 0
-    world.server.on('POST', /^\/api\/events/, (call) => {
-      world.events.push(call)
-      sent += 1
-      if (call.body?.last4 === '0937' && call.body.newBuyer !== true) return { status: 409, body: { error: { code: 'BUYER_AMBIGUOUS', message: '끝자리 0937 손님이 여러 명이에요. 누구인지 골라 주세요.' }, candidates: [{ buyer: 's1', display: '문자찜', phoneLast4: '0937', claims: [88] }, { buyer: 's2', display: '문자찜(가)', phoneLast4: '0937', claims: [] }] } }
-      world.seq += 1
-      return { body: { date: '2026-10-29', rehearsal: false, seq: world.seq, type: 'sms', changed: true, effects: [] } }
-    })
-    const form = await openAdd(world)
-    fireEvent.change(within(form).getByLabelText('전화번호 끝 네 자리'), { target: { value: '0937' } })
-    fireEvent.click(within(form).getByRole('button', { name: '15번에 찜 넣기' }))
-    const choose = await within(form).findByRole('group', { name: '손님 고르기' })
-    expect(within(choose).getByText('끝자리 0937 손님이 여러 명이에요. 누구인지 골라 주세요.')).toBeTruthy()
-    expect(within(choose).getAllByRole('button').map((button) => button.textContent)).toEqual(['문자찜 · 88번', '문자찜(가)', '새 손님으로 넣기'])
-    fireEvent.click(within(choose).getByRole('button', { name: '새 손님으로 넣기' }))
-    await waitFor(() => expect(sent).toBe(2))
-    expect(world.events[1]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 15, last4: '0937', newBuyer: true })
-    // 요청 번호는 내용이 바뀌면 새로 — 같은 내용 다시 누르기만 같은 번호
-    expect(world.events[1]?.body?.requestId).not.toBe(world.events[0]?.body?.requestId)
-    // 다시: 이번에는 후보를 고른다
-    const sheet = screen.getByTestId('product-sheet')
-    await waitFor(() => expect(within(sheet).queryByRole('group', { name: '찜 넣기' })).toBeNull())
-    fireEvent.click(within(sheet).getByRole('button', { name: '찜 넣기 — 15번' }))
-    const again = await within(sheet).findByRole('group', { name: '찜 넣기' })
-    fireEvent.change(within(again).getByLabelText('전화번호 끝 네 자리'), { target: { value: '0937' } })
-    fireEvent.click(within(again).getByRole('button', { name: '15번에 찜 넣기' }))
-    fireEvent.click(within(await within(again).findByRole('group', { name: '손님 고르기' })).getByRole('button', { name: '문자찜(가) 고르기' }))
-    await waitFor(() => expect(sent).toBe(4))
-    expect(world.events[3]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 15, buyer: 's2' })
+    fireEvent.click(within(form).getByRole('button', { name: '닫기' }))
+    const opened = screen.getByTestId('product-sheet')
+    expect(within(opened).queryByRole('group', { name: '찜 넣기' })).toBeNull()
+    expect(within(opened).getByRole('button', { name: '찜 넣기 — 15번' })).toBeTruthy()
+    expect(world.events.length).toBe(0)
   }, SLOW)
 
   it('옵션 상품에는 [찜 넣기]가 없다 (옵션·수량을 골라야 해서)', async () => {

@@ -1,12 +1,13 @@
 // 프린터 없이도 라벨 (D-LBL-NOPRN-01, 사용자 지시 2026-11-16 "라벨 기능 잘 동작하는지 보기 위해 라벨 프린터 연결 안 되어 있더라도 기능 보이게 활성화해라.
 // 그리고 프린터 없으면 일단 큐에 넣어라"). 서버는 라벨 뽑기가 켜져 있으면 프린터(출력 기기)가 없어도 라벨 작업을 대기열에 쌓는다 — 앱은
 // - 상품 자세히에 1등 라벨 단추를 프린터 연결과 상관없이 보이고, 누르면 대기열에 넣는다(POST /api/print/labels/print).
-// - 이어진 프린터가 없으면 "프린터가 없어도 라벨은 대기열에 쌓여요 …" 한 줄을 보인다.
+// - (D-LBLROW-01로 바뀜, 사용자 지시 2026-11-18 "따로 뭐 설명할 필요없고 그냥 버튼 누르면 팝업 닫기고, 자동으로 라벨 출력 큐에"):
+//   옛 기대는 프린터가 없으면 "프린터가 없어도 라벨은 대기열에 쌓여요 …" 한 줄과, 누른 뒤 "출력 대기열에 넣었어요.". 이제 안내 없이 넣고 상품 창을 닫는다.
 // - 라벨 뽑기가 꺼져 있으면 그 자리에서 [라벨 뽑기 켜기](PUT /api/settings/labels { enabled: true }) — 옛: "관리에서 ‘라벨 뽑기’를 켜 주세요" 글만.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
-import { LABELS_NO_PRINTER, LABELS_OFF_LINE, LABELS_TURN_ON } from '../src/lib/print-words.ts'
+import { LABELS_OFF_LINE, LABELS_TURN_ON } from '../src/lib/print-words.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { buyer, changes, claim, flush, product } from './support.ts'
@@ -64,25 +65,31 @@ async function openDetail() {
 }
 
 describe('프린터 없이도 라벨 (D-LBL-NOPRN-01)', () => {
-  it('라벨 뽑기가 켜져 있고 프린터가 없으면: 1등 라벨 단추가 보이고 "대기열에 쌓여요" 한 줄 — 누르면 대기열에 넣는다', async () => {
+  it('라벨 뽑기가 켜져 있고 프린터가 없어도: 1등 라벨 줄이 보이고(안내 글 없음) 누르면 대기열에 넣고 상품 창을 닫는다', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world, true, false)
     const detail = await openDetail()
-    expect(await within(detail).findByText(LABELS_NO_PRINTER)).toBeTruthy()
+    expect(detail.textContent).not.toContain('프린터가 없어도')
     const print = await within(detail).findByRole('button', { name: '홍길동 · 라벨 인쇄' })
     fireEvent.click(print)
     await waitFor(() => expect(world.server.callsTo('POST', /^\/api\/print\/labels\/print$/)).toHaveLength(1))
     expect(world.server.callsTo('POST', /^\/api\/print\/labels\/print$/)[0]?.body).toMatchObject({ b: 'b1', claim: 'c1' })
-    expect(await within(detail).findByText('출력 대기열에 넣었어요.')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByRole('group', { name: '상품 자세히' })).toBeNull())
+    expect(screen.queryByText('출력 대기열에 넣었어요.')).toBeNull()
     world.services.labels.stop()
   }, SLOW)
 
-  it('프린터가 이어져 있으면 "대기열에 쌓여요" 한 줄은 없다', async () => {
+  it('대기열에 넣지 못하면 상품 창을 열어 둔 채 오류 한 줄 — 다시 누를 수 있다', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world, true, true)
+    let fail = true
+    world.server.on('POST', /^\/api\/print\/labels\/print$/, () => (fail ? { status: 400, body: { error: { code: 'BAD', message: '라벨을 넣을 수 없어요.' } } } : { body: { queued: true } }))
     const detail = await openDetail()
-    await within(detail).findByRole('button', { name: '홍길동 · 라벨 인쇄' })
-    expect(within(detail).queryByText(LABELS_NO_PRINTER)).toBeNull()
+    fireEvent.click(await within(detail).findByRole('button', { name: '홍길동 · 라벨 인쇄' }))
+    expect(await within(detail).findByText('라벨을 넣을 수 없어요.')).toBeTruthy()
+    fail = false
+    fireEvent.click(within(detail).getByRole('button', { name: '홍길동 · 라벨 인쇄' }))
+    await waitFor(() => expect(screen.queryByRole('group', { name: '상품 자세히' })).toBeNull())
     world.services.labels.stop()
   }, SLOW)
 
@@ -96,7 +103,6 @@ describe('프린터 없이도 라벨 (D-LBL-NOPRN-01)', () => {
     await waitFor(() => expect(world.server.callsTo('PUT', /^\/api\/settings\/labels$/)[0]?.body).toEqual({ enabled: true }))
     expect(await within(detail).findByRole('button', { name: '홍길동 · 라벨 인쇄' }, { timeout: 3000 })).toBeTruthy()
     expect(within(detail).queryByText(LABELS_OFF_LINE)).toBeNull()
-    expect(within(detail).getByText(LABELS_NO_PRINTER)).toBeTruthy()
     world.services.labels.stop()
   }, SLOW)
 })

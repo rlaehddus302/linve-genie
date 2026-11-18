@@ -157,7 +157,7 @@ function Chevron() {
 }
 
 /** 아이콘 줄 (토스 "전체" 메뉴처럼): 왼쪽 둥근 네모 안 그림 글자 · 이름. tint는 둥근 네모 바탕 */
-export function IconMenuRow({ emoji, tint, title, onPress, testID, ariaLabel }: { readonly emoji: string; readonly tint: string; readonly title: string; readonly onPress: () => void; readonly testID?: string; readonly ariaLabel?: string }) {
+export function IconMenuRow({ emoji, tint, title, subtitle, onPress, testID, ariaLabel }: { readonly emoji: string; readonly tint: string; readonly title: string; readonly subtitle?: string; readonly onPress: () => void; readonly testID?: string; readonly ariaLabel?: string }) {
   const { p } = useKit()
   return (
     <Tap role="button" aria-label={ariaLabel ?? title} testID={testID} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, minHeight: 60, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
@@ -166,9 +166,12 @@ export function IconMenuRow({ emoji, tint, title, onPress, testID, ariaLabel }: 
           {emoji}
         </Txt>
       </View>
-      <Txt step="bodyLarge" weight="medium">
-        {title}
-      </Txt>
+      <View style={{ flexShrink: 1 }}>
+        <Txt step="bodyLarge" weight="medium" numberOfLines={1}>
+          {title}
+        </Txt>
+        {subtitle === undefined || subtitle === '' ? null : <Txt step="caption" color="textSub" numberOfLines={1}>{subtitle}</Txt>}
+      </View>
     </Tap>
   )
 }

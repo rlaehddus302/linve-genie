@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { BuyerNames } from '../src/lib/derive.ts'
 import { FEED_VIEW_DEFAULT, FEED_VIEW_KEY, getFeedView, parseFeedView, resetFeedView, setFeedView, wireFeedView } from '../src/lib/feed-view.ts'
 import { fromFull } from '../src/lib/scope-data.ts'
-import { addSuggestions, addedLine, last4Digits, recentChatBuyers } from '../src/screens/console/ClaimAdd.tsx'
+import { addedLine, recentChatBuyers } from '../src/screens/console/ClaimAdd.tsx'
 import { raisePlan, smsClaimEvent } from '../src/screens/console/claim-actions.ts'
 import { compareNames, feedClock, feedMatches, feedPickable, feedRows, filterFeed, nameCharRank, searchText } from '../src/screens/console/feed-rows.ts'
 import type { ChatMessage } from '@livejjim/web/src/api/types.ts'
@@ -280,26 +280,8 @@ describe('찜 넣기 (D-RETRO-54)', () => {
     ])
   })
 
-  it('끝 네 자리 칸은 숫자 네 개까지만 받는다 (전화번호 전체를 붙여도 앞 네 개만 남는다)', () => {
-    expect(last4Digits('09 37')).toBe('0937')
-    expect(last4Digits('０９３７')).toBe('0937')
-    expect(last4Digits('010-1234-5678')).toBe('0101')
-    expect(last4Digits('abc')).toBe('')
-  })
-
-  it('이미 있는 손님 후보: 보이는 이름에 적은 글이 들어 있거나 끝 네 자리가 같은 문자 손님 — 그 상품에 이미 찜이 있는 손님·차단한 손님·합쳐진 손님은 뺀다', () => {
-    const { data, names } = world({
-      products: [product(15, { winners: ['u1'], winnerClaims: ['c1'] })],
-      claims: [claim('c1', 15, 'u1')],
-      buyers: [buyer('u1', '홍길동'), buyer('u2', '홍길순'), buyer('u3', '홍차', { blocked: true }), buyer('u4', '홍삼', { mergedInto: 'u2', current: 'u2' }), buyer('s1', '문자찜(영희)', { kind: 'sms', phoneLast4: '0937' })],
-    })
-    const target = data.products.get('b1/15')!
-    expect(addSuggestions(data, names, target, '홍', '')).toEqual(['u2'])
-    expect(addSuggestions(data, names, target, '', '0937')).toEqual(['s1'])
-    expect(addSuggestions(data, names, target, '', '093')).toEqual([])
-    expect(addSuggestions(data, names, target, '  ', '')).toEqual([])
-  })
-
+  // 스펙 변경 (D-CLAIMADD-05, 사용자 지시 2026-11-18 "그냥 문자찜으로 넣거나 아니면 최근 채팅친 사람 닉네임으로 넣거나 … 그외는 다 지워"):
+  // 찜 넣기의 손님 이름·전화번호 끝 네 자리 칸과 이미 있는 손님 후보가 없어져 그 시험(끝 네 자리 숫자만 받기 last4Digits, 후보 addSuggestions)을 뺐다.
   it('넣은 결과 한 줄은 그 쓰기로 생긴 문자찜의 지금 상태 — 찜이 생기지 않았으면 그렇게 알린다', () => {
     const { data, names } = world({
       products: [product(15, { winners: ['u1'], winnerClaims: ['c1'], waitlist: ['s1'], waitlistClaims: ['c2'] })],

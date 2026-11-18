@@ -1,5 +1,5 @@
 // 판매자 의견 2026-11-17 세 가지:
-// - D-CLAIMADD-03 찜 넣기 [닉네임으로 보이기] — 기본 꺼짐(문자찜), 켜고 채팅 손님으로 넣으면 sms named
+// - D-CLAIMADD-03 찜 넣기 [닉네임으로 보이기] — D-CLAIMADD-05(사용자 지시 2026-11-18)로 스위치가 없어졌다: 최근 채팅 손님을 고르면 늘 sms named
 // - D-DUPNO-01 이미 있는 번호 묻기 → D-DUPNO-02(사용자 지시 2026-11-17)로 바꿈: 치는 순간 칸 아래 빨간 "이미 등록된 번호예요.", [다음] 흐림
 // - D-BUYERSUM-01 라이브 중 손님별 합계 (찜 기록 탭 "손님별 합계 ›" → 손님마다 개수·합계, 찾기·정렬·펼치기)
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -8,7 +8,7 @@ import { resetFeedView } from '../src/lib/feed-view.ts'
 import { fromFull } from '../src/lib/scope-data.ts'
 import { BuyerNames } from '../src/lib/derive.ts'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
-import { CLAIM_ADD_NAMED, isChatBuyer } from '../src/screens/console/ClaimAdd.tsx'
+import { isChatBuyer } from '../src/screens/console/ClaimAdd.tsx'
 import { smsClaimEvent } from '../src/screens/console/claim-actions.ts'
 import { NO_TAKEN } from '../src/screens/console/ProductAdd.tsx'
 import { TOTALS_PILL, TOTALS_TITLE, buyerTotals, filterTotals, totalLineText, totalsSummary } from '../src/screens/console/BuyerTotals.tsx'
@@ -44,7 +44,7 @@ const typePad = (digits: string) => {
 
 // ── D-CLAIMADD-03 ───────────────────────────────────────────────
 
-describe('찜 넣기 [닉네임으로 보이기] (D-CLAIMADD-03)', () => {
+describe('찜 넣기 채팅 손님은 닉네임으로 (D-CLAIMADD-03 → 05)', () => {
   it('보낼 쓰기: 고른 손님 + named일 때만 named를 싣는다 — 이름만 적은 새 문자 손님에는 싣지 않는다', () => {
     const target = { broadcast: 'b1', no: 15 }
     expect(smsClaimEvent(target, { name: '', last4: '', buyer: 'u8', named: true })).toEqual({ type: 'sms', b: 'b1', no: 15, buyer: 'u8', named: true })
@@ -72,43 +72,20 @@ describe('찜 넣기 [닉네임으로 보이기] (D-CLAIMADD-03)', () => {
   }
   const PATCH = { products: [product(26, { name: '핑크프릴', price: 8_000 })], buyers: [buyer('u8', '이두리'), buyer('s1', '문자찜', { kind: 'sms', phoneLast4: '0937' })] }
 
-  it('기본은 꺼짐 — 최근 채팅 손님을 그대로 누르면 옛처럼 문자찜(named 없음)', async () => {
+  // 스펙 변경 (D-CLAIMADD-05, 사용자 지시 2026-11-18 "닉네임으로 보이기 온오프는 왜 있어야 하는지 이해가 안돼. 그냥 둘 중에 하나잖아"):
+  // 옛 기대는 스위치 [닉네임으로 보이기](기본 꺼짐) — 끈 채 최근 채팅 손님을 누르면 named 없음, 켜면 named: true, 채팅 손님을 고를 길이 없으면 스위치 없음.
+  // 이제 스위치가 없고, 채팅 손님 줄을 누르면 늘 named: true. 이름 없이 넣으려면 맨 위 [문자찜].
+  it('스위치가 없다 — 최근 채팅 손님을 누르면 named: true로 그 손님 찜을 넣는다', async () => {
     const world = makeWorld({ products: [product(26)] })
     world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { date: '2026-10-29', rehearsal: false, seq: 7, more: false, messages: [message(1, 'u8', '26번 저요, 예쁘네요')] } }))
     await open(world, PATCH)
     const form = await openAdd()
     await within(form).findByRole('group', { name: '최근 채팅 손님' })
-    const toggle = within(form).getByRole('switch', { name: `${CLAIM_ADD_NAMED} — 꺼짐` })
-    expect(toggle).toBeTruthy()
-    expect(within(form).getByText('켜면 감사 채팅에도 "문자찜" 대신 손님 닉네임이 나와요. 라벨에는 늘 닉네임이 나와요')).toBeTruthy()
-    fireEvent.click(within(form).getByRole('button', { name: '이두리 손님으로 26번에 찜 넣기' }))
-    await waitFor(() => expect(world.events.length).toBe(1))
-    expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 26, buyer: 'u8' })
-  }, SLOW)
-
-  it('켜고 최근 채팅 손님을 누르면 named: true로 그 손님 찜을 넣는다', async () => {
-    const world = makeWorld({ products: [product(26)] })
-    world.server.on('GET', /^\/api\/days\/2026-10-29\/messages/, () => ({ body: { date: '2026-10-29', rehearsal: false, seq: 7, more: false, messages: [message(1, 'u8', '26번 저요, 예쁘네요')] } }))
-    await open(world, PATCH)
-    const form = await openAdd()
-    await within(form).findByRole('group', { name: '최근 채팅 손님' })
-    fireEvent.click(within(form).getByRole('switch', { name: `${CLAIM_ADD_NAMED} — 꺼짐` }))
-    expect(within(form).getByRole('switch', { name: `${CLAIM_ADD_NAMED} — 켜짐` })).toBeTruthy()
+    expect(within(form).queryByRole('switch')).toBeNull()
+    expect(form.textContent).not.toContain('닉네임으로 보이기')
     fireEvent.click(within(form).getByRole('button', { name: '이두리 손님으로 26번에 찜 넣기' }))
     await waitFor(() => expect(world.events.length).toBe(1))
     expect(world.events[0]?.body).toEqual({ requestId: expect.any(String), type: 'sms', b: 'b1', no: 26, buyer: 'u8', named: true })
-  }, SLOW)
-
-  it('채팅 손님을 고를 길이 없으면(최근 채팅 없음·이름만 적음) 스위치가 없다 — 문자 손님은 늘 문자찜', async () => {
-    const world = makeWorld({ products: [product(26)] })
-    await open(world, PATCH)
-    const form = await openAdd()
-    expect(within(form).queryByRole('switch')).toBeNull()
-    fireEvent.change(within(form).getByLabelText('손님 이름'), { target: { value: '김새롬' } })
-    expect(within(form).queryByRole('switch')).toBeNull()
-    // 이미 있는 채팅 손님 이름을 적으면 후보와 함께 스위치가 나온다
-    fireEvent.change(within(form).getByLabelText('손님 이름'), { target: { value: '이두' } })
-    expect(within(form).getByRole('switch', { name: `${CLAIM_ADD_NAMED} — 꺼짐` })).toBeTruthy()
   }, SLOW)
 })
 

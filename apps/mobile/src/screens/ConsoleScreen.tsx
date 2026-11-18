@@ -488,12 +488,11 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   // 라벨은 프린터와 상관없이 켜져 있으면 보이고, 이어진 프린터가 없으면 대기열에 쌓인다 — 꺼져 있으면 상품 자세히에서 바로 켠다 (D-LBL-NOPRN-01)
   const labelsHere = seller && !sealed && !rehearsal
   const labelsOn = labelsHere && labelsQueue.queue?.labelsEnabled === true
-  const printerMissing = labelsOn && (labelsQueue.queue?.device == null || !labelsQueue.queue.device.printerConnected)
   const turnLabelsOn = async () => {
     await put('/api/settings/labels', { enabled: true })
     await services.labels.reload()
   }
-  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), latest: () => store.getSnapshot().data ?? data, select: setSelected, selected, labelWords, labelsOff: labelsHere && labelsQueue.queue?.labelsEnabled === false, ...(labelsOn ? { productLabels: labels } : {}), ...(labelsHere ? { printerMissing, turnLabelsOn } : {}), doubts }
+  const api: ConsoleApi = { b: broadcastId, data, names, ended, sealed, command, sync: (seq) => store.sync(seq), latest: () => store.getSnapshot().data ?? data, select: setSelected, selected, labelWords, labelsOff: labelsHere && labelsQueue.queue?.labelsEnabled === false, ...(labelsOn ? { productLabels: labels } : {}), ...(labelsHere ? { turnLabelsOn } : {}), doubts }
   const detailProduct = detail === null ? undefined : data.products.get(detail)
   const title = broadcast.title.trim() === '' ? '제목 없음' : broadcast.title
   const closed = ended || sealed

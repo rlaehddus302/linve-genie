@@ -150,19 +150,17 @@ describe('ConsoleScreen', () => {
     expect(screen.getByRole('button', { name: '상품 추가' })).toBeTruthy()
   })
 
-  it('209번 색금에 찜이 없어도 상품 상세에서 한 장만 직접 인쇄한다', async () => {
+  // 스펙 변경 (D-LBLROW-01, 사용자 지시 2026-11-18 "찜이 없는데 출력을 왜 되게 해놨어? 찜 안 되어있으면 출력 버튼 없애고"):
+  // 옛 기대는 찜이 없어도 상품 상세 [상품 라벨 인쇄]로 한 장 직접 인쇄(POST /api/print/labels/direct) → "출력 대기열에 넣었어요." · [한 장 더 준비].
+  it('209번 색금에 찜이 없으면 상품 상세에 라벨 인쇄 줄이 없다 — 먼저 [찜 넣기]', async () => {
     const world = makeWorld({ products: [product(209, { name: '색금', price: 10_000 })] })
-    const requests: unknown[] = []
-    world.server.on('POST', /^\/api\/print\/labels\/direct$/, (call) => {
-      requests.push(call.body)
-      return { body: { jobs: [] } }
-    })
     world.services.labels.start()
     await open(world)
     fireEvent.click(screen.getByRole('button', { name: '상품 자세히 — 209번' }))
-    fireEvent.click(await screen.findByRole('button', { name: '상품 라벨 인쇄' }))
-    await screen.findByText('출력 대기열에 넣었어요.')
-    expect(requests).toEqual([{ b: 'b1', no: 209, name: '색금', price: 10_000, requestId: expect.any(String) }])
+    const detail = await screen.findByRole('group', { name: '상품 자세히' })
+    expect(within(detail).getByRole('button', { name: '찜 넣기 — 209번' })).toBeTruthy()
+    expect(within(detail).queryByRole('button', { name: /라벨 인쇄/ })).toBeNull()
+    expect(world.server.callsTo('POST', /^\/api\/print\/labels\/direct$/)).toHaveLength(0)
     world.services.labels.stop()
   })
 
