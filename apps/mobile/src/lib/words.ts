@@ -81,6 +81,18 @@ export function paymentWord(status: PaymentStatus, refundDue: number): string {
 /** 출력 알림 띠 낱말 (D-I1-08) */
 export const PRINT_ALERT_WORD = { paused: '출력 멈춤', discard: '버릴 라벨' } as const
 
+/**
+ * 쌓인 라벨 멈춤 안내 (L-11 10, D-STALEPRINT-01): 새로 출력 기기가 됐거나, 프린터를 다시 이었는데 지난 방송의 라벨이 남아 있으면
+ * 저절로 찍지 않고 묻는다. 필요 없는 라벨은 대기열에서 빼면 된다
+ */
+export function backlogNotice(waiting: number): string {
+  return `대기 중인 라벨 ${String(waiting)}장이 있어요. 지난 방송 라벨이 섞여 있을 수 있어요. 필요 없으면 대기열에서 빼고, 출력하려면 출력 시작을 눌러 주세요.`
+}
+
+/** 대기 라벨 모두 빼기 (D-STALEPRINT-01) — 확인 창 뒤에만 보낸다 */
+export const CANCEL_ALL_WAITING = '모두 빼기'
+export const cancelAllQuestion = (waiting: number): string => `대기 중인 라벨 ${String(waiting)}장을 모두 뺄까요? 뺀 라벨은 출력하지 않아요(기록은 남아요).`
+
 /** 출력 조치 낱말 (D-I1-08, 웹 lib/print-words.ts PRINT_ACTION) */
 export const PRINT_ACTION = {
   reconnect: '다시 연결',

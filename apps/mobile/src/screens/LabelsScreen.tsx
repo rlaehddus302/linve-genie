@@ -13,7 +13,7 @@ import { isApiError } from '../api/client.ts'
 import { LOW_PAPER, labelPaper, useLabelPaper } from '../lib/label-paper.ts'
 import { testHelp } from '../lib/test-help.ts'
 import { keepReconnectingMessage } from '../lib/print-words.ts'
-import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, PRINT_ACTION, RETRY_NOW, TEST_CONFIRMED_PAST, TEST_PRINTER_METHOD, autoReconnectingMessage } from '../lib/words.ts'
+import { AUTO_RECONNECT_GAVE_UP, CONNECTION_STATE_WORD, PRINT_ACTION, RETRY_NOW, TEST_CONFIRMED_PAST, TEST_PRINTER_METHOD, autoReconnectingMessage, backlogNotice, CANCEL_ALL_WAITING, cancelAllQuestion } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import type { Tone } from '../ui/theme.ts'
 import { Pill } from '../ui/day-pills.tsx'
@@ -76,6 +76,8 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
   const [taken, setTaken] = useState<string | null>(null)
   const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  // 쌓인 라벨 "모두 빼기" 확인 (D-STALEPRINT-01)
+  const [askCancelAll, setAskCancelAll] = useState(false)
   const queue = snapshot.queue
   const disconnected = snapshot.printer === 'DISCONNECTED'
   // 기억한 프린터가 있으면 "다시 연결"이 이 칸의 주 버튼 (고르기 창 없이 — L-7)
@@ -255,14 +257,25 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
             <>
               <Txt step="bodyLarge" weight="book">{`대기 ${String(queue.waiting)}장 · 출력 중 ${String(queue.printing)}장 · 버릴 라벨 ${String(queue.discard)}장 · 이 앱에서 찍은 ${String(snapshot.printed)}장`}</Txt>
               {queue.pause !== null ? (
-                <Notice tone="danger" alert>
-                  {`출력 멈춤 · ${queue.pause.message}`}
+                <Notice tone={queue.pause.backlog ? 'warning' : 'danger'} alert>
+                  {queue.pause.backlog ? backlogNotice(queue.waiting) : `출력 멈춤 · ${queue.pause.message}`}
                 </Notice>
               ) : null}
-              {/* [출력 멈추기]는 없앴다 — 라벨 출력 켜고 끄기로 대신한다 (D-PRINTOFF-01). 멈춰 있으면(실패·옛 멈춤) [다시 시작]만 */}
-              {queue.pause === null ? null : (
+              {/* [출력 멈추기]는 없앴다 — 라벨 출력 켜고 끄기로 대신한다 (D-PRINTOFF-01). 멈춰 있으면(실패·옛 멈춤) [다시 시작]만, 쌓인 라벨이면 [출력 시작] (D-STALEPRINT-01) */}
+              {queue.pause === null ? null : askCancelAll && queue.pause.backlog && queue.waiting > 0 ? (
+                <View role="dialog" aria-label={CANCEL_ALL_WAITING} style={{ gap: SPACE.md }}>
+                  <Txt>{cancelAllQuestion(queue.waiting)}</Txt>
+                  {/* 아니요 왼쪽 · 모두 빼기 오른쪽 (D-UX4-01) */}
+                  <ButtonRow>
+                    <BigButton kind="outline" label="아니요" onPress={() => setAskCancelAll(false)} />
+                    <BigButton label={CANCEL_ALL_WAITING} disabled={busy} onPress={() => void run(async () => { setAskCancelAll(false); await labels.cancelAll() })} />
+                  </ButtonRow>
+                </View>
+              ) : (
                 <ButtonRow>
-                  <BigButton kind="primary" label={PRINT_ACTION.restart} disabled={busy} onPress={() => void run(() => labels.restart())} />
+                  {/* 쌓인 라벨이면 [모두 빼기] 왼쪽 · [출력 시작] 오른쪽 (D-STALEPRINT-01, D-UX4-01) */}
+                  {queue.pause.backlog && queue.waiting > 0 ? <BigButton kind="outline" label={CANCEL_ALL_WAITING} disabled={busy} onPress={() => setAskCancelAll(true)} /> : null}
+                  <BigButton kind="primary" label={queue.pause.backlog ? PRINT_ACTION.start : PRINT_ACTION.restart} disabled={busy} onPress={() => void run(() => labels.restart())} />
                 </ButtonRow>
               )}
             </>

@@ -2,7 +2,7 @@
 // - 출력 기록을 바꾸는 트랜잭션은 먼저 그 판매자의 대기열 줄을 잠근다(lockQueue — FOR UPDATE). 그 뒤에 라벨·작업·시도 줄을 바꾼다(잠금 순서가 늘 같다).
 // - 출력 작업은 실제 범위에만 있다. 효과를 작업으로 바꾸는 조회(autoLabelEffects)는 리허설인지를 인자로 받지 않고 rehearsal = false로 고정한다(RA-S05-002, L-11 14).
 // - 트랜잭션 안에서는 트랜잭션 객체(tx)를 넘긴다(PGlite는 연결이 하나다).
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, sql } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
 import { accounts, broadcasts, labelSwitches, labelTemplates, outbox, printAttempts, printJobs, printLabels, printQueues, printRequests, scopes } from './db/schema.ts'
 
@@ -90,6 +90,18 @@ export async function queueCounts(db: Db, sellerId: string): Promise<{ waiting: 
     .where(and(eq(printJobs.sellerId, sellerId), sql`(${printJobs.status} in ('WAITING', 'PRINTING') or (${printJobs.voided} and ${printJobs.discardedAt} is null))`))
   const row = rows[0]
   return { waiting: Number(row?.waiting ?? 0), printing: Number(row?.printing ?? 0), discard: Number(row?.discard ?? 0) }
+}
+
+/**
+ * 오래 기다린 대기 작업 수 (D-STALEPRINT-01): 만든 지 before보다 오래된 대기(WAITING) 작업.
+ * 지난 방송의 라벨이 프린터를 다시 이을 때 저절로 나오지 않게 — 이런 작업이 있으면 다시 연결은 판매자 멈춤(쌓인 라벨)으로 둔다
+ */
+export async function staleWaitingCount(db: Db, sellerId: string, before: Date): Promise<number> {
+  const rows = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(printJobs)
+    .where(and(eq(printJobs.sellerId, sellerId), eq(printJobs.status, 'WAITING'), lt(printJobs.createdAt, before)))
+  return Number(rows[0]?.n ?? 0)
 }
 
 // ── 효과 → 작업 (L-11 2) ─────────────────────────────────────────────────

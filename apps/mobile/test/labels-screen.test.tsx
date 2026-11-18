@@ -55,4 +55,32 @@ describe('LabelsScreen', () => {
     expect(world.server.callsTo('POST', /\/api\/print\/device$/)[1]?.body).toEqual({ deviceId: 'app-test', name: '내 휴대폰', replace: true })
     world.services.labels.stop()
   })
+
+  it('쌓인 라벨 멈춤이면 안내와 [모두 빼기]·[출력 시작]을 한 줄에 보이고, 모두 빼기는 확인 뒤에만 보낸다 (D-STALEPRINT-01)', async () => {
+    const world = makeWorld()
+    let waiting = 2
+    const device = { id: 'app-test', name: '내 폰', live: true, printerConnected: true, releasing: false }
+    world.server.on('GET', /^\/api\/print$/, () => ({
+      body: { queue: { rev: 3 - waiting, device, pause: waiting > 0 ? { reason: 'SELLER', message: '출력을 멈췄어요.', backlog: true } : null, waiting, printing: 0, discard: 0, labelsEnabled: true }, jobs: [], discard: [] },
+    }))
+    world.server.on('POST', /^\/api\/print\/device\/state$/, () => ({ body: {} }))
+    world.server.on('POST', /^\/api\/print\/claim$/, () => ({ body: { job: null, reason: 'PAUSED' } }))
+    world.server.on('POST', /^\/api\/print\/jobs\/cancel-all$/, () => {
+      waiting = 0
+      return { body: { cancelled: 2 } }
+    })
+    world.services.labels.start()
+    render(world.wrap(<LabelsScreen onBack={() => {}} />))
+    await waitFor(() => expect(screen.getByText(/대기 중인 라벨 2장이 있어요\. 지난 방송 라벨이 섞여 있을 수 있어요\./)).toBeTruthy())
+    expect(screen.getByRole('button', { name: '출력 시작' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '모두 빼기' }))
+    const dialog = await screen.findByRole('dialog', { name: '모두 빼기' })
+    expect(dialog.textContent).toContain('대기 중인 라벨 2장을 모두 뺄까요?')
+    expect(world.server.callsTo('POST', /\/api\/print\/jobs\/cancel-all$/)).toHaveLength(0)
+    fireEvent.click(screen.getAllByRole('button', { name: '모두 빼기' }).at(-1) as HTMLElement)
+    await waitFor(() => expect(world.server.callsTo('POST', /\/api\/print\/jobs\/cancel-all$/)).toHaveLength(1))
+    expect(world.server.callsTo('POST', /\/api\/print\/jobs\/cancel-all$/)[0]?.body).toEqual({ confirm: true })
+    await waitFor(() => expect(screen.queryByRole('button', { name: '출력 시작' })).toBeNull())
+    world.services.labels.stop()
+  })
 })

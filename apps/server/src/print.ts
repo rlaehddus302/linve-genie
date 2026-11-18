@@ -56,6 +56,7 @@ import {
   findPrintRequest,
   finishAttempt,
   hasOpenBroadcast,
+  staleWaitingCount,
   headWaitingJob,
   insertAttempt,
   insertJobs,
@@ -472,6 +473,12 @@ const CLAIM_ROUNDS = 200
  * 동시에 거듭 온 요청이 같은 장을 여러 번 받아 겹쳐 찍지 않게 한다(AC-I1-06). 출력 기기 화면은 받기 응답을 잃으면 3초 뒤 다시 받는다
  */
 export const RECLAIM_AFTER_MS = 2000
+
+/**
+ * 이만큼 오래 기다린 대기 작업은 지난 방송의 라벨로 본다 (D-STALEPRINT-01) — 프린터를 다시 이어도 저절로 찍지 않고 "출력 시작"을 묻는다.
+ * 한 방송은 이보다 짧다. 오늘 손으로 다시 넣은 라벨(다시 출력·라벨 출력)은 새로 만든 작업이라 해당하지 않는다
+ */
+export const STALE_WAITING_MS = 12 * 60 * 60 * 1000
 
 /** 지우는 글자: 제어 문자(C0·C1)와 보이지 않는 서식 글자 (폭 없는 공백·방향 표시·줄 나눔 기호·BOM) */
 function isInvisible(code: number): boolean {
@@ -981,6 +988,14 @@ export class PrintService {
       const patch: QueuePatch = { printerConnected: connected, printerProfileId: connected ? profileId : null }
       if (connected && queue.paused === 'DISCONNECTED') patch.paused = null
       if (!connected && queue.paused === null) patch.paused = 'DISCONNECTED'
+      // 프린터를 새로 이었는데 오래 기다린(지난 방송의) 라벨이 대기에 있으면 저절로 찍지 않고 쌓인 라벨 멈춤으로 둔다 —
+      // 판매자가 "출력 시작"을 누르거나 빼야 한다 (D-STALEPRINT-01). 손으로 푸는 멈춤이면 그대로
+      if (connected && (queue.paused === null || queue.paused === 'DISCONNECTED')) {
+        if ((await staleWaitingCount(tx, sellerId, new Date(now.getTime() - STALE_WAITING_MS))) > 0) {
+          patch.paused = 'SELLER'
+          patch.backlog = true
+        }
+      }
       await updateQueue(tx, sellerId, patch, now)
       return true
     })
@@ -1744,9 +1759,9 @@ export class PrintService {
     if (row.job.status === 'PRINTING') return rejected(409, 'PRINT_JOB_PRINTING', PRINT_MESSAGES.jobPrinting)
     const now = this.#now()
     const changed = await this.#db.transaction(async (tx) => {
-      await lockQueue(tx, sellerId, now)
+      const queue = await lockQueue(tx, sellerId, now)
       const ids = await cancelWaiting(tx, sellerId, [row.job.id])
-      if (ids.length > 0) await updateQueue(tx, sellerId, {}, now)
+      if (ids.length > 0) await updateQueue(tx, sellerId, await backlogCleared(tx, sellerId, queue), now)
       return ids
     })
     const fresh = await findJob(this.#db, sellerId, date, jobId)
@@ -1760,9 +1775,9 @@ export class PrintService {
   async cancelAll(sellerId: string): Promise<{ cancelled: number; queue: QueueSummary }> {
     const now = this.#now()
     const changed = await this.#db.transaction(async (tx) => {
-      await lockQueue(tx, sellerId, now)
+      const queue = await lockQueue(tx, sellerId, now)
       const ids = await cancelWaiting(tx, sellerId, await waitingJobIds(tx, sellerId))
-      if (ids.length > 0) await updateQueue(tx, sellerId, {}, now)
+      if (ids.length > 0) await updateQueue(tx, sellerId, await backlogCleared(tx, sellerId, queue), now)
       return ids
     })
     if (changed.length > 0) this.#notify(sellerId, { jobs: changed, labels: [] })
@@ -1990,6 +2005,16 @@ export async function servedTemplate(db: Db, sellerId: string, kind: 'product' |
   const stored = checked !== null && checked.ok ? checked.template : defaultTemplate(kind)
   const shop = await readShop(db, sellerId)
   return { template: fillShopName(stored, shop.name), version: row?.version ?? 0, storedShopName: stored.shopName }
+}
+
+/**
+ * 쌓인 라벨 멈춤(판매자 멈춤 + backlog)에서 대기 작업을 다 뺐으면 물을 것이 없으니 멈춤을 푼다 (D-STALEPRINT-01) —
+ * 출력 기기의 프린터가 끊겨 있으면 끊김 멈춤. 다른 멈춤이거나 대기가 남았으면 그대로
+ */
+async function backlogCleared(tx: Db, sellerId: string, queue: QueueRow): Promise<QueuePatch> {
+  if (queue.paused !== 'SELLER' || !queue.backlog) return {}
+  if ((await queueCounts(tx, sellerId)).waiting > 0) return {}
+  return { paused: queue.deviceId !== null && !queue.printerConnected ? 'DISCONNECTED' : null, backlog: false }
 }
 
 function clearDevice(paused: PauseReason | null): QueuePatch {
