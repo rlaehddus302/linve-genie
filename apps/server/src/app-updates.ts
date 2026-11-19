@@ -2,12 +2,15 @@
 //   GET /app-updates/manifest  머리글 expo-platform(ios|android)·expo-runtime-version(앱 버전 지문)
 //     → 그 지문에 맞는 가장 새 묶음의 목록(multipart "manifest"), 없거나 이미 그것이면 "noUpdateAvailable" 지시
 //   GET /app-updates/files/<platform>/<runtime>/<id>/<경로>  묶음 파일(바뀌지 않는다 — 오래 캐시)
+//   GET /app-updates/android.apk  안드로이드 앱 내려받기 링크(D-APK-LINK-01) — 맥 미니가 마지막으로 만든 출시 APK(<폴더>/android.apk)
 // 로그인·Origin 검사 밖이다: 앱이 로그인 전에도 묻고, 나가는 것은 누구나 받는 앱 화면 코드뿐(비밀 없음).
 // 폴더(LIVEJJIM_APP_UPDATES_DIR): <platform>/<runtime>/current(지금 묶음 id 한 줄) · <platform>/<runtime>/<id>/
 //   (expo export 결과 metadata.json·_expo/…·assets/…, 앱 설정 expoConfig.json, 올린 시각 created-at). 맥 미니 자동 내보내기가 넣는다.
 // 지문이 다른 앱(네이티브 부품이 다른 옛 앱)에는 아무것도 주지 않는다 — 맞지 않는 화면 코드가 앱을 깨지 않게.
 import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import { join, resolve, sep } from 'node:path'
 import type { Hono } from 'hono'
 
@@ -193,6 +196,28 @@ export function registerAppUpdates(app: Hono, options: AppUpdatesOptions): void 
       const data = await readFile(full)
       const ext = path[path.length - 1]?.split('.').pop() ?? ''
       return new Response(data, { status: 200, headers: { 'Content-Type': CONTENT_TYPES[ext] ?? 'application/octet-stream', 'Cache-Control': IMMUTABLE } })
+    } catch {
+      return notFound()
+    }
+  })
+
+  // 안드로이드 앱 내려받기 (D-APK-LINK-01): 휴대폰 브라우저에서 누르면 바로 받아 설치. 같은 주소가 늘 가장 새 APK라 캐시하지 않는다
+  app.get('/app-updates/android.apk', async (c) => {
+    const { dir } = options
+    const full = dir === null ? null : inside(dir, 'android.apk')
+    if (full === null) return notFound()
+    try {
+      const info = await stat(full)
+      if (!info.isFile()) return notFound()
+      const headers = {
+        'Content-Type': 'application/vnd.android.package-archive',
+        'Content-Length': String(info.size),
+        'Content-Disposition': 'attachment; filename="livegenie.apk"',
+        'Cache-Control': 'no-cache',
+        'Last-Modified': info.mtime.toUTCString(),
+      }
+      if (c.req.method === 'HEAD') return new Response(null, { status: 200, headers })
+      return new Response(Readable.toWeb(createReadStream(full)) as ReadableStream, { status: 200, headers })
     } catch {
       return notFound()
     }

@@ -114,3 +114,28 @@ describe('GET /app-updates/files/* (D-OTA-01)', () => {
     expect(isServerPath('/app-updates/files/ios/x')).toBe(true)
   })
 })
+
+// D-APK-LINK-01 사용자 지시(2026-11-20) "안드로이드 apk 다운 링크 만들어" — 맥 미니가 만든 마지막 APK를 고정 주소로
+describe('GET /app-updates/android.apk (D-APK-LINK-01)', () => {
+  it('폴더의 android.apk를 설치 파일로 내려준다 — 같은 주소가 늘 새 것이라 캐시하지 않는다', async () => {
+    const dir = folder()
+    const apk = Buffer.from('PK\u0003\u0004 가짜 앱')
+    writeFileSync(join(dir, 'android.apk'), apk)
+    const response = await app(dir).request('/app-updates/android.apk')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/vnd.android.package-archive')
+    expect(response.headers.get('content-disposition')).toBe('attachment; filename="livegenie.apk"')
+    expect(response.headers.get('content-length')).toBe(String(apk.length))
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    expect(Buffer.from(await response.arrayBuffer()).equals(apk)).toBe(true)
+  })
+
+  it('아직 올린 APK가 없거나 폴더가 없으면 404', async () => {
+    expect((await app(folder()).request('/app-updates/android.apk')).status).toBe(404)
+    expect((await app(null).request('/app-updates/android.apk')).status).toBe(404)
+  })
+
+  it('화면 문서로 빠지지 않는 서버 경로', () => {
+    expect(isServerPath('/app-updates/android.apk')).toBe(true)
+  })
+})

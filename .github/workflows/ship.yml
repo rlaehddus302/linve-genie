@@ -196,6 +196,11 @@ jobs:
           rm -f "$HOME/Desktop/livegenie-android.zip" && (cd /tmp && zip -q -j "$HOME/Desktop/livegenie-android.zip" livegenie.apk)
           echo "$FP_ANDROID" > "$HOME/.livegenie-ci/built-android"
 
+      - name: 안드로이드 앱 내려받기 링크 (https://livegenie.kr/app-updates/android.apk)
+        # 마지막으로 만든 APK를 운영 서버에 둔다(D-APK-LINK-01). 지문이 같아 빌드를 건너뛴 실행에서도 링크를 채운다
+        if: github.event_name == 'workflow_dispatch' && inputs.android && env.SERVER_DEFERRED != 'yes'
+        run: bash scripts/deploy/mini-apk.sh
+
       - name: 화면 일꾼 갱신 (서버 배포 다음에만)
         # 맨 뒤에 둔다: 실패해도(일꾼 작업 폴더에 손으로 고친 변경 등) 앞의 서버·앱 내보내기를 막지 않고, 실행은 빨갛게 남아 알린다.
         # 앞의 앱 단계가 실패해도 서버가 그 판이면 일꾼은 갱신한다. 서버 단계가 실패했으면 돌지 않는다(일꾼이 서버보다 새 판이 되면 안 된다).
