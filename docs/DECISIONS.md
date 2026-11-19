@@ -3093,3 +3093,9 @@ SRV1부터 받아쓰기는 늘 서버 일꾼(VOC-06)이 한다(SPEC "크롬 받�
 | D-THANKSFIX-05 | 크롬 확장·틱톡·인스타그램 DM·영상 댓글 감사 | 이번에도 고치지 않는다(목록에도 없다) — 크롬 확장은 판매자 PC 브라우저가 판매자 계정으로 올려 서버가 지울 수 없고, 틱톡·인스타그램 DM은 지우는 길이 없다. 고르기 화면도 실시간 채팅(서버가 올린 글)만 | 지우지 못하는 글을 [지우기]로 보이면 판매자가 지운 줄 안다 | — | AUTO |
 
 스펙: SPEC YT-04 "올라간 감사 채팅 고치기", DOMAIN_RULES R-13 "게시 뒤 감사 정정"의 봇 길 지우기 줄·"손으로 지우기·고쳐 다시 올리기"(덧붙임, 버전 줄은 동시 작업과 겹치지 않게 그대로). 시험: apps/server `test/youtube-thanks-manual.test.ts`(10) · `test/youtube-chat-send-outbox.test.ts` "D-THANKSFIX-03"(4), apps/mobile `test/thanks-posts.test.tsx`(4). 바꾼 기존 시험 없음.
+
+### D-RESTORE-LIVE-01 복구가 같이 보는 라이브·상품 동기화 표를 다루는 법 (2026-11-20, AUTO — 복구 계약 시험 RA-I2-001이 실패해 찾음)
+
+| # | 상황 | 결정 | 근거 | 상태 |
+|---|---|---|---|---|
+| D-RESTORE-LIVE-01 | live_catalog_delivery·live_catalog_backfill(D-SHARE 상품 동기화)·live_joins·live_join_visits(D-SHARE-LIVE-01·02)가 복구 목록에 없었다. live_catalog_delivery·live_joins는 방송 표를 외래 키로 잡고 있어, 같이 보는 라이브나 보낼 상품 고침이 있는 판매자를 복구하면 방송을 지우다 외래 키에 걸려 복구가 실패했다. | live_catalog_delivery는 지우는 표(파일에 없고, 복구한 지난 고침을 다른 가게에 다시 보내지 않는다). live_joins·live_join_visits는 그대로 두는 표 — live_joins의 방송 외래 키를 뺀다(0071, live_join_visits와 같은 결: 읽을 때 방송 표와 이어 보므로 없는 방송은 빠진다). live_catalog_backfill(판매자 ID 없는 영상 표지)은 판매자 데이터가 아닌 표. AUTO: 복구가 멈추지 않고, 같이 보기 기록을 잃지 않는 쪽. | 복구는 데이터 손실을 되돌리는 마지막 길이라 외래 키로 멈추면 안 된다. | 완료 |

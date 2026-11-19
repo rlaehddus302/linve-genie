@@ -119,6 +119,10 @@ import {
   receiptLinkRequests,
   receiptLinks,
   statementBuyerEvents,
+  liveCatalogBackfill,
+  liveCatalogDelivery,
+  liveJoins,
+  liveJoinVisits,
   printAttempts,
   printJobs,
   printLabels,
@@ -1748,6 +1752,8 @@ export const RESTORE_REPLACED_TABLES = [
   youtubeOwnMessages,
   // D-RETRO-105 감사 채팅 정정: 회차의 지난 정정 작업 — 파일에 없고 지운다(복구한 지난 감사를 다시 지우거나 올리지 않는다)
   thanksFixes,
+  // D-RESTORE-LIVE-01 공동 운영 가게로 보낼 상품 고침 대기열: 방송을 참조하고 파일에 없다 — 지운다(복구한 지난 고침을 다른 가게에 다시 보내지 않는다)
+  liveCatalogDelivery,
   youtubeNotices,
   youtubeCollectors,
   youtubeLinks,
@@ -1865,9 +1871,13 @@ export const RESTORE_KEPT_TABLES = [
   scheduleItems,
   alertSubscribers,
   alertConsents,
+  // D-RESTORE-LIVE-01 같이 보는 라이브(D-SHARE-LIVE-01)·같이 본 라이브 기록(D-SHARE-LIVE-02): 계정 쪽 기록이라 파일에 없고 복구가 지우지 않는다.
+  // 방송은 외래 키로 잇지 않고 읽을 때 방송 표와 이어 보므로, 복구한 파일에 없는 방송은 저절로 빠진다
+  liveJoins,
+  liveJoinVisits,
 ] as const
-/** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다) */
-export const RESTORE_UNRELATED_TABLES = [loginLimits] as const
+/** 판매자 데이터가 아닌 표 (로그인 전 시도 수 — 판매자 ID가 없다. 자동 상품 동기화를 한 번 채운 영상 표지 live_catalog_backfill) */
+export const RESTORE_UNRELATED_TABLES = [loginLimits, liveCatalogBackfill] as const
 
 /** 모아 두었다가 BATCH개마다 넣는 통 */
 class Batcher<T> {

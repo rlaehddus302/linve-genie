@@ -2988,11 +2988,63 @@ export const statementBuyerEvents = pgTable(
   (t) => [unique('statement_buyer_events_request_uq').on(t.sellerId, t.requestId), index('statement_buyer_events_seller_date_idx').on(t.sellerId, t.date, t.id)],
 )
 
+/**
+ * 같이 보는 라이브 (D-SHARE-LIVE-01, 사용자 지시 2026-11-17 "라이브와 앱 계정은 1:N"): 다른 판매자 계정이 이미 이어 둔 라이브를 이으면
+ * 새 방송을 만들지 않고 먼저 이은 방송에 들어간다. 들어간 동안 그 계정의 요청은 방송 주인 판매자의 것으로 처리된다(상품·찜·채팅·주문 모두 같은 기록).
+ * 계정마다 한 줄 — 다시 들어가면 고쳐 쓴다. 나가면 left_at. 방송이 끝나고 12시간이 지나면 저절로 나간 것으로 본다
+ */
+export const liveJoins = pgTable(
+  'live_joins',
+  {
+    accountId: text('account_id')
+      .primaryKey()
+      .references(() => accounts.id),
+    /** 그 계정의 원래 판매자 */
+    homeSellerId: text('home_seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 방송 주인 판매자 (먼저 이은 계정의 판매자) */
+    ownerSellerId: text('owner_seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 방송은 외래 키로 잇지 않는다(D-RESTORE-LIVE-01 — 복구가 방송 표를 지우고 다시 만든다). 읽을 때 방송 표와 이어 보므로 없는 방송은 빠진다 */
+    broadcastId: text('broadcast_id').notNull(),
+    joinedAt: timestamptz('joined_at').notNull(),
+    leftAt: timestamptz('left_at'),
+  },
+  (t) => [index('live_joins_broadcast_idx').on(t.broadcastId)],
+)
+
+/**
+ * 같이 본 라이브 기록 (D-SHARE-LIVE-02, 사용자 2026-11-19 "세 계정으로 동시에 보고 있었을텐데 그거랑 상관없이 기록 남아야 하는거 아니야?"):
+ * live_joins는 계정마다 지금 한 줄이라 다음에 들어가면 덮인다 — 들어간 라이브를 계정마다 하나씩 남겨, 원래 가게의 "지난 라이브"에 보이고 다시 열 수 있게 한다.
+ * 덧붙이기만 한다. 방송은 외래 키로 잇지 않는다(복구가 방송 표를 다시 만들어도 남고, 없는 방송은 읽을 때 뺀다)
+ */
+export const liveJoinVisits = pgTable(
+  'live_join_visits',
+  {
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    broadcastId: text('broadcast_id').notNull(),
+    homeSellerId: text('home_seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    ownerSellerId: text('owner_seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    joinedAt: timestamptz('joined_at').notNull(),
+  },
+  (t) => [unique('live_join_visits_uq').on(t.accountId, t.broadcastId)],
+)
+
 export const schema = {
   broadcastGroupEvents,
   statementBuyerEvents,
   liveCatalogBackfill,
   liveCatalogDelivery,
+  liveJoins,
+  liveJoinVisits,
   voiceAliases,
   sellers,
   accounts,
@@ -3125,53 +3177,3 @@ export const scopeLockKey = (sellerId: string, date: string, rehearsal: boolean)
 export const depositLockKey = (sellerId: string) => sql`hashtextextended(${`${sellerId}/deposits`}, 0)`
 
 
-/**
- * 같이 보는 라이브 (D-SHARE-LIVE-01, 사용자 지시 2026-11-17 "라이브와 앱 계정은 1:N"): 다른 판매자 계정이 이미 이어 둔 라이브를 이으면
- * 새 방송을 만들지 않고 먼저 이은 방송에 들어간다. 들어간 동안 그 계정의 요청은 방송 주인 판매자의 것으로 처리된다(상품·찜·채팅·주문 모두 같은 기록).
- * 계정마다 한 줄 — 다시 들어가면 고쳐 쓴다. 나가면 left_at. 방송이 끝나고 12시간이 지나면 저절로 나간 것으로 본다
- */
-export const liveJoins = pgTable(
-  'live_joins',
-  {
-    accountId: text('account_id')
-      .primaryKey()
-      .references(() => accounts.id),
-    /** 그 계정의 원래 판매자 */
-    homeSellerId: text('home_seller_id')
-      .notNull()
-      .references(() => sellers.id),
-    /** 방송 주인 판매자 (먼저 이은 계정의 판매자) */
-    ownerSellerId: text('owner_seller_id')
-      .notNull()
-      .references(() => sellers.id),
-    broadcastId: text('broadcast_id')
-      .notNull()
-      .references(() => broadcasts.id),
-    joinedAt: timestamptz('joined_at').notNull(),
-    leftAt: timestamptz('left_at'),
-  },
-  (t) => [index('live_joins_broadcast_idx').on(t.broadcastId)],
-)
-
-/**
- * 같이 본 라이브 기록 (D-SHARE-LIVE-02, 사용자 2026-11-19 "세 계정으로 동시에 보고 있었을텐데 그거랑 상관없이 기록 남아야 하는거 아니야?"):
- * live_joins는 계정마다 지금 한 줄이라 다음에 들어가면 덮인다 — 들어간 라이브를 계정마다 하나씩 남겨, 원래 가게의 "지난 라이브"에 보이고 다시 열 수 있게 한다.
- * 덧붙이기만 한다. 방송은 외래 키로 잇지 않는다(복구가 방송 표를 다시 만들어도 남고, 없는 방송은 읽을 때 뺀다)
- */
-export const liveJoinVisits = pgTable(
-  'live_join_visits',
-  {
-    accountId: text('account_id')
-      .notNull()
-      .references(() => accounts.id),
-    broadcastId: text('broadcast_id').notNull(),
-    homeSellerId: text('home_seller_id')
-      .notNull()
-      .references(() => sellers.id),
-    ownerSellerId: text('owner_seller_id')
-      .notNull()
-      .references(() => sellers.id),
-    joinedAt: timestamptz('joined_at').notNull(),
-  },
-  (t) => [unique('live_join_visits_uq').on(t.accountId, t.broadcastId)],
-)
