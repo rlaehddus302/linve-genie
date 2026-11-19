@@ -135,13 +135,34 @@ describe('상품 목록의 확인 중 표시 (D-RETRO-90)', () => {
     await open(worldWith({ ...MISMATCH, claims: [...(MISMATCH.claims ?? []), waiting('c3', 334, 'u1', 14)], pending: [...(MISMATCH.pending ?? []), slot(334, ['c3'], ['u1'])] }))
     const row = within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 334번' })
     // D-UX4-207로 바뀐 기대 (사용자 "확인 중 눌러서 확정하기 이런 말 뜨는데 그런거 빨갛게 띄우지 말고, ... 애니메이션으로 넣어줘"; 옛 D-RETRO-90: 주황 글 "확인 중 · 기다리는 찜 1건 · 눌러서 확정하기"):
-    // D-UX4-208 (사용자 "찜은 ... 말고 그냥 바로 아직 찜이 없어요 띄워"): 줄에는 확인 중 문구도 … 도 없이 찜 줄 그대로("아직 찜이 없어요"). 주황 바탕도 없다
+    // D-UX4-208 (사용자 "찜은 ... 말고 그냥 바로 아직 찜이 없어요 띄워"): 줄에는 확인 중 문구도 … 도 없이 찜 줄 그대로. 주황 바탕도 없다
+    // D-CLAIMLAT-01로 바뀐 기대 (판매자 "찜은 이미 들어갔는데 품명 인식 중이라 UI에선 찜이 안 보이고 나중에 품명 들어가서야 찜이 늦게 보임"):
+    // 기다리는 찜이 있으면 "아직 찜이 없어요"가 아니라 그 손님 캡슐(회색 — 아직 1등이 정해지지 않음)이 바로 보인다. 옛 기대: getByText(NO_CLAIMS)
     expect(within(row).queryByText(TENTATIVE_TAG)).toBeNull()
     expect(within(row).queryByText('· 기다리는 찜 1건 · 눌러서 확정하기')).toBeNull()
-    expect(within(row).getByText(NO_CLAIMS)).toBeTruthy()
+    expect(within(row).queryByText(NO_CLAIMS)).toBeNull()
+    expect(within(within(row).getByRole('list', { name: '334번 찜한 손님' })).getByRole('listitem', { name: '홍길동 확정 기다림' })).toBeTruthy()
     expect(getComputedStyle(within(row).getByTestId('product-row-fill')).backgroundColor).toBe('rgb(255, 255, 255)')
     const all = screen.getByTestId('console-screen').textContent ?? ''
     for (const raw of ['tentative', 'TENTATIVE', 'READY', 'NUMBER_MISMATCH', 'PRICE_SINGLE_SOURCE', 'WORKER', 'SYNC', '임시']) expect(all, raw).not.toContain(raw)
+  })
+
+  it('품종을 듣는 중(빈 품종 …)인 확인 중 상품에 찜이 들어오면 줄에 그 손님이 바로 회색 캡슐로 보인다 — 금색(1등)은 서버가 확정한 뒤에만 (D-CLAIMLAT-01)', async () => {
+    const view: Partial<FullView> = {
+      products: [held(356, { reasons: ['NUMBER_SINGLE_SOURCE', 'PRICE_SINGLE_SOURCE', 'NAME_UNSURE'] }, { name: '', price: 9000 })],
+      claims: [waiting('c1', 356, 'u1', 12), waiting('c2', 356, 'u2', 13)],
+      pending: [slot(356, ['c1', 'c2'], ['u1', 'u2'])],
+      buyers: [buyer('u1', '홍길동'), buyer('u2', '김영희')],
+    }
+    const world = worldWith(view)
+    await open(world)
+    const row = within(screen.getByRole('list', { name: '상품 목록' })).getByRole('button', { name: '상품 자세히 — 356번' })
+    expect(within(row).getByTestId('product-row-name-dots')).toBeTruthy()
+    expect(within(row).queryByText(NO_CLAIMS)).toBeNull()
+    const tags = within(within(row).getByRole('list', { name: '356번 찜한 손님' })).getAllByRole('listitem')
+    expect(tags.map((tag) => tag.getAttribute('aria-label'))).toEqual(['홍길동 확정 기다림', '김영희 확정 기다림'])
+    // 앱은 1등을 미리 정하지 않는다 — 기다리는 찜은 금색이 아니다
+    for (const tag of tags) expect(getComputedStyle(tag).backgroundColor).not.toBe('rgb(248, 227, 163)')
   })
 
   it('손으로 올린 공개 전 상품(확인 중 표시 없음)은 지금 그대로 — 줄에 표시가 없고 자세히에 [판매 시작]이 있어 product.open을 보낸다', async () => {

@@ -2,8 +2,11 @@
 // 화면 폭을 재서(onLayout) 한 줄에 들어가는 만큼만 놓는다. 글자 폭은 어림한다(한글·이모지 = 글자 크기, 그 밖 = 0.62배).
 import type { Buyer } from '@livejjim/web/src/api/types.ts'
 
-/** out: 대기 인원이 차서 대기에 들지 못한 찜(품절) — 판정은 그대로, 보이기만 흐리게 (D-UX4-142) */
-export type ProductTagKind = 'win' | 'wait' | 'badge' | 'out'
+/**
+ * out: 대기 인원이 차서 대기에 들지 못한 찜(품절) — 판정은 그대로, 보이기만 흐리게 (D-UX4-142).
+ * hold: 공개 전 상품(확인 중 — 품종·가격 듣는 중 포함)에 들어와 확정을 기다리는 찜 — 아직 1등·대기가 정해지지 않아 회색으로만 (D-CLAIMLAT-01)
+ */
+export type ProductTagKind = 'win' | 'wait' | 'badge' | 'out' | 'hold'
 
 export interface ProductTag {
   readonly kind: ProductTagKind

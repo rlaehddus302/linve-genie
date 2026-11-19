@@ -23,7 +23,7 @@ import type { Buyer, Claim, Product } from '@livejjim/web/src/api/types.ts'
 import { ProductLabelRow } from '../ProductLabelAction.tsx'
 import { SearchField } from '../customer-parts.tsx'
 import { isApiError } from '../../api/client.ts'
-import { boardProducts, claimsOfProduct, productSlots, type BuyerNames } from '../../lib/derive.ts'
+import { boardProducts, claimsOfProduct, productKey, productSlots, type BuyerNames } from '../../lib/derive.ts'
 import { TAG_GAP, TAG_PAD_X, buyerTagText, fitTags, type ProductTag } from '../../lib/product-tags.ts'
 import { isTentative, tentativeAttention, waitingAt } from '../../lib/tentative.ts'
 import type { ScopeData } from '../../lib/scope-data.ts'
@@ -100,8 +100,12 @@ export function rowAttention(product: Product, conflictClaims: number): RowAtten
 /** 상품 줄의 품종: 개수가 2 이상이면 "채홍 3개" (D-PIECES-01) */
 export const rowName = (product: Pick<Product, 'name' | 'pieces'>): string => productTitle(product.name, product.pieces)
 
-/** 줄 아래 꼬리표: 1등(금색) → 손님 꼬리표(입금 늦음 주의·단골) → 대기 손님(회색) → 대기 밖 손님(흐리게, D-UX4-142), 순서는 서버 순서 그대로 (D-UX3-78) */
-export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, 'kind' | 'phoneLast4'> | undefined, nameOfBuyer: (id: string) => string, badge?: string, outside: readonly string[] = []): { readonly tags: ProductTag[]; readonly keep: number } {
+/**
+ * 줄 아래 꼬리표: 1등(금색) → 손님 꼬리표(입금 늦음 주의·단골) → 대기 손님(회색) → 대기 밖 손님(흐리게, D-UX4-142), 순서는 서버 순서 그대로 (D-UX3-78).
+ * held: 공개 전(확인 중 포함) 상품에서 확정을 기다리는 찜의 손님(서버 보류 찜 자리 순서 그대로) — 들어온 즉시 회색 캡슐로 보인다 (D-CLAIMLAT-01).
+ * 앱은 판정하지 않으므로 누가 1등인지 금색으로 앞서 칠하지 않는다 — 확정되면 서버 값대로 금색·회색이 된다
+ */
+export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, 'kind' | 'phoneLast4'> | undefined, nameOfBuyer: (id: string) => string, badge?: string, outside: readonly string[] = [], held: readonly string[] = []): { readonly tags: ProductTag[]; readonly keep: number } {
   const slots = productSlots(product)
   const tags: ProductTag[] = slots.winners.map((id) => ({ kind: 'win', text: buyerTagText(buyerOf(id), nameOfBuyer(id), true) }))
   let keep = tags.length === 0 ? 0 : 1
@@ -110,6 +114,8 @@ export function rowTags(product: Product, buyerOf: (id: string) => Pick<Buyer, '
     keep = 2
   }
   for (const id of slots.waitlist) tags.push({ kind: 'wait', text: buyerTagText(buyerOf(id), nameOfBuyer(id), false) })
+  if (tags.length === 0 && held.length > 0) keep = 1
+  for (const id of held) tags.push({ kind: 'hold', text: buyerTagText(buyerOf(id), nameOfBuyer(id), false) })
   for (const id of outside) tags.push({ kind: 'out', text: buyerTagText(buyerOf(id), nameOfBuyer(id), false) })
   return { tags, keep }
 }
@@ -126,10 +132,12 @@ export function rowLine(product: Pick<Product, 'no' | 'name' | 'pieces' | 'price
  * 확인이 필요한 상품은 줄 바탕이 주황이고 캡슐 대신 주황 글 한 줄(품종 아래).
  * freshAt: 방금 올라온 시각(아니면 0) — 그때부터 잠깐 연한 초록, 그 뒤 흰색으로 (D-UX4-29)
  */
-const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, conflicts, waiting, outside, buyers, names }: {
+const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, conflicts, waiting, outside, held, buyers, names }: {
   readonly product: Product
   /** 대기 밖 손님 (D-UX4-142) — 대기 뒤에 흐린 꼬리표 */
   readonly outside: readonly string[]
+  /** 공개 전(확인 중 포함) 상품에서 확정을 기다리는 찜의 손님 (D-CLAIMLAT-01) — 판매 중이면 빈 배열 */
+  readonly held: readonly string[]
   readonly freshAt: number
   readonly onOpen: (key: string) => void
   readonly doubt?: string
@@ -145,7 +153,7 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
   // 등록 확인 전(확인 중) 상품은 주황 글 없이 빈 품종·가격만 … 움직임 (D-UX4-207·208) — 주황 줄은 찜이 겹친 상품(rowAttention)만
   const pending = tentativeAttention(product, waiting)
   const attention = pending === null ? rowAttention(product, conflicts) : null
-  const { tags, keep } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id), undefined, outside)
+  const { tags, keep } = rowTags(product, (id) => buyers.get(id), (id) => names.name(id), undefined, outside, held)
   // 손님 캡슐은 한 줄에 들어가는 만큼만, 나머지는 [+N] — 줄을 넘기지 않는다 (D-UX4-206)
   const fit = fitTags(tags, width, TYPE.meta * Math.min(fontScale, MAX_FONT_SCALE), keep)
   const glow = useRef(new Animated.Value(0)).current
@@ -221,7 +229,7 @@ const ProductRow = memo(function ProductRow({ product, freshAt, onOpen, doubt, c
               // 어림이 틀려도 줄을 넘기지 않고 캡슐 글이 … 로 줄어든다
               <View role="list" aria-label={`${String(product.no)}번 찜한 손님`} testID="product-row-buyers" onLayout={(event) => setWidth(Math.floor(event.nativeEvent.layout.width))} style={[SUB_LINE, { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', justifyContent: 'flex-start', gap: TAG_GAP, overflow: 'hidden' }]}>
                 {fit.shown.map((tag, index) => (
-                  <View key={`${tag.kind}-${String(index)}`} role="listitem" {...(tag.kind === 'out' ? { 'aria-label': `${tag.text} 대기 밖` } : {})} style={[tagStyle(tag.kind === 'win' ? p.goldBg : p.soft), { flexShrink: 1, minWidth: 0 }, tag.kind === 'out' ? { opacity: OUTSIDE_DIM } : null]}>
+                  <View key={`${tag.kind}-${String(index)}`} role="listitem" {...(tag.kind === 'out' ? { 'aria-label': `${tag.text} 대기 밖` } : tag.kind === 'hold' ? { 'aria-label': `${tag.text} 확정 기다림` } : {})} style={[tagStyle(tag.kind === 'win' ? p.goldBg : p.soft), { flexShrink: 1, minWidth: 0 }, tag.kind === 'out' ? { opacity: OUTSIDE_DIM } : null]}>
                     <Txt step="meta" weight={tag.kind === 'win' ? 'bold' : 'medium'} ink={tag.kind === 'win' ? p.goldText : p.textSub} numberOfLines={1}>
                       {tag.text}
                     </Txt>
@@ -442,7 +450,7 @@ export function ProductList({ onOpen, query, onQuery, claimedOnly = false, onCla
     if (api.selected !== null && seen.current.has(api.selected)) seen.current.set(api.selected, now)
   }
   const shown = sortProducts(claimedOnly ? products.filter((product) => hasClaims(api.data, api.b, product)) : products, sort)
-  useAnimatedChange(shown.map((product) => `${product.key}:${String(productSlots(product).winners.length + productSlots(product).waitlist.length)}:${String(outsideOf.get(product.key)?.length ?? 0)}:${product.conflict ? 1 : 0}`).join('|'))
+  useAnimatedChange(shown.map((product) => `${product.key}:${String(productSlots(product).winners.length + productSlots(product).waitlist.length)}:${String(outsideOf.get(product.key)?.length ?? 0)}:${String(heldBuyers(api.data, product).length)}:${product.conflict ? 1 : 0}`).join('|'))
   if (products.length === 0 && query === '') return <EmptyFill title={NO_PRODUCTS_YET} body={NO_PRODUCTS_YET_BODY} />
   const prefix = query.replace(/^0+(?=\d)/, '')
   const matches = match !== undefined ? shown.filter(match).sort((a, b) => Number(b.no === Number(prefix)) - Number(a.no === Number(prefix))) : prefix === '' ? shown : shown
@@ -456,7 +464,7 @@ export function ProductList({ onOpen, query, onQuery, claimedOnly = false, onCla
         <View role="list" aria-label="상품 목록">
           {matches.map((product) => (
             <View key={product.key} collapsable={false} ref={onRow === undefined ? undefined : (node) => onRow(product.key, node)}>
-              <ProductRow product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={onOpen} buyers={api.data.buyers} names={api.names} conflicts={conflictCounts.get(product.key) ?? 0} outside={outsideOf.get(product.key) ?? NO_OUTSIDE} waiting={isTentative(product) ? waitingAt(api.data, api.b, product.no) : 0} doubt={api.doubts?.get(product.no)} />
+              <ProductRow product={product} freshAt={seen.current?.get(product.key) ?? 0} onOpen={onOpen} buyers={api.data.buyers} names={api.names} conflicts={conflictCounts.get(product.key) ?? 0} outside={outsideOf.get(product.key) ?? NO_OUTSIDE} held={heldBuyers(api.data, product)} waiting={isTentative(product) ? waitingAt(api.data, api.b, product.no) : 0} doubt={api.doubts?.get(product.no)} />
             </View>
           ))}
         </View>
@@ -466,6 +474,16 @@ export function ProductList({ onOpen, query, onQuery, claimedOnly = false, onCla
 }
 
 const NO_OUTSIDE: readonly string[] = []
+
+/**
+ * 공개 전 상품(확인 중 포함)에서 확정을 기다리는 찜의 손님 (D-CLAIMLAT-01): 서버가 준 보류 찜 자리(pending)의 손님 그대로, 순서도 그대로.
+ * 화면 일꾼이 품종·가격을 듣는 동안(확인 중) 들어온 찜이 "아직 찜이 없어요"로 숨었다가 확정 뒤에야 보이던 것을 막는다.
+ * 판매 중 상품의 찜은 1등·대기로 이미 보이므로 공개 전 상품만 본다. 같은 자리 값이면 같은 배열을 넘겨 줄(memo)이 괜히 다시 그려지지 않는다
+ */
+export function heldBuyers(data: Pick<ScopeData, 'pending'>, product: Product): readonly string[] {
+  if (product.status !== 'READY') return NO_OUTSIDE
+  return data.pending.get(productKey(product.broadcast, product.no))?.buyers ?? NO_OUTSIDE
+}
 
 /**
  * 걸러 보기 칩 (D-UX4-141 → D-UX4-148, 사용자 2026-11-16 "탭 알약과 똑같이 생겨 구분이 안 된다"): 탭 알약(알약 모양·흰 바탕/주색 바탕)과 다르게
