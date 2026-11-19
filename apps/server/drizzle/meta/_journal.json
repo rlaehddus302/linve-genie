@@ -470,6 +470,13 @@
       "when": 1794960000042,
       "tag": "0068_buyer_contacts",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1794960000043,
+      "tag": "0070_thanks_manual",
+      "breakpoints": true
     }
   ]
 }

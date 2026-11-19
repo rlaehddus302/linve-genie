@@ -14,11 +14,11 @@ import type { ScopeWriter } from '../writer.ts'
 import { ChatSendError, NOT_POSTED, type ChatSender, type ChatSendRoute } from './chat-send/sender.ts'
 import { ChannelMismatchError, YoutubeAccessError, type YoutubeConnections } from './connect.ts'
 import { GoogleError, POST_TIMEOUT_MS, type GoogleClient } from './google.ts'
-import { jsonStrings, recentSentLiveThanks, type RunnerRow } from './outbox-store.ts'
+import { broadcastSentLiveThanks, jsonStrings, recentSentLiveThanks, type RunnerRow } from './outbox-store.ts'
 import type { QuotaMeter } from './quota.ts'
-import { activeLink, insertOwnMessage, type LinkRow } from './store.ts'
+import { activeLink, insertOwnMessage, ownMessageHint, type LinkRow } from './store.ts'
 import { LIVE_CHAT_MAX, THANKS_SUFFIX, batchMessages, charCount, cleanPostText, truncate } from './texts.ts'
-import { deleteFix, dueFixes, insertFix, recentFixes, staleFixes, updateFix, type FixChange, type FixRow } from './thanks-fix-store.ts'
+import { broadcastFixes, deleteFix, dueFixes, insertFix, insertManualFix, recentFixes, staleFixes, updateFix, type FixChange, type FixRow } from './thanks-fix-store.ts'
 import type { Timer } from './timer.ts'
 
 /** 올라간 지 이만큼 안의 감사만 고친다 */
@@ -35,6 +35,8 @@ export const FIX_MAX_RETRIES = 3
 export const FIX_LEASE_MS = 60_000
 /** 지우기·할당량 기다림 다시 보기 */
 const FIX_RECHECK_MS = 5000
+/** 손으로 고쳐 올리는 글의 길이 — 지우지 못해 앞에 "[수정] "이 붙어도 실시간 채팅 한도(200자) 안 (D-THANKSFIX-02) */
+export const MANUAL_TEXT_MAX = LIVE_CHAT_MAX - FIX_PREFIX.length
 
 const NAME_SUFFIX = `님${THANKS_SUFFIX}`
 
@@ -175,10 +177,96 @@ function postedOfFix(fix: FixRow): PostedThanks {
   }
 }
 
+/** 목록의 글 하나 (안쪽) */
+interface PostEntry {
+  /** `outbox:{묶음}` 처음 올린 감사 · `fix:{줄 ID}` 고친 글 */
+  readonly key: string
+  readonly kind: ThanksPostKind
+  readonly scopeId: string
+  readonly effectIds: readonly string[]
+  /** 그 글(나뉘었으면 여럿)의 실제 글 */
+  readonly texts: readonly string[]
+  readonly remoteIds: readonly (string | null)[]
+  readonly at: Date
+}
+
+/** THANKS 처음 올린 감사 · FIXED 값이 고쳐져 자동으로 다시 올린 글 · MANUAL 판매자가 고쳐 다시 올린 글 */
+export type ThanksPostKind = 'THANKS' | 'FIXED' | 'MANUAL'
+
+/** 화면에 보이는 올라간 감사 글 하나 (D-THANKSFIX-01) — 글은 바깥 글(이름이 든다)이라 화면은 글자 그대로 그린다 */
+export interface ThanksPostView {
+  readonly key: string
+  readonly kind: ThanksPostKind
+  /** 올라간 글 (나뉘었으면 줄바꿈으로 이음) */
+  readonly text: string
+  readonly postedAt: string
+  /** 지웠다 (이미 채팅에 없다) */
+  readonly gone: boolean
+  /** 지우거나 다시 올리는 중 */
+  readonly busy: boolean
+  /** 쉬운 한국어 한 줄 (없으면 null) */
+  readonly note: string | null
+  readonly canDelete: boolean
+  readonly canEdit: boolean
+}
+
+export interface ThanksPostsView {
+  /** 라이브 채팅이 살아 있다 (끝났으면 지우거나 고칠 수 없다) */
+  readonly live: boolean
+  readonly posts: readonly ThanksPostView[]
+}
+
+export type ManualOutcome = { readonly kind: 'ok'; readonly view: ThanksPostsView } | { readonly kind: 'not_found' } | { readonly kind: 'rejected'; readonly code: ManualCode; readonly message: string }
+export type ManualCode = 'CHAT_ENDED' | 'ALREADY_DELETED' | 'BUSY' | 'CANNOT_DELETE'
+
+export const MANUAL_MESSAGES: Record<ManualCode, string> = {
+  CHAT_ENDED: '라이브 채팅이 끝나서 지우거나 고칠 수 없어요.',
+  ALREADY_DELETED: '이미 지운 글이에요.',
+  BUSY: '지금 이 글을 바꾸는 중이에요. 잠시 뒤에 다시 해 주세요.',
+  CANNOT_DELETE: '이 글은 유튜브 메시지 번호를 몰라 지울 수 없어요. 유튜브 채팅에서 직접 지워 주세요.',
+}
+
+/** 정정 줄의 하지 못한 까닭 → 쉬운 한국어 */
+function failNote(reason: string | null): string {
+  if (reason === 'NOT_DELETED') return '유튜브에서 지우지 못했어요. 유튜브 채팅에서 직접 지워 주세요.'
+  if (reason === 'CHAT_ENDED' || reason === 'NO_LINK' || reason === 'SEALED') return '라이브 채팅이 끝나서 하지 못했어요.'
+  if (reason === 'NO_CONSENT' || reason === 'RECONNECT' || reason === 'NO_PERMISSION' || reason === 'NOT_MY_CHANNEL') return '유튜브 연결을 확인해 주세요. 하지 못했어요.'
+  if (reason === 'UNCONFIRMED') return '올라갔는지 확인하지 못했어요. 유튜브 채팅을 확인해 주세요.'
+  return '하지 못했어요. 잠시 뒤에 다시 해 주세요.'
+}
+
+/** 글 하나의 지금 상태 — 그 글을 고친 줄(자동·손)로 정한다 */
+function postView(entry: PostEntry, rows: readonly FixRow[], live: boolean): ThanksPostView {
+  const mine = rows.filter((row) => row.source === entry.key)
+  const gone = mine.some((row) => row.deleted === true)
+  const working = mine.find((row) => row.state === 'WORKING' || (row.manual && row.state === 'WAITING'))
+  const waitingAuto = mine.some((row) => !row.manual && row.state === 'WAITING')
+  const last = mine.at(-1)
+  let note: string | null = null
+  if (gone) note = '지웠어요'
+  else if (working !== undefined) note = working.manual ? (working.manualText === null ? '지우는 중이에요' : '고친 글로 바꾸는 중이에요') : '고친 값으로 바꾸는 중이에요'
+  else if (waitingAuto) note = '상품 정보가 바뀌어 곧 고친 글로 바꿔요'
+  else if (last !== undefined && last.state === 'FAILED') note = failNote(last.reason)
+  else if (last !== undefined && last.state === 'DONE' && last.deleted === false) note = '앞 글을 지우지 못해 [수정] 글을 따로 올렸어요'
+  const busy = working !== undefined
+  const canEdit = live && !gone && !busy
+  return {
+    key: entry.key,
+    kind: entry.kind,
+    text: entry.texts.join('\n'),
+    postedAt: entry.at.toISOString(),
+    gone,
+    busy,
+    note,
+    canEdit,
+    canDelete: canEdit && entry.remoteIds.length > 0 && entry.remoteIds.every((id) => id !== null),
+  }
+}
+
 type Route = { readonly kind: 'official'; readonly channelId: string } | { readonly kind: 'bot'; readonly sender: ChatSender } | { readonly kind: 'wait' } | { readonly kind: 'none'; readonly reason: string }
 
 /** 지우기·올리기 결과: 됨 · 다시 하면 됨(확실히 하지 못함) · 모름(올라갔을 수 있다 — 다시 하지 않는다) · 안 됨 */
-type Outcome = { readonly kind: 'ok'; readonly id: string | null; readonly author: string | null } | { readonly kind: 'retry' } | { readonly kind: 'unknown' } | { readonly kind: 'rejected'; readonly reason: string }
+type Outcome = { readonly kind: 'ok'; readonly id: string | null; readonly author: string | null; readonly removeKey?: string | null } | { readonly kind: 'retry' } | { readonly kind: 'unknown' } | { readonly kind: 'rejected'; readonly reason: string }
 
 export interface ThanksFixerOptions {
   readonly db: Db
@@ -218,6 +306,90 @@ export class ThanksFixer {
 
   #now(): Date {
     return new Date(this.#options.timer.now())
+  }
+
+  // ── 올라간 감사 채팅 목록·손으로 지우기·고쳐 다시 올리기 (D-THANKSFIX-01·02) ─────────
+
+  /** 그 방송에 올라간 실시간 채팅 감사 글 (새것부터) — 처음 올린 감사, 자동으로 고친 글, 손으로 고친 글 */
+  async posts(sellerId: string, broadcastId: string): Promise<ThanksPostsView> {
+    const { entries, rows, live } = await this.#entries(sellerId, broadcastId)
+    return { live, posts: entries.map((entry) => postView(entry, rows, live)).reverse() }
+  }
+
+  /**
+   * 판매자가 고른 글 하나를 지우거나(text null) 고친 글로 다시 올리게 한다. 바로 할 차례로 넣고 실행기를 깨운다(이 함수는 유튜브를 부르지 않는다).
+   * 이 글을 기다리던 자동 정정은 하지 않음(MANUAL)으로 — 판매자가 손으로 고친 글이 이긴다
+   */
+  async manual(sellerId: string, broadcastId: string, key: string, text: string | null): Promise<ManualOutcome> {
+    const { entries, rows, live } = await this.#entries(sellerId, broadcastId)
+    const entry = entries.find((item) => item.key === key)
+    if (entry === undefined) return { kind: 'not_found' }
+    const view = postView(entry, rows, live)
+    if (!live) return { kind: 'rejected', code: 'CHAT_ENDED', message: MANUAL_MESSAGES.CHAT_ENDED }
+    if (view.gone) return { kind: 'rejected', code: 'ALREADY_DELETED', message: MANUAL_MESSAGES.ALREADY_DELETED }
+    if (view.busy) return { kind: 'rejected', code: 'BUSY', message: MANUAL_MESSAGES.BUSY }
+    if (text === null && !view.canDelete) return { kind: 'rejected', code: 'CANNOT_DELETE', message: MANUAL_MESSAGES.CANNOT_DELETE }
+    const now = this.#now()
+    for (const row of rows) {
+      if (row.source !== key || row.manual || row.state !== 'WAITING') continue
+      this.#options.check()
+      if (!(await updateFix(this.#options.db, sellerId, row.id, { state: 'SKIPPED', reason: 'MANUAL', nextAt: null }, now, { state: 'WAITING' }))) {
+        return { kind: 'rejected', code: 'BUSY', message: MANUAL_MESSAGES.BUSY }
+      }
+    }
+    this.#options.check()
+    await insertManualFix(this.#options.db, {
+      sellerId,
+      scopeId: entry.scopeId,
+      broadcastId,
+      source: key,
+      effectIds: entry.effectIds,
+      oldTexts: [],
+      oldMessage: null,
+      oldRemoteIds: entry.remoteIds,
+      text,
+      now,
+    })
+    this.#options.log({ level: 'info', code: 'THANKS_FIX_MANUAL', seller: sellerId })
+    return { kind: 'ok', view: await this.posts(sellerId, broadcastId) }
+  }
+
+  async #entries(sellerId: string, broadcastId: string): Promise<{ entries: PostEntry[]; rows: FixRow[]; live: boolean }> {
+    const { db } = this.#options
+    const [sent, rows, link] = await Promise.all([broadcastSentLiveThanks(db, sellerId, broadcastId), broadcastFixes(db, sellerId, broadcastId), activeLink(db, sellerId, broadcastId)])
+    const entries: PostEntry[] = []
+    const groups = new Map<string, RunnerRow[]>()
+    for (const row of sent) {
+      const key = row.groupId ?? `r${String(row.id)}`
+      groups.set(key, [...(groups.get(key) ?? []), row])
+    }
+    for (const [group, list] of groups) {
+      const first = list[0] as RunnerRow
+      entries.push({
+        key: `outbox:${group}`,
+        kind: 'THANKS',
+        scopeId: first.scopeId,
+        effectIds: list.map((row) => row.effectId),
+        texts: [first.sentText ?? ''],
+        remoteIds: [first.remoteId],
+        at: first.postedAt ?? new Date(0),
+      })
+    }
+    for (const fix of rows) {
+      const ids = idsOf(fix.newRemoteIds)
+      if (ids.length === 0) continue
+      entries.push({
+        key: `fix:${String(fix.id)}`,
+        kind: fix.manual ? 'MANUAL' : 'FIXED',
+        scopeId: fix.scopeId,
+        effectIds: pairsOf(fix.newTexts).map(([id]) => id),
+        texts: jsonStrings(fix.sentTexts).slice(0, ids.length),
+        remoteIds: ids,
+        at: fix.attemptAt ?? fix.updatedAt,
+      })
+    }
+    entries.sort((a, b) => a.at.getTime() - b.at.getTime())
+    return { entries, rows, live: link !== null && link.chatEndedAt === null }
   }
 
   async #update(fix: Pick<FixRow, 'sellerId' | 'id'>, change: FixChange, expect: Parameters<typeof updateFix>[5]): Promise<boolean> {
@@ -277,7 +449,7 @@ export class ThanksFixer {
     // 아직 고치지 않은 글과, 기다리는 중(아직 지우지 않은) 정정의 글만
     const open = messages.filter((message) => {
       const fix = fixBySource.get(`${message.sellerId}|${message.source}`)
-      return fix === undefined || (fix.state === 'WAITING' && fix.deleted === null)
+      return fix === undefined || (!fix.manual && fix.state === 'WAITING' && fix.deleted === null)
     })
     const byScope = new Map<string, PostedThanks[]>()
     for (const message of open) {
@@ -394,6 +566,7 @@ export class ThanksFixer {
       await this.#update(fix, { state: 'WAITING', nextAt: new Date(this.#now().getTime() + FIX_RECHECK_MS), leaseOwner: null, leaseUntil: null }, { state: 'WORKING', leaseOwner: owner })
       return
     }
+    if (fix.manual) return this.#workManual(fix, route, link)
     let deleted = fix.deleted
     let sentTexts = jsonStrings(fix.sentTexts)
     let attempts = fix.attempts
@@ -418,6 +591,35 @@ export class ThanksFixer {
       // 다시 하기: 지난번에 정한 글을 이어 올린다 (우리 글로 거르는 기준 시각을 새로)
       if (!(await this.#update(fix, { attemptAt: this.#now() }, { state: 'WORKING', leaseOwner: owner }))) return
     }
+    await this.#postAll(route, link, fix, sentTexts, deleted ?? false, attempts)
+  }
+
+  /**
+   * 손으로 하는 줄 (D-THANKSFIX-01·02): 판매자가 고른 글을 지우고, 고쳐 올릴 글이 있으면 올린다. 고침 따라가기와 상관없다(판매자가 직접 누른 일).
+   * 지우기만: 지우지 못하면 아무것도 올리지 않고 하지 못함(NOT_DELETED — 화면이 "유튜브 채팅에서 직접 지워 주세요"). 고쳐 올리기: 지우지 못하면 글 앞에 "[수정] "
+   */
+  async #workManual(fix: FixRow, route: Route, link: LinkRow): Promise<void> {
+    const { owner } = this.#options
+    let deleted = fix.deleted
+    let sentTexts = jsonStrings(fix.sentTexts)
+    if (deleted === null) {
+      const removal = await this.#removeAll(route, link, fix, idsOf(fix.oldRemoteIds))
+      if (removal === 'retry' && fix.attempts + 1 <= FIX_MAX_RETRIES) return this.#retry(fix, fix.attempts + 1)
+      deleted = removal === 'deleted'
+      const text = fix.manualText
+      sentTexts = text === null ? [] : [deleted ? text : truncate(`${FIX_PREFIX}${text}`, LIVE_CHAT_MAX)]
+      const saved = await this.#update(fix, { deleted, sentTexts: JSON.stringify(sentTexts), attemptAt: this.#now(), attempts: 0 }, { state: 'WORKING', leaseOwner: owner })
+      if (!saved) return
+      if (text === null) return this.#finish(fix, deleted ? 'DONE' : 'FAILED', deleted ? null : 'NOT_DELETED')
+      return this.#postAll(route, link, fix, sentTexts, deleted, 0)
+    }
+    if (!(await this.#update(fix, { attemptAt: this.#now() }, { state: 'WORKING', leaseOwner: owner }))) return
+    await this.#postAll(route, link, fix, sentTexts, deleted ?? false, fix.attempts)
+  }
+
+  /** 정한 글을 차례로 올린다 (이미 올린 것은 건너뜀). 한 번만 올린다 — 응답을 모르면 다시 올리지 않는다 */
+  async #postAll(route: Route, link: LinkRow, fix: FixRow, sentTexts: readonly string[], deleted: boolean, attempts: number): Promise<void> {
+    const { db, owner } = this.#options
     const ids = idsOf(fix.newRemoteIds)
     for (let index = ids.length; index < sentTexts.length; index++) {
       const text = sentTexts[index] as string
@@ -426,7 +628,7 @@ export class ThanksFixer {
       if (outcome.kind === 'ok') {
         ids.push(outcome.id)
         if (outcome.id !== null) {
-          await insertOwnMessage(db, { sellerId: fix.sellerId, scopeId: fix.scopeId, linkId: link.id, liveChatId: link.liveChatId, authorChannelId: outcome.author, messageId: outcome.id, text, publishedAt: this.#now() })
+          await insertOwnMessage(db, { sellerId: fix.sellerId, scopeId: fix.scopeId, linkId: link.id, liveChatId: link.liveChatId, authorChannelId: outcome.author, messageId: outcome.id, text, publishedAt: this.#now(), removeKey: outcome.removeKey ?? null })
         }
         await this.#update(fix, { newRemoteIds: JSON.stringify(ids) }, { state: 'WORKING', leaseOwner: owner })
         continue
@@ -471,7 +673,9 @@ export class ThanksFixer {
     if (route.kind === 'bot') {
       if (route.sender.remove === undefined) return { kind: 'rejected', reason: 'NOT_SUPPORTED' }
       try {
-        await route.sender.remove({ videoId: link.videoId, channelId: link.broadcastChannelId, liveChatId: link.liveChatId }, messageId, this.#options.signal())
+        // 올릴 때 남긴 지우기 값·올린 계정 (봇 innertube 길은 이것으로 지운다, D-THANKSFIX-03)
+        const hint = await ownMessageHint(this.#options.db, fix.sellerId, messageId)
+        await route.sender.remove({ videoId: link.videoId, channelId: link.broadcastChannelId, liveChatId: link.liveChatId }, messageId, this.#options.signal(), hint)
         return { kind: 'ok', id: null, author: null }
       } catch (error) {
         return chatSendOutcome(error)
@@ -506,7 +710,7 @@ export class ThanksFixer {
     if (route.kind === 'bot') {
       try {
         const result = await route.sender.send({ videoId: link.videoId, channelId: link.broadcastChannelId, liveChatId: link.liveChatId }, text, this.#options.signal())
-        return { kind: 'ok', id: result.messageId, author: result.authorChannelId ?? route.sender.authorChannelId }
+        return { kind: 'ok', id: result.messageId, author: result.authorChannelId ?? route.sender.authorChannelId, removeKey: result.removeKey ?? null }
       } catch (error) {
         return chatSendOutcome(error)
       }

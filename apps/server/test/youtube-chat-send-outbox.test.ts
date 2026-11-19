@@ -14,7 +14,7 @@ import { InnertubeChatSender } from '../src/youtube/chat-send/innertube-sender.t
 import { NightbotChatSender } from '../src/youtube/chat-send/nightbot-sender.ts'
 import { OfficialBotSender } from '../src/youtube/chat-send/official-sender.ts'
 import { ChatSenderPool } from '../src/youtube/chat-send/pool.ts'
-import { chatSendRoute, type ChatSender } from '../src/youtube/chat-send/sender.ts'
+import { ChatSendError, chatSendRoute, type ChatSender } from '../src/youtube/chat-send/sender.ts'
 import { BOT_CALLBACK_MESSAGES, BOT_SELLER_ID } from '../src/youtube/connect.ts'
 import { addSeller, client, expectOk, writeEvent, type Seller } from './support.ts'
 import { approve, callback, drive, enableConsent, type YoutubeWorld } from './youtube-support.ts'
@@ -41,6 +41,9 @@ afterAll(async () => {
 const worlds: { w: WebWorld; sender: ChatSender }[] = []
 afterEach(async () => {
   fake.posts.length = 0
+  fake.removed.length = 0
+  fake.removeCalls.menu = 0
+  fake.removeCalls.moderate = 0
   fake.onPost = null
   const closing = worlds.splice(0)
   for (const { w } of closing) {
@@ -552,5 +555,86 @@ describe('D-YT-SEND-20·21 공식 API 봇이 기본 길 — 판매자는 아무�
     await run(w)
     expect(googleOf(w).posted.map((post) => [post.liveChatId, post.authorChannelId])).toEqual([[chatId, OFFICIAL_BOT]])
     expect(await botUnits(w, 'liveChatMessages.insert')).toBe(20)
+  })
+})
+
+describe('D-THANKSFIX-03 봇(innertube) 길도 올린 감사 글을 지운다 — 올릴 때 받은 메뉴 값으로 유튜브 웹의 "삭제"', () => {
+  const FOLLOW = { ...NO_LABEL, 'thanks.followEdits': true }
+  async function follow(w: WebWorld) {
+    const seller = await addSeller(w)
+    expect((await client(w, seller.cookie).patch('/api/settings', { settings: FOLLOW })).status).toBe(200)
+    const { b, video } = await webLinked(w, { seller })
+    return { seller, b, video }
+  }
+  const removeKey = async (w: WebWorld, messageId: string) =>
+    (await w.database.pglite?.query<{ remove_key: string | null }>(`select remove_key from youtube_own_messages where message_id = $1`, [messageId]))?.rows[0]?.remove_key ?? null
+
+  it('상품 이름을 고치면 10초 뒤 봇 계정으로 앞 글을 지우고 고친 글을 [수정] 없이 올린다', async () => {
+    const w = await world('innertube')
+    const { seller, b } = await follow(w)
+    await sale(w, seller, b.id, 15, { id: 'c1', ch: 'UCa', nick: '가' })
+    await run(w)
+    const first = fake.posts[0] as FakePost
+    expect(first.text).toBe(TEXT)
+    // 올릴 때 받은 그 글의 메뉴 값을 우리 글 표에 남겼다
+    expect(await removeKey(w, first.id)).not.toBeNull()
+    await expectOk(writeEvent(w, seller, { type: 'product.update', b: b.id, no: 15, name: '핑크프릴금' }))
+    await run(w)
+    expect(fake.removed).toEqual([])
+    await w.timer.advance(10_000)
+    await run(w)
+    expect(fake.removed).toEqual([{ id: first.id, account: 'fake-bot-sid' }])
+    expect(fake.posts.map((post) => post.text)).toEqual([TEXT, '15번 핑크프릴금 10,000원 가님 구매 감사합니다'])
+    expect(googleOf(w).calls('liveChatMessages.delete')).toBe(0)
+  })
+
+  it('메뉴 값을 모르는 글(예전에 올린 글)은 지우지 못해 [수정]으로 올린다', async () => {
+    const w = await world('innertube')
+    const { seller, b } = await follow(w)
+    await sale(w, seller, b.id, 15, { id: 'c1', ch: 'UCa', nick: '가' })
+    await run(w)
+    await w.database.pglite?.query(`update youtube_own_messages set remove_key = null`)
+    await expectOk(writeEvent(w, seller, { type: 'product.update', b: b.id, no: 15, name: '핑크프릴금' }))
+    await run(w)
+    await w.timer.advance(10_000)
+    await run(w)
+    expect(fake.removeCalls.menu).toBe(0)
+    expect(fake.removed).toEqual([])
+    expect(fake.posts.map((post) => post.text)).toEqual([TEXT, '[수정] 15번 핑크프릴금 10,000원 가님 구매 감사합니다'])
+  })
+
+  it('앱에서 [지우기]를 누르면 봇 계정으로 지운다', async () => {
+    const w = await world('innertube')
+    const { seller, b } = await follow(w)
+    await sale(w, seller, b.id, 15, { id: 'c1', ch: 'UCa', nick: '가' })
+    await run(w)
+    const listed = await client(w, seller.cookie).get(`/api/broadcasts/${b.id}/thanks-posts`)
+    const key = (listed.body.posts as { key: string }[])[0]?.key
+    await expectOk(client(w, seller.cookie).post(`/api/broadcasts/${b.id}/thanks-posts/delete`, { key }))
+    await run(w)
+    expect(fake.removed.map((item) => item.id)).toEqual([fake.posts[0]?.id])
+    expect(fake.posts).toHaveLength(1)
+  })
+
+  it('봇 계정 여럿: 그 글을 올린 계정으로만 지운다 (다른 계정은 메뉴에 삭제가 없다)', async () => {
+    const timer = { now: () => Date.now(), sleep: async () => {} }
+    const bot = (n: number) => `UCbot${String(n).padStart(19, '0')}`
+    const senders = [1, 2].map((n) => new InnertubeChatSender({ cookie: fakeBotCookie(n), authorChannelId: bot(n), timer, fetch: fake.youtubeFetch, gapMs: 0 }))
+    const pool = new ChatSenderPool(senders, timer)
+    try {
+      const target = { videoId: 'vidaaaaaaaa', channelId: 'UCchannel000000000000000', liveChatId: '' }
+      const sent = await pool.send(target, '15번 감사')
+      expect(sent.removeKey).toBeDefined()
+      const poster = sent.authorChannelId as string
+      const other = poster === bot(1) ? bot(2) : bot(1)
+      await expect(pool.remove(target, sent.messageId as string, undefined, { removeKey: sent.removeKey ?? null, authorChannelId: other })).rejects.toBeInstanceOf(ChatSendError)
+      expect(fake.removed).toEqual([])
+      await pool.remove(target, sent.messageId as string, undefined, { removeKey: sent.removeKey ?? null, authorChannelId: poster })
+      expect(fake.removed).toEqual([{ id: sent.messageId, account: poster === bot(1) ? 'bot-1' : 'bot-2' }])
+      // 메뉴 값이 없으면 지울 수 없다(rejected)
+      await expect(pool.remove(target, sent.messageId as string, undefined, { removeKey: null, authorChannelId: poster })).rejects.toMatchObject({ kind: 'rejected' })
+    } finally {
+      await pool.close()
+    }
   })
 })

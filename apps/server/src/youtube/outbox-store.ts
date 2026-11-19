@@ -146,6 +146,26 @@ export function recentSentLiveThanks(db: Db, since: Date, limit = 2000): Promise
     .limit(limit)
 }
 
+/** 그 방송에 올라간 실시간 채팅 감사 (손으로 지우기·고치기 목록, D-THANKSFIX-01) — recentSentLiveThanks와 같은 조건, 시각 대신 방송으로 */
+export function broadcastSentLiveThanks(db: Db, sellerId: string, broadcastId: string, limit = 2000): Promise<RunnerRow[]> {
+  return select(db)
+    .where(
+      and(
+        REAL,
+        eq(outbox.sellerId, sellerId),
+        eq(outbox.broadcastId, broadcastId),
+        eq(outbox.kind, 'POST_THANKS'),
+        eq(outbox.target, 'LIVE_CHAT'),
+        eq(outbox.state, 'SENT'),
+        isNull(outbox.via),
+        sql`${outbox.sentText} is not null`,
+        sql`not exists (select 1 from ${igDmRows} where ${igDmRows.outboxId} = ${outbox.id} and ${igDmRows.sellerId} = ${outbox.sellerId})`,
+      ),
+    )
+    .orderBy(asc(outbox.id))
+    .limit(limit)
+}
+
 /** 기다리는 행 중 때가 된 것 (다음 시도 시각 ≤ 지금) */
 export function dueRows(db: Db, now: Date, limit = 1000): Promise<RunnerRow[]> {
   return select(db)

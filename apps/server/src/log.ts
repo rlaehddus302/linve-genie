@@ -98,6 +98,7 @@ export type LogCode =
   // D-RETRO-105 감사 채팅 정정: 지우고 고친 글을 올림(지웠는지는 count 1·0) · 하지 못함(reason 코드만, 글·이름 없음)
   | 'THANKS_FIX_DONE'
   | 'THANKS_FIX_FAILED'
+  | 'THANKS_FIX_MANUAL'
   | 'SEAL_FAILED'
   | 'SEALED'
   | 'WORKER_FAILED'
@@ -296,6 +297,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   OUTBOX_UNCONFIRMED: '감사가 올라갔는지 확인하지 못해 다시 게시하지 않았어요',
   THANKS_FIX_DONE: '값이 고쳐진 감사 채팅을 지우고 고친 글을 올렸어요',
   THANKS_FIX_FAILED: '값이 고쳐진 감사 채팅을 고치지 못했어요',
+  THANKS_FIX_MANUAL: '판매자가 감사 채팅 하나를 지우거나 고쳐 다시 올리게 했어요',
   OUTBOX_ERROR: '발송함 처리 중 오류가 생겼어요',
   SEAL_FAILED: '30일 지난 범위를 봉인하지 못해 다음에 다시 해요',
   SEALED: '30일 지난 범위를 봉인했어요',

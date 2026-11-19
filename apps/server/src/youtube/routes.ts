@@ -14,13 +14,16 @@ import { BOT_CALLBACK_MESSAGES, CALLBACK_MESSAGES, NOT_CONNECTED_MESSAGE, type C
 import { SELLER_OUTBOX_MESSAGES } from './outbox.ts'
 import type { Sealer } from './seal.ts'
 import { FIRST_CHANNEL_CONFIRM_MESSAGE, LINK_MESSAGES, type LinkOutcome, type YoutubeSystem } from './system.ts'
-import { parseVideoId } from './texts.ts'
+import { charCount, cleanPostText, parseVideoId } from './texts.ts'
+import { MANUAL_TEXT_MAX, type ManualOutcome } from './thanks-fix.ts'
 import { SERVICE_NAME } from '../brand.ts'
 import type { Db } from '../db/database.ts'
 import { joinIfShared } from '../live-join.ts'
 import type { Clock } from '../time.ts'
 
 export const CALLBACK_PATH = '/api/youtube/oauth/callback'
+/** 올라간 감사 글 하나의 열쇠: `outbox:{묶음 ID}` 또는 `fix:{정정 줄 ID}` */
+const THANKS_POST_KEY_RE = /^(?:outbox:[A-Za-z0-9_-]{1,80}|fix:\d{1,15})$/
 
 type Env = { Variables: { body: Record<string, unknown> | null; session: SessionContext } }
 
@@ -284,6 +287,43 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     if (result.kind === 'not_found') return notFound()
     if (result.kind === 'rejected') return apiError(409, result.code, result.message)
     return c.json({ row: result.row })
+  })
+
+  // ── 올라간 감사 채팅 손으로 지우기·고쳐 다시 올리기 (D-THANKSFIX-01·02 — 판매자 계정만) ──────
+  api.get('/broadcasts/:id/thanks-posts', async (c) => {
+    if (youtube === null) return c.json({ live: false, posts: [] })
+    return c.json(await youtube.outbox.thanksPosts(sellerOf(c), c.req.param('id')))
+  })
+  const thanksKeyOf = (input: Record<string, unknown>): string | null => {
+    const key = own(input, 'key')
+    return typeof key === 'string' && THANKS_POST_KEY_RE.test(key) ? key : null
+  }
+  const manualResponse = (c: Context<Env>, outcome: ManualOutcome): Response => {
+    if (outcome.kind === 'not_found') return apiError(404, 'NOT_FOUND', '이 감사 채팅을 찾을 수 없어요. 목록을 다시 불러와 주세요.')
+    if (outcome.kind === 'rejected') return apiError(409, outcome.code, outcome.message)
+    return c.json(outcome.view)
+  }
+  api.post('/broadcasts/:id/thanks-posts/delete', async (c) => {
+    if (youtube === null) return notConfigured()
+    const input = body(c)
+    const extra = onlyKeys(input, ['key'])
+    if (extra !== null) return extra
+    const key = thanksKeyOf(input)
+    if (key === null) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'key', message: '지울 감사 채팅을 골라 주세요.' }])
+    return manualResponse(c, await youtube.outbox.thanksManual(sellerOf(c), c.req.param('id'), key, null))
+  })
+  api.post('/broadcasts/:id/thanks-posts/repost', async (c) => {
+    if (youtube === null) return notConfigured()
+    const input = body(c)
+    const extra = onlyKeys(input, ['key', 'text'])
+    if (extra !== null) return extra
+    const key = thanksKeyOf(input)
+    if (key === null) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'key', message: '고칠 감사 채팅을 골라 주세요.' }])
+    const raw = own(input, 'text')
+    const text = typeof raw === 'string' && raw.length <= 2000 ? cleanPostText(raw) : ''
+    if (text === '') return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'text', message: '올릴 글을 적어 주세요.' }])
+    if (charCount(text) > MANUAL_TEXT_MAX) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'text', message: `글은 ${String(MANUAL_TEXT_MAX)}자까지 적을 수 있어요.` }])
+    return manualResponse(c, await youtube.outbox.thanksManual(sellerOf(c), c.req.param('id'), key, text))
   })
 
   // ── 지운 메시지·차단 알림 (AC-Y1-27) ───────────────────────────────────

@@ -59,7 +59,7 @@ import {
 import type { QuotaMeter } from './quota.ts'
 import { activeLink, fillLinkLiveChatId, fillLinkPoster, insertOwnMessage, isInvitedLink, latestLink, markChatEnded, markSummaryDone, summaryCandidates, type LinkRow } from './store.ts'
 import { SUMMARY_KIND, batchMessages, commentText, currentThanksTexts, liveChatText, summaryComments, type SummaryLine } from './texts.ts'
-import { ThanksFixer } from './thanks-fix.ts'
+import { ThanksFixer, type ManualOutcome, type ThanksPostsView } from './thanks-fix.ts'
 import type { Timer } from './timer.ts'
 import { winnerClaimsOf } from '../winners.ts'
 
@@ -396,6 +396,18 @@ export class OutboxRunner {
 
   get owner(): string {
     return this.#options.owner
+  }
+
+  /** 그 방송에 올라간 실시간 채팅 감사 글 (D-THANKSFIX-01) */
+  thanksPosts(sellerId: string, broadcastId: string): Promise<ThanksPostsView> {
+    return this.#fixer.posts(sellerId, broadcastId)
+  }
+
+  /** 판매자가 고른 감사 글 하나를 지우거나(text null) 고친 글로 다시 올리게 하고, 곧 한 바퀴 돌게 한다 (D-THANKSFIX-01·02) */
+  async thanksManual(sellerId: string, broadcastId: string, key: string, text: string | null): Promise<ManualOutcome> {
+    const outcome = await this.#fixer.manual(sellerId, broadcastId, key, text)
+    if (outcome.kind === 'ok') this.notify()
+    return outcome
   }
 
   start(): void {
@@ -976,11 +988,13 @@ export class OutboxRunner {
     let remoteId: string
     const sender = target === 'LIVE_CHAT' ? this.#sender(first.sellerId) : null
     let author = sender?.authorChannelId ?? link.channelId
+    let removeKey: string | null = null
     try {
       if (sender !== null) {
         const other = await this.#sendOther(sender, link, text, first.sellerId)
         remoteId = other.id
         author = other.author
+        removeKey = other.removeKey
         this.#check()
       } else {
       // 그 방송을 이은 채널의 토큰으로만 — 꺼내는 순간 채널이 다르면 보내지 않는다 (D-I3-17 (1), AC-I3-85)
@@ -1030,6 +1044,7 @@ export class OutboxRunner {
         messageId: remoteId,
         text,
         publishedAt: now,
+        removeKey,
       })
     }
     await this.#sent(sending, remoteId === '' ? null : remoteId)
@@ -1044,11 +1059,11 @@ export class OutboxRunner {
    * 다른 길로 한 번 올린다 (D-YT-SEND-05). 판매자 구글 토큰·할당량을 쓰지 않는다. 메시지 ID를 모르면 ''.
    * 실패는 종류만 로그에 남기고(쿠키·토큰·본문 없음) 공식 게시 실패와 같은 GoogleError로 바꿔 던진다
    */
-  async #sendOther(sender: ChatSender, link: LinkRow, text: string, sellerId: string): Promise<{ id: string; author: string }> {
+  async #sendOther(sender: ChatSender, link: LinkRow, text: string, sellerId: string): Promise<{ id: string; author: string; removeKey: string | null }> {
     try {
       const result = await sender.send({ videoId: link.videoId, channelId: link.broadcastChannelId, liveChatId: link.liveChatId }, text, this.#inflight.signal)
-      // 실제로 올린 계정 (봇 계정 여럿·공식 넘김) — 게시 확인·우리 글 거르기에 쓴다
-      return { id: result.messageId ?? '', author: result.authorChannelId ?? sender.authorChannelId }
+      // 실제로 올린 계정 (봇 계정 여럿·공식 넘김) — 게시 확인·우리 글 거르기에 쓴다. 지우기 값은 나중에 그 글을 지울 때 (D-THANKSFIX-03)
+      return { id: result.messageId ?? '', author: result.authorChannelId ?? sender.authorChannelId, removeKey: result.removeKey ?? null }
     } catch (error) {
       if (!(error instanceof ChatSendError)) throw error
       // 로그인·토큰 문제는 운영자가 봇 계정을 다시 이어야 한다 — 경보로 남긴다

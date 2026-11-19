@@ -130,6 +130,9 @@ export type ErrorCode =
   | 'FILE_UNREADABLE'
   | 'NO_RECORDS'
   | 'BUSY'
+  // 감사 채팅 손으로 지우기·고쳐 다시 올리기 (D-THANKSFIX-01)
+  | 'ALREADY_DELETED'
+  | 'CANNOT_DELETE'
   | 'FILE_FAILED'
   // N5 요금 API (BILLING_RULES BL-4·BL-6·BL-7·BL-8)
   | 'NO_PASS'

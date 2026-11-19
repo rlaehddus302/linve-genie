@@ -10,7 +10,7 @@
 // - 계정 쉼은 운영 로그(CHAT_SEND_ACCOUNT_DOWN, count = 계정 번호 1부터)로 남긴다. 쿠키·채널 ID는 남기지 않는다.
 import type { LogSink } from '../../log.ts'
 import type { Timer } from '../timer.ts'
-import { ChatSendError, type AccountCheck, type ChatSender, type ChatSendResult, type ChatSendRouteName, type ChatSendTarget, type LoginState, type MultiAuthorSender } from './sender.ts'
+import { ChatSendError, type AccountCheck, type ChatSender, type ChatSendResult, type ChatSendRouteName, type ChatSendTarget, type LoginState, type MultiAuthorSender, type RemoveHint } from './sender.ts'
 
 export const AUTH_REST_MS = 10 * 60 * 1000
 export const RATE_REST_MS = 60 * 1000
@@ -112,6 +112,17 @@ export class ChatSenderPool implements MultiAuthorSender {
         } else throw error
       }
     }
+  }
+
+  /**
+   * 지우기 (D-THANKSFIX-03): 그 글을 올린 계정으로만 지운다(남의 글은 지울 수 없다) — 올린 계정을 모르면 그 방송을 맡은 계정.
+   * 그 계정에 지우기가 없거나 찾을 수 없으면 rejected(지울 수 없음 — 발송함은 [수정]으로 올린다). 쉬는 계정이어도 지우기는 해 본다(올리기가 아니다)
+   */
+  async remove(target: ChatSendTarget, messageId: string, signal?: AbortSignal, hint?: RemoveHint): Promise<void> {
+    const author = hint?.authorChannelId ?? null
+    const account = author !== null ? this.#accounts.find((each) => each.sender.authorChannelId === author) : this.#byVideo.get(target.videoId)
+    if (account?.sender.remove === undefined) throw new ChatSendError('rejected')
+    await account.sender.remove(target, messageId, signal, hint)
   }
 
   /**

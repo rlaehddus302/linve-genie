@@ -324,7 +324,7 @@ export class Sealer {
           .where(and(eq(thanksFixes.sellerId, sellerId), eq(thanksFixes.scopeId, scopeId), inArray(thanksFixes.state, ['WAITING', 'WORKING'])))
         await tx
           .update(thanksFixes)
-          .set({ oldTexts: '[]', oldMessage: null, sentTexts: '[]', newTexts: '[]' })
+          .set({ oldTexts: '[]', oldMessage: null, sentTexts: '[]', newTexts: '[]', manualText: null })
           .where(and(eq(thanksFixes.sellerId, sellerId), eq(thanksFixes.scopeId, scopeId)))
         // (3) 따로 둔 채팅 본문·이름, 스냅샷, 삭제·차단 알림, 수집 이어받기 지점, 우리 메시지 기록
         await tx.delete(chatRaw).where(and(eq(chatRaw.sellerId, sellerId), eq(chatRaw.scopeId, scopeId)))

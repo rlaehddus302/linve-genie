@@ -19,6 +19,7 @@ import { LinkInfo, hasLinkedLive } from './LinkInfo.tsx'
 import { ListenSourceRow, ListenSourceSheet } from './ListenSource.tsx'
 import { MenuGroup, PLAIN, PlainRow } from './parts.tsx'
 import { PauseSwitch } from './Pause.tsx'
+import { THANKS_POSTS_TITLE } from './ThanksPosts.tsx'
 import type { StreamAudio } from './StreamAudio.tsx'
 import type { MobileYoutube } from './YoutubeSection.tsx'
 
@@ -102,6 +103,8 @@ export interface ConsoleManageProps {
   readonly labels?: LabelPrintNav
   /** 라이브 연결을 끊은 뒤 (없으면 끊기 줄이 없다) */
   readonly onEnded?: () => void
+  /** 올라간 감사 채팅 화면 (D-THANKSFIX-01) — 없으면 그 줄이 없다 */
+  readonly openThanks?: () => void
 }
 
 function NicknameDisplaySwitch() {
@@ -129,7 +132,7 @@ function NicknameDisplaySwitch() {
 }
 
 /** 각 기능은 관리 화면에서 바로 열고, 사용할 수 있는 기능이 있는 묶음만 보여 준다. */
-export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, canLink, stream, onClose, onShowLink, yt, labels, onEnded }: ConsoleManageProps) {
+export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, canLink, stream, onClose, onShowLink, yt, labels, onEnded, openThanks }: ConsoleManageProps) {
   const api = useConsoleApi()
   const services = useServices()
   const { p } = useKit()
@@ -171,6 +174,7 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
           {seller ? <NicknameDisplaySwitch /> : null}
           {showThanks ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
           {thanksError !== null ? <View style={{ paddingHorizontal: PLAIN.side }}><Notice tone="danger" alert>{thanksError}</Notice></View> : null}
+          {showThanks && openThanks !== undefined ? <PlainRow title={THANKS_POSTS_TITLE} testID="thanks-posts-row" onPress={openThanks} /> : null}
           {showListen ? <ListenSourceRow session={services.voice} keep={services.streamKeep} broadcastId={broadcastId} stream={stream} onPress={() => setSheet('listen')} /> : null}
           {seller && !closed && stream.status?.phase === 'stopped' ? <PlainRow title="라이브 소리 다시 켜기" onPress={() => { onClose(); stream.retry() }} /> : null}
           <PlainRow title={DOCK_TITLE} value={dockLabel(dock)} testID="dock-choice" onPress={() => setSheet('dock')} />

@@ -7,7 +7,7 @@
 // - HTTP 상태는 우리 fetch 감싸개가 직접 본다(YouTube.js 오류 글을 해석하지 않는다). 응답 본문·쿠키는 남기지 않는다.
 import { Innertube, YT } from 'youtubei.js'
 import type { Timer } from '../timer.ts'
-import { ChatSendError, Pacer, failureOf, failureOfStatus, withTimeout, type ChatSender, type ChatSendResult, type ChatSendTarget, type LoginState } from './sender.ts'
+import { ChatSendError, Pacer, failureOf, failureOfStatus, withTimeout, type ChatSender, type ChatSendResult, type ChatSendTarget, type LoginState, type RemoveHint } from './sender.ts'
 
 /** 유튜브 웹 바탕 주소 (YouTube.js 안에 고정 — 시험은 fetch를 가짜 서버로 돌린다) */
 export const INNERTUBE_BASE_URL = 'https://www.youtube.com'
@@ -117,7 +117,8 @@ export class InnertubeChatSender implements ChatSender {
         const added = actions.find((action) => action.type === 'AddChatItemAction') as { item?: { id?: unknown } } | undefined
         if (added !== undefined) {
           const id = added.item?.id
-          return { messageId: typeof id === 'string' && id !== '' ? id : null }
+          const removeKey = menuParamsOf(added.item)
+          return { messageId: typeof id === 'string' && id !== '' ? id : null, ...(removeKey === null ? {} : { removeKey }) }
         }
         // 추가 확인(RunAttestationCommand)만 왔다 — 올라갔는지 모른다
         throw new ChatSendError('unverified', this.#lastStatus)
@@ -133,6 +134,40 @@ export class InnertubeChatSender implements ChatSender {
           throw new ChatSendError('rejected', status)
         }
         if (error instanceof Error && signedInCheck.test(error.message)) throw new ChatSendError('auth')
+        throw failureOf(error)
+      } finally {
+        this.#signal = undefined
+      }
+    }, signal)
+  }
+
+  /**
+   * 이 계정이 올린 글 하나를 지운다 (감사 정정·손으로 지우기, D-THANKSFIX-03). 유튜브 웹이 하는 그대로:
+   * 그 글의 메뉴(/live_chat/get_item_context_menu, 올릴 때 받은 메뉴 값) → 메뉴의 "삭제"(아이콘 DELETE) 단추의 요청(/live_chat/moderate).
+   * 메뉴 값을 모르거나(서버가 남기지 못한 글) 메뉴에 삭제가 없으면(이미 지워짐·남의 글) rejected — 발송함은 [수정]으로 올린다.
+   * 실물 유튜브로 확인하지 못했다(절대 규칙 7 — 시험은 가짜 받는 곳만). 응답 모양이 다르면 지우지 못함(rejected)으로 끝나 [수정]으로 올라간다
+   */
+  async remove(_target: ChatSendTarget, _messageId: string, signal?: AbortSignal, hint?: RemoveHint): Promise<void> {
+    const key = hint?.removeKey ?? null
+    if (key === null || key === '') throw new ChatSendError('rejected')
+    await this.#pacer.run(async () => {
+      const requestSignal = withTimeout(this.#options.timeoutMs ?? INNERTUBE_TIMEOUT_MS, signal)
+      this.#signal = requestSignal
+      this.#lastStatus = null
+      this.#lastBlocked = false
+      try {
+        const client = await this.#session()
+        const menu = (await client.actions.execute('/live_chat/get_item_context_menu', { params: key })) as { data?: unknown }
+        const deleteParams = deleteParamsOf(menu.data)
+        if (deleteParams === null) throw new ChatSendError('rejected', this.#lastStatus)
+        const done = (await client.actions.execute('/live_chat/moderate', { params: deleteParams })) as { success?: unknown }
+        if (done.success !== true) throw new ChatSendError(failureOfStatus(this.#lastStatus ?? 0) ?? 'rejected', this.#lastStatus)
+      } catch (error) {
+        if (error instanceof ChatSendError) throw error
+        if (requestSignal.aborted) throw new ChatSendError('timeout')
+        if (this.#lastBlocked) throw new ChatSendError('blocked', this.#lastStatus)
+        const status = this.#lastStatus
+        if (status !== null) throw new ChatSendError(failureOfStatus(status) ?? 'rejected', status)
         throw failureOf(error)
       } finally {
         this.#signal = undefined
@@ -167,4 +202,34 @@ export class InnertubeChatSender implements ChatSender {
   async close(): Promise<void> {
     this.#client = null
   }
+}
+
+/** 올린 글(AddChatItemAction의 항목)의 메뉴 값 — YouTube.js가 읽은 contextMenuEndpoint(liveChatItemContextMenuEndpoint.params). 없으면 null */
+export function menuParamsOf(item: unknown): string | null {
+  const endpoint = (item as { menu_endpoint?: { payload?: { params?: unknown } } } | undefined)?.menu_endpoint
+  const params = endpoint?.payload?.params
+  return typeof params === 'string' && params !== '' ? params : null
+}
+
+/** 글 메뉴 응답(JSON 그대로)에서 "삭제" 단추(menuServiceItemRenderer, 아이콘 DELETE)의 moderateLiveChatEndpoint 값을 찾는다. 없으면 null */
+export function deleteParamsOf(data: unknown, depth = 0): string | null {
+  if (data === null || typeof data !== 'object' || depth > 12) return null
+  if (Array.isArray(data)) {
+    for (const item of data) {
+      const found = deleteParamsOf(item, depth + 1)
+      if (found !== null) return found
+    }
+    return null
+  }
+  const record = data as Record<string, unknown>
+  const item = record.menuServiceItemRenderer as { icon?: { iconType?: unknown }; serviceEndpoint?: { moderateLiveChatEndpoint?: { params?: unknown } } } | undefined
+  if (item !== undefined && item.icon?.iconType === 'DELETE') {
+    const params = item.serviceEndpoint?.moderateLiveChatEndpoint?.params
+    return typeof params === 'string' && params !== '' ? params : null
+  }
+  for (const value of Object.values(record)) {
+    const found = deleteParamsOf(value, depth + 1)
+    if (found !== null) return found
+  }
+  return null
 }

@@ -31,6 +31,10 @@ export interface FixRow {
   readonly createdAt: Date
   readonly updatedAt: Date
   readonly doneAt: Date | null
+  /** 판매자가 앱에서 손으로 한 줄 (D-THANKSFIX-01) */
+  readonly manual: boolean
+  /** 손으로 고쳐 다시 올릴 글 (지우기만이면 null) */
+  readonly manualText: string | null
 }
 
 const columns = {
@@ -58,6 +62,8 @@ const columns = {
   createdAt: thanksFixes.createdAt,
   updatedAt: thanksFixes.updatedAt,
   doneAt: thanksFixes.doneAt,
+  manual: thanksFixes.manual,
+  manualText: thanksFixes.manualText,
 }
 
 const select = (db: Db) =>
@@ -146,6 +152,31 @@ export async function insertFix(db: Db, fix: NewFix): Promise<boolean> {
     .onConflictDoNothing()
     .returning({ id: thanksFixes.id })
   return rows.length > 0
+}
+
+/** 손으로 하는 줄 (D-THANKSFIX-01): 판매자가 고른 글 하나를 지우거나(text null) 고친 글로 다시 올린다. 바로 할 차례로 넣는다 */
+export async function insertManualFix(db: Db, fix: Omit<NewFix, 'newTexts' | 'nextAt'> & { readonly text: string | null }): Promise<number> {
+  const rows = await db
+    .insert(thanksFixes)
+    .values({
+      sellerId: fix.sellerId,
+      scopeId: fix.scopeId,
+      broadcastId: fix.broadcastId,
+      source: fix.source,
+      effectIds: JSON.stringify(fix.effectIds),
+      oldTexts: JSON.stringify(fix.oldTexts),
+      oldMessage: fix.oldMessage,
+      oldRemoteIds: JSON.stringify(fix.oldRemoteIds),
+      newTexts: '[]',
+      state: 'WAITING',
+      nextAt: fix.now,
+      createdAt: fix.now,
+      updatedAt: fix.now,
+      manual: true,
+      manualText: fix.text,
+    })
+    .returning({ id: thanksFixes.id })
+  return rows[0]?.id ?? 0
 }
 
 export interface FixChange {

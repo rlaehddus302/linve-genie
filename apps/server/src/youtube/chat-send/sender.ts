@@ -25,6 +25,16 @@ export interface ChatSendResult {
   readonly messageId: string | null
   /** 실제로 올린 계정의 채널 ID (봇 계정 여럿·공식 넘김 — 없으면 그 길의 authorChannelId) */
   readonly authorChannelId?: string
+  /** 나중에 이 글을 지울 때 쓰는 값 (innertube — 그 글의 메뉴 값, D-THANKSFIX-03). 우리 글 표에 남긴다 */
+  readonly removeKey?: string
+}
+
+/** 지울 글에 대해 아는 것 (우리 글 표에서 — 없으면 null) */
+export interface RemoveHint {
+  /** 올릴 때 받은 그 글의 메뉴 값 */
+  readonly removeKey: string | null
+  /** 그 글을 올린 계정의 채널 ID (봇 계정 여럿 — 올린 계정으로 지운다) */
+  readonly authorChannelId: string | null
 }
 
 /**
@@ -77,9 +87,9 @@ export interface ChatSender {
   send(target: ChatSendTarget, text: string, signal?: AbortSignal): Promise<ChatSendResult>
   /**
    * 이 길로 올린 글 하나를 지운다 (감사 정정, D-RETRO-105). 없는 길은 지울 수 없다 — 발송함은 고친 글을 "[수정]"으로 올린다.
-   * 이미 없는 메시지는 성공으로 본다. 실패는 ChatSendError로 던진다
+   * 이미 없는 메시지는 성공으로 본다. 실패는 ChatSendError로 던진다. hint는 우리 글 표에 남긴 그 글의 지우기 값·올린 계정(innertube는 이것이 있어야 지운다)
    */
-  remove?(target: ChatSendTarget, messageId: string, signal?: AbortSignal): Promise<void>
+  remove?(target: ChatSendTarget, messageId: string, signal?: AbortSignal, hint?: RemoveHint): Promise<void>
   close(): Promise<void>
 }
 
@@ -158,19 +168,19 @@ export class FailoverSender implements MultiAuthorSender {
   }
 
   /** 지우기: 앞 길이 지울 수 있으면 앞 길로, 아니면(또는 그 길이 확실히 하지 못하면) 넘김 길로 — 그 글을 넘김 길이 올렸을 수 있다 */
-  async remove(target: ChatSendTarget, messageId: string, signal?: AbortSignal): Promise<void> {
+  async remove(target: ChatSendTarget, messageId: string, signal?: AbortSignal, hint?: RemoveHint): Promise<void> {
     const primary = this.#primary.remove?.bind(this.#primary)
     const fallback = this.#fallback.remove?.bind(this.#fallback)
     if (primary !== undefined) {
       try {
-        await primary(target, messageId, signal)
+        await primary(target, messageId, signal, hint)
         return
       } catch (error) {
         if (fallback === undefined || !(error instanceof ChatSendError) || (!NOT_POSTED.has(error.kind) && error.kind !== 'rejected')) throw error
       }
     }
     if (fallback === undefined) throw new ChatSendError('rejected')
-    await fallback(target, messageId, signal)
+    await fallback(target, messageId, signal, hint)
   }
 
   async close(): Promise<void> {

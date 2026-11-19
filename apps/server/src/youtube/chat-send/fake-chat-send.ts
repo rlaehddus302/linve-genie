@@ -6,6 +6,9 @@
 //   보내기 단추 → 페이지가 POST /fake/live_chat/post → 받은 글을 임시 id(COCp…)로 붙였다가 0.3초 뒤 메시지 ID로 바꾼다(글자로만, 실물 2026-11-08 모양).
 //   글을 받고도 화면에 안 그리기(drop)·임시 id인 채 두기(tempOnly)를 넣을 수 있다.
 // - nightbot: POST /1/channel/send — Bearer 토큰이 맞아야 받는다. 실제처럼 5초 안에 두 번째면 429(간격은 바꿀 수 있다).
+// - innertube 지우기 (D-THANKSFIX-03): 올린 글 응답에 그 글의 메뉴 값(contextMenuEndpoint.liveChatItemContextMenuEndpoint.params)을 넣고,
+//   POST /youtubei/v1/live_chat/get_item_context_menu는 그 글을 올린 계정에게만 "삭제"(아이콘 DELETE → moderateLiveChatEndpoint) 단추가 든 메뉴를,
+//   POST /youtubei/v1/live_chat/moderate는 그 글을 지우고 removed에 적는다. 메뉴·지우기 HTTP 오류를 넣을 수 있다.
 // 받은 글은 posts에 쌓고 onPost로 알린다(시험이 가짜 유튜브 웹 채팅에 그대로 붙여 수집기가 보게 한다).
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
@@ -121,6 +124,11 @@ export class FakeChatSend {
   readonly calls = { innertube: 0, browserPage: 0, browserPost: 0, nightbot: 0, accountCheck: 0 }
   /** 로그인이 풀린 계정(쿠키 SID 값) — 계정 목록이 비고, 보내기는 401 (D-YT-SEND-22) */
   readonly loggedOut = new Set<string>()
+  /** innertube로 지운 글 (메시지 ID·지운 계정) */
+  readonly removed: { readonly id: string; readonly account: string | null }[] = []
+  /** innertube 메뉴·지우기 요청 수 */
+  readonly removeCalls = { menu: 0, moderate: 0 }
+  readonly #removeFaults: { readonly status: number }[] = []
 
   private constructor() {
     this.#server = createServer((req, res) => {
@@ -170,6 +178,11 @@ export class FakeChatSend {
   /** 그 계정(쿠키 SID 값)의 innertube 요청만 계속 실패 (null이면 풂) */
   readonly innertubeAccountFaults = new Map<string, FakeInnertubeFault>()
 
+  /** innertube 메뉴(get_item_context_menu) 요청이 이 HTTP 상태로 실패 */
+  failInnertubeRemove(fault: { readonly status: number }, times = 1): void {
+    for (let i = 0; i < times; i++) this.#removeFaults.push(fault)
+  }
+
   failBrowser(fault: FakeBrowserFault, times = 1): void {
     for (let i = 0; i < times; i++) this.#browserFaults.push(fault)
   }
@@ -198,6 +211,8 @@ export class FakeChatSend {
     const raw = Buffer.concat(chunks).toString('utf8')
     if (req.method === 'POST' && url.pathname === '/youtubei/v1/live_chat/send_message') return this.#innertube(req, res, raw)
     if (req.method === 'POST' && url.pathname === '/youtubei/v1/account/accounts_list') return this.#accountsList(req, res)
+    if (req.method === 'POST' && url.pathname === '/youtubei/v1/live_chat/get_item_context_menu') return this.#itemMenu(req, res, raw)
+    if (req.method === 'POST' && url.pathname === '/youtubei/v1/live_chat/moderate') return this.#moderate(req, res, raw)
     if (req.method === 'GET' && url.pathname === '/live_chat') return this.#browserPage(req, res, url)
     if (url.pathname.startsWith('/sorry')) {
       res.writeHead(429, { 'content-type': 'text/html; charset=utf-8' })
@@ -297,6 +312,7 @@ export class FakeChatSend {
                 authorName: { simpleText: '감사 봇' },
                 authorExternalChannelId: 'UCfakebot0000000000000000',
                 timestampUsec: `${String(post.at)}000`,
+                contextMenuEndpoint: { commandMetadata: { webCommandMetadata: { ignoreNavigation: true } }, liveChatItemContextMenuEndpoint: { params: fakeParams('menu', post.id) } },
               },
             },
             clientId: 'x',
@@ -304,6 +320,53 @@ export class FakeChatSend {
         },
       ],
     })
+  }
+
+  /** 로그인한 innertube 요청인가 (아니면 401을 보냈다) */
+  #signedIn(req: IncomingMessage, res: ServerResponse): boolean {
+    const cookie = req.headers.cookie ?? ''
+    const auth = req.headers.authorization ?? ''
+    if (!cookie.includes('SAPISID=') || !auth.startsWith('SAPISIDHASH ') || this.loggedOut.has(cookieOf(req, 'SID') ?? '')) {
+      json(res, 401, { error: { code: 401, message: 'Request had invalid authentication credentials.', status: 'UNAUTHENTICATED' } })
+      return false
+    }
+    return true
+  }
+
+  /** 글 메뉴: 그 글을 올린 계정이고 아직 있으면 "삭제" 단추, 아니면 신고 단추만 */
+  #itemMenu(req: IncomingMessage, res: ServerResponse, raw: string): void {
+    this.removeCalls.menu += 1
+    if (!this.#signedIn(req, res)) return
+    const fault = this.#removeFaults.shift()
+    if (fault !== undefined) {
+      json(res, fault.status, { error: { code: fault.status, status: 'FAILED' } })
+      return
+    }
+    const id = paramsId('menu', (JSON.parse(raw) as { params?: string }).params ?? '')
+    const post = this.posts.find((item) => item.id === id && item.route === 'innertube')
+    const mine = post !== undefined && post.account === cookieOf(req, 'SID') && !this.removed.some((item) => item.id === id)
+    const flag = { menuServiceItemRenderer: { text: { runs: [{ text: '신고' }] }, icon: { iconType: 'FLAG' }, serviceEndpoint: { commandMetadata: { webCommandMetadata: { ignoreNavigation: true } }, getReportFormEndpoint: { params: 'x' } } } }
+    const remove = {
+      menuServiceItemRenderer: {
+        text: { runs: [{ text: '삭제' }] },
+        icon: { iconType: 'DELETE' },
+        serviceEndpoint: { commandMetadata: { webCommandMetadata: { sendPost: true, apiUrl: '/youtubei/v1/live_chat/moderate' } }, moderateLiveChatEndpoint: { params: fakeParams('del', id ?? '') } },
+      },
+    }
+    json(res, 200, { responseContext: {}, liveChatItemContextMenuSupportedRenderers: { menuRenderer: { items: mine ? [flag, remove] : [flag] } } })
+  }
+
+  #moderate(req: IncomingMessage, res: ServerResponse, raw: string): void {
+    this.removeCalls.moderate += 1
+    if (!this.#signedIn(req, res)) return
+    const id = paramsId('del', (JSON.parse(raw) as { params?: string }).params ?? '')
+    const post = this.posts.find((item) => item.id === id)
+    if (id === null || post === undefined || post.account !== cookieOf(req, 'SID')) {
+      json(res, 400, { error: { code: 400, status: 'INVALID_ARGUMENT' } })
+      return
+    }
+    if (!this.removed.some((item) => item.id === id)) this.removed.push({ id, account: cookieOf(req, 'SID') })
+    json(res, 200, { responseContext: {}, actions: [{ removeChatItemAction: { targetItemId: id } }] })
   }
 
   #browserPage(req: IncomingMessage, res: ServerResponse, url: URL): void {
@@ -352,4 +415,14 @@ export class FakeChatSend {
     this.#record({ route: 'nightbot', text: body.message ?? '', videoId: null, channelId: null, chatId: body.chatId ?? null }, 'NB')
     json(res, 200, { status: 200 })
   }
+}
+
+/** 가짜 메뉴·지우기 값 (실물은 protobuf — 가짜는 꼴만 흉내 낸 글자) */
+function fakeParams(kind: 'menu' | 'del', id: string): string {
+  return Buffer.from(`${kind}:${id}`, 'utf8').toString('base64url')
+}
+
+function paramsId(kind: 'menu' | 'del', params: string): string | null {
+  const text = Buffer.from(params, 'base64url').toString('utf8')
+  return text.startsWith(`${kind}:`) ? text.slice(kind.length + 1) : null
 }

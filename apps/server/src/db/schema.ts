@@ -616,6 +616,8 @@ export const youtubeOwnMessages = pgTable(
     messageId: text('message_id').notNull(),
     text: text('text').notNull(),
     publishedAt: timestamptz('published_at').notNull(),
+    /** 이 글을 나중에 지울 때 쓰는 값 (봇 innertube 길 — 올릴 때 받은 그 글의 메뉴 값, D-THANKSFIX-03). 공식 경로·모르면 null */
+    removeKey: text('remove_key'),
   },
   (t) => [
     unique('youtube_own_messages_uq').on(t.sellerId, t.messageId),
@@ -671,8 +673,12 @@ export const thanksFixes = pgTable(
     createdAt: timestamptz('created_at').notNull(),
     updatedAt: timestamptz('updated_at').notNull(),
     doneAt: timestamptz('done_at'),
+    /** 판매자가 앱에서 손으로 한 줄 (D-THANKSFIX-01) — 자동 정정이 건드리지 않는다. 같은 글에 여러 줄이 생길 수 있다 */
+    manual: boolean('manual').notNull().default(false),
+    /** 손으로 고쳐 다시 올릴 글 (지우기만이면 null). 봉인하면 비운다 */
+    manualText: text('manual_text'),
   },
-  (t) => [unique('thanks_fixes_source_uq').on(t.sellerId, t.source), index('thanks_fixes_due_idx').on(t.state, t.nextAt), index('thanks_fixes_broadcast_idx').on(t.sellerId, t.broadcastId)],
+  (t) => [uniqueIndex('thanks_fixes_source_auto_uq').on(t.sellerId, t.source).where(sql`${t.manual} = false`), index('thanks_fixes_due_idx').on(t.state, t.nextAt), index('thanks_fixes_broadcast_idx').on(t.sellerId, t.broadcastId)],
 )
 
 /** 지운 메시지·유튜브 차단 알림 (AC-Y1-27). 엔진 입력이 아니다. 봉인하면 지운다 */

@@ -474,9 +474,22 @@ export async function connectedSellerIds(db: Db): Promise<string[]> {
 /** 우리 글 하나 — 그 회차(linkId)와 작성자 채널을 함께 남긴다 (D-YT-SRV-17) */
 export async function insertOwnMessage(
   db: Db,
-  row: { sellerId: string; scopeId: string; linkId: string; liveChatId: string; authorChannelId: string | null; messageId: string; text: string; publishedAt: Date },
+  row: { sellerId: string; scopeId: string; linkId: string; liveChatId: string; authorChannelId: string | null; messageId: string; text: string; publishedAt: Date; removeKey?: string | null },
 ): Promise<void> {
-  await db.insert(youtubeOwnMessages).values(row).onConflictDoNothing({ target: [youtubeOwnMessages.sellerId, youtubeOwnMessages.messageId] })
+  const target = [youtubeOwnMessages.sellerId, youtubeOwnMessages.messageId]
+  // 지우기 값은 올린 쪽만 안다 — 수집기가 먼저 그 글을 적었어도 값을 채운다 (D-THANKSFIX-03)
+  if (row.removeKey !== undefined && row.removeKey !== null) await db.insert(youtubeOwnMessages).values(row).onConflictDoUpdate({ target, set: { removeKey: row.removeKey } })
+  else await db.insert(youtubeOwnMessages).values(row).onConflictDoNothing({ target })
+}
+
+/** 우리 글 하나를 지울 때 쓰는 것 — 올릴 때 받은 지우기 값과 올린 계정 (D-THANKSFIX-03). 모르면 null 칸 */
+export async function ownMessageHint(db: Db, sellerId: string, messageId: string): Promise<{ removeKey: string | null; authorChannelId: string | null }> {
+  const rows = await db
+    .select({ removeKey: youtubeOwnMessages.removeKey, authorChannelId: youtubeOwnMessages.authorChannelId })
+    .from(youtubeOwnMessages)
+    .where(and(eq(youtubeOwnMessages.sellerId, sellerId), eq(youtubeOwnMessages.messageId, messageId)))
+    .limit(1)
+  return rows[0] ?? { removeKey: null, authorChannelId: null }
 }
 
 // ── 지운 메시지·차단 알림 ──────────────────────────────────────────────────

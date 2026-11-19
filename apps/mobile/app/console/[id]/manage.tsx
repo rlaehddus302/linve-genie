@@ -24,7 +24,7 @@ export default function ManageRoute() {
   const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/console/[id]', params: { id } }))
   return (
     <RouteFrame>
-        <ManageScreen broadcastId={id} onBack={back} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }), openStatus: () => router.push('/labels?from=console'), openDirect: () => router.push({ pathname: '/console/[id]/print-history', params: { id, mode: 'direct' } }), openHistory: () => router.push({ pathname: '/console/[id]/print-history', params: { id } }) }} onEnded={() => router.dismissTo({ pathname: '/console/[id]', params: { id, ended: '1' } })} />
+        <ManageScreen broadcastId={id} onBack={back} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }), openStatus: () => router.push('/labels?from=console'), openDirect: () => router.push({ pathname: '/console/[id]/print-history', params: { id, mode: 'direct' } }), openHistory: () => router.push({ pathname: '/console/[id]/print-history', params: { id } }) }} onEnded={() => router.dismissTo({ pathname: '/console/[id]', params: { id, ended: '1' } })} openThanks={() => router.push({ pathname: '/console/[id]/thanks', params: { id } })} />
       </RouteFrame>
   )
 }
