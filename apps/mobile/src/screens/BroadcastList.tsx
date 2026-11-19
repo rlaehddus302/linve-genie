@@ -4,7 +4,11 @@
 // 리허설 방송은 앱 어디에도 보이지 않는다 (D-UX3-86) — 예전에 만든 것도 목록에서 뺀다.
 // 라이브 합치기 (D-MERGE-LIVE-01·03, 판매자 요청 2026-11-17 "하루에 1차, 2차 이렇게 끊어서 방송하는 경우 … 정산할 때 정보가 파편화"):
 // 지난 라이브 머리 오른쪽 [합치기] → 같은 날 끝난 라이브를 골라 정산서 하나로. 합친 라이브 줄에는 "합침 · 1차" 꼬리표 — 어느 줄을 눌러도 합친 정산서가 열린다.
+// 같이 본 라이브 (D-SHARE-LIVE-02, 사용자 2026-11-19 "세 계정으로 동시에 보고 있었을텐데 그거랑 상관없이 기록 남아야 하는거 아니야?"):
+// 다른 가게 라이브에 같이 들어갔던 끝난 라이브도 지난 라이브에 "같이 봄 · 가게" 꼬리표로 — 누르면 그 라이브에 다시 들어가 기록을 연다.
 import { useState } from 'react'
+import { isApiError, post } from '../api/client.ts'
+import { recheckSession } from '../services.tsx'
 import { ScrollView, View } from 'react-native'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
@@ -111,6 +115,66 @@ export function pastBroadcasts(items: readonly BroadcastItem[]): BroadcastItem[]
   return newestFirst(items).filter((item) => item.ended && !item.rehearsal)
 }
 
+/** 같이 본 라이브 한 줄 — 방송 주인 가게 이름이 붙는다 (D-SHARE-LIVE-02) */
+export type SharedLive = BroadcastItem & { readonly shopName: string }
+
+/** 같이 본 라이브 꼬리표 */
+export const SHARED_TAG = (shop: string) => (shop === '' ? '같이 봄' : `같이 봄 · ${shop}`)
+export const SHARED_OPEN_FAILED = '라이브를 열지 못했어요. 다시 눌러 주세요.'
+
+/** 같이 본 끝난 라이브 (옛 서버·오류면 빈 목록) */
+export function useSharedPast(refresh: unknown = 0): readonly SharedLive[] {
+  const lives = useCachedGet<{ lives: SharedLive[] }>('/api/live-join/past', refresh).data?.lives
+  return lives === undefined ? [] : lives.filter((item) => item.ended && item.rehearsal !== true)
+}
+
+/** 내 지난 라이브와 같이 본 라이브를 날짜·만든 시각 순으로 (최근 것이 위). 같이 본 것이 없으면 내 목록 그대로 */
+export function withShared(past: readonly BroadcastItem[], shared: readonly SharedLive[]): (BroadcastItem | SharedLive)[] {
+  const mine = new Set(past.map((item) => item.id))
+  const extra = shared.filter((item) => !mine.has(item.id))
+  if (extra.length === 0) return [...past]
+  const at = (item: BroadcastItem) => (item.createdAt == null ? Number.NaN : Date.parse(item.createdAt))
+  const out = [...past]
+  for (const item of [...extra].sort((a, b) => (a.date === b.date ? at(b) - at(a) : a.date < b.date ? 1 : -1))) {
+    // 같은 날짜면 만든 시각으로, 모르면 그 날짜 줄들 뒤에
+    let index = out.findIndex((one) => one.date < item.date || (one.date === item.date && !Number.isNaN(at(one)) && !Number.isNaN(at(item)) && at(one) < at(item)))
+    if (index < 0) index = out.length
+    out.splice(index, 0, item)
+  }
+  return out
+}
+
+export function isShared(item: BroadcastItem): item is SharedLive {
+  return typeof (item as Partial<SharedLive>).shopName === 'string'
+}
+
+/** 지난 라이브 줄을 누름: 같이 본 라이브면 다시 들어간 뒤 연다 (D-SHARE-LIVE-02) */
+export function useOpenPast(onOpen: (id: string) => void): { readonly open: (item: BroadcastItem) => void; readonly error: string | null } {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const open = (item: BroadcastItem) => {
+    if (!isShared(item)) {
+      onOpen(item.id)
+      return
+    }
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    void (async () => {
+      try {
+        await post('/api/live-join/reopen', { broadcastId: item.id })
+        await recheckSession()
+        onOpen(item.id)
+      } catch (caught) {
+        setError(isApiError(caught) && caught.status !== 404 ? caught.message : SHARED_OPEN_FAILED)
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }
+  return { open, error }
+}
+
 /** 지난 라이브 줄 왼쪽 플랫폼 아이콘 (모르면 재생 표시) — 라이브 합치기 판도 같은 것을 쓴다 */
 export function LiveIcon({ item, size = 34 }: { readonly item: BroadcastItem; readonly size?: number }) {
   const { p } = useKit()
@@ -141,7 +205,7 @@ export function HistoryRow({ item, now, onPress, round = null }: { readonly item
   const sales = item.salesTotal == null ? '확인 필요' : formatWon(item.salesTotal)
   const sub = historyAgo(item.endedAt ?? item.createdAt, now) ?? ''
   return (
-    <Tap role="button" aria-label={`${title}${round === null ? '' : ` · ${MERGED_TAG} ${round}`} — ${sub} · 총매출 ${sales} · ${counts}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
+    <Tap role="button" aria-label={`${title}${isShared(item) ? ` · ${SHARED_TAG(item.shopName)}` : ''}${round === null ? '' : ` · ${MERGED_TAG} ${round}`} — ${sub} · 총매출 ${sales} · ${counts}`} testID={`broadcast-${item.id}`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.md + 2, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl - SPACE.sm, marginHorizontal: SPACE.sm, borderRadius: RADIUS.lg, borderCurve: 'continuous', minHeight: TOUCH.min, backgroundColor: pressed ? p.pressed : 'transparent' })}>
       <LiveIcon item={item} />
       <View style={{ flex: 1, gap: 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
@@ -150,6 +214,11 @@ export function HistoryRow({ item, now, onPress, round = null }: { readonly item
               {title}
             </Txt>
           </View>
+          {isShared(item) ? (
+            <View testID={`shared-${item.id}`} style={{ flexShrink: 1, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.soft }}>
+              <Txt step="note" weight="bold" color="textSub" numberOfLines={1}>{SHARED_TAG(item.shopName)}</Txt>
+            </View>
+          ) : null}
           {round === null ? null : (
             <View testID={`merged-${item.id}`} style={{ paddingHorizontal: SPACE.sm, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.goldBg }}>
               <Txt step="note" weight="bold" ink={p.goldText}>{`${MERGED_TAG} · ${round}`}</Txt>
@@ -189,7 +258,10 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
   const { data, error: loadError } = useCachedGet<{ broadcasts: BroadcastItem[] }>('/api/broadcasts')
   const items = data?.broadcasts ?? null
   const error = loadError === null ? null : loadError.message
-  const past = items === null ? [] : pastBroadcasts(items)
+  // 같이 본 라이브도 함께 (D-SHARE-LIVE-02)
+  const shared = useSharedPast()
+  const past = items === null ? [] : withShared(pastBroadcasts(items), shared)
+  const opener = useOpenPast(onOpen)
   const { groups } = useBroadcastGroups()
   const [merging, setMerging] = useState(false)
   const [done, setDone] = useState(false)
@@ -210,11 +282,12 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
           {items !== null && past.length === 0 ? <EmptyFill title="아직 지난 라이브가 없어요" body="라이브를 끝내면 여기에 모여요" /> : null}
         </Late>
         {done ? <Txt color="textSub" role="status">{MERGED_DONE}</Txt> : null}
+        {opener.error !== null ? <Notice tone="danger">{opener.error}</Notice> : null}
         <Late>
           {past.length > 0 ? (
             <RowGroup label="지난 라이브">
               {past.map((item) => (
-                <HistoryRow key={item.id} item={item} now={now} round={roundOf(groups, item.id)} onPress={() => onOpen(item.id)} />
+                <HistoryRow key={item.id} item={item} now={now} round={isShared(item) ? null : roundOf(groups, item.id)} onPress={() => opener.open(item)} />
               ))}
             </RowGroup>
           ) : null}

@@ -20,7 +20,7 @@ import { AppHeader, Appear, BigButton, Icon, RowGroup, TodoRow, Txt, useKit, use
 import { Loading, Notice } from '../ui/parts.tsx'
 import { Late } from '../ui/late.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
-import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts, shownBroadcastTitle } from './BroadcastList.tsx'
+import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts, shownBroadcastTitle, useOpenPast, useSharedPast, withShared } from './BroadcastList.tsx'
 export { broadcastLength, historyAgo, pastBroadcasts } from './BroadcastList.tsx'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { font } from '../ui/kit/font.ts'
@@ -293,7 +293,10 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
     const timer = setInterval(() => void load(), LIVE_RECHECK_MS)
     return () => clearInterval(timer)
   }, [liveId, load])
-  const past = items === null ? [] : pastBroadcasts(items)
+  // 같이 본 라이브도 함께 — 다른 가게 라이브에 같이 들어갔던 것 (D-SHARE-LIVE-02)
+  const shared = useSharedPast(refresh)
+  const past = items === null ? [] : withShared(pastBroadcasts(items), shared)
+  const opener = useOpenPast(nav.openConsole)
   // 홈에는 HOME_BROADCASTS개까지만 — 넘칠 때만 [모두보기] (D-UX4-81, 사용자 지시 2026-11-10)
   const showAll = nav.openAllBroadcasts !== undefined && past.length > HOME_BROADCASTS
   const now = Date.now()
@@ -358,8 +361,13 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
                 <Txt step="body" weight="regular" color="textSub" role="heading" aria-level={2}>{PAST_LIVES}</Txt>
               </View>
               {past.slice(0, HOME_BROADCASTS).map((item) => (
-                <HistoryRow key={item.id} item={item} now={now} onPress={() => nav.openConsole(item.id)} />
+                <HistoryRow key={item.id} item={item} now={now} onPress={() => opener.open(item)} />
               ))}
+              {opener.error !== null ? (
+                <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xs }}>
+                  <Notice tone="danger">{opener.error}</Notice>
+                </View>
+              ) : null}
               {/* 모두보기는 목록 아래 오른쪽, 글자만의 단추 (D-UX3-88). 넘쳐서 안 보이는 방송이 있을 때만(HOME_BROADCASTS개 넘음 — D-UX4-81) */}
               {!showAll || nav.openAllBroadcasts === undefined ? null : (
                 <Tap role="button" aria-label="라이브 모두 보기" onPress={nav.openAllBroadcasts} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'flex-end', marginRight: SPACE.md, marginBottom: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>

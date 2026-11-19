@@ -1,11 +1,12 @@
 // 같이 보는 라이브 (D-SHARE-LIVE-01, 사용자 지시 2026-11-17 "한 라이브에 대해서는 모든 정보를 공유하기로 했잖아. 라이브와 앱 계정은 1:N 관계"):
 // - 다른 판매자 계정이 이미 이어 둔(끝나지 않은) 라이브를 이으면 새로 잇지 않고 먼저 이은 방송에 들어간다(live_joins 한 줄).
 // - 들어간 동안 그 계정의 세션은 방송 주인 판매자로 처리한다(auth.session) — 상품 등록·수정·삭제·채팅·찜 목록·마이크 주인이 모두 한 기록.
-// - 나가기: 판매자가 [나가기]를 누를 때, 새 라이브를 만들 때, 방송이 끝나고 12시간이 지났을 때.
+// - 나가기: 판매자가 [나가기]를 누를 때, 새 라이브를 만들 때, 방송이 끝나고 12시간이 지났을 때(지난 라이브에서 다시 열었으면 연 때부터 12시간).
+// - 들어간 라이브는 계정마다 따로 남긴다(live_join_visits, D-SHARE-LIVE-02) — 나간 뒤에도 원래 가게의 "지난 라이브"에 보이고 눌러 다시 연다.
 // - 출시 때는 라이브 화면의 전화번호 주인만 라이브를 이을 수 있게 할 일(남은 일) — 지금은 여러 기기 시험을 위해 누구든 들어간다.
 import { and, asc, eq, gt, isNull, ne, or } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
-import { broadcasts, liveJoins, sellers, tiktokLinks, youtubeLinks } from './db/schema.ts'
+import { broadcasts, liveJoinVisits, liveJoins, sellers, tiktokLinks, youtubeLinks } from './db/schema.ts'
 
 /** 방송이 끝난 뒤에도 같이 보는 시간 — 끝난 라이브의 정산·포장을 같이 보게 */
 export const JOIN_AFTER_END_MS = 12 * 60 * 60 * 1000
@@ -23,7 +24,8 @@ export async function activeJoin(db: Db, accountId: string, now: Date): Promise<
     .from(liveJoins)
     .innerJoin(broadcasts, and(eq(broadcasts.id, liveJoins.broadcastId), eq(broadcasts.sellerId, liveJoins.ownerSellerId)))
     .innerJoin(sellers, eq(sellers.id, liveJoins.ownerSellerId))
-    .where(and(eq(liveJoins.accountId, accountId), isNull(liveJoins.leftAt), or(isNull(broadcasts.endedAt), gt(broadcasts.endedAt, new Date(now.getTime() - JOIN_AFTER_END_MS)))))
+    // 끝나지 않았거나, 끝나고 12시간 안이거나, 들어간(지난 라이브에서 다시 연) 지 12시간 안 (D-SHARE-LIVE-02)
+    .where(and(eq(liveJoins.accountId, accountId), isNull(liveJoins.leftAt), or(isNull(broadcasts.endedAt), gt(broadcasts.endedAt, new Date(now.getTime() - JOIN_AFTER_END_MS)), gt(liveJoins.joinedAt, new Date(now.getTime() - JOIN_AFTER_END_MS)))))
     .limit(1)
   return rows[0] ?? null
 }
@@ -59,6 +61,34 @@ export async function joinLive(db: Db, row: { accountId: string; homeSellerId: s
     .insert(liveJoins)
     .values({ accountId: row.accountId, homeSellerId: row.homeSellerId, ownerSellerId: row.ownerSellerId, broadcastId: row.broadcastId, joinedAt: row.now, leftAt: null })
     .onConflictDoUpdate({ target: liveJoins.accountId, set: { homeSellerId: row.homeSellerId, ownerSellerId: row.ownerSellerId, broadcastId: row.broadcastId, joinedAt: row.now, leftAt: null } })
+  // 같이 본 라이브 기록 — 처음 들어간 때만 (D-SHARE-LIVE-02)
+  await db
+    .insert(liveJoinVisits)
+    .values({ accountId: row.accountId, broadcastId: row.broadcastId, homeSellerId: row.homeSellerId, ownerSellerId: row.ownerSellerId, joinedAt: row.now })
+    .onConflictDoNothing()
+}
+
+/** 이 계정이 같이 본 라이브 (원래 가게 것만 — 다른 가게 계정으로 옮겼으면 빼고), 방송 주인별 (D-SHARE-LIVE-02) */
+export async function visitedLives(db: Db, accountId: string, homeSellerId: string): Promise<{ ownerSellerId: string; ownerName: string; broadcastId: string }[]> {
+  return db
+    .select({ ownerSellerId: liveJoinVisits.ownerSellerId, ownerName: sellers.name, broadcastId: liveJoinVisits.broadcastId })
+    .from(liveJoinVisits)
+    .innerJoin(sellers, eq(sellers.id, liveJoinVisits.ownerSellerId))
+    .where(and(eq(liveJoinVisits.accountId, accountId), eq(liveJoinVisits.homeSellerId, homeSellerId), ne(liveJoinVisits.ownerSellerId, homeSellerId)))
+    .orderBy(asc(liveJoinVisits.joinedAt))
+}
+
+/**
+ * 지난 라이브에서 같이 본 라이브를 다시 연다 (D-SHARE-LIVE-02): 같이 본 기록이 있는 방송이면 다시 들어간다(연 때부터 12시간). 기록이 없으면 null
+ */
+export async function reopenVisited(db: Db, session: { readonly accountId: string; readonly homeSellerId: string }, broadcastId: string, now: Date): Promise<JoinedView | null> {
+  const visits = await visitedLives(db, session.accountId, session.homeSellerId)
+  const visit = visits.find((one) => one.broadcastId === broadcastId)
+  if (visit === undefined) return null
+  const exists = await db.select({ id: broadcasts.id }).from(broadcasts).where(and(eq(broadcasts.id, broadcastId), eq(broadcasts.sellerId, visit.ownerSellerId))).limit(1)
+  if (exists.length === 0) return null
+  await joinLive(db, { accountId: session.accountId, homeSellerId: session.homeSellerId, ownerSellerId: visit.ownerSellerId, broadcastId, now })
+  return { broadcastId, shopName: visit.ownerName }
 }
 
 /** 나가기 — 들어간 라이브가 없으면 아무 일도 없다 */

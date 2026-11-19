@@ -3082,3 +3082,26 @@ export const liveJoins = pgTable(
   },
   (t) => [index('live_joins_broadcast_idx').on(t.broadcastId)],
 )
+
+/**
+ * 같이 본 라이브 기록 (D-SHARE-LIVE-02, 사용자 2026-11-19 "세 계정으로 동시에 보고 있었을텐데 그거랑 상관없이 기록 남아야 하는거 아니야?"):
+ * live_joins는 계정마다 지금 한 줄이라 다음에 들어가면 덮인다 — 들어간 라이브를 계정마다 하나씩 남겨, 원래 가게의 "지난 라이브"에 보이고 다시 열 수 있게 한다.
+ * 덧붙이기만 한다. 방송은 외래 키로 잇지 않는다(복구가 방송 표를 다시 만들어도 남고, 없는 방송은 읽을 때 뺀다)
+ */
+export const liveJoinVisits = pgTable(
+  'live_join_visits',
+  {
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    broadcastId: text('broadcast_id').notNull(),
+    homeSellerId: text('home_seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    ownerSellerId: text('owner_seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    joinedAt: timestamptz('joined_at').notNull(),
+  },
+  (t) => [unique('live_join_visits_uq').on(t.accountId, t.broadcastId)],
+)

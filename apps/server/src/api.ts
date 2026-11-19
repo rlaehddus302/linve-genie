@@ -43,7 +43,7 @@ import type { ReceiptSmsService } from './receipt-sms.ts'
 import type { TikTokLive } from './tiktok-live/live.ts'
 import type { PasteService } from './tiktok-live/paste-service.ts'
 import { registerTiktokRoutes } from './tiktok-live/routes.ts'
-import { leaveLive } from './live-join.ts'
+import { leaveLive, reopenVisited, visitedLives } from './live-join.ts'
 import type { BandService } from './band/service.ts'
 import { isBandPublicPath, registerBandRoutes } from './band-routes.ts'
 import type { Db } from './db/database.ts'
@@ -424,6 +424,38 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (extra !== null) return extra
     if (deps.liveJoin !== undefined) await leaveLive(deps.liveJoin.db, c.get('session').accountId, new Date(deps.liveJoin.clock.now()))
     return c.json({ ok: true })
+  })
+  // 같이 본 라이브 (D-SHARE-LIVE-02): 이 계정이 다른 가게 라이브에 같이 들어갔던 끝난 라이브 — 원래 가게의 "지난 라이브"에 함께 보인다.
+  // 지금 같이 보는 중이면 목록이 이미 그 가게 것이라 빈 목록. 줄 모양은 /api/broadcasts와 같고 shopName(방송 주인 가게 이름)이 붙는다
+  api.get('/live-join/past', async (c) => {
+    const session = c.get('session')
+    if (deps.liveJoin === undefined || session.joined !== null) return c.json({ lives: [] })
+    const visits = await visitedLives(deps.liveJoin.db, session.accountId, session.homeSellerId)
+    const owners = new Map<string, { name: string; ids: Set<string> }>()
+    for (const visit of visits) {
+      const owner = owners.get(visit.ownerSellerId) ?? { name: visit.ownerName, ids: new Set<string>() }
+      owner.ids.add(visit.broadcastId)
+      owners.set(visit.ownerSellerId, owner)
+    }
+    const lives = []
+    for (const [ownerSellerId, owner] of owners) {
+      for (const item of await service.broadcasts(ownerSellerId)) {
+        if (owner.ids.has(item.id) && item.ended && !item.rehearsal) lives.push({ ...item, shopName: owner.name })
+      }
+    }
+    return c.json({ lives })
+  })
+  // 같이 본 라이브 다시 열기 (D-SHARE-LIVE-02): 같이 본 기록이 있는 방송이면 다시 들어간다(연 때부터 12시간, [나가기]로 돌아온다)
+  api.post('/live-join/reopen', async (c) => {
+    const input = body(c)
+    const extra = onlyKeys(input, ['broadcastId'])
+    if (extra !== null) return extra
+    const broadcastId = own(input, 'broadcastId')
+    if (typeof broadcastId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(broadcastId) || deps.liveJoin === undefined) return notFound()
+    const session = c.get('session')
+    const joined = await reopenVisited(deps.liveJoin.db, { accountId: session.accountId, homeSellerId: session.homeSellerId }, broadcastId, new Date(deps.liveJoin.clock.now()))
+    if (joined === null) return notFound()
+    return c.json({ live: joined })
   })
 
   // ── 가게 (I3 AC-I3-47 가게 이름 · I2 AC-I2-01 가게 설정) ──────────────────

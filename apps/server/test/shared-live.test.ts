@@ -97,6 +97,53 @@ describe('D-SHARE-LIVE-01 같이 보는 라이브 — 유튜브', () => {
   })
 })
 
+describe('D-SHARE-LIVE-02 같이 본 라이브 기록 (사용자 2026-11-19 "세 계정으로 동시에 보고 있었을텐데 그거랑 상관없이 기록 남아야 하는거 아니야?")', () => {
+  it('같이 본 라이브는 나간 뒤에도 원래 가게의 지난 라이브에 남고, 눌러 다시 열면 그 기록을 본다', async () => {
+    const world = await youtubeWorld()
+    const one = await connectSeller(world)
+    const { b: b1, live } = await linkedBroadcast(world, one)
+    await expectOk(writeEvent(world, one.seller, { type: 'product.register', b: b1.id, no: 12, name: '라울', price: 5000 }))
+    const two = await connectSeller(world, { channelTitle: '두 번째 가게' })
+    const b2 = await createBroadcast(world, two.seller)
+    await client(world, two.seller.cookie).post(`/api/broadcasts/${b2.id}/youtube`, { requestId: rid('link'), video: `https://www.youtube.com/watch?v=${live.videoId}`, confirmInvited: true })
+
+    // 같이 보는 동안은 목록이 이미 방송 주인 것 — 따로 붙이지 않는다
+    expect((await client(world, two.seller.cookie).get('/api/live-join/past')).body).toEqual({ lives: [] })
+    await expectOk(client(world, one.seller.cookie).post(`/api/broadcasts/${b1.id}/end`, { requestId: rid('end') }))
+    // 끝나고 12시간이 지나 원래 가게로 돌아와도 같이 본 라이브가 남는다
+    await world.timer.set(world.timer.now() + 12 * 60 * 60 * 1000 + 1000)
+    expect((await client(world, two.seller.cookie).get('/api/me')).body.live).toBeUndefined()
+    const past = await client(world, two.seller.cookie).get('/api/live-join/past')
+    expect(past.status, past.text).toBe(200)
+    const ownerName = ((await client(world, one.seller.cookie).get('/api/me')).body.seller as { name: string }).name
+    expect(past.body.lives).toEqual([expect.objectContaining({ id: b1.id, ended: true, shopName: ownerName })])
+    // 원래 가게 목록에는 섞지 않는다 (날짜로 방송을 찾는 화면이 많다)
+    expect((await client(world, two.seller.cookie).get('/api/broadcasts')).body.broadcasts as { id: string }[]).not.toContainEqual(expect.objectContaining({ id: b1.id }))
+
+    // 다시 열면 같이 보는 라이브로 들어가 같은 상품을 본다
+    const reopened = await client(world, two.seller.cookie).post('/api/live-join/reopen', { broadcastId: b1.id })
+    expect(reopened.status, reopened.text).toBe(200)
+    expect(reopened.body).toEqual({ live: { broadcastId: b1.id, shopName: ownerName } })
+    expect((await client(world, two.seller.cookie).get('/api/me')).body.live).toEqual({ broadcastId: b1.id, shopName: ownerName })
+    expect(await productsOf(world, two.seller, b1.date)).toContainEqual(expect.objectContaining({ no: 12, name: '라울' }))
+    // 연 때부터 12시간 뒤에는 원래 가게로
+    await world.timer.set(world.timer.now() + 12 * 60 * 60 * 1000 + 1000)
+    expect((await client(world, two.seller.cookie).get('/api/me')).body.live).toBeUndefined()
+  })
+
+  it('같이 본 적 없는 라이브는 다시 열 수 없다', async () => {
+    const world = await youtubeWorld()
+    const one = await connectSeller(world)
+    const { b: b1 } = await linkedBroadcast(world, one)
+    await expectOk(client(world, one.seller.cookie).post(`/api/broadcasts/${b1.id}/end`, { requestId: rid('end') }))
+    const two = await connectSeller(world, { channelTitle: '두 번째 가게' })
+    expect((await client(world, two.seller.cookie).post('/api/live-join/reopen', { broadcastId: b1.id })).status).toBe(404)
+    expect((await client(world, two.seller.cookie).post('/api/live-join/reopen', { broadcastId: 'x', more: 1 })).status).toBe(400)
+    expect((await client(world, two.seller.cookie).get('/api/live-join/past')).body).toEqual({ lives: [] })
+    expect((await client(world, two.seller.cookie).get('/api/me')).body.live).toBeUndefined()
+  })
+})
+
 describe('D-SHARE-LIVE-01 같이 보는 라이브 — 틱톡', () => {
   const worlds: TtWorld[] = []
   afterEach(async () => {

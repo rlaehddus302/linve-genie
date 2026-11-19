@@ -2,10 +2,10 @@
 // D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 홈 '내 방송' (D-UX3-18, 사용자 지시 2026-11-03): 서버 목록(오래된 순)을 뒤집어 최근 것이 위, 돌아갈 방송은 가장 최근의 열린 방송,
 // 홈 카드는 최근 4개(플랫폼 아이콘·날짜·지난 시간) + [모두보기], 모두 보기 화면은 날짜마다 흰 카드.
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
-import { AllBroadcastsScreen, agoWords, byDate, liveBroadcast } from '../src/screens/BroadcastList.tsx'
+import { AllBroadcastsScreen, agoWords, byDate, liveBroadcast, withShared, type SharedLive } from '../src/screens/BroadcastList.tsx'
 import { broadcastLength, historyAgo, HomeScreen, pastBroadcasts } from '../src/screens/HomeScreen.tsx'
 import { clearCached } from '../src/lib/cached-get.ts'
 import { makeWorld } from './screen-support.tsx'
@@ -121,5 +121,54 @@ describe('내 라이브 (D-UX3-18)', () => {
     expect(within(group).getAllByRole('button').map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c', 'broadcast-b', 'broadcast-a'])
     fireEvent.click(within(group).getByRole('button', { name: '11.3 보스삼촌 라이브 — 4시간 전 · 총매출 350,000원 · 20개 · 8명' }))   // D-UX4-144
     expect(onOpen).toHaveBeenCalledWith('c')
+  })
+})
+
+// D-SHARE-LIVE-02 (사용자 2026-11-19 "어제 라이브 아마 세 계정으로 동시에 보고 있었을텐데 그거랑 상관없이 기록 남아야하는거 아니야?"):
+// 다른 가게 라이브에 같이 들어갔던 끝난 라이브도 내 지난 라이브에 "같이 봄 · 가게" 꼬리표로 보이고, 누르면 다시 들어가 연다
+describe('같이 본 라이브 (D-SHARE-LIVE-02)', () => {
+  const shared: SharedLive = { ...item('s', '2026-11-02', { channelName: 'bit_farm', platforms: ['tiktok'], createdAt: '2026-11-02T10:13:00.000Z', endedAt: '2026-11-02T13:20:00.000Z', salesTotal: 442000, salesQty: 45, buyerCount: 15 }), shopName: '비트다육' }
+
+  it('날짜·만든 시각 순으로 끼운다 — 같이 본 것이 없으면 내 목록 그대로', () => {
+    const mine = [item('c', '2026-11-03', { createdAt: '2026-11-03T01:00:00.000Z' }), item('y', '2026-11-02', { createdAt: '2026-11-02T08:00:00.000Z' }), item('b', '2026-11-01')]
+    expect(withShared(mine, []).map((one) => one.id)).toEqual(['c', 'y', 'b'])
+    expect(withShared(mine, [shared]).map((one) => one.id)).toEqual(['c', 's', 'y', 'b'])
+    // 이미 내 목록에 있으면(같이 보는 중) 두 번 넣지 않는다
+    expect(withShared([...mine, { ...shared }], [shared]).map((one) => one.id)).toEqual(['c', 'y', 'b', 's'])
+  })
+
+  it('홈 지난 라이브에 꼬리표와 함께 보이고, 누르면 다시 들어간 뒤 그 라이브를 연다', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    clearCached()
+    const world = makeWorld()
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [item('c', '2026-11-03', { createdAt: '2026-11-03T01:00:00.000Z' })] } }))
+    world.server.on('GET', /^\/api\/live-join\/past$/, () => ({ body: { lives: [shared] } }))
+    world.server.on('POST', /^\/api\/live-join\/reopen$/, () => ({ body: { live: { broadcastId: 's', shopName: '비트다육' } } }))
+    const navigation = nav()
+    render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
+    const group = await screen.findByRole('group', { name: '지난 라이브' })
+    await waitFor(() => expect(within(group).getByTestId('shared-s').textContent).toBe('같이 봄 · 비트다육'))
+    const rows = within(group).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '라이브 모두 보기')
+    expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c', 'broadcast-s'])
+    fireEvent.click(within(group).getByTestId('broadcast-s'))
+    await waitFor(() => expect(navigation.openConsole).toHaveBeenCalledWith('s'))
+    expect(world.server.callsTo('POST', /^\/api\/live-join\/reopen$/).map((call) => call.body)).toEqual([{ broadcastId: 's' }])
+    // 내 라이브는 그대로 바로 연다
+    fireEvent.click(within(group).getByTestId('broadcast-c'))
+    expect(navigation.openConsole).toHaveBeenCalledWith('c')
+    expect(world.server.callsTo('POST', /^\/api\/live-join\/reopen$/)).toHaveLength(1)
+  })
+
+  it('옛 서버(같이 본 라이브 주소 없음)면 내 목록만', async () => {
+    clearCached()
+    const world = makeWorld()
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [item('c', '2026-11-03')] } }))
+    render(world.wrap(<AllBroadcastsScreen onOpen={vi.fn()} onBack={vi.fn()} now={NOW} />))
+    const group = await screen.findByRole('group', { name: '지난 라이브' })
+    expect(within(group).getAllByRole('button').map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c'])
   })
 })
