@@ -205,6 +205,8 @@ export type LogCode =
   // D-REAL-03 영수증 문자: 판매자 ID·날짜·오류 종류·개수만. 번호·본문·링크는 남기지 않는다
   | 'BUYER_PHONE_SAVE_FAILED'
   | 'BUYER_PHONES_SWEPT'
+  | 'BUYER_CONTACT_SAVE_FAILED'
+  | 'BUYER_CONTACTS_SWEPT'
   // ORD-14 방송 뒤 손님 정보 문자 (D-REAL-11)
   | 'BUYER_INFO_FAILED'
   | 'BUYER_INFO_ADDRESS_FAILED'
@@ -388,6 +390,8 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   PARCEL_CARRIER_NOT_READY: '서버의 우체국 택배 연동 키는 쓰지 않아요 — 우체국 계약 정보는 판매자마다 설정 > 택배에 넣어요(D-REAL-04)',
   BUYER_PHONE_SAVE_FAILED: '영수증 문자용 손님 번호를 저장하지 못했어요(문자찜은 그대로)',
   BUYER_PHONES_SWEPT: '1년 넘게 쓰지 않은 손님 번호를 지웠어요',
+  BUYER_CONTACT_SAVE_FAILED: '손님 연락처를 기억하지 못했어요 (배송지는 저장됨)',
+  BUYER_CONTACTS_SWEPT: '1년 넘게 쓰지 않은 손님 연락처를 지웠어요',
   BUYER_INFO_FAILED: '손님 정보 문자를 처리하지 못해 보통 문자로 다뤘어요',
   BUYER_INFO_ADDRESS_FAILED: '손님 정보 문자의 배송지를 넣지 못했어요',
   BUYER_INFO_SWEPT: '7일 지난 손님 정보 문자를 지웠어요',

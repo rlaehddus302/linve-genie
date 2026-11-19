@@ -4,6 +4,7 @@ import { type NativeBlePrinter } from './ble.ts'
 import type { WebSession } from '@livejjim/mobile-websession'
 import { pickSaveFolder, shareFile, shareLabelImage, type PickSaveFolder, type ShareFile, type ShareLabelImage } from './share.ts'
 import { deviceSms, type NativeSms } from './sms.ts'
+import { deviceContacts, type NativeContacts } from './contacts.ts'
 
 let audio: NativeAudio | null = null
 let ble: NativeBlePrinter | null = null
@@ -11,6 +12,7 @@ let share: ShareLabelImage = shareLabelImage
 let file: ShareFile = shareFile
 let folder: PickSaveFolder = pickSaveFolder
 let sms: NativeSms = deviceSms
+let contacts: NativeContacts = deviceContacts
 /** 앱 안 웹 화면 세션 지키기 (EP1 D-EP1-17) — undefined면 처음 부를 때 네이티브 모듈을 찾는다(없으면 null) */
 let webSession: WebSession | null | undefined
 
@@ -30,6 +32,11 @@ export function nativeSaveFolder(): PickSaveFolder {
 /** 판매자 휴대폰 문자 앱 (D-REAL-05) */
 export function nativeSms(): NativeSms {
   return sms
+}
+
+/** 휴대폰 주소록 (D-CONTACT-02 — 휴대폰 안에서만 읽는다) */
+export function nativeContacts(): NativeContacts {
+  return contacts
 }
 
 export function nativeAudio(): NativeAudio {
@@ -55,7 +62,7 @@ export async function nativeWebSession(): Promise<WebSession | null> {
 }
 
 /** 시험·개발: 다른 구현을 끼운다 */
-export function setNativeModules(modules: { readonly audio?: NativeAudio; readonly ble?: NativeBlePrinter; readonly share?: ShareLabelImage; readonly shareFile?: ShareFile; readonly saveFolder?: PickSaveFolder; readonly sms?: NativeSms; readonly webSession?: WebSession | null }): void {
+export function setNativeModules(modules: { readonly audio?: NativeAudio; readonly ble?: NativeBlePrinter; readonly share?: ShareLabelImage; readonly shareFile?: ShareFile; readonly saveFolder?: PickSaveFolder; readonly sms?: NativeSms; readonly contacts?: NativeContacts; readonly webSession?: WebSession | null }): void {
   if (modules.webSession !== undefined) webSession = modules.webSession
   if (modules.audio !== undefined) audio = modules.audio
   if (modules.ble !== undefined) ble = modules.ble
@@ -63,4 +70,5 @@ export function setNativeModules(modules: { readonly audio?: NativeAudio; readon
   if (modules.shareFile !== undefined) file = modules.shareFile
   if (modules.saveFolder !== undefined) folder = modules.saveFolder
   if (modules.sms !== undefined) sms = modules.sms
+  if (modules.contacts !== undefined) contacts = modules.contacts
 }

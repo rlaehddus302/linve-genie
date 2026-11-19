@@ -82,6 +82,8 @@ export interface OrderDetailView {
   readonly phone: string | null
   /** 배송지 (모르면 null) */
   readonly address: { readonly address: string; readonly detail: string; readonly zip: string } | null
+  /** 성함·번호·주소가 그 날짜 배송지가 아니라 판매자가 전에 적은 같은 손님 연락처에서 왔다 (D-CONTACT-01 — 확인 전). 옛 서버는 없음 */
+  readonly remembered?: boolean
   readonly items: readonly OrderItem[]
   /** 예약일시 = 그날 이 손님의 첫 예약 시각 (UTC ISO) */
   readonly claimedAt: string | null

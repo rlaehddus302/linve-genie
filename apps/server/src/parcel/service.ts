@@ -26,7 +26,8 @@ import { WorkBusy, WorkFailed, type WorkPools } from '../work-pool.ts'
 import { SEALED_MESSAGE, type ScopeWriter } from '../writer.ts'
 import { kstMidnightAfter, type Timer } from '../youtube/timer.ts'
 import type { LedgerPrefill, LedgerService } from '../customers/ledger.ts' // KP1
-import { maskRecipient } from '../customers/ledger-rules.ts' // KP1
+import { maskRecipient, showLedgerPrefill } from '../customers/ledger-rules.ts' // KP1
+import { CONTACT_ID_RE, bundleKeysOf, type BookContact, type BundleKeys, type ContactBook } from '../customers/contact-book.ts' // D-CONTACT-01
 import {
   CARRIER_CODES,
   CARRIER_LABELS,
@@ -178,6 +179,8 @@ export interface ParcelDeps {
   readonly options: ParcelOptions
   /** KP1 손님 장부 (묶음 배송지 칸의 "확인 전"·[배송지 확인]·링크 동의). 없으면 장부를 보지 않는다 */
   readonly ledger?: LedgerService
+  /** D-CONTACT-01 판매자가 적은 손님 연락처 (같은 번호면 같은 손님 — 다음 주문 배송지 칸의 "확인 전"·[배송지 확인]). 없으면 보지 않는다 */
+  readonly contacts?: ContactBook
 }
 
 /** 묶음의 택배 줄 (`parcel` — 정산 묶음·포장 모드·택배 화면) */
@@ -891,16 +894,42 @@ export class ParcelService {
     return this.#deps.ledger === undefined ? new Map() : this.#deps.ledger.knownMarkers(sellerId, date, force)
   }
 
-  /** 묶음마다 장부 "확인 전" (저장한 배송지가 풀리지 않거나 없는 묶음만) */
-  async #prefills(db: Db, sellerId: string, date: string, state: EngineState, buyers: readonly string[], addresses: ReadonlyMap<string, AddressRow>, known: ReadonlyMap<string, string>): Promise<Map<string, LedgerPrefill>> {
-    const ledger = this.#deps.ledger
-    if (ledger === undefined || this.#expired(date)) return new Map()
+  /**
+   * 묶음마다 장부 "확인 전" (저장한 배송지가 풀리지 않거나 없는 묶음만). 장부 줄이 없는 묶음은 판매자가 적은 손님 연락처(D-CONTACT-01 — 같은 번호면 같은 손님)로 —
+   * 판매자 화면만(book): 구매자 링크에는 판매자가 적은 연락처를 보이지 않는다(손님이 고른 것이 아니다)
+   */
+  async #prefills(db: Db, sellerId: string, date: string, state: EngineState, buyers: readonly string[], addresses: ReadonlyMap<string, AddressRow>, known: ReadonlyMap<string, string>, book = true): Promise<Map<string, LedgerPrefill>> {
+    if (this.#expired(date)) return new Map()
     const bundles = buyers.map((buyer) => {
       const row = addresses.get(buyer)
       const saved: AddressState = this.#open(sellerId, row) === null ? 'NONE' : row?.confirmed === true ? 'CONFIRMED' : 'UNCONFIRMED'
       return { buyer, saved }
     })
-    return ledger.prefills(db, sellerId, date, state, bundles, known)
+    const ledger = this.#deps.ledger
+    const out = ledger === undefined ? new Map<string, LedgerPrefill>() : await ledger.prefills(db, sellerId, date, state, bundles, known)
+    const contacts = this.#deps.contacts
+    if (!book || contacts === undefined) return out
+    const wanted = new Map<string, BundleKeys>()
+    for (const bundle of bundles) {
+      if (out.has(bundle.buyer) || !this.#bookShown(state, date, bundle.buyer, bundle.saved)) continue
+      wanted.set(bundle.buyer, bundleKeysOf(state, bundle.buyer))
+    }
+    if (wanted.size === 0) return out
+    for (const [buyer, entry] of await contacts.forBundles(db, sellerId, wanted)) out.set(buyer, { ledgerId: entry.id, updatedAt: entry.updatedAt, name: entry.name, phone: entry.phone, address: entry.address, detail: entry.detail, zip: entry.zip })
+    return out
+  }
+
+  /** 손님 연락처를 "확인 전"으로 보일 묶음인가 (장부 CR-4와 같은 조건 — 품목 있음·직접 수령·합배송 아님·저장한 배송지 없음) */
+  #bookShown(state: EngineState, date: string, buyer: string, saved: AddressState): boolean {
+    const settlement = getSettlement(state, buyer, date)
+    const shipping = settlement.items.length === 0 ? 'NONE' : (settlement.shippingOverride ?? 'NONE')
+    return showLedgerPrefill({ items: settlement.items.length, shipping, saved, lines: 1 }).ledger
+  }
+
+  /** 판매자가 적거나 확인한 연락처를 손님 연락처에 기억 (D-CONTACT-01 — 범위 트랜잭션 밖, 실패해도 저장은 그대로) */
+  async #rememberContact(sellerId: string, keys: BundleKeys | null, contact: BookContact | null): Promise<void> {
+    if (this.#deps.contacts === undefined || keys === null || contact === null) return
+    await this.#deps.contacts.remember(sellerId, keys, contact)
   }
 
   /** 직접 넣은 택배의 자세히 (D-UX3-38): 배송지·택배 줄, 장부 없음 */
@@ -986,11 +1015,16 @@ export class ParcelService {
     if (input === null) return invalid('address', '배송지 칸을 확인해 주세요.')
     const read = readAddress(input)
     if ('errors' in read) return problem(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', addressProblems(read.errors, 'address.'), { codes: read.errors })
-    return this.#addressWrite(sellerId, date, requestId, 'ADDRESS', buyer, async (tx, _runtime, now) => {
+    let keys: BundleKeys | null = null
+    const outcome = await this.#addressWrite(sellerId, date, requestId, 'ADDRESS', buyer, async (tx, runtime, now) => {
       if (this.#expired(date)) return problem(409, 'ADDRESS_EXPIRED', PARCEL_MESSAGES.addressClosed)
       await putAddress(tx, this.#deps.masterKey, { sellerId, date, buyer, address: read.ok, source: 'SELLER', accountId, confirmed: true, now })
+      keys = isExtraBuyer(buyer) ? null : bundleKeysOf(runtime.state, buyer)
       return null
     })
+    // D-CONTACT-01: 판매자가 적은 연락처는 같은 번호의 다음 주문에 이어 쓴다 (직접 넣은 택배는 손님 계정이 없어 번호로만)
+    if (outcome.kind === 'ok') await this.#rememberContact(sellerId, keys ?? { phoneKeys: [], chatKeys: [] }, read.ok)
+    return outcome
   }
 
   /** 구매자가 적은 배송지 확인 (그 배송지의 고친 시각을 함께 — 그 사이 바뀌었으면 409, 옛 내용으로 확인하지 않는다) */
@@ -1009,6 +1043,7 @@ export class ParcelService {
    * 줄이 없어졌거나 하나가 아니면 NO_LEDGER, 줄을 그사이 고쳤으면 LEDGER_CHANGED, 이미 배송지가 있으면 ADDRESS_EXISTS
    */
   async confirmFromLedger(sellerId: string, accountId: string, date: string, requestId: string, buyer: string, ledgerId: string, updatedAt: string): Promise<Outcome<BundleView>> {
+    if (CONTACT_ID_RE.test(ledgerId)) return this.#confirmFromBook(sellerId, accountId, date, requestId, buyer, ledgerId, updatedAt)
     const ledger = this.#deps.ledger
     if (ledger === undefined || isExtraBuyer(buyer)) return NOT_FOUND
     return this.#addressWrite(sellerId, date, requestId, 'LEDGER', buyer, async (tx, runtime, now, known) => {
@@ -1022,6 +1057,31 @@ export class ParcelService {
       await putAddress(tx, this.#deps.masterKey, { sellerId, date, buyer, address: { ...found.contact, memo: '' }, source: 'LEDGER', accountId, confirmed: true, now })
       return null
     })
+  }
+
+  /**
+   * D-CONTACT-01 [배송지 확인] — 판매자가 적은 손님 연락처: 그때 연락처(+ 빈 배송 메모)를 이 묶음 배송지로 저장한다(출처 판매자, 확인함).
+   * 연락처가 없어졌거나 이 묶음의 것이 아니면 NO_LEDGER, 그사이 고쳤으면 LEDGER_CHANGED, 이미 배송지가 있으면 ADDRESS_EXISTS (장부와 같은 응답)
+   */
+  async #confirmFromBook(sellerId: string, accountId: string, date: string, requestId: string, buyer: string, contactId: string, updatedAt: string): Promise<Outcome<BundleView>> {
+    const contacts = this.#deps.contacts
+    if (contacts === undefined || isExtraBuyer(buyer)) return NOT_FOUND
+    let used: { keys: BundleKeys; contact: BookContact } | null = null
+    const outcome = await this.#addressWrite(sellerId, date, requestId, 'LEDGER', buyer, async (tx, runtime, now) => {
+      if (this.#expired(date)) return problem(409, 'ADDRESS_EXPIRED', PARCEL_MESSAGES.addressClosed)
+      if (this.#open(sellerId, await addressRow(tx, sellerId, date, buyer)) !== null) return problem(409, 'ADDRESS_EXISTS', LEDGER_PARCEL_MESSAGES.exists)
+      const keys = bundleKeysOf(runtime.state, buyer)
+      const found = this.#bookShown(runtime.state, date, buyer, 'NONE') ? await contacts.forBundle(tx, sellerId, runtime.state, buyer) : null
+      if (found === null || found.id !== contactId) return problem(409, 'NO_LEDGER', LEDGER_PARCEL_MESSAGES.noLedger)
+      if (found.updatedAt !== updatedAt) return problem(409, 'LEDGER_CHANGED', LEDGER_PARCEL_MESSAGES.changed)
+      const contact: BookContact = { name: found.name, phone: found.phone, address: found.address, detail: found.detail, zip: found.zip }
+      await putAddress(tx, this.#deps.masterKey, { sellerId, date, buyer, address: { ...contact, memo: '' }, source: 'SELLER', accountId, confirmed: true, now })
+      used = { keys, contact }
+      return null
+    })
+    // 이 주문 계정도 그 번호에 잇고 마지막으로 쓴 때를 늦춘다
+    if (outcome.kind === 'ok' && used !== null) await this.#rememberContact(sellerId, (used as { keys: BundleKeys }).keys, (used as { contact: BookContact }).contact)
+    return outcome
   }
 
   /** 배송지 지우기 (행이 없어지고 NO_ADDRESS). 직접 넣은 택배면 그 줄째 지운다(D-UX3-38) */
@@ -1171,7 +1231,7 @@ export class ParcelService {
     const opened = this.#open(sellerId, row)
     if (opened !== null) return { kind: 'saved', name: opened.name, last4: phoneLast4(opened.phone) }
     // KP1: 손님 장부의 지난번 배송지 (가린 이름·끝 4자리만 — 주소 원문은 링크에 없다, CR-4)
-    const prefill = (await this.#prefills(db, sellerId, date, state, [buyer], new Map(row === null ? [] : [[buyer, row]]), await this.#known(sellerId, date))).get(buyer)
+    const prefill = (await this.#prefills(db, sellerId, date, state, [buyer], new Map(row === null ? [] : [[buyer, row]]), await this.#known(sellerId, date), false)).get(buyer)
     if (prefill !== undefined) return { kind: 'ledger', name: maskRecipient(prefill.name), last4: phoneLast4(prefill.phone) }
     return { kind: 'form' }
   }

@@ -43,6 +43,8 @@ PODS:
     - ExpoModulesCore
   - ExpoClipboard (58.0.4):
     - ExpoModulesCore
+  - ExpoContacts (58.0.11):
+    - ExpoModulesCore
   - ExpoCrypto (58.0.7):
     - ExpoModulesCore
   - ExpoDomWebView (58.0.2):
@@ -2367,6 +2369,7 @@ DEPENDENCIES:
   - "ExpoAsset (from `../../../node_modules/.pnpm/expo-asset@58.0.19_expo@58.0.21_react-native@0.88.0_@babel+core@7.29.7_supports-color@8_7c87f35dfc40dbcab9145d42a897bce0/node_modules/expo-asset/ios`)"
   - "ExpoBlur (from `../../../node_modules/.pnpm/expo-blur@58.0.5_expo@58.0.21_react-native@0.88.0_@babel+core@7.29.7_supports-color@8.1_56cf401057f06812f5676a9186def63a/node_modules/expo-blur/ios`)"
   - "ExpoClipboard (from `../../../node_modules/.pnpm/expo-clipboard@58.0.4_expo@58.0.21_react-native@0.88.0_@babel+core@7.29.7_supports-colo_f4a6864502b70766cb0968e87b802dc4/node_modules/expo-clipboard/ios`)"
+  - "ExpoContacts (from `../../../node_modules/.pnpm/expo-contacts@58.0.11_expo@58.0.21_react-native@0.88.0_@babel+core@7.29.7_supports-colo_ec55d1d56931cf99f8ac43ec355bde17/node_modules/expo-contacts/ios/ExpoContacts.podspec`)"
   - "ExpoCrypto (from `../../../node_modules/.pnpm/expo-crypto@58.0.7_expo@58.0.21/node_modules/expo-crypto/ios`)"
   - "ExpoDomWebView (from `../../../node_modules/.pnpm/@expo+dom-webview@58.0.2_expo@58.0.21_react-native@0.88.0_@babel+core@7.29.7_supports-c_448f0201b4d8270b5193b5c6e5a960c7/node_modules/@expo/dom-webview/ios`)"
   - "ExpoFileSystem (from `../../../node_modules/.pnpm/expo-file-system@58.0.13_expo@58.0.21_react-native@0.88.0_@babel+core@7.29.7_supports-c_79b8849de0ece995f7837b67979cfc27/node_modules/expo-file-system/ios/ExpoFileSystem.podspec`)"
@@ -2515,6 +2518,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/.pnpm/expo-blur@58.0.5_expo@58.0.21_react-native@0.88.0_@babel+core@7.29.7_supports-color@8.1_56cf401057f06812f5676a9186def63a/node_modules/expo-blur/ios"
   ExpoClipboard:
     :path: "../../../node_modules/.pnpm/expo-clipboard@58.0.4_expo@58.0.21_react-native@0.88.0_@babel+core@7.29.7_supports-colo_f4a6864502b70766cb0968e87b802dc4/node_modules/expo-clipboard/ios"
+  ExpoContacts:
+    :podspec: "../../../node_modules/.pnpm/expo-contacts@58.0.11_expo@58.0.21_react-native@0.88.0_@babel+core@7.29.7_supports-colo_ec55d1d56931cf99f8ac43ec355bde17/node_modules/expo-contacts/ios/ExpoContacts.podspec"
   ExpoCrypto:
     :path: "../../../node_modules/.pnpm/expo-crypto@58.0.7_expo@58.0.21/node_modules/expo-crypto/ios"
   ExpoDomWebView:
@@ -2768,6 +2773,7 @@ SPEC CHECKSUMS:
   ExpoAsset: 9c966d4d2c67a13de7d449561558f782df1c1787
   ExpoBlur: 68f7f85ae6584f0bec52a0a42ee5088b093d1473
   ExpoClipboard: 244adf0a38b60ec7105e217042dd266a722f5a5e
+  ExpoContacts: 9299febf273485e1dea7ad86f2b5393163305e3a
   ExpoCrypto: 33ede543a3747abbef071c3bd747135ccc4e4fd5
   ExpoDomWebView: b2a6d681b9d34c23b1f584321386ca8da1d36afb
   ExpoFileSystem: b619d80b490c53117a9a9c976021a4ce5a9da440

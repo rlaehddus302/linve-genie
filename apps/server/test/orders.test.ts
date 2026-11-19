@@ -216,6 +216,8 @@ describe('D-UX4-125 주문 상세', () => {
       platform: 'YOUTUBE',
       phone: '01022223333',
       address: { address: ADDRESS.address, detail: ADDRESS.detail, zip: ADDRESS.zip },
+      // D-CONTACT-01: 그날 배송지에서 왔다 (같은 손님 연락처가 아니다)
+      remembered: false,
       items: [
         { no: 2, name: '라울', price: 10000, qty: 1, b: b2, options: null },
         { no: 5, name: '방울복랑 금', price: 21000, qty: 1, b: b2, options: null },
@@ -322,7 +324,9 @@ describe('D-UX4-126 주문 목록의 모르는 손님 정보', () => {
     expect(row(D1, 'UC_A')?.missing).toEqual([])
     expect(row(D1, sms)?.missing).toEqual(['name', 'address'])
     expect(row(D1, 'UC_B')?.missing).toEqual(['name', 'phone', 'address'])
-    expect(row(D2, 'UC_A')?.missing).toEqual(['name', 'phone', 'address'])
+    // D-CONTACT-01 (2026-11-20): D1에 판매자가 적은 홍길동 연락처가 같은 계정의 D2 주문에 이어진다 — 묻지 않는다
+    expect(row(D2, 'UC_A')?.missing).toEqual([])
+    expect(row(D2, 'UC_A')?.name).toBe('김받는')
     // 배송지 보관 기간(30일)이 지난 날짜는 더 넣을 수 없으니 묻지 않는다
     at(world, '2026-11-17', '09:00:00')
     const later = (await list(world, seller)).orders

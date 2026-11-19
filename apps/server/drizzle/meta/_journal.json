@@ -463,6 +463,13 @@
       "when": 1794960000039,
       "tag": "0065_statement_buyer_events",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1794960000042,
+      "tag": "0068_buyer_contacts",
+      "breakpoints": true
     }
   ]
 }

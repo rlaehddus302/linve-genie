@@ -61,6 +61,7 @@ import { CustomerArchiver } from './customers/archive.ts'
 import { CustomerService } from './customers/service.ts'
 import { OrderService } from './orders.ts' // D-UX4-125 주문 탭
 import { LedgerService } from './customers/ledger.ts' // KP1 손님 장부
+import { ContactBook } from './customers/contact-book.ts'
 import { LedgerSweeper } from './customers/ledger-sweep.ts' // KP1 손님 장부
 import { sweepSchedule } from './schedule/sweep.ts' // KP1 정리 작업이 같이 부른다
 import { ReportService } from './report/service.ts' // KP1 리포트
@@ -636,6 +637,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
       await sweepSchedule(db, now)
       const swept = await receiptSms.sweep()
       if (swept > 0) log({ level: 'info', code: 'BUYER_PHONES_SWEPT', count: swept })
+      const people = await contacts.sweep()
+      if (people > 0) log({ level: 'info', code: 'BUYER_CONTACTS_SWEPT', count: people })
       const cards = await buyerInfo.sweep()
       if (cards > 0) log({ level: 'info', code: 'BUYER_INFO_SWEPT', count: cards })
     },
@@ -855,9 +858,11 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(options.inbox?.rateLimit === undefined ? {} : { rateLimit: options.inbox.rateLimit }),
     timer: options.inbox?.sweepTimer ?? realGeneratorTimer,
   })
-  const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {}, ledger })
-  // 주문 탭 목록·주문 상세 (D-UX4-125) — 읽기만: 성함·주소는 택배 배송지, 문자 손님 번호는 영수증 문자, 다른 날짜 거래는 손님 기록
-  const orders = new OrderService({ db, writer, clock, log, parcels, receiptSms, customers })
+  // D-CONTACT-01 판매자가 적은 손님 연락처 (같은 번호면 같은 손님) — 택배 배송지 칸 "확인 전"·주문 탭이 같이 본다
+  const contacts = new ContactBook({ db, clock, masterKey, log, phoneKeyFor: (sellerId, phone) => service.phoneKeyFor(sellerId, phone) })
+  const parcels = new ParcelService({ db, writer, clock, timer, masterKey, hub, log, work, options: options.parcel ?? {}, ledger, contacts })
+  // 주문 탭 목록·주문 상세 (D-UX4-125) — 읽기만: 성함·주소는 택배 배송지(없으면 손님 연락처), 문자 손님 번호는 영수증 문자, 다른 날짜 거래는 손님 기록
+  const orders = new OrderService({ db, writer, clock, log, parcels, receiptSms, customers, contacts })
   // 방송 뒤 손님 정보 문자 (ORD-14, D-REAL-11): 받기(inbox)가 택배보다 먼저 만들어져 처리기를 여기서 넘긴다
   const buyerInfo = new BuyerInfoService({
     db,

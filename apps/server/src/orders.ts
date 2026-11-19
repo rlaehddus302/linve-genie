@@ -13,11 +13,15 @@
 // - D-UX4-126 주문 한 건 내보내기: GET /api/days/:date/order.csv·order.xlsx?buyer= — 상세와 같은 검사·404. 휴대폰 번호·주소는 넣지 않는다
 //   (AUTO: 파일은 메신저로 넘겨지기 쉽다 — 손님 엑셀도 연락처는 기본으로 빼는 것과 같은 쪽).
 // - D-ORDPAY-01 (판매자 요청 2026-11-20 "주문 탭에서 입금이 완료됐는지 체크 표시"): 목록 줄마다 받은 금액·입금 상태(코어 정산 그대로)·봉인 여부.
+// - D-CONTACT-01 (사용자 지시 2026-11-20 "같은 번호면 같은 사람"): 그 날짜 배송지가 없는 묶음은 판매자가 적은 손님 연락처(같은 번호·이은 계정 — 정확히 하나일 때만)의
+//   성함·번호·주소를 보인다(상세 remembered = true — 보이기만, 택배는 판매자가 확인해야 접수). 판매자가 적은 배송지가 있으면 그것만(덮지 않는다).
+//   POST /api/contacts/lookup { phone } — 손님 정보에 번호를 적으면 같은 번호의 아는 성함·주소(번호는 본문으로만, 로그 없음).
 import { DEFAULT_SETTINGS, currentBuyerOf, formatWon, getBuyer, getSettlement, isValidDate, listBroadcasts, listSettlements, type BuyerInfo, type EngineState, type PaymentStatus } from '@livejjim/core'
 import { itemText, textRowsToXlsx } from '@livejjim/documents'
 import type { Context, Hono } from 'hono'
 import type { SessionContext } from './auth.ts'
 import { buyerParam } from './closing.ts'
+import { bundleKeysOf, type BookEntry, type BundleKeys, type ContactBook } from './customers/contact-book.ts'
 import { realScopes, type DayBundle, type ScopeRow } from './customers/facts.ts'
 import type { CustomerService } from './customers/service.ts'
 import type { Db } from './db/database.ts'
@@ -104,6 +108,8 @@ export interface OrderDetailView {
   readonly platform: OrderPlatform | null
   readonly phone: string | null
   readonly address: { readonly address: string; readonly detail: string; readonly zip: string } | null
+  /** 성함·번호·주소가 그 날짜 배송지가 아니라 판매자가 전에 적은 같은 손님 연락처에서 왔다 (D-CONTACT-01 — 확인 전) */
+  readonly remembered: boolean
   readonly items: readonly OrderItem[]
   readonly claimedAt: string | null
   readonly itemCount: number
@@ -140,6 +146,8 @@ interface DayEntry {
   readonly byBuyer: ReadonlyMap<string, DayOrder>
   /** 구매자 → 번호 키 (receiptPhoneKeys — 상태·날짜만으로 정해진다, D-UX4-126) */
   readonly phoneKeys: ReadonlyMap<string, readonly string[]>
+  /** 구매자 → 손님 연락처를 찾을 열쇠 (D-CONTACT-01 — 상태만으로 정해진다) */
+  readonly bookKeys: ReadonlyMap<string, BundleKeys>
 }
 
 /** 구매자 → 찜한 곳: 채팅 구매자는 키의 플랫폼, 문자 구매자는 SMS, 모르면 null */
@@ -208,6 +216,8 @@ export interface OrderDeps {
   readonly receiptSms?: ReceiptSmsService
   /** 다른 날짜 거래 (손님 기록). 없으면 거래 0 */
   readonly customers?: CustomerService
+  /** 판매자가 적은 손님 연락처 (D-CONTACT-01). 없으면 그 날짜 배송지만 */
+  readonly contacts?: ContactBook
 }
 
 type StateRead = { kind: 'ok'; state: EngineState; seq: number; sealed: boolean } | { kind: 'missing' } | { kind: 'unreadable' }
@@ -263,6 +273,7 @@ export class OrderService {
       orders,
       byBuyer: new Map(orders.map((order) => [order.buyer, order])),
       phoneKeys: new Map(orders.map((order) => [order.buyer, receiptPhoneKeys(read.state, scope.date, order.buyer)])),
+      bookKeys: new Map(orders.map((order) => [order.buyer, bundleKeysOf(read.state, order.buyer)])),
     }
     this.#remember(slot, entry)
     return entry
@@ -273,21 +284,30 @@ export class OrderService {
     return this.#deps.parcels === undefined ? new Map<string, ParcelAddress>() : this.#deps.parcels.openAddresses(sellerId, date)
   }
 
+  /** 그 날짜 배송지가 없는 묶음의 손님 연락처 (D-CONTACT-01) */
+  async #book(sellerId: string, day: DayEntry, addresses: ReadonlyMap<string, ParcelAddress>): Promise<Map<string, BookEntry>> {
+    const contacts = this.#deps.contacts
+    if (contacts === undefined) return new Map()
+    const wanted = new Map<string, BundleKeys>()
+    for (const order of day.orders) if (!addresses.has(order.buyer)) wanted.set(order.buyer, day.bookKeys.get(order.buyer) ?? { phoneKeys: [], chatKeys: [] })
+    return wanted.size === 0 ? new Map() : contacts.forBundles(this.#deps.db, sellerId, wanted)
+  }
+
   /**
    * 그 날짜 줄마다 모르는 손님 정보 (D-UX4-126): 성함·주소는 배송지로, 휴대폰 번호는 배송지 번호 → 문자 번호 기록(키만, 한 번에) 순.
    * 배송지 보관 기간이 지난 날짜는 모두 빈 목록
    */
-  async #missing(sellerId: string, date: string, day: DayEntry, addresses: ReadonlyMap<string, ParcelAddress>): Promise<Map<string, OrderInfoField[]>> {
+  async #missing(sellerId: string, date: string, day: DayEntry, addresses: ReadonlyMap<string, ParcelAddress>, book: ReadonlyMap<string, BookEntry>): Promise<Map<string, OrderInfoField[]>> {
     const out = new Map<string, OrderInfoField[]>()
     if (this.#deps.parcels?.addressExpired(date) === true) {
       for (const order of day.orders) out.set(order.buyer, [])
       return out
     }
     const ask = new Map<string, readonly string[]>()
-    for (const order of day.orders) if ((addresses.get(order.buyer)?.phone ?? '') === '') ask.set(order.buyer, day.phoneKeys.get(order.buyer) ?? [])
+    for (const order of day.orders) if ((addresses.get(order.buyer)?.phone ?? book.get(order.buyer)?.phone ?? '') === '') ask.set(order.buyer, day.phoneKeys.get(order.buyer) ?? [])
     const withPhone = ask.size === 0 || this.#deps.receiptSms === undefined ? new Set<string>() : await this.#deps.receiptSms.buyersWithPhone(sellerId, ask)
     for (const order of day.orders) {
-      const address = addresses.get(order.buyer)
+      const address = addresses.get(order.buyer) ?? book.get(order.buyer)
       const fields: OrderInfoField[] = []
       if ((address?.name ?? '') === '') fields.push('name')
       if (ask.has(order.buyer) && !withPhone.has(order.buyer)) fields.push('phone')
@@ -311,9 +331,10 @@ export class OrderService {
       const day = await this.#day(sellerId, scope)
       if (day === null || day.orders.length === 0) continue
       const addresses = await this.#addresses(sellerId, scope.date)
-      const missing = await this.#missing(sellerId, scope.date, day, addresses)
+      const book = await this.#book(sellerId, day, addresses)
+      const missing = await this.#missing(sellerId, scope.date, day, addresses, book)
       for (const order of day.orders) {
-        orders.push({ date: scope.date, buyer: order.buyer, name: addresses.get(order.buyer)?.name ?? null, ...OrderService.#rowPart(order), missing: missing.get(order.buyer) ?? [], sealed: day.sealed })
+        orders.push({ date: scope.date, buyer: order.buyer, name: addresses.get(order.buyer)?.name ?? book.get(order.buyer)?.name ?? null, ...OrderService.#rowPart(order), missing: missing.get(order.buyer) ?? [], sealed: day.sealed })
       }
       dates += 1
       last = scope.date
@@ -358,8 +379,12 @@ export class OrderService {
         return { no: claim.no, name: itemText(lookup.names.get(claim.product) ?? '', claim.variant, price, 1), price, qty: claim.qty, b: claim.broadcast, options: claim.options === null || claim.options.length === 0 ? null : claim.options }
       })
     const { qty, first } = claimFacts(lookup, root, date)
-    const address = (await this.#addresses(sellerId, date)).get(root) ?? null
-    const phone = address !== null ? address.phone : this.#deps.receiptSms === undefined ? null : await this.#deps.receiptSms.knownPhone(sellerId, date, state, root)
+    const saved = (await this.#addresses(sellerId, date)).get(root) ?? null
+    const known = saved !== null ? saved.phone : this.#deps.receiptSms === undefined ? null : await this.#deps.receiptSms.knownPhone(sellerId, date, state, root)
+    // D-CONTACT-01: 그 날짜 배송지가 없으면 판매자가 적은 같은 손님 연락처 — 아는 번호가 있으면 그 번호 전체가 같은 것만, 없으면 계정·문자찜 번호로 하나일 때만
+    const book = saved !== null || this.#deps.contacts === undefined ? null : known !== null ? await this.#deps.contacts.byPhone(sellerId, known) : await this.#deps.contacts.forBundle(this.#deps.db, sellerId, state, root)
+    const address = saved ?? book
+    const phone = known ?? book?.phone ?? null
     // 그 날짜 정산 설정 = 그 날짜 첫 방송(선언 순서)의 스냅샷 (DOMAIN_RULES 설정 스냅샷, D-070 — 코어 정산과 같은 규칙)
     const settings = listBroadcasts(state).find((broadcast) => broadcast.date === date)?.settings ?? DEFAULT_SETTINGS
     // 이 날짜 줄 캐시를 같은 상태로 새로 둔다 (목록과 숫자가 같게)
@@ -374,6 +399,7 @@ export class OrderService {
         platform: orderPlatformOf(info),
         phone,
         address: address === null ? null : { address: address.address, detail: address.detail, zip: address.zip },
+        remembered: book !== null,
         items,
         claimedAt: first === null ? null : iso(first),
         itemCount: qty,
@@ -388,6 +414,11 @@ export class OrderService {
         history: await this.#history(sellerId, date, root, scopes),
       },
     }
+  }
+
+  /** 같은 번호의 손님 연락처 (D-CONTACT-01 — 번호 전체가 같을 때만). 없으면 null */
+  async lookupContact(sellerId: string, phone: string): Promise<BookEntry | null> {
+    return this.#deps.contacts === undefined ? null : this.#deps.contacts.byPhone(sellerId, phone)
   }
 
   /**
@@ -516,6 +547,16 @@ export function registerOrderRoutes(api: Hono<Env>, orders: OrderService): void 
     if (outcome.kind === 'unreadable') return apiError(500, 'LEDGER_UNREADABLE', LEDGER_UNREADABLE_MESSAGE)
     return outcome.kind === 'not_found' ? notFound() : outcome.value
   }
+
+  // D-CONTACT-01 같은 번호의 손님 연락처: { phone } → { contact: { name, address, detail, zip } | null }. 번호는 본문으로만(주소창·로그에 남지 않게)
+  api.post('/contacts/lookup', async (c) => {
+    const input = c.get('body') ?? {}
+    const extra = Object.keys(input).filter((key) => key !== 'phone')
+    const phone = input.phone
+    if (extra.length > 0 || typeof phone !== 'string' || phone.length > 30) return invalid([{ field: 'phone', message: '휴대폰 번호를 다시 확인해 주세요.' }])
+    const found = await orders.lookupContact(sellerOf(c), phone)
+    return c.json({ contact: found === null ? null : { name: found.name, address: found.address, detail: found.detail, zip: found.zip } })
+  })
 
   // 주문 한 건 상세
   api.get('/days/:date/order', async (c) => {

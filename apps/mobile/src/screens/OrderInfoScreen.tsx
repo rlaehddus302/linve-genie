@@ -6,12 +6,18 @@
 // 휴대폰 번호는 앱 숫자판으로 010-1234-5678처럼 줄표를 넣어 보인다. 성함·주소는 휴대폰 키보드.
 // 저장은 배송지 쓰기(PUT /api/parcels/days/:date/address, 요청 번호로 한 번만)라 택배 배송지와 같은 곳에 남는다. 연락처는 본문으로만 보내고 로그에 넣지 않는다.
 // 택배를 접수한 묶음·보관 기간이 지난 날짜는 고칠 수 없어 안내만 보인다.
+// D-CONTACT-01·02 (사용자 지시 2026-11-20 "같은 번호면 같은 사람 … 주소록에서 찾기 버튼 눌러서 편하게 정보 넣기"):
+// 성함·휴대폰 번호 단계에 [주소록에서 찾기] — 휴대폰 주소록에서 사람을 고르면 성함·번호(주소록에 주소가 있으면 주소)를 채운다(지금 묻는 칸은 고른 값으로,
+// 다른 칸은 비어 있을 때만). 번호를 적거나 고르면 같은 번호로 전에 적은 손님의 성함·주소를 빈 칸에 채우고(POST /api/contacts/lookup — 번호만 보낸다),
+// 성함이 아직 비면 주소록에 그 번호로 저장한 이름을 넣는다. 채운 칸은 다시 묻지 않고 위 줄로 올라가 눌러서 고칠 수 있다. 주소록은 서버로 올리지 않는다.
 import { useEffect, useRef, useState } from 'react'
 import { Animated, View } from 'react-native'
 import type { OrderDetailView, OrderInfoField } from '@livejjim/web/src/api/order-types.ts'
 import type { AddressFields, BundleView } from '@livejjim/web/src/api/parcel-types.ts'
 import { ADDRESS_EXPIRED, LOCKED_ADDRESS } from '@livejjim/web/src/lib/parcel-words.ts'
-import { withQuery } from '../api/client.ts'
+import { post, withQuery } from '../api/client.ts'
+import { fillEmpty } from '../lib/contact-pick.ts'
+import { nativeContacts } from '../native/index.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
 import { ORDERS_TOPIC, orderPath, phoneDashes } from '../lib/orders.ts'
 import { signalScreens } from '../lib/screen-signals.ts'
@@ -33,6 +39,28 @@ export const SKIP_DETAIL = '상세 주소 없이 넘어가기'
 export const PHONE_LIMIT = '휴대폰 번호는 11자리까지 적을 수 있어요.'
 export const PHONE_CHECK = '휴대폰 번호를 다시 확인해 주세요.'
 const SAVE_FAILED = '저장하지 못했어요. 다시 눌러 주세요.'
+export const FIND_IN_CONTACTS = '주소록에서 찾기'
+export const CONTACTS_DENIED = '주소록을 보려면 허용이 필요해요. 휴대폰 설정에서 이 앱의 연락처를 켜 주세요.'
+export const CONTACTS_FAILED = '주소록을 열지 못했어요. 다시 눌러 주세요.'
+export const KNOWN_CUSTOMER = '전에 적은 손님이에요. 아는 정보를 채웠어요.'
+export const CONTACT_FILLED = '주소록 정보를 채웠어요.'
+/** 번호 단계 아래 작은 글: 주소록에 그 번호로 저장한 이름 */
+export const contactNameWords = (name: string): string => `주소록: ${name}`
+
+/** 같은 번호로 전에 적은 손님 (D-CONTACT-01). 없거나 옛 서버·연결이 안 되면 null */
+export interface KnownContact {
+  readonly name: string
+  readonly address: string
+  readonly detail: string
+  readonly zip: string
+}
+async function lookupKnown(phone: string): Promise<KnownContact | null> {
+  try {
+    return (await post<{ contact: KnownContact | null }>('/api/contacts/lookup', { phone })).contact ?? null
+  } catch {
+    return null
+  }
+}
 
 /** 휴대폰 번호 자리 수 */
 const PHONE_DIGITS = 11
@@ -183,10 +211,31 @@ function InfoSteps({ date, buyer, field, initial, onSaved, onConflict, stepBack 
   const [fieldError, setFieldError] = useState<{ readonly step: InfoStep; readonly text: string } | null>(null)
   /** [저장하기] 위 빨간 글 */
   const [saveError, setSaveError] = useState<string | null>(null)
+  /** 칸 아래 회색 안내 (주소록·전에 적은 손님 — D-CONTACT-01·02) */
+  const [hint, setHint] = useState<string | null>(null)
+  /** 주소록 모듈이 있는 앱인가 (옛 앱·웹은 단추를 숨긴다) */
+  const [canPick, setCanPick] = useState(false)
+  /** 채운 주소의 우편번호 (그 주소 그대로 저장할 때만 쓴다) */
+  const [zipOf, setZipOf] = useState<{ readonly address: string; readonly zip: string } | null>(null)
+  /** 적은 번호의 주소록 이름 */
+  const [phoneName, setPhoneName] = useState<string | null>(null)
+  const [looking, setLooking] = useState(false)
+  useEffect(() => {
+    let live = true
+    void nativeContacts()
+      .available()
+      .then((yes) => {
+        if (live) setCanPick(yes)
+      }, () => undefined)
+    return () => {
+      live = false
+    }
+  }, [])
 
   const go = (next: Step) => {
     setFieldError(null)
     setSaveError(null)
+    setHint(null)
     setStep(next)
   }
   // 뒤로 = 앞 단계로 (상품 추가와 같게 — 머리 ‹·밀기·안드로이드 뒤로)
@@ -215,11 +264,90 @@ function InfoSteps({ date, buyer, field, initial, onSaved, onConflict, stepBack 
     go(key)
   }
 
+  // 적은 번호가 주소록에 있으면 그 이름을 번호 아래에 (휴대폰 안에서만 찾는다)
+  useEffect(() => {
+    setPhoneName(null)
+    if (!looksLikePhone(values.phone)) return
+    let live = true
+    void nativeContacts()
+      .nameOf(values.phone)
+      .then((name) => {
+        if (live) setPhoneName(name)
+      }, () => undefined)
+    return () => {
+      live = false
+    }
+  }, [values.phone])
+
+  /**
+   * 찾은 값을 칸에 넣는다: own(지금 묻는 칸)은 덮고, 다른 칸은 비어 있을 때만. 채운 칸은 지금 단계 뒤의 묻는 단계에서 뺀다(주소를 채웠으면 상세 주소도).
+   * 넣은 뒤의 값·묻는 단계를 돌려준다
+   */
+  const fill = (base: Values, list: readonly InfoStep[], found: { name?: string; phone?: string; address?: string; detail?: string; zip?: string }, own?: 'name' | 'phone') => {
+    const cleared: Values = own === undefined || (found[own] ?? '') === '' ? base : { ...base, [own]: '' }
+    const { next, filled } = fillEmpty(cleared, found)
+    const at = step === 'confirm' ? list.length - 1 : list.indexOf(step)
+    const asked = list.filter((key, index) => index <= at || !(filled.includes(key as OrderInfoField) || (key === 'detail' && filled.includes('address'))))
+    if (filled.includes('address') && (found.zip ?? '') !== '') setZipOf({ address: next.address, zip: found.zip as string })
+    return { values: next, asked, filled }
+  }
+  const commit = (next: Values, list: InfoStep[]) => {
+    setTexts({ name: next.name, address: next.address, detail: next.detail })
+    setTyped((now) => (now.phone === next.phone ? now : { phone: next.phone, again: now.again }))
+    setAsked(list)
+  }
+  /** 번호로 아는 것 더하기: 전에 적은 같은 번호 손님(서버) → 주소록 이름(휴대폰 안). 채운 것이 있으면 안내 글 */
+  const fromPhone = async (base: Values, list: readonly InfoStep[]): Promise<{ values: Values; asked: InfoStep[]; known: boolean }> => {
+    let values = base
+    let asked = [...list]
+    let known = false
+    if (!looksLikePhone(values.phone)) return { values, asked, known }
+    const book = await lookupKnown(values.phone)
+    if (book !== null) {
+      const step1 = fill(values, asked, book)
+      values = step1.values
+      asked = step1.asked
+      known = step1.filled.length > 0
+    }
+    if (values.name.trim() === '') {
+      const name = await nativeContacts().nameOf(values.phone).catch(() => null)
+      if (name !== null) {
+        const step2 = fill(values, asked, { name: name.slice(0, MAX_LENGTH.name) })
+        values = step2.values
+        asked = step2.asked
+      }
+    }
+    return { values, asked, known }
+  }
+  // [주소록에서 찾기]: 고른 사람 → 지금 칸은 그 값으로, 다른 칸은 빈 칸만 → 그 번호로 아는 것 → 다음 빈 단계로
+  const pickContact = async () => {
+    if (looking || (step !== 'name' && step !== 'phone')) return
+    const here = step
+    setHint(null)
+    setLooking(true)
+    try {
+      const result = await nativeContacts().pick()
+      if (result.kind === 'denied') return setHint(CONTACTS_DENIED)
+      if (result.kind === 'failed') return setHint(CONTACTS_FAILED)
+      if (result.kind === 'cancelled') return
+      const picked = fill(values, asked, result.person, here)
+      const more = await fromPhone(picked.values, picked.asked)
+      commit(more.values, more.asked)
+      const settled = here === 'phone' ? looksLikePhone(more.values.phone) : more.values.name.trim() !== ''
+      if (settled) go(nextInfoStep(here, more.asked))
+      setHint(more.known ? KNOWN_CUSTOMER : CONTACT_FILLED)
+    } finally {
+      setLooking(false)
+    }
+  }
+
   const save = async () => {
     setSaveError(null)
     // 주소를 바꿨으면 옛 우편번호는 버린다 — 옛 주소의 우편번호가 남아 택배가 다시 돌아오지 않게(빈 우편번호는 서버가 찾아 채운다, D-UX3-36). AUTO D-UX4-126
     const moved = values.address.trim() !== initial.address.trim()
-    const address: AddressFields = { name: values.name.trim(), phone: values.phone, address: values.address.trim(), detail: values.detail.trim(), zip: moved ? '' : initial.zip, memo: initial.memo }
+    // 같은 손님·주소록에서 채운 주소를 그대로 저장하면 그 우편번호 (D-CONTACT-01)
+    const filledZip = zipOf !== null && zipOf.address === values.address.trim() ? zipOf.zip : null
+    const address: AddressFields = { name: values.name.trim(), phone: values.phone, address: values.address.trim(), detail: values.detail.trim(), zip: filledZip ?? (moved ? '' : initial.zip), memo: initial.memo }
     const saved = await command.send('PUT', `/api/parcels/days/${date}/address`, { buyer, address })
     if (saved !== null) {
       signalScreens(ORDERS_TOPIC)
@@ -281,7 +409,20 @@ function InfoSteps({ date, buyer, field, initial, onSaved, onConflict, stepBack 
       setFieldError({ step: 'phone', text: PHONE_CHECK })
       return
     }
-    go(nextInfoStep(step, asked))
+    if (step !== 'phone') {
+      go(nextInfoStep(step, asked))
+      return
+    }
+    // 번호를 적었으면 같은 번호로 전에 적은 손님·주소록 이름을 빈 칸에 채우고, 채운 칸은 건너뛴다 (D-CONTACT-01·02)
+    if (looking) return
+    setLooking(true)
+    void fromPhone(values, asked)
+      .then((more) => {
+        commit(more.values, more.asked)
+        go(nextInfoStep('phone', more.asked))
+        if (more.known) setHint(KNOWN_CUSTOMER)
+      })
+      .finally(() => setLooking(false))
   }
   // 위로 올라간 줄: 앞서 답한 단계 + 묻지 않는(이미 아는) 칸 — 화면 순서로
   const done = ORDER.flatMap((key) => {
@@ -321,10 +462,13 @@ function InfoSteps({ date, buyer, field, initial, onSaved, onConflict, stepBack 
               {step === 'detail' && value.trim() === '' ? <SoftChip label={SKIP_DETAIL} onPress={() => go(nextInfoStep('detail', asked))} /> : null}
             </>
           )}
+          {step === 'phone' && phoneName !== null ? <Txt step="caption" color="textSub">{contactNameWords(phoneName)}</Txt> : null}
+          {(step === 'name' || step === 'phone') && canPick ? <SoftChip label={FIND_IN_CONTACTS} onPress={() => void pickContact()} /> : null}
+          {hint !== null ? <Txt step="caption" color="textSub">{hint}</Txt> : null}
           {shownError !== null ? <ErrorLine large>{shownError}</ErrorLine> : null}
         </View>
       </View>
-      <NextButton onPress={onNext} disabled={value.trim() === '' || shownError !== null} />
+      <NextButton onPress={onNext} disabled={value.trim() === '' || shownError !== null || looking} />
       {step === 'phone' ? (
         <View style={{ paddingBottom: footer }}>
           <NumberKeys onKey={typeKey} />

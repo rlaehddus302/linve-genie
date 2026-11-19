@@ -104,6 +104,8 @@ import {
   phoneChecks,
   phoneSends,
   buyerPhones,
+  buyerContacts,
+  buyerContactLinks,
   receiptSmsSends,
   outbox,
   packingRecords,
@@ -1781,6 +1783,9 @@ export const RESTORE_KEPT_TABLES = [
   broadcastGroupEvents,
   // D-REAL-03: 손님 휴대폰 번호(암호화)·영수증 문자 보낸 기록 — 백업 파일에 없고(번호를 파일로 내보내지 않는다), 복구가 지우지 않는다
   buyerPhones,
+  // D-CONTACT-01: 판매자가 적은 손님 연락처(암호화) — 백업 파일에 없고(연락처를 파일로 내보내지 않는다), 복구가 지우지 않는다(번호 키 기준이라 복구 뒤에도 맞는다)
+  buyerContacts,
+  buyerContactLinks,
   receiptSmsSends,
   sellers,
   accounts,

@@ -13,7 +13,7 @@
 // ④ 최근 주문 내역(옛 "지난 거래 내역"): 지금 주문도 1회로 센다 — 거래 횟수 | 총 금액, 날짜별 줄(모두 ›). 지금 주문 줄을 누르면 이 화면 맨 위로(D-UX4-129).
 // 그 아래 옛 확인서·금액 고치기·금액 기록 메뉴는 없앴다(D-UX4-128 "나중에 내가 필요하면 그때 추가할게").
 // 서버 GET /api/days/:date/order?buyer= (apps/web/src/api/order-types.ts). 금액은 서버(엔진)가 정한 정수 원 그대로, 이름·주소는 글자로만 그린다.
-import { type ReactNode, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { ScrollView, type ScrollViewInstance, View } from 'react-native'
 import type { OrderDetailView, OrderHistoryLine, OrderInfoField, OrderPlatform } from '@livejjim/web/src/api/order-types.ts'
 import type { BundleView } from '@livejjim/web/src/api/parcel-types.ts'
@@ -28,6 +28,7 @@ import { signalScreens, useScreenSignal } from '../lib/screen-signals.ts'
 import { settlementKey } from '../lib/scope-data.ts'
 import { NOT_APPLIED_SETTLEMENT, remainingOf, signedWon } from '../lib/settle.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
+import { nativeContacts } from '../native/index.ts'
 import { BigButton, BottomSheet, ErrorLine, Icon, PopupDialog, StackPage, Txt, useHoldRouteSwipe, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
@@ -48,6 +49,29 @@ export const SHIPPING_BUTTON = '배송비 바꾸기'
 export const SHIPPING_RULE_CHOICE = '배송비 기준 바꾸기'
 export const SHIPPING_ORDER_CHOICE = '이 주문 배송비 바꾸기'
 export const UNCONFIRMED_ADDRESS = '확인 전'
+/** D-CONTACT-01: 그 날짜 배송지가 없어 같은 손님(같은 번호·이은 계정)의 전 주문 정보를 보일 때 주소 아래 작은 글 — 눌러 저장하거나 택배에서 [배송지 확인] */
+export const REMEMBERED_INFO = '지난 주문 정보 · 확인 전'
+/** D-CONTACT-02: 휴대폰 번호 아래 작은 글 — 주소록에 그 번호로 저장한 이름(휴대폰 안에서만 찾는다) */
+export const addressBookWords = (name: string): string => `주소록: ${name}`
+
+/** 그 휴대폰 번호의 주소록 이름 (주소록을 허용했을 때만 — 묻지 않는다). 모르면 null */
+function useAddressBookName(phone: string | null): string | null {
+  const [name, setName] = useState<string | null>(null)
+  useEffect(() => {
+    setName(null)
+    if (phone === null || !/^01\d{8,9}$/.test(phone)) return
+    let live = true
+    void nativeContacts()
+      .nameOf(phone)
+      .then((found) => {
+        if (live) setName(found)
+      }, () => undefined)
+    return () => {
+      live = false
+    }
+  }, [phone])
+  return name
+}
 export const ASK_PAID = '입금을 확인했나요?'
 export const PAID_CONFIRM = '확인했어요'
 export const HISTORY_TITLE = '최근 주문 내역'
@@ -120,7 +144,7 @@ function OrderDetailBody({ date, buyer, onBack, onOpenOrder, onOpenShopSettings,
   const settlement = day?.settlements.get(settlementKey({ buyer, date })) ?? null
   // 주소 아래 작은 글: 택배사가 주소를 못 찾아 돌려보냈으면 그 까닭(빨강 — 택배 화면 [배송지 보기]로 온 까닭), 손님이 적은 주소가 확인 전이면 "확인 전"(주황)
   const failed = bundle?.row.parcel?.state === 'FAILED' && bundle.row.parcel.reason === 'ADDRESS' ? bundle.row.parcel.message : null
-  const addressNote: Note | null = failed !== null ? { text: failed, tone: 'danger' } : bundle?.address != null && !bundle.address.confirmed ? { text: UNCONFIRMED_ADDRESS, tone: 'warn' } : null
+  const addressNote: Note | null = failed !== null ? { text: failed, tone: 'danger' } : bundle?.address != null && !bundle.address.confirmed ? { text: UNCONFIRMED_ADDRESS, tone: 'warn' } : view?.remembered === true ? { text: REMEMBERED_INFO, tone: 'warn' } : null
   const written = () => {
     setBump((n) => n + 1)
     reloadDay()
@@ -202,10 +226,13 @@ export function PlatformMark({ platform, size = 20 }: { readonly platform: Order
 /** ① 맨 위 플랫폼 아이콘 + 닉네임, 그 아래 성함 · 휴대폰 번호 · 주소 · 예약 날짜 */
 interface Note {
   readonly text: string
-  readonly tone: 'danger' | 'warn'
+  readonly tone: 'danger' | 'warn' | 'sub'
 }
 
 function Head({ view, onEdit, addressNote }: { readonly view: OrderDetailView; readonly onEdit?: (field: OrderInfoField) => void; readonly addressNote: Note | null }) {
+  const bookName = useAddressBookName(view.phone)
+  // 주소록 이름이 성함과 같으면 다시 적지 않는다
+  const phoneNote: Note | null = bookName !== null && bookName !== view.name ? { text: addressBookWords(bookName), tone: 'sub' } : null
   return (
     <View role="group" aria-label="손님" style={{ paddingHorizontal: DETAIL_SIDE, paddingTop: SPACE.sm, paddingBottom: SPACE.lg, gap: SPACE.md }}>
       <View aria-label={`닉네임 ${view.platform === null ? '' : `${PLATFORM_NAME[view.platform]} `}${view.nickname}`} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
@@ -216,7 +243,7 @@ function Head({ view, onEdit, addressNote }: { readonly view: OrderDetailView; r
       </View>
       <View style={{ marginHorizontal: -SPACE.sm }}>
         <InfoRow field="name" value={view.name} {...(onEdit !== undefined ? { onEdit } : {})} />
-        <InfoRow field="phone" value={view.phone === null ? null : phoneDashes(view.phone)} {...(onEdit !== undefined ? { onEdit } : {})} />
+        <InfoRow field="phone" value={view.phone === null ? null : phoneDashes(view.phone)} {...(phoneNote !== null ? { note: phoneNote } : {})} {...(onEdit !== undefined ? { onEdit } : {})} />
         <InfoRow field="address" value={view.address === null ? null : addressWords(view.address)} {...(addressNote !== null ? { note: addressNote } : {})} {...(onEdit !== undefined ? { onEdit } : {})} />
         <FactRow label={RESERVED_LABEL} value={reservedDateWords(view.claimedAt, view.date)} />
       </View>
@@ -248,7 +275,7 @@ function InfoRow({ field, value, note, onEdit }: { readonly field: OrderInfoFiel
       </View>
       <View style={{ flex: 1, alignItems: 'flex-end', gap: 2 }}>
         <Txt step="body" weight={unknown ? 'book' : 'medium'} color={unknown ? 'dangerText' : 'text'} right>{shown}</Txt>
-        {note !== undefined ? <Txt step="caption" weight="medium" color={note.tone === 'danger' ? 'dangerText' : 'warnText'} right>{note.text}</Txt> : null}
+        {note !== undefined ? <Txt step="caption" weight="medium" color={note.tone === 'danger' ? 'dangerText' : note.tone === 'sub' ? 'textSub' : 'warnText'} right>{note.text}</Txt> : null}
       </View>
     </>
   )

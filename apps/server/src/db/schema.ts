@@ -1573,6 +1573,39 @@ export const buyerPhones = pgTable(
   (t) => [unique('buyer_phones_uq').on(t.sellerId, t.key), index('buyer_phones_updated_idx').on(t.updatedAt)],
 )
 
+/**
+ * 판매자가 적은 손님 연락처 (D-CONTACT-01 — 전화 기록부처럼 같은 휴대폰 번호면 같은 손님).
+ * phone_key = 엔진 전화번호 키(판매자 키 HMAC — 번호 전체가 같을 때만 같다), contact_enc = 성함·번호·주소·상세 주소·우편번호(마스터 키 암호화, 원문·로그 없음).
+ * 판매자가 주문 손님 정보·배송지를 저장하거나 확인할 때 덮어쓴다. 마지막으로 쓴 지 1년이 지나면 지운다
+ */
+export const buyerContacts = pgTable(
+  'buyer_contacts',
+  {
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    id: text('id').notNull(),
+    phoneKey: text('phone_key').notNull(),
+    contactEnc: text('contact_enc').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [unique('buyer_contacts_uq').on(t.sellerId, t.phoneKey), unique('buyer_contacts_id_uq').on(t.sellerId, t.id), index('buyer_contacts_updated_idx').on(t.updatedAt)],
+)
+
+/** 채팅 손님 계정(구매자 키) → 판매자가 적은 연락처 번호 (D-CONTACT-01). 한 계정은 번호 하나 — 새로 적으면 바뀐다. 1년 넘게 안 쓰면 지운다 */
+export const buyerContactLinks = pgTable(
+  'buyer_contact_links',
+  {
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    buyerKey: text('buyer_key').notNull(),
+    phoneKey: text('phone_key').notNull(),
+    updatedAt: timestamptz('updated_at').notNull(),
+  },
+  (t) => [unique('buyer_contact_links_uq').on(t.sellerId, t.buyerKey), index('buyer_contact_links_updated_idx').on(t.updatedAt)],
+)
+
 /** 영수증 문자 보낸 기록 (D-REAL-03). 요청 번호로 한 번만, 번호는 끝 4자리만 */
 export const receiptSmsSends = pgTable(
   'receipt_sms_sends',
@@ -3014,6 +3047,8 @@ export const schema = {
   receiptLinks,
   receiptLinkRequests,
   buyerPhones,
+  buyerContacts,
+  buyerContactLinks,
   receiptSmsSends,
   buyerInfoCards,
   depositSources,
