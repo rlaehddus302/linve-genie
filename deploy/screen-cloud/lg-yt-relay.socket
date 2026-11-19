@@ -1,0 +1,12 @@
+# 운영 EC2(livegenie-prod)에 둔다: 클라우드 화면 일꾼이 Mac mini 집 회선 프록시를 쓰게 하는 중계 입구 (D-SCR-CLOUD-01)
+# 맥 미니 터널 끝(172.17.0.1:18888, docker 다리 — 바깥에서 안 보임)을 VPC 안 주소 18889로 한 번 더 이어 준다.
+# 보안 그룹은 livegenie-screen-worker 그룹에서 오는 18889만 받는다. 프록시 자체가 youtube.com·googlevideo.com만 통과시킨다.
+[Unit]
+Description=livegenie YouTube proxy relay for cloud screen worker
+
+[Socket]
+ListenStream=172.31.62.27:18889
+FreeBind=true
+
+[Install]
+WantedBy=sockets.target

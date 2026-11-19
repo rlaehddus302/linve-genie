@@ -1,0 +1,23 @@
+# 클라우드 화면 일꾼 관리자 (D-SCR-CLOUD-01): 서버가 알려 주는 진행 중 라이브마다 일꾼을 띄운다(sw.serve).
+# 토큰 둘(서버 일꾼 토큰, Claude 구독 토큰)은 켤 때마다 SSM에서 꺼내 /run/lg(권한 600, 메모리)에만 둔다.
+[Unit]
+Description=livegenie cloud screen worker (sw.serve)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lg
+WorkingDirectory=/opt/lg/packages/screen-worker
+EnvironmentFile=/etc/lg-screen.env
+RuntimeDirectory=lg
+RuntimeDirectoryMode=0700
+ExecStartPre=/bin/bash -c 'umask 077; aws ssm get-parameter --region ap-northeast-2 --name /livegenie/prod/screen-worker-token --with-decryption --query Parameter.Value --output text > /run/lg/screen-token'
+ExecStartPre=/bin/bash -c 'umask 077; aws ssm get-parameter --region ap-northeast-2 --name /livegenie/prod/claude-oauth-token --with-decryption --query Parameter.Value --output text | grep -o "sk-ant-[A-Za-z0-9_-]*" | head -1 > /run/lg/claude-token'
+ExecStart=/opt/lg/packages/screen-worker/.venv/bin/python -m sw.serve --server ${LG_SERVER} --token-file /run/lg/screen-token --out-root /opt/lg/runs/live --max 1
+Restart=always
+RestartSec=10
+KillMode=control-group
+TimeoutStopSec=40
+
+[Install]
+WantedBy=multi-user.target

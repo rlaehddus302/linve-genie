@@ -80,7 +80,9 @@ def transcribe(segment):
             from faster_whisper import WhisperModel
             import ctranslate2
             cuda = ctranslate2.get_cuda_device_count() > 0
-            _fw = WhisperModel(FW_MODEL, device="cuda" if cuda else "cpu", compute_type="float16" if cuda else "int8")
+            # CPU 서버는 FW_THREADS로 글자 읽기와 CPU를 나눈다(D-SCR-OCR-02). 0 = faster-whisper 기본(코어 전부)
+            _fw = WhisperModel(FW_MODEL, device="cuda" if cuda else "cpu", compute_type="float16" if cuda else "int8",
+                               cpu_threads=int(os.environ.get("FW_THREADS", "0")))
         segs, _ = _fw.transcribe(pcm, language="ko", task="transcribe", condition_on_previous_text=False,
                                  without_timestamps=True, beam_size=5, vad_filter=False)  # 팀원 방식과 같게
         parts = [(p.text, p.avg_logprob) for p in segs]

@@ -36,12 +36,14 @@ def _read_rapid(img):
     if _RAPID is None:
         from rapidocr import RapidOCR
 
-        _RAPID = RapidOCR()
+        # 글자 읽기 프로세스(--workers)마다 스레드를 나눠 쓴다. 안 정하면 프로세스마다 CPU 전체를 잡아 받아쓰기와 다투고 1배속을 못 따라간다(D-SCR-OCR-02)
+        _RAPID = RapidOCR(params={"EngineConfig.onnxruntime.intra_op_num_threads": int(os.environ.get("RAPID_THREADS", "2")),
+                                  "EngineConfig.onnxruntime.inter_op_num_threads": 1})
     W, H = img.size
     r = _RAPID(np.asarray(img.convert("RGB"))[:, :, ::-1])   # BGR
     out = []
     for box, txt, score in zip(r.boxes if r.boxes is not None else [], r.txts or [], r.scores or []):
-        xs, ys = [p[0] for p in box], [p[1] for p in box]
+        xs, ys = [float(p[0]) for p in box], [float(p[1]) for p in box]   # numpy float32 → float (screen.jsonl에 json으로 쓴다)
         out.append((txt, float(score), min(xs) / W, min(ys) / H, (max(xs) - min(xs)) / W, (max(ys) - min(ys)) / H))
     return out
 

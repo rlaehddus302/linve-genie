@@ -39,6 +39,17 @@ def hms(t):
     return f"{t // 3600}:{t % 3600 // 60:02d}:{t % 60:02d}"
 
 
+# 유튜브 영상만 받는 프록시(D-SCR-CLOUD-01). 클라우드(AWS)에서는 유튜브가 데이터센터 주소를 봇으로 막으므로("Sign in to confirm
+# you're not a bot") Mac mini 집 회선 프록시(deploy/home-proxy, youtube.com·googlevideo.com만 통과)를 거친다. 서버 등록·LLM·틱톡은
+# 프록시를 거치지 않는다(그 프록시는 다른 곳을 막는다) — 그래서 환경변수 HTTPS_PROXY가 아니라 yt-dlp·ffmpeg 유튜브 입력에만 건다.
+YT_PROXY = os.environ.get("LG_YT_PROXY", "").strip()
+
+
+def _is_youtube_media(url):
+    host = url.split("/")[2] if url.startswith("http") and url.count("/") >= 2 else ""
+    return host.endswith("googlevideo.com") or host.endswith("youtube.com") or host == "youtu.be"
+
+
 def resolve(src):
     """→ (입력 목록, 라이브인지). 파일이면 그대로, 틱톡 라이브면 방 정보에서(D-SCR-TT-01), 유튜브 주소면 yt-dlp로 실제 스트림 주소"""
     if os.path.exists(src):
@@ -49,12 +60,12 @@ def resolve(src):
             return tiktok.resolve(tt), True
         except tiktok.NotLive as e:
             raise subprocess.CalledProcessError(2, ["tiktok", tt], stderr=str(e)) from e
-    ytdlp = os.path.join(os.path.dirname(sys.executable), "yt-dlp")
-    info = json.loads(subprocess.run([ytdlp, "-J", "--no-warnings", src], capture_output=True, text=True, check=True).stdout)
+    ytdlp = [os.path.join(os.path.dirname(sys.executable), "yt-dlp")] + (["--proxy", YT_PROXY] if YT_PROXY else [])
+    info = json.loads(subprocess.run(ytdlp + ["-J", "--no-warnings", src], capture_output=True, text=True, check=True).stdout)
     live = bool(info.get("is_live"))
     fmt = "best[height<=720][protocol^=m3u8]/bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]/best[height<=720]" if live else "bv*[height<=720]+ba/best[height<=720]"
     # 라이브가 화면+소리 합본 없이 따로만 줄 때(2026-11 확인)는 화면·소리 주소 둘 → ffmpeg 입력 둘
-    urls = subprocess.run([ytdlp, "-g", "-f", fmt, "--no-warnings", src], capture_output=True, text=True, check=True).stdout.split()
+    urls = subprocess.run(ytdlp + ["-g", "-f", fmt, "--no-warnings", src], capture_output=True, text=True, check=True).stdout.split()
     return urls, live
 
 
@@ -118,6 +129,8 @@ class Worker:
         for k, src in enumerate(inputs):
             if src.startswith("http"):
                 cmd += ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
+                if YT_PROXY and _is_youtube_media(src):
+                    cmd += ["-http_proxy", YT_PROXY]
             elif a.speed:
                 cmd += ["-readrate", str(a.speed)]
             # 자르기는 입력 쪽에 둔다(출력 쪽 -t는 첫 출력인 화면에만 걸려 소리가 끝까지 흐른다)
