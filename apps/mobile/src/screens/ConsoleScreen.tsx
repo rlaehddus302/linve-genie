@@ -502,14 +502,15 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const help = closed ? '끝난 라이브예요. 늦게 온 채팅·문자찜은 처리돼요.' : !seller ? VOICE_SELLER_ONLY : null
   if (salesPage === 'sales' || (closed && salesPage === 'auto')) {
     // 머리는 정산서 화면이 그린다 — 정산 정보 화면(오른쪽에서 밀려 들어옴)이 상태 막대 자리·머리까지 덮게 (D-UX4-184, 라이브 화면 D-UX4-51과 같은 자리 칸)
-    return <BroadcastSalesList {...{ broadcastId, title, inset, names, sealed, rehearsal }} sales={statementSales} scope={statementScope} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} {...(openStatement === undefined ? {} : { openBuyer: openStatement })} justEnded={seller && endedNow && focused}
+    // 콘솔 문맥 안에서 — 정산서가 그날 정산(손님 배송비 예외)·쓰기(배송비 바꾸기, D-STMT-SHIP-01)를 쓴다
+    return <ConsoleContext.Provider value={api}><BroadcastSalesList {...{ broadcastId, title, inset, names, sealed, rehearsal }} sales={statementSales} scope={statementScope} date={broadcast.date} buyer={orderBuyer} select={setOrderBuyer} {...(openStatement === undefined ? {} : { openBuyer: openStatement })} justEnded={seller && endedNow && focused}
       header={<>
         <View style={{ height: pageTop }} />
         {/* 제목 "정산서" (D-UX4-170, 사용자 지시 2026-11-16 "화면 제목 \"정산서\"로 바꿔" — 옛 "정산 내역서") */}
         {/* 구매자 정산서는 이 머리 위로 밀려 들어오는 다음 화면이라 이 머리는 늘 "정산서" (D-UX4-192 — 옛: 같은 자리에서 "구매자 정산서"로 바뀜) */}
         <AppHeader title="정산서" onBack={closed ? onBack : () => setSalesPage('auto')} right={closed ? <HeaderTextButton label="라이브 기록" onPress={() => (openRecord === undefined ? setSalesPage('record') : openRecord())} /> : undefined} />
         <LiveNotice snapshot={snapshot} onRetry={() => void store.retryNow()} />
-      </>} />
+      </>} /></ConsoleContext.Provider>
   }
   const close = () => setSheet('none')
   const closePage = () => setPage('none')

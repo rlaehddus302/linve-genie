@@ -24,6 +24,51 @@ export interface BuyerOrder {
   members?: readonly string[]
   /** 같은 휴대폰 번호라 저절로 합쳤다 (판매자가 고른 묶음이면 거짓) */
   auto?: boolean
+  /** 이 정산서에 같이 보내는 지난 주문 (D-STMT-CARRY-01) — 상품 줄·금액(lines·qty·subtotal)은 오늘 것만, 정산서 한 장은 paperOrder로 */
+  carried?: readonly PastOrder[]
+  /** 아직 보내지 않은 지난 주문 — 판매자에게 알리기만 한다 (같이 보내기 전) */
+  waiting?: readonly PastOrder[]
+  /** 이 손님 배송비를 따로 정했다 (D-STMT-SHIP-01 — 엔진 정산의 배송비 예외 그대로, 대표 구매자의 그 날짜 정산) */
+  override?: StatementOverride
+  /** 지난 주문에서 이미 받은 돈 (paperOrder가 채운다 — 정산서 총액에서 뺀다) */
+  credit?: number
+}
+/**
+ * 지난 주문 (D-STMT-CARRY-01): 같은 손님(손님 장부로 이어진 손님 · 합친 닉네임)의 다른 날짜 주문 가운데 아직 보내지 않은 것.
+ * lines의 round는 그 날짜("11.15") — 번호 글이 "11.15 12번"이 된다. received는 그 날짜 정산에서 이미 받은 돈(정수 원)
+ */
+export interface PastOrder {
+  readonly date: string
+  readonly buyer: string
+  readonly lines: readonly SaleLine[]
+  readonly qty: number
+  readonly subtotal: number | null
+  readonly received: number
+}
+/** 정산서 구매자 하나(엔진 구매자)의 지난 주문 (GET /api/days/:date/statement-carries) */
+export interface StatementCarry {
+  readonly buyer: string
+  /** 이 구매자 정산서에 같이 보내기로 한 지난 주문 */
+  readonly carried: readonly PastOrder[]
+  /** 아직 보내지 않은 지난 주문 (알리기만) */
+  readonly waiting: readonly PastOrder[]
+}
+/** 손님 배송비 예외 (엔진 settlement.shippingOverride — FIXED는 그 금액, 직접 수령·합배송은 0) */
+export interface StatementOverride {
+  readonly mode: 'FIXED' | 'PICKUP' | 'COMBINED'
+  readonly amount: number
+}
+/** 지난 주문 날짜 글 "11.15" */
+export const pastDateWord = (date: string): string => {
+  const [, month, day] = date.split('-')
+  return `${String(Number(month))}.${String(Number(day))}`
+}
+/** 지난 주문 알림 "지난 11.15 주문 2개 · 20,000원" — 여러 날짜면 "지난 11.12·11.15 주문 3개 · 35,000원" */
+export function pastOrdersWord(orders: readonly PastOrder[]): string {
+  const dates = [...new Set(orders.map(order => order.date))].sort().map(pastDateWord)
+  const qty = orders.reduce((n, order) => n + order.qty, 0)
+  const money = orders.reduce<number | null>((sum, order) => (sum === null || order.subtotal === null ? null : sum + order.subtotal), 0)
+  return `지난 ${dates.join('·')} 주문 ${String(qty)}개 · ${salesMoney(money)}`
 }
 /** 정산서 손님 묶음 (GET /api/days/:date/statement-joins) */
 export interface StatementJoinGroup {
@@ -60,11 +105,87 @@ export function statementShipping(subtotal: number, rule: StatementShipping = ST
 /** 기본 규칙의 배송비 (5만 원 미만 5,000원) */
 export const shippingFor = (subtotal: number) => statementShipping(subtotal)
 
+export interface StatementTotals {
+  /** 배송비 줄을 넣나 — 받지 않는 설정이면 줄 자체가 없다(따로 정한 배송비가 있으면 넣는다) */
+  readonly charged: boolean
+  readonly shipping: number | null
+  readonly total: number | null
+  /** 정해진 규칙대로의 배송비 (따로 정했을 때 [되돌리기]에 보인다) */
+  readonly ruleShipping: number | null
+  /** 이 손님 배송비를 따로 정했다 (D-STMT-SHIP-01) */
+  readonly overridden: boolean
+  /** 지난 주문에서 이미 받은 돈 — 총액에서 뺐다 (D-STMT-CARRY-01). 없으면 0 */
+  readonly credit: number
+}
 /** 정산서 한 장의 배송비와 합계. 금액을 모르는 줄이 있으면 둘 다 null. charged: 배송비 줄을 넣나(받지 않는 설정이면 줄 자체가 없다) */
 export function statementTotals(subtotal: number | null, rule: StatementShipping): { readonly charged: boolean; readonly shipping: number | null; readonly total: number | null } {
   if (subtotal === null) return { charged: rule.charge, shipping: null, total: null }
   const shipping = statementShipping(subtotal, rule)
   return { charged: rule.charge, shipping, total: subtotal + shipping }
+}
+/**
+ * 정산서 한 장의 셈 (D-STMT-CARRY-01·D-STMT-SHIP-01) — order는 지난 주문을 붙인 한 장(paperOrder). 금액을 모르는 줄이 있으면 배송비·총액 null.
+ * 배송비: 이 손님 배송비를 따로 정했으면(엔진 정산의 배송비 예외 — FIXED는 그 금액, 직접 수령·합배송은 0) 그 값, 아니면 규칙대로(합친 상품 금액으로).
+ * 총액 = 상품 금액 + 배송비 − 지난 주문에서 이미 받은 돈 (0 아래로 내려가지 않는다). 모두 정수 원. 예외·지난 주문이 없으면 statementTotals와 같다
+ */
+export function orderTotals(order: Pick<BuyerOrder, 'subtotal' | 'override' | 'credit'>, rule: StatementShipping): StatementTotals {
+  const override = order.override
+  const credit = Math.max(0, order.credit ?? 0)
+  const charged = rule.charge || (override !== undefined && override.mode === 'FIXED' && override.amount > 0)
+  const base = statementTotals(order.subtotal, rule)
+  if (order.subtotal === null || base.shipping === null) return { charged, shipping: null, total: null, ruleShipping: null, overridden: override !== undefined, credit }
+  const shipping = override === undefined ? base.shipping : override.mode === 'FIXED' ? override.amount : 0
+  return { charged, shipping, total: Math.max(0, order.subtotal + shipping - credit), ruleShipping: base.shipping, overridden: override !== undefined, credit }
+}
+
+/**
+ * 정산서 한 장으로 보일 주문 (D-STMT-CARRY-01): 같이 보내는 지난 주문의 상품 줄을 오늘 줄 뒤에(날짜 순) 붙이고, 개수·상품 금액을 합치고,
+ * 지난 주문에서 이미 받은 돈을 credit으로. 지난 주문이 없으면 그대로
+ */
+export function paperOrder(order: BuyerOrder): BuyerOrder {
+  const carried = order.carried ?? []
+  if (carried.length === 0) return order
+  const past = [...carried].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  const lines = [...order.lines, ...past.flatMap(item => item.lines.map(line => ({ ...line })))]
+  const subtotal = past.reduce<number | null>((sum, item) => (sum === null || item.subtotal === null ? null : sum + item.subtotal), order.subtotal)
+  return {
+    ...order,
+    lines,
+    qty: order.qty + past.reduce((n, item) => n + item.qty, 0),
+    subtotal,
+    credit: past.reduce((sum, item) => sum + Math.max(0, item.received), 0),
+  }
+}
+
+/** 엔진 정산(그 날짜, 대표 구매자)의 배송비 예외 → 정산서 배송비 예외. 예외가 없으면 undefined */
+export function overrideOf(settlement: { readonly shipping: number; readonly shippingOverride: 'PICKUP' | 'COMBINED' | 'FIXED' | null } | undefined): StatementOverride | undefined {
+  if (settlement === undefined || settlement.shippingOverride === null) return undefined
+  return { mode: settlement.shippingOverride, amount: settlement.shippingOverride === 'FIXED' ? settlement.shipping : 0 }
+}
+
+const pastKey = (order: PastOrder): string => `${order.date}\u0000${order.buyer}`
+const uniquePast = (orders: readonly PastOrder[]): PastOrder[] => {
+  const seen = new Set<string>()
+  return orders.filter(order => (seen.has(pastKey(order)) ? false : (seen.add(pastKey(order)), true)))
+}
+
+/**
+ * 정산서 주문에 지난 주문·배송비 예외를 입힌다 (D-STMT-CARRY-01·D-STMT-SHIP-01) — 화면·사진·엑셀/CSV·구매자마다 따로 저장·문자가 같은 값.
+ * 합친 정산서면 묶음 구매자 모두의 지난 주문. 배송비 예외는 대표 구매자의 그 날짜 정산. settlement(buyer)는 그 날짜 정산을 찾는다
+ */
+export function dressSales<T extends { orders: BuyerOrder[] }>(sales: T, carries: readonly StatementCarry[], settlement: (buyer: string) => Parameters<typeof overrideOf>[0]): T {
+  const byBuyer = new Map(carries.map(item => [item.buyer, item]))
+  let changed = false
+  const orders = sales.orders.map(order => {
+    const members = order.members ?? [order.id]
+    const carried = uniquePast(members.flatMap(id => byBuyer.get(id)?.carried ?? []))
+    const waiting = uniquePast(members.flatMap(id => byBuyer.get(id)?.waiting ?? []))
+    const override = overrideOf(settlement(order.id))
+    if (carried.length === 0 && waiting.length === 0 && override === undefined) return order
+    changed = true
+    return { ...order, ...(carried.length > 0 ? { carried } : {}), ...(waiting.length > 0 ? { waiting } : {}), ...(override !== undefined ? { override } : {}) }
+  })
+  return changed ? { ...sales, orders } : sales
 }
 /** 정산서 계좌 줄 "은행 계좌번호 예금주" — 셋 다 있을 때만 */
 export function statementAccount(info: Pick<StatementInfo, 'bank' | 'accountNumber' | 'accountHolder'> | null): string | null {
@@ -164,7 +285,9 @@ export const orderName = (order: Pick<BuyerOrder, 'id' | 'members'>, name: (id: 
   (order.members ?? [order.id]).map(id => statementName(name(id))).join(' · ')
 
 export type StatementTab = 'buyers' | 'products'
-export interface StatementRow { key: string; no: number | null; label: string; money: number | null; qty: number; /** 합친 라이브의 차례 ("1차") */ round?: string }
+export interface StatementRow { key: string; no: number | null; label: string; money: number | null; qty: number; /** 합친 라이브의 차례 ("1차") */ round?: string
+  /** 구매자별: 아직 안 보낸 지난 주문이 있다(waiting) · 같이 보낸다(carried) (D-STMT-CARRY-01) */
+  past?: 'waiting' | 'carried' }
 export function statementName(name: string): string {
   return name.replace(/(\S)\s*-[a-zA-Z0-9]+(?=\s*·|$)/u, '$1')
 }
@@ -173,7 +296,10 @@ export function statementRows(sales: ReturnType<typeof broadcastSales>, tab: Sta
   if (tab === 'products') return sales.lines.map(line => ({
     key: line.key, no: line.no, label: [line.name, line.variant].filter(Boolean).join(' '), money: line.amount, qty: line.qty, ...(line.round ? { round: line.round } : {}),
   }))
-  return sales.orders.map(order => ({ key: order.id, no: null, label: orderName(order, name), money: order.subtotal, qty: order.qty }))
+  return sales.orders.map(order => {
+    const past = (order.waiting?.length ?? 0) > 0 ? 'waiting' as const : (order.carried?.length ?? 0) > 0 ? 'carried' as const : null
+    return { key: order.id, no: null, label: orderName(order, name), money: order.subtotal, qty: order.qty, ...(past === null ? {} : { past }) }
+  })
     .sort((a, b) => a.label.localeCompare(b.label, 'ko') || a.key.localeCompare(b.key))
 }
 export const statementColumns = (tab: StatementTab) => tab === 'products' ? ['번호', '상품명', '판매 금액', '개수'] : ['구매자', '판매 금액', '개수']

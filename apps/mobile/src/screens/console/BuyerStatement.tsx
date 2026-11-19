@@ -11,6 +11,9 @@ import { View } from 'react-native'
 import { useCachedGet } from '../../lib/cached-get.ts'
 import { broadcastSales, orderName, type BuyerOrder } from '../../lib/broadcast-sales.ts'
 import { JOINS_LOAD_FAILED, useJoinedSales, useStatementJoins } from '../../lib/statement-joins.ts'
+import { useStatementCarries, useStatementSales, type StatementCarries } from '../../lib/statement-carries.ts'
+import { StatementCarryBar } from './StatementCarryBar.tsx'
+import type { ConsoleApi } from './context.ts'
 import { StatementJoinBar } from './StatementJoinBar.tsx'
 import { sentBuyers, useStatementInfo } from '../../lib/statement-info.ts'
 import { earlierSent, GROUPS_FAILED, GROUPS_RETRY, markScopeSent, useStatementScope } from '../../lib/broadcast-groups.ts'
@@ -38,7 +41,7 @@ export const shopPathOf = (broadcastId: string): string => `/api/broadcasts/${en
  * 손님 한 명의 정산서 몸통 — 겹친 화면(시험·웹)과 쌓인 경로가 같이 쓴다.
  * 가게 이름·정산 정보를 모르면 만들지 않는다 — 받지 않기로 한 배송비가 붙은 정산서가 손님에게 나가지 않게
  */
-export function BuyerStatementBody({ broadcastId, order, date, buyerName, inset, rehearsal, sealed, queue, onSent, onOpenInfo, earlier = false, shopBroadcast, top }: {
+export function BuyerStatementBody({ broadcastId, order, date, buyerName, inset, rehearsal, sealed, queue, onSent, onOpenInfo, earlier = false, shopBroadcast, top, alert, onShipping }: {
   readonly broadcastId: string; readonly order: BuyerOrder | undefined; readonly date: string; readonly buyerName: string; readonly inset: number
   readonly rehearsal: boolean; readonly sealed: boolean; readonly queue?: SendQueue | undefined; readonly onSent: () => void; readonly onOpenInfo: () => void
   /** 이 손님이 다른 정산서(합치기·나누기 전)를 먼저 받았다 (D-MERGE-LIVE-04) */
@@ -47,6 +50,10 @@ export function BuyerStatementBody({ broadcastId, order, date, buyerName, inset,
   readonly shopBroadcast?: string
   /** 정산서 위 칸 — 손님 합치기 (D-STMT-JOIN-01) */
   readonly top?: ReactNode
+  /** 정산서 위 알림 — 지난 주문 같이 보내기 (D-STMT-CARRY-01) */
+  readonly alert?: ReactNode
+  /** 이 손님 배송비 바꾸기 (D-STMT-SHIP-01) */
+  readonly onShipping?: ((amount: number | null) => Promise<boolean>) | undefined
 }) {
   const { data: shop, reload } = useCachedGet<{ name: string }>(shopPathOf(shopBroadcast ?? broadcastId))
   const statement = useStatementInfo()
@@ -60,7 +67,24 @@ export function BuyerStatementBody({ broadcastId, order, date, buyerName, inset,
     </View>
   }
   if (info === null) return <View style={{ padding: GUTTER, gap: SPACE.md }}><Txt>{statement.failed ? LOAD_FAILED : '정산 정보를 불러오는 중이에요.'}</Txt><SmallButton label="다시 불러오기" onPress={statement.reload} /></View>
-  return <BuyerOrderPaper key={order.id} {...{ order, date, shop: shop.name, buyerName, inset, rehearsal, sealed, info, queue, earlier, top }} onSent={onSent} />
+  return <BuyerOrderPaper key={order.id} {...{ order, date, shop: shop.name, buyerName, inset, rehearsal, sealed, info, queue, earlier, top, alert, onShipping }} onSent={onSent} />
+}
+
+/** 정산서 위 지난 주문 칸 (D-STMT-CARRY-01) — 연습 라이브·봉인된 날짜에는 없다 */
+export function carryAlert(order: BuyerOrder | undefined, carries: StatementCarries, rehearsal: boolean, sealed: boolean): ReactNode {
+  return !rehearsal && !sealed && order !== undefined ? <StatementCarryBar order={order} carries={carries} /> : undefined
+}
+
+/**
+ * 이 손님 배송비 바꾸기 (D-STMT-SHIP-01): 엔진 정산의 배송비 예외(주문 상세 "이 주문 배송비 바꾸기"와 같은 기록) — 합친 정산서면 대표 구매자의 그 날짜 정산.
+ * null이면 정해진 대로(DEFAULT). 봉인된 날짜·콘솔 밖(시험)에서는 없다
+ */
+export function shippingEditor(order: BuyerOrder | undefined, date: string, sealed: boolean, command: ConsoleApi['command'] | undefined): ((amount: number | null) => Promise<boolean>) | undefined {
+  if (order === undefined || sealed || command === undefined) return undefined
+  return async (amount) => {
+    const result = await command({ type: 'settlement.shippingOverride', buyer: order.id, date, ...(amount === null ? { mode: 'DEFAULT' } : { mode: 'FIXED', amountText: String(amount) }) })
+    return result.changed
+  }
 }
 
 /**
@@ -77,7 +101,7 @@ export function BuyerStatementScreen({ broadcastId, buyer, onBack, onBuyer }: { 
 }
 
 function BuyerStatementRoutePage({ broadcastId, buyer, date, rehearsal, onBack, onBuyer }: { readonly broadcastId: string; readonly buyer: string; readonly date: string; readonly rehearsal: boolean; readonly onBack: () => void; readonly onBuyer: (next: string) => void }) {
-  const { data, names } = useConsoleApi()
+  const { data, names, command } = useConsoleApi()
   const inset = useBottomInset()
   useSendQueueVersion()
   const statement = useStatementInfo()
@@ -89,7 +113,9 @@ function BuyerStatementRoutePage({ broadcastId, buyer, date, rehearsal, onBack, 
   const rawSales = useMemo(() => broadcastSales(data.claims, data.products, members.split('+')), [data.claims, data.products, members])
   // 정산서 손님 합치기 (D-STMT-JOIN-01): 목록과 같은 묶음 — 합친 정산서는 대표 구매자 키로 열린다
   const joins = useStatementJoins(date, rehearsal)
-  const sales = useJoinedSales(rawSales, joins)
+  // 지난 주문 같이 보내기·손님 배송비 (D-STMT-CARRY-01·D-STMT-SHIP-01): 목록과 같은 셈
+  const carries = useStatementCarries(date, rehearsal)
+  const sales = useStatementSales(useJoinedSales(rawSales, joins), carries, data.settlements, date)
   const { data: shop } = useCachedGet<{ name: string }>(shopPathOf(scope.lead))
   const earlier = useMemo(() => earlierSent(scope).includes(buyer), [scope, buyer, sent])
   const order = sales.orders.find(row => row.id === buyer)
@@ -111,7 +137,7 @@ function BuyerStatementRoutePage({ broadcastId, buyer, date, rehearsal, onBack, 
     <StackPage name={buyerPageName(buyerName)} onBack={onBack} gray scroll={false} testID="buyer-page">
       {/* 합친 라이브인지 알기 전에는 그리지 않는다 — 1차만 담긴 정산서가 나가지 않게 (D-MERGE-LIVE-01) */}
       {scope.ready && joins.ready ? <BuyerStatementBody broadcastId={broadcastId} order={order} date={date} buyerName={buyerName} inset={inset} rehearsal={rehearsal} sealed={data.sealed}
-        queue={queue} top={top} earlier={earlier} shopBroadcast={scope.lead} onSent={() => setSent(markScopeSent(scope, buyer))} onOpenInfo={() => setAsking(true)} />
+        queue={queue} top={top} alert={carryAlert(order, carries, rehearsal, data.sealed)} onShipping={shippingEditor(order, date, data.sealed, command)} earlier={earlier} shopBroadcast={scope.lead} onSent={() => setSent(markScopeSent(scope, buyer))} onOpenInfo={() => setAsking(true)} />
         : scope.failed === true || joins.failed
           ? <View style={{ padding: GUTTER, gap: SPACE.md }}><Txt>{scope.failed === true ? GROUPS_FAILED : JOINS_LOAD_FAILED}</Txt><SmallButton label={GROUPS_RETRY} onPress={() => void (scope.failed === true ? scope.reload() : joins.reload())} /></View>
           : <Loading />}

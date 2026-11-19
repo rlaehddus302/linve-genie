@@ -3038,7 +3038,38 @@ export const liveJoinVisits = pgTable(
   (t) => [unique('live_join_visits_uq').on(t.accountId, t.broadcastId)],
 )
 
+/**
+ * 지난 주문 같이 보내기 기록 (D-STMT-CARRY-01): 같은 손님의 아직 보내지 않은 지난 주문(past_date·past_buyer)을 정산서(date·buyer)에 같이 보내기(carry)·빼기(drop)·
+ * 이미 보냈어요(sent). 덧붙이기만 한다. 엔진 이벤트가 아니다 — 판정·금액은 바뀌지 않고 정산서 한 장에 지난 상품 줄과 배송비만 다시 센다. 지난 주문마다 가장 나중 기록이 이긴다
+ */
+export const statementCarryEvents = pgTable(
+  'statement_carry_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 화면 요청 번호 (같은 번호로 다시 오면 처음 결과 — 지난 주문이 여럿이면 둘째부터 `#n`을 붙인다) */
+    requestId: text('request_id').notNull(),
+    /** carry(같이 보내기) · drop(빼기) · sent(이미 보냈어요) */
+    kind: text('kind').notNull(),
+    /** 정산서 날짜 (KST) */
+    date: text('date').notNull(),
+    /** 정산서 구매자 ID (합친 정산서면 대표) */
+    buyer: text('buyer').notNull(),
+    /** 지난 주문 날짜 */
+    pastDate: text('past_date').notNull(),
+    /** 지난 주문의 그 날짜 구매자 ID (지금의 구매자) */
+    pastBuyer: text('past_buyer').notNull(),
+    /** 누가 (로그인 계정 ID) */
+    accountId: text('account_id'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('statement_carry_events_request_uq').on(t.sellerId, t.requestId), index('statement_carry_events_seller_past_idx').on(t.sellerId, t.pastDate, t.id)],
+)
+
 export const schema = {
+  statementCarryEvents,
   broadcastGroupEvents,
   statementBuyerEvents,
   liveCatalogBackfill,

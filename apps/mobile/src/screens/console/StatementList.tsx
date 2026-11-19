@@ -19,6 +19,7 @@ import { TAG_GAP, TAG_PAD_X } from '../../lib/product-tags.ts'
 import { Icon, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../../ui/kit/tokens.ts'
 import { STATEMENT_EMPTY } from './StatementPhoto.tsx'
+import { WAITING_TAG } from '../../lib/statement-carries.ts'
 
 /** 여러 이름을 한 줄로 */
 export const BUYER_JOIN = ' · '
@@ -97,6 +98,8 @@ function Row({ row, tab, sent, buyers, label, onPress }: { readonly row: Stateme
         <Txt step="body" weight="bold" ink={p.goldText} numberOfLines={1}>{row.label}</Txt>
       </View>
       {sent ? <View style={{ paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.secondary }}><Txt step="note" weight="medium" color="onSecondary">보냄</Txt></View> : null}
+      {/* 아직 안 보낸 지난 주문이 있는 손님 (D-STMT-CARRY-01) — 누르면 정산서 위에서 같이 보내기 */}
+      {row.past === 'waiting' ? <View testID="buyer-past" style={{ paddingHorizontal: SPACE.xs + 2, borderRadius: RADIUS.pill, borderCurve: 'continuous', backgroundColor: p.warnBg }}><Txt step="note" weight="medium" color="warnText">{WAITING_TAG}</Txt></View> : null}
     </View>
     <Txt step="body" color="textSub" testID="buyer-qty">{`${row.qty}개`}</Txt>
     <Money amount={row.money} />

@@ -22,13 +22,15 @@
 //   합치지 않았는데 같은 날 끝난 라이브가 더 있으면 "같은 날 라이브가 n개 더 있어요." [합치기] — 판에는 이 라이브만 골라 두고 풀 수 없다(D-MERGE-LIVE-05).
 //   보낸 손님 표시는 정산서(묶음 모습)마다 따로, 다른 정산서로 먼저 받은 손님은 모두에게 보내기 차례에서 빼고 따로 보인다(두 번 청구하지 않게).
 //   묶음을 받기 전에는 [보내기]를 막는다 — 1차만 담긴 정산서가 나가지 않게.
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Animated, ScrollView, View, useWindowDimensions } from 'react-native'
 import type { BroadcastItem, ReceiptBuyers } from '@livejjim/web/src/api/types.ts'
 import { getBytes, isApiError, newRequestId, post, withRetry } from '../../api/client.ts'
 import { useCachedGet, useScreenFocusCount } from '../../lib/cached-get.ts'
 import { type broadcastSales, orderName, salesMoney, statementInfoMissing, statementName, statementRows, type StatementRow } from '../../lib/broadcast-sales.ts'
 import { JOINS_LOAD_FAILED, useJoinedSales, useStatementJoins } from '../../lib/statement-joins.ts'
+import { WAITING_TAG, useStatementCarries, useStatementSales } from '../../lib/statement-carries.ts'
+import { ConsoleContext } from './context.ts'
 import { StatementJoinBar } from './StatementJoinBar.tsx'
 import { EACH_ROW, useEachSave } from './StatementEachSave.tsx'
 import {
@@ -46,7 +48,7 @@ import { MenuRow } from '../order-parts.tsx'
 import { nativeShareFile } from '../../native/index.ts'
 import { wait, SHEET_GAP_MS } from '../../lib/receipt-sms-flow.ts'
 import { StatementPhoto, statementPages } from './StatementPhoto.tsx'
-import { BuyerStatementBody, buyerPageName, BUYER_PAGE_NAME, sendAllFinished, sendAllProgress, shopPathOf } from './BuyerStatement.tsx'
+import { BuyerStatementBody, buyerPageName, BUYER_PAGE_NAME, carryAlert, sendAllFinished, sendAllProgress, shippingEditor, shopPathOf } from './BuyerStatement.tsx'
 import { clearSendQueueNote, sendQueueNote, startSendQueue, useSendQueueVersion } from './statement-queue.ts'
 import { BUYER_JOIN, productBuyers, StatementList } from './StatementList.tsx'
 import { InfoButton, StatementFooter } from './StatementControls.tsx'
@@ -80,7 +82,7 @@ export { sendAllProgress }
 /** 줄 이름 (화면 읽기·시험) — 구매자별은 누르면 그 손님 정산서 */
 function rowLabel(row: StatementRow, sent: boolean, buyers: readonly string[] = []): string {
   if (row.no !== null) return `${row.round ? `${row.round} ` : ''}${row.no}번 ${row.label} · ${salesMoney(row.money)} · ${row.qty}개${buyers.length > 0 ? ` · 구매자 ${buyers.join(BUYER_JOIN)}` : ''}`
-  return `${row.label} 정산서 · ${salesMoney(row.money)} · ${row.qty}개${sent ? ` · ${SENT_WORD}` : ''}`
+  return `${row.label} 정산서 · ${salesMoney(row.money)} · ${row.qty}개${sent ? ` · ${SENT_WORD}` : ''}${row.past === 'waiting' ? ` · ${WAITING_TAG}` : ''}`
 }
 
 export function BroadcastSalesList({ broadcastId, title, date, sales: rawSales, names, buyer, select, openBuyer, inset, rehearsal, sealed, justEnded = false, header, scope: given }: {
@@ -111,7 +113,10 @@ export function BroadcastSalesList({ broadcastId, title, date, sales: rawSales, 
   const statement = useStatementInfo()
   // 정산서 손님 합치기 (D-STMT-JOIN-01): 같은 번호·판매자가 고른 닉네임은 정산서 한 장 — 구매자별 줄·보내기·파일 모두 같은 묶음
   const joins = useStatementJoins(date, rehearsal)
-  const sales = useJoinedSales(rawSales, joins)
+  // 지난 주문 같이 보내기·손님 배송비 (D-STMT-CARRY-01·D-STMT-SHIP-01) — 콘솔 밖(시험·웹)이면 배송비 예외 없이
+  const consoleApi = useContext(ConsoleContext)
+  const carries = useStatementCarries(date, rehearsal)
+  const sales = useStatementSales(useJoinedSales(rawSales, joins), carries, consoleApi?.data.settlements, date)
   /** [보내기]를 눌렀는데 합친 손님을 받는 중이었다 — 받으면 연다 */
   const sendWhenReady = useRef(false)
   const { width: windowWidth } = useWindowDimensions()
@@ -272,7 +277,7 @@ export function BroadcastSalesList({ broadcastId, title, date, sales: rawSales, 
     const lastInQueue = queueKeys.slice(at + 1).every(key => sent.includes(key))
     const top = !rehearsal && !sealed && order !== undefined ? <StatementJoinBar order={order} orders={sales.orders} name={id => names.name(id)} joins={joins} /> : undefined
     return <BuyerStatementBody broadcastId={broadcastId} order={order} date={date} buyerName={orderName(order ?? { id: pageBuyer }, id => names.name(id))} inset={inset} rehearsal={rehearsal} sealed={sealed}
-      earlier={earlier.includes(pageBuyer)} shopBroadcast={scope.lead} top={top}
+      earlier={earlier.includes(pageBuyer)} shopBroadcast={scope.lead} top={top} alert={carryAlert(order, carries, rehearsal, sealed)} onShipping={shippingEditor(order, date, sealed, consoleApi?.command)}
       onSent={() => setSent(markScopeSent(scope, pageBuyer))} onOpenInfo={openInfo}
       queue={inQueue ? { position: at + 1, total: queueKeys.length, last: lastInQueue, next: () => nextBuyer(pageBuyer, sentBuyers(scope.key)) } : undefined} />
   }

@@ -119,6 +119,7 @@ import {
   receiptLinkRequests,
   receiptLinks,
   statementBuyerEvents,
+  statementCarryEvents,
   liveCatalogBackfill,
   liveCatalogDelivery,
   liveJoins,
@@ -1733,6 +1734,8 @@ export const RESTORE_REPLACED_TABLES = [
   receiptLinkRequests,
   // D-STMT-JOIN-01 정산서 손님 합치기: 구매자 ID로 잇는다 — 복구한 기록의 구매자 ID가 다른 사람을 가리킬 수 있어 지운다(번호가 같은 손님은 다시 저절로 묶인다)
   statementBuyerEvents,
+  // D-STMT-CARRY-01 지난 주문 같이 보내기: 구매자 ID로 잇는다 — 복구한 기록의 구매자 ID가 다른 사람을 가리킬 수 있어 지운다(지난 주문은 다시 알린다)
+  statementCarryEvents,
   depositLinks,
   depositActions,
   igDmRows,

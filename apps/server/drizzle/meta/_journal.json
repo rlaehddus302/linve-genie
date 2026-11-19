@@ -484,6 +484,13 @@
       "when": 1794960000044,
       "tag": "0071_live_joins_restore",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1794960000045,
+      "tag": "0072_statement_carry_events",
+      "breakpoints": true
     }
   ]
 }

@@ -18,7 +18,9 @@ import { ScrollView, View, useWindowDimensions } from 'react-native'
 import Svg, { G as SvgGroup, Line, Rect, Text as SvgText } from 'react-native-svg'
 import { wrap, snapshot } from './paper-image.ts'
 import { isApiError, newRequestId } from '../../api/client.ts'
-import { type BuyerOrder, type SaleLine, type StatementInfo, lineNoWord, salesMoney, statementAccount, statementTotals } from '../../lib/broadcast-sales.ts'
+import { type BuyerOrder, type SaleLine, type StatementInfo, lineNoWord, orderTotals, paperOrder, salesMoney, statementAccount } from '../../lib/broadcast-sales.ts'
+import { CREDIT_WORD } from '../../lib/statement-carries.ts'
+import { STATEMENT_SHIPPING_BUTTON, StatementShippingPage } from './StatementShippingEdit.tsx'
 import { EARLIER_NOTE, EARLIER_TITLE } from '../../lib/broadcast-groups.ts'
 import { prepareSms, SHEET_GAP_MS, wait } from '../../lib/receipt-sms-flow.ts'
 import { nativeSms, nativeShareFile } from '../../native/index.ts'
@@ -126,6 +128,23 @@ function InfoRow({ name, value, testID }: { readonly name: string; readonly valu
   </View>
 }
 
+/** 배송비를 받지 않는 설정인 손님 정산서 화면의 배송비 줄 (사진·파일에는 줄이 없다) */
+export const NO_SHIPPING = '받지 않음'
+/** 따로 정한 배송비 꼬리 글 */
+export const OVERRIDDEN_WORD = '이 손님만'
+
+/** 배송비 줄 — 바꿀 수 있으면 오른쪽에 [바꾸기] (D-STMT-SHIP-01) */
+function ShippingRow({ value, overridden, onEdit }: { readonly value: string; readonly overridden: boolean; readonly onEdit?: () => void }) {
+  return <View role="listitem" testID="statement-shipping" aria-label={`배송비 ${value}${overridden ? ` · ${OVERRIDDEN_WORD}` : ''}`} style={ROW}>
+    <View style={{ gap: 2 }}>
+      <Txt step="body" color="textSub">배송비</Txt>
+      {overridden ? <Txt step="caption" color="textSub">{OVERRIDDEN_WORD}</Txt> : null}
+    </View>
+    <View style={{ flex: 1 }}><Txt step="bodyLarge" weight="medium" right>{value}</Txt></View>
+    {onEdit !== undefined ? <SmallButton label={STATEMENT_SHIPPING_BUTTON} onPress={onEdit} testID="statement-shipping-edit-button" /> : null}
+  </View>
+}
+
 /** 연속 보내기 (D-RETRO-64): 몇 번째 손님인지와 다음 손님으로 넘어가기. next가 null이면 마지막 손님 */
 export interface SendQueue {
   readonly position: number
@@ -135,12 +154,14 @@ export interface SendQueue {
 }
 
 /** 사진 그림의 자리 잡기 — 화면의 정산서와 구매자마다 따로 저장(D-STMT-EACH-01)이 같은 셈을 쓴다 */
-export function paperLayout(order: BuyerOrder, shop: string, date: string, buyerName: string, info: StatementInfo, pageIndex: number) {
+export function paperLayout(given: BuyerOrder, shop: string, date: string, buyerName: string, info: StatementInfo, pageIndex: number) {
+  // 같이 보내는 지난 주문을 붙인 정산서 한 장 (D-STMT-CARRY-01) — 지난 주문이 없으면 그대로
+  const order = paperOrder(given)
   const pages = pagesOf(order.lines)
   const index = Math.min(pageIndex, pages.length - 1)
   const page = pages[index]!
   const last = index === pages.length - 1
-  const { charged, shipping, total } = statementTotals(order.subtotal, info.shipping)
+  const { charged, shipping, total, credit, ruleShipping, overridden } = orderTotals(order, info.shipping)
   const account = statementAccount(info)
   const sellerPhone = info.phone.trim()
   const host = info.hostName.trim()
@@ -164,7 +185,9 @@ export function paperLayout(order: BuyerOrder, shop: string, date: string, buyer
   const start = tableTop + HEAD_ROW
   const rowsEnd = start + page.reduce((sum, row) => sum + row.height, 0)
   const feeY = rowsEnd
-  const totalY = feeY + (charged ? FEE_ROW : 0)
+  // 지난 주문에서 이미 받은 돈 줄 (D-STMT-CARRY-01) — 배송비 줄 아래
+  const creditY = feeY + (charged ? FEE_ROW : 0)
+  const totalY = creditY + (credit > 0 ? FEE_ROW : 0)
   const accountLines = account === null ? [] : wrap(account, 22)
   const accountY = totalY + TOTAL_ROW
   const accountHeight = account === null ? 0 : Math.max(32, accountLines.length * 18 + 14)
@@ -173,13 +196,13 @@ export function paperLayout(order: BuyerOrder, shop: string, date: string, buyer
   const tableEnd = last ? phoneY + phoneHeight : rowsEnd
   const gridEnd = last ? accountY : rowsEnd
   const height = tableEnd + (pages.length > 1 ? 24 : 10)
-  return { pages, index, page, last, charged, shipping, total, account, sellerPhone, host, titleLines, titleHeight, buyerWord, dateWord, buyerLines, infoY, buyerY, tableTop, start, rowsEnd, feeY, totalY, accountLines, accountY, accountHeight, phoneY, tableEnd, gridEnd, height }
+  return { order, pages, index, page, last, charged, shipping, total, credit, ruleShipping, overridden, creditY, account, sellerPhone, host, titleLines, titleHeight, buyerWord, dateWord, buyerLines, infoY, buyerY, tableTop, start, rowsEnd, feeY, totalY, accountLines, accountY, accountHeight, phoneY, tableEnd, gridEnd, height }
 }
 export type PaperLayout = ReturnType<typeof paperLayout>
 
 /** 사진 그림 (옛 양식, D-RETRO-61) — 한 장 */
-export function PaperSvg({ order, layout, svgRef }: { readonly order: BuyerOrder; readonly layout: PaperLayout; readonly svgRef: RefObject<Svg | null> }) {
-  const { pages, index, page, last, charged, shipping, total, account, sellerPhone, host, titleLines, titleHeight, dateWord, buyerLines, infoY, buyerY, tableTop, start, feeY, totalY, accountLines, accountY, accountHeight, phoneY, tableEnd, gridEnd, height } = layout
+export function PaperSvg({ layout, svgRef }: { readonly order?: BuyerOrder; readonly layout: PaperLayout; readonly svgRef: RefObject<Svg | null> }) {
+  const { order, pages, index, page, last, charged, shipping, total, credit, creditY, account, sellerPhone, host, titleLines, titleHeight, dateWord, buyerLines, infoY, buyerY, tableTop, start, feeY, totalY, accountLines, accountY, accountHeight, phoneY, tableEnd, gridEnd, height } = layout
   const pageWord = `${index + 1}/${pages.length}`
   return (
       <Svg ref={svgRef} width={WIDTH} height={height} viewBox={`0 0 ${WIDTH} ${height}`}>
@@ -208,6 +231,11 @@ export function PaperSvg({ order, layout, svgRef }: { readonly order: BuyerOrder
             {shipping === 0 ? ink('무료', X.right - 8, feeY + 22, 14, false, 'end') : price(shipping, feeY + 22)}
             <Line x1={X.left} x2={X.right} y1={feeY + FEE_ROW} y2={feeY + FEE_ROW} stroke={GRID} />
           </SvgGroup>}
+          {credit > 0 && <SvgGroup>
+            {ink('지난 주문 받은 돈', MID.name, creditY + 22, 13, false, 'middle')}
+            {ink('₩', X.price + 8, creditY + 22, 14)}{ink(`−${salesMoney(credit).slice(0, -1)}`, X.right - 8, creditY + 22, 14, false, 'end')}
+            <Line x1={X.left} x2={X.right} y1={creditY + FEE_ROW} y2={creditY + FEE_ROW} stroke={GRID} />
+          </SvgGroup>}
           <Rect x={X.left} y={totalY} width={X.right - X.left} height={TOTAL_ROW} fill={BAND_LIGHT} />
           {ink('총 개수', MID.no, totalY + 24, 13, true, 'middle')}{ink(String(order.qty), MID.name, totalY + 24, 15, true, 'middle')}
           {ink('개', MID.qty, totalY + 24, 14, true, 'middle')}{price(total, totalY + 24, true)}
@@ -233,10 +261,14 @@ export function PaperSvg({ order, layout, svgRef }: { readonly order: BuyerOrder
   )
 }
 
-export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, rehearsal, info, queue, onSent, earlier = false, top }: {
+export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, rehearsal, info, queue, onSent, earlier = false, top, alert, onShipping }: {
   order: BuyerOrder; shop: string; date: string; buyerName: string; inset: number; sealed: boolean; rehearsal: boolean
   /** 제목 아래 칸 — 정산서 손님 합치기 (D-STMT-JOIN-01) */
   top?: ReactNode
+  /** 제목 아래 알림 — 지난 주문 같이 보내기 (D-STMT-CARRY-01). 모두에게 보내기 중에도 보인다 */
+  alert?: ReactNode
+  /** 이 손님 배송비 바꾸기 (D-STMT-SHIP-01) — 금액(정수 원) 또는 null(정해진 대로). 바뀌었으면 참. 없으면 [바꾸기]가 없다 */
+  onShipping?: ((amount: number | null) => Promise<boolean>) | undefined
   /** 다른 정산서(합치기·나누기 전)를 먼저 받은 손님 (D-MERGE-LIVE-04) */
   earlier?: boolean
   /** 정산 정보 — 계좌·전화번호·방송 이름·배송비 규칙 */
@@ -256,8 +288,11 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
   const [phoneError, setPhoneError] = useState('')
   /** 연속 보내기에서 문자 앱을 열었지만 보냈는지 알 수 없다(안드로이드) — [다음 손님]을 기다린다 */
   const [opened, setOpened] = useState(false)
+  const [editing, setEditing] = useState(false)
   const layout = paperLayout(order, shop, date, buyerName, info, pageIndex)
-  const { pages, index, last, charged, shipping, total, account, sellerPhone, host, buyerWord, dateWord, height } = layout
+  // 화면 카드·글은 지난 주문을 붙인 한 장 (layout.order = paperOrder)
+  const { pages, index, last, charged, shipping, total, credit, ruleShipping, overridden, account, sellerPhone, host, buyerWord, dateWord, height } = layout
+  const paper = layout.order
   const displayWidth = Math.min(width - 2 * GUTTER, 540)
 
   const mounted = useRef(true)
@@ -314,8 +349,8 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
   // 화면 내용 전체 (D-UX4-183: 화면은 장으로 나누지 않고 모든 줄을 보인다)
   const label = [
     `${shop} 정산서`, host, buyerWord, dateWord,
-    order.lines.map(line => `${lineNoWord(line)} ${lineName(line)} ${line.qty}개 ${salesMoney(line.amount)}`).join(', '),
-    ...(charged ? [`배송비 ${shippingWord}`] : []), `총 ${order.qty}개 ${salesMoney(total)}`, ...(account === null ? [] : [`계좌 ${account}`]), ...(sellerPhone === '' ? [] : [`전화번호 ${sellerPhone}`]),
+    paper.lines.map(line => `${lineNoWord(line)} ${lineName(line)} ${line.qty}개 ${salesMoney(line.amount)}`).join(', '),
+    ...(charged ? [`배송비 ${shippingWord}`] : []), ...(credit > 0 ? [`${CREDIT_WORD} −${salesMoney(credit)}`] : []), `총 ${paper.qty}개 ${salesMoney(total)}`, ...(account === null ? [] : [`계좌 ${account}`]), ...(sellerPhone === '' ? [] : [`전화번호 ${sellerPhone}`]),
   ].filter(part => part !== '').join('. ')
   const smsLabel = pages.length > 1 ? '이 장 문자 보내기' : '문자 보내기'
   const infoRows = [
@@ -331,19 +366,22 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
       {queue !== undefined ? <Txt step="caption" color="textSub">{`모두에게 보내기 · ${queue.total}명 가운데 ${queue.position}번째`}</Txt> : null}
     </View>
     {top !== undefined && queue === undefined ? <View style={{ width: displayWidth }}>{top}</View> : null}
+    {alert !== undefined && alert !== null ? <View style={{ width: displayWidth }}>{alert}</View> : null}
     <View testID="buyer-statement" role="group" aria-label={label} style={{ width: displayWidth, gap: SPACE.xl }}>
       <Card label={LINES_TITLE}>
-        {order.lines.map((line, i) => <View key={line.key}>{i > 0 ? <Divider /> : null}<LineRow line={line} /></View>)}
+        {paper.lines.map((line, i) => <View key={line.key}>{i > 0 ? <Divider /> : null}<LineRow line={line} /></View>)}
       </Card>
       {/* 정산 금액(앱 글에 "결제"를 쓰지 않는다): 상품 금액 · 배송비 → 굵은 선 → 총액(크게) · 총 n개 (D-UX4-193) */}
       <Card label={PAY_TITLE}>
-        <InfoRow name="상품 금액" value={salesMoney(order.subtotal)} testID="statement-subtotal" />
-        {charged ? <><Divider /><InfoRow name="배송비" value={shippingWord} testID="statement-shipping" /></> : null}
+        <InfoRow name="상품 금액" value={salesMoney(paper.subtotal)} testID="statement-subtotal" />
+        {charged || onShipping !== undefined ? <><Divider /><ShippingRow value={charged ? shippingWord : NO_SHIPPING} overridden={overridden}
+          {...(onShipping !== undefined && shipping !== null ? { onEdit: () => setEditing(true) } : {})} /></> : null}
+        {credit > 0 ? <><Divider /><InfoRow name={CREDIT_WORD} value={`−${salesMoney(credit)}`} testID="statement-credit" /></> : null}
         <View aria-hidden style={{ height: 2, backgroundColor: p.text, opacity: 0.85, marginHorizontal: SPACE.xl, marginTop: SPACE.xs }} />
-        <View role="listitem" testID="buyer-total" aria-label={`총액 ${salesMoney(total)} · 총 ${order.qty}개`} style={{ ...ROW, paddingVertical: SPACE.lg }}>
+        <View role="listitem" testID="buyer-total" aria-label={`총액 ${salesMoney(total)} · 총 ${paper.qty}개`} style={{ ...ROW, paddingVertical: SPACE.lg }}>
           <View style={{ flex: 1, gap: 2 }}>
             <Txt step="bodyLarge" weight="bold">총액</Txt>
-            <Txt step="caption" color="textSub">{`총 ${order.qty}개`}</Txt>
+            <Txt step="caption" color="textSub">{`총 ${paper.qty}개`}</Txt>
           </View>
           <Money amount={total} total />
         </View>
@@ -387,7 +425,11 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
         아이폰은 그림의 실제 크기(bounds)에 그리므로 사진 크기(WIDTH × height)와 같게 둔다.
         스크롤 밖(형제)에 두어 스크롤이 화면 밖 줄을 떼어 내도 그림은 남는다. */}
     <View aria-hidden pointerEvents="none" testID="buyer-statement-photo" style={{ position: 'absolute', left: -10000, top: 0, width: WIDTH, height }}>
-      <PaperSvg order={order} layout={layout} svgRef={svg} />
+      <PaperSvg layout={layout} svgRef={svg} />
     </View>
+    {/* 배송비 바꾸기 (D-STMT-SHIP-01): 정산서 위에 겹친 화면 */}
+    {editing && onShipping !== undefined && shipping !== null ? <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
+      <StatementShippingPage current={shipping} ruleShipping={ruleShipping} overridden={overridden} onSave={onShipping} onClose={() => setEditing(false)} />
+    </View> : null}
   </>
 }

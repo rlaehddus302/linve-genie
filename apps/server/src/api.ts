@@ -41,6 +41,7 @@ import { INSTAGRAM_PUBLIC_PATHS, registerLiveRoutes } from './instagram/routes.t
 import type { ReceiptLinkService } from './receipt-links.ts'
 import type { ReceiptSmsService } from './receipt-sms.ts'
 import { JOIN_MESSAGES, joinBuyersInput, type StatementJoinGroup, type StatementJoins } from './statement-joins.ts'
+import { CARRY_KINDS, CARRY_MESSAGES, carryRefsInput, type CarryKind, type StatementCarries, type StatementCarry } from './statement-carries.ts'
 import type { TikTokLive } from './tiktok-live/live.ts'
 import type { PasteService } from './tiktok-live/paste-service.ts'
 import { registerTiktokRoutes } from './tiktok-live/routes.ts'
@@ -115,6 +116,8 @@ export interface ApiDeps {
   readonly receiptSms?: ReceiptSmsService
   /** 정산서 손님 합치기 (D-STMT-JOIN-01). 없으면 묶음 없이 닉네임마다 정산서 */
   readonly statementJoins?: StatementJoins
+  /** 지난 주문 같이 보내기 (D-STMT-CARRY-01). 없으면 지난 주문을 알리지 않는다 */
+  readonly statementCarries?: StatementCarries
   readonly auth: Auth
   readonly hub: StreamHub
   /** 출력 기록과 출력 기기 (I1). 없으면 /api/print 경로가 없다 */
@@ -552,7 +555,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (format !== 'csv' && format !== 'xlsx') return notFound()
     const buyer = c.req.query('buyer') ?? ''
     if (buyer === '' || buyer.length > 64 || /[\p{Cc}]/u.test(buyer)) return notFound()
-    const file = await service.buyerStatementFile(sellerOf(c), id, buyer, format, (date) => joinsOf(sellerOf(c), date))
+    const file = await service.buyerStatementFile(sellerOf(c), id, buyer, format, (date) => joinsOf(sellerOf(c), date), (date) => carriesOf(sellerOf(c), date))
     if (!file) return notFound()
     return fileResponse(file.bytes, MIME[format], `정산서-${file.date}.${format}`, `statement-${file.date}-buyer.${format}`)
   })
@@ -587,6 +590,31 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (deps.statementJoins === undefined) return notFound()
     const groups = await deps.statementJoins.change(sellerOf(c), c.get('session').accountId, requestId, date, kind, buyers)
     return c.json({ groups })
+  })
+  // 지난 주문 같이 보내기 (D-STMT-CARRY-01): 정산서 구매자마다 아직 보내지 않은 지난 주문(waiting)과 같이 보내기로 한 지난 주문(carried)
+  const carriesOf = async (sellerId: string, date: string): Promise<StatementCarry[]> => (deps.statementCarries === undefined ? [] : deps.statementCarries.carries(sellerId, date))
+  api.get('/days/:date/statement-carries', async c => {
+    const date = c.req.param('date')
+    if (!isValidDate(date)) return notFound()
+    if (c.req.query('rehearsal') === 'true') return c.json({ buyers: [] })
+    return c.json({ buyers: await carriesOf(sellerOf(c), date) })
+  })
+  api.post('/days/:date/statement-carries', async c => {
+    const date = c.req.param('date')
+    if (!isValidDate(date)) return notFound()
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'kind', 'buyer', 'past'])
+    if (extra !== null) return extra
+    const kind = input.kind
+    if (typeof kind !== 'string' || !(CARRY_KINDS as readonly string[]).includes(kind)) return apiError(400, 'INVALID_INPUT', CARRY_MESSAGES.input, [{ field: 'kind', message: CARRY_MESSAGES.input }])
+    const buyer = input.buyer
+    if (typeof buyer !== 'string' || buyer === '' || buyer.length > 64 || /[\p{Cc}]/u.test(buyer)) return apiError(400, 'INVALID_INPUT', CARRY_MESSAGES.buyer, [{ field: 'buyer', message: CARRY_MESSAGES.buyer }])
+    const past = carryRefsInput(input.past, date)
+    if (past === null) return apiError(400, 'INVALID_INPUT', CARRY_MESSAGES.input, [{ field: 'past', message: CARRY_MESSAGES.input }])
+    if (deps.statementCarries === undefined) return notFound()
+    return c.json({ buyers: await deps.statementCarries.change(sellerOf(c), c.get('session').accountId, requestId, date, kind as CarryKind, buyer, past) })
   })
   // 라이브 합치기 (D-MERGE-LIVE-01~): 같은 날 끝난 실제 라이브 여럿을 정산서 하나로. 엔진 기록은 바꾸지 않고 덧붙이기만 하는 묶음 기록을 남긴다
   api.get('/broadcast-groups', async c => c.json({ groups: await service.broadcastGroups(sellerOf(c)) }))

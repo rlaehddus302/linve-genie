@@ -40,6 +40,7 @@ import { PrintService } from './print.ts'
 import { ReceiptSmsService } from './receipt-sms.ts'
 import { statementBuyersOf } from './statement-file.ts'
 import { StatementJoins } from './statement-joins.ts'
+import { StatementCarries } from './statement-carries.ts'
 import type { FullView as ClientFullView } from '../../web/src/api/types.ts'
 import { BotAlerts } from './youtube/chat-send/bot-alerts.ts'
 import { ReceiptLinkService } from './receipt-links.ts'
@@ -674,6 +675,13 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
     phones: (sellerId, date, buyers) => receiptSms.phonesOf(sellerId, date, buyers),
   })
+  // 지난 주문 같이 보내기 (D-STMT-CARRY-01) — 손님 장부로 이어진 같은 손님의 아직 보내지 않은 지난 주문
+  const statementCarries = new StatementCarries({
+    db,
+    clock,
+    view: async (sellerId, date) => (await service.scopeView(sellerId, date, false)) as unknown as ClientFullView | null,
+    record: (sellerId, date, buyer) => customers.dayRecord(sellerId, date, buyer),
+  })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
   // 크롬 확장으로 감사 채팅 올리기 (X1 AC11~AC17) — 공식 발송함 실행기가 공식으로 올릴 수 없는 회차의 감사를 맡긴다
   const extensionThanks = new ExtensionThanks({ db, timer, log, writer, publishOutbox: publishYoutube })
@@ -919,6 +927,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       receiptLinks,
       receiptSms,
       statementJoins,
+      statementCarries,
       auth,
       hub,
       print: printService,

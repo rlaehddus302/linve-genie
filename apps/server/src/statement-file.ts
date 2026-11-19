@@ -1,11 +1,11 @@
 import ExcelJS from 'exceljs'
 import { stripXlsxForbidden } from '@livejjim/documents'
 import type { FullView } from '../../web/src/api/types.ts'
-import { fromFull } from '../../web/src/lib/scope-data.ts'
+import { fromFull, settlementKey } from '../../web/src/lib/scope-data.ts'
 import { BuyerNames } from '../../web/src/lib/derive.ts'
 import {
-  broadcastSales, joinSales, lineNoWord, orderName, statementAccount, statementColumns, statementRows, statementTotals,
-  type StatementInfo, type StatementJoinGroup, type StatementTab,
+  broadcastSales, dressSales, joinSales, lineNoWord, orderName, orderTotals, paperOrder, statementAccount, statementColumns, statementRows,
+  type StatementCarry, type StatementInfo, type StatementJoinGroup, type StatementTab,
 } from '../../web/src/lib/broadcast-sales.ts'
 import { orderCsv } from './orders.ts'
 
@@ -21,7 +21,8 @@ type Cell = string | number
 const NEED = '금액 확인 필요'
 
 async function writeFile(rows: readonly (readonly Cell[])[], format: 'csv' | 'xlsx', sheetName: string, layout: { widths: readonly number[]; head: number; money: number | null; qty: number | null; bold: readonly number[] }) {
-  if (format === 'csv') return orderCsv(rows.map(row => row.map(String)))
+  // 빼는 금액은 CSV에서 '−'(U+2212)로 — 수식 막기 글자 '-'가 아니라 따옴표가 붙지 않는다(주문 내보내기와 같게). 엑셀은 음수 그대로
+  if (format === 'csv') return orderCsv(rows.map(row => row.map(v => (typeof v === 'number' && v < 0 ? `\u2212${String(-v)}` : String(v)))))
   const workbook = new ExcelJS.Workbook()
   const sheet = workbook.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: layout.head + 1 }] })
   layout.widths.forEach((width, i) => { sheet.getColumn(i + 1).width = width })
@@ -57,13 +58,15 @@ export async function statementFile(view: FullView, broadcasts: string | readonl
  * 구매자 한 명(합친 정산서면 묶음 하나)의 정산서 파일 (D-STMT-EACH-01): 앱 구매자 정산서·사진과 같은 셈 — 상품 줄 → 상품 금액 → 배송비(받는 설정이면) → 총액 → 입금 안내.
  * buyer는 정산서 줄 키(대표 구매자). 정산서에 없는 구매자면 null. 휴대폰 번호·주소(손님)는 넣지 않는다
  */
-export async function buyerStatementFile(view: FullView, broadcasts: string | readonly string[], shop: string, buyer: string, info: StatementInfo, format: 'csv' | 'xlsx', hideSuffix: boolean, joins: readonly StatementJoinGroup[] = []) {
+export async function buyerStatementFile(view: FullView, broadcasts: string | readonly string[], shop: string, buyer: string, info: StatementInfo, format: 'csv' | 'xlsx', hideSuffix: boolean, joins: readonly StatementJoinGroup[] = [], carries: readonly StatementCarry[] = []) {
   const data = fromFull(view)
-  const sales = joinSales(broadcastSales(data.claims, data.products, broadcasts), joins)
-  const order = sales.orders.find(row => row.id === buyer)
-  if (order === undefined) return null
+  // 앱 정산서와 같은 셈: 손님 합치기 → 지난 주문·이 손님 배송비 예외 (D-STMT-CARRY-01·D-STMT-SHIP-01) → 정산서 한 장
+  const sales = dressSales(joinSales(broadcastSales(data.claims, data.products, broadcasts), joins), carries, id => data.settlements.get(settlementKey({ buyer: id, date: view.date })))
+  const found = sales.orders.find(row => row.id === buyer)
+  if (found === undefined) return null
+  const order = paperOrder(found)
   const names = new BuyerNames(data.buyers, data.claims, hideSuffix)
-  const { charged, shipping, total } = statementTotals(order.subtotal, info.shipping)
+  const { charged, shipping, total, credit } = orderTotals(order, info.shipping)
   const account = statementAccount(info)
   const head: Cell[][] = [['정산서', `${orderName(order, id => names.name(id))} 님`], ['가게명', shop], ['방송 날짜', view.date]]
   if (info.hostName.trim() !== '') head.push(['방송 이름', info.hostName.trim()])
@@ -71,6 +74,7 @@ export async function buyerStatementFile(view: FullView, broadcasts: string | re
   const lines = order.lines.map(line => [lineNoWord(line), [line.name, line.variant].filter(Boolean).join(' '), line.qty, line.amount ?? NEED])
   const money: Cell[][] = [['', '상품 금액', '', order.subtotal ?? NEED]]
   if (charged) money.push(['', '배송비', '', shipping === 0 ? '무료' : (shipping ?? NEED)])
+  if (credit > 0) money.push(['', '지난 주문에서 받은 돈', '', -credit])
   const totalRow = ['총액', '', order.qty, total ?? NEED]
   const tail: Cell[][] = []
   if (account !== null) tail.push(['입금 계좌', account])
