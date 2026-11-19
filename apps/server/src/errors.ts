@@ -168,6 +168,8 @@ export type ErrorCode =
   | 'CARD_DONE'
   | 'NAME_ONLY'
   | 'INBOX_OFF'
+  // 채팅·상품 인식 잠깐 멈춤 (D-PAUSE-01)
+  | 'PAUSED'
   // T1 택배 자동 접수 (PARCEL_RULES PC-3~PC-8)
   | 'PARCEL_BLOCKED'
   | 'PARCEL_LOCKED'

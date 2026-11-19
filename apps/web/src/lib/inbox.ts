@@ -128,6 +128,8 @@ export function inboxReasonWords(card: Pick<InboxCardView, 'kind' | 'why' | 'num
       return inboxLateWords(card.receivedAt)
     case 'REJECTED':
       return `${no === undefined ? '' : `${String(no)}번은 `}바로 넣지 못했어요. 보드에서 확인해 주세요`
+    case 'PAUSED':
+      return '잠깐 멈춤 중에 온 문자예요. 넣으려면 직접 넣어 주세요'
     default:
       return card.message.trim() === '' ? '확인해 주세요' : card.message
   }

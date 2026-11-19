@@ -240,6 +240,7 @@ const SPECS: Readonly<Record<string, Spec>> = {
   'broadcast.end': { required: { [BROADCAST]: id } },
   'broadcast.thanks': { required: { [BROADCAST]: id, liveChat: bool } },
   'broadcast.pendingExpire': { required: { [BROADCAST]: id, expire: bool } },
+  'broadcast.pause': { required: { [BROADCAST]: id, paused: bool } },
   'product.register': {
     required: { ...BY_PRODUCT, name: freeText, price: money },
     optional: { stock, status: oneOf('OPEN', 'READY'), ...PRODUCT_OPTIONS, tentative: nestedShape, pieces },

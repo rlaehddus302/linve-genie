@@ -61,6 +61,7 @@ import type {
   BroadcastEndEvent,
   BroadcastThanksEvent,
   BroadcastPendingExpireEvent,
+  BroadcastPauseEvent,
   BroadcastStartEvent,
   BuyerMergeEvent,
   BuyerRecord,
@@ -351,6 +352,16 @@ function switchPendingExpire(d: Draft, e: BroadcastPendingExpireEvent): void {
   const broadcast = d.broadcastOf(e.b)
   if (broadcast.settings['claim.preOpenExpire'] === e.expire) return
   d.replaceBroadcast({ ...broadcast, settings: { ...broadcast.settings, 'claim.preOpenExpire': e.expire } })
+}
+
+/**
+ * broadcast.pause (D-PAUSE-01): 방송 설정 스냅샷의 claim.paused만 바꾼다. 같은 값이면(켠 적 없는 방송에 끄기 포함) 아무 일도 없다.
+ * 그 뒤 받는 채팅부터 따른다 — 이미 만든 찜·받은 메시지·확인 필요 항목은 그대로
+ */
+function switchPause(d: Draft, e: BroadcastPauseEvent): void {
+  const broadcast = d.broadcastOf(e.b)
+  if ((broadcast.settings['claim.paused'] === true) === e.paused) return
+  d.replaceBroadcast({ ...broadcast, settings: { ...broadcast.settings, 'claim.paused': e.paused } })
 }
 
 // ── 지금 상품 (R-20 6, D-O-09·D-O1-06) ──────────────────────────────────
@@ -801,6 +812,11 @@ function chat(d: Draft, e: ChatEvent): void {
     const buyer = d.knownBuyer(e.ch)
     buyer.display = e.nick
     buyer.names.push(e.nick)
+  }
+  // ③-1 잠깐 멈춤 (D-PAUSE-01): 주문도 취소도 아니었던 메시지로 기록만 한다 — 찜·취소·확인 필요 없음. 나중에 판매자가 "찜으로 바꾸기"로 살릴 수 있다
+  if (settings['claim.paused'] === true) {
+    d.newMessage(key, message)
+    return
   }
   const base = { b: e.b, buyer: e.ch, origin: 'chat' as const, seq: d.seq, at: d.at, time: published, minute: false, message: key, ref: null, received: null, item: e.id }
   if (settings['claim.parseMode'] === 'OPTIONS') {
@@ -1334,6 +1350,7 @@ const HANDLERS: Readonly<Record<string, (d: Draft, event: never) => void>> = {
   'broadcast.end': endBroadcast,
   'broadcast.thanks': switchThanks,
   'broadcast.pendingExpire': switchPendingExpire,
+  'broadcast.pause': switchPause,
   'product.register': register,
   'product.open': productCommand,
   'product.hold': productCommand,

@@ -7,6 +7,7 @@
 // - 개인정보(C-07, DP-INV-8): 본문·번호·이름·토큰은 로그에 남기지 않는다. 카드의 본문·보낸 번호·보낸 이름만 판매자에 묶어 암호화하고,
 //   처리하면 바로, 처리하지 않으면 방송이 끝나고 24시간 뒤 지운다. 넣은 문자찜·거른 문자·찜 아닌 문자·은행 알림의 본문은 저장하지 않는다.
 import { createHmac, randomBytes, randomUUID } from 'node:crypto'
+import { isPausedBroadcast } from '../pause.ts'
 import { SMS_EXCLUDED_WORDS, activeClaimId, listClaims, buyerOfRef, containsPhoneRun, currentBuyerOf, getBroadcast, normalizePhone, parseSmsText, type SmsTextResult } from '@livejjim/core'
 import { hasUnsafeText, isPlainObject, own, ownKeys } from '../api-fields.ts'
 import type { Db } from '../db/database.ts'
@@ -95,6 +96,8 @@ export const INBOX_MESSAGES = {
   LATE: '늦게 온 문자예요 (휴대폰이 {at}에 받음). 넣으면 지금 받은 순서로 들어가요',
   /** 엔진이 판매 중 아님 밖의 사유로 받지 않음 (D-SMS3-31) */
   REJECTED: '{no}번은 바로 넣지 못했어요. 보드에서 확인해 주세요',
+  /** 채팅·상품 인식 잠깐 멈춤 중에 온 문자찜 (D-PAUSE-01) — 자동으로 넣지 않고 판매자가 보고 넣는다 */
+  PAUSED: '잠깐 멈춤 중에 온 문자예요. 넣으려면 직접 넣어 주세요',
   CANCEL: '{no}번 취소를 원해요',
   noClaim: '취소할 찜이 없어요',
   cardDone: '이미 처리한 문자예요.',
@@ -558,8 +561,11 @@ export class InboxService {
     const memo = typeof rawMemo === 'string' ? rawMemo : null
     const cards: { kind: 'REVIEW' | 'CANCEL'; why: CardWhy | null; numbers: readonly number[] }[] = []
     const claimed: number[] = []
+    // 잠깐 멈춤 (D-PAUSE-01): 판매자가 멈춘 방송이면 자동으로 넣지 않고 확인 필요 카드로 남긴다(늦게 온 문자가 먼저)
+    const paused = isPausedBroadcast(runtime.state, broadcast.id)
     if (claims !== null) {
       if (late) cards.push({ kind: 'REVIEW', why: 'LATE', numbers: claims })
+      else if (paused) cards.push({ kind: 'REVIEW', why: 'PAUSED', numbers: claims })
       else {
         for (const no of claims) {
           const outcome = await this.#deps.service.writeInboxSms(sellerId, { kind: 'server' }, {

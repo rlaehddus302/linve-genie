@@ -18,6 +18,7 @@ import { EndBroadcastRow } from './EndBroadcast.tsx'
 import { LinkInfo, hasLinkedLive } from './LinkInfo.tsx'
 import { ListenSourceRow, ListenSourceSheet } from './ListenSource.tsx'
 import { MenuGroup, PLAIN, PlainRow } from './parts.tsx'
+import { PauseSwitch } from './Pause.tsx'
 import type { StreamAudio } from './StreamAudio.tsx'
 import type { MobileYoutube } from './YoutubeSection.tsx'
 
@@ -165,6 +166,8 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
         ) : null}
 
         <MenuGroup title="채팅·화면 설정">
+          {/* 채팅·상품 인식 잠깐 멈춤 (D-PAUSE-01) — 끝나지 않은 라이브의 판매자만, 맨 위 */}
+          {seller && !closed ? <PauseSwitch broadcastId={broadcastId} /> : null}
           {seller ? <NicknameDisplaySwitch /> : null}
           {showThanks ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
           {thanksError !== null ? <View style={{ paddingHorizontal: PLAIN.side }}><Notice tone="danger" alert>{thanksError}</Notice></View> : null}

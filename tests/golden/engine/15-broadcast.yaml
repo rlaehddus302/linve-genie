@@ -167,3 +167,33 @@ expect:
   effects:
     - { kind: POST_THANKS, target: LIVE_CHAT, product: b2/2, buyer: UC_B, text: "2번 라울 5,000원 김철수님 구매 감사합니다", confirmVersion: 1 }
   effectCounts: { POST_THANKS: 1, PRINT_PRODUCT_LABEL: 4 }    # 감사는 켜 둔 사이의 B 확정 하나, 라벨은 확정마다
+---
+id: G-ENG-179
+title: 방송 중 채팅·상품 인식 잠깐 멈춤(broadcast.pause) — 멈춘 사이 채팅은 기록만(찜·취소 없음), 판매자가 넣는 찜과 다른 방송은 그대로, 다시 켜면 그 뒤 채팅부터, 멈춘 사이 채팅은 "찜으로 바꾸기"로 살린다
+refs: [R-1, R-4, R-7, D-070, D-PAUSE-01]
+broadcasts: [{ id: b1, date: 2026-10-18, title: 1부 }]
+events:
+  - { at: "20:00:00", type: broadcast.start, b: b2, date: 2026-10-18, title: 2부 }                          # seq 1
+  - { at: "20:00:01", type: product.register, b: b2, no: 1, name: 핑크프릴, price: 10000 }                 # seq 2
+  - { at: "20:00:02", type: product.register, b: b2, no: 2, name: 라울, price: 5000 }                     # seq 3
+  - { at: "20:00:03", type: product.register, b: b1, no: 9, name: 은행나무, price: 7000 }                 # seq 4
+  - { at: "20:00:04", type: broadcast.pause, b: b2, paused: false }                                      # seq 5. 켠 적 없는 방송에 끄기 → 아무 일도 없다
+  - { at: "20:00:10", type: chat, b: b2, id: m1, ch: UC_A, nick: 홍길동, text: "1" }                       # seq 6. A b2/1 확정
+  - { at: "20:00:20", type: broadcast.pause, b: b2, paused: true }                                       # seq 7. 2부 멈춤
+  - { at: "20:00:21", type: broadcast.pause, b: b2, paused: true }                                       # seq 8. 같은 값 → 아무 일도 없다
+  - { at: "20:00:30", type: chat, b: b2, id: m2, ch: UC_B, nick: 김철수, text: "2" }                       # seq 9. 멈춤 → 기록만, 찜 없음
+  - { at: "20:00:31", type: chat, b: b2, id: m3, ch: UC_A, nick: 홍길동, text: "1 취소" }                   # seq 10. 멈춤 → 취소도 없음 (A는 그대로 1등)
+  - { at: "20:00:32", type: chat, b: b1, id: m4, ch: UC_C, nick: 이영희, text: "9" }                       # seq 11. 1부는 멈추지 않음 → C b1/9 확정
+  - { at: "20:00:33", type: sms, b: b2, no: 2, ref: s1, received: "20:00:33" }                         # seq 12. 판매자가 넣는 문자찜은 멈춤과 상관없이 → sms:s1 b2/2 확정
+  - { type: assert, expect: { products: { b2/1: { winner: UC_A }, b2/2: { winner: "sms:s1" } }, claimCount: 3 } }
+  - { at: "20:00:40", type: broadcast.pause, b: b2, paused: false }                                      # seq 13. 다시 켬
+  - { at: "20:00:50", type: chat, b: b2, id: m5, ch: UC_D, nick: 박민수, text: "2" }                       # seq 14. 그 뒤 채팅부터 → D b2/2 대기
+  - { at: "20:00:55", type: product.register, b: b2, no: 3, name: 성미인, price: 8000 }                   # seq 15
+  - { at: "20:01:00", type: host.convertMessage, b: b2, msg: m2, no: 3 }                                  # seq 16. 멈춘 사이 받은 B의 메시지는 주문이 아니었던 메시지 → 찜으로 바꿀 수 있다 → B b2/3 확정
+expect:
+  products:
+    b2/1: { status: SOLD, winner: UC_A, waitlist: [] }
+    b2/2: { status: SOLD, winner: "sms:s1", waitlist: [UC_D] }
+    b2/3: { status: SOLD, winner: UC_B }
+    b1/9: { status: SOLD, winner: UC_C }
+  claimCount: 5

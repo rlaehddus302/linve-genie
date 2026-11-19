@@ -202,7 +202,7 @@ export async function smsRefsOfPhoneKey(db: Db, sellerId: string, date: string, 
 // ── 문자 확인 카드 ───────────────────────────────────────────────────────
 
 export type CardKind = 'REVIEW' | 'CANCEL'
-export type CardWhy = 'UNCLEAR' | 'NO_NUMBER' | 'OPTIONS' | 'NOT_ON_SALE' | 'LATE' | 'REJECTED'
+export type CardWhy = 'UNCLEAR' | 'NO_NUMBER' | 'OPTIONS' | 'NOT_ON_SALE' | 'LATE' | 'REJECTED' | 'PAUSED'
 /** OPEN 처리 전 · BUSY 넣기·승인 처리 중(한 요청만 잡는다) · DONE 넣기·승인 · IGNORED 무시 */
 export type CardStatus = 'OPEN' | 'BUSY' | 'DONE' | 'IGNORED'
 

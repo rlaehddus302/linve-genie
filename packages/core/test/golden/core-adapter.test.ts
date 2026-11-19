@@ -706,15 +706,16 @@ describe('S04 골든: 러너는 바뀐 규칙을 따르지 않는 틀린 코어�
 // D-CLAIMADD-03: engine/30-sms-named.yaml 새 파일 G-ENG-NAMED-01(닉네임으로 보이는 문자찜 — 감사 이름만 그 채널 닉네임, 대기·승계·정산 합산 그대로,
 //   named 없는 문자찜·문자 구매자는 그대로 문자찜) — +1·+0·+1·+1 = 파일 45 · 엔진 182 · 통과 1144 (새 시나리오만 — 기존 골든은 바꾸지 않았다).
 // D-CHAT-ME-01: parser/chat.yaml "저요" 말·덧붙인 말 주문 60사례(새 suite 셋) — +0·+60·+0·+60 = 파서 1022 · 통과 1204 (새 사례만 — 기존 골든은 바꾸지 않았다).
+// D-PAUSE-01: engine/15-broadcast.yaml에 G-ENG-179(채팅·상품 인식 잠깐 멈춤 broadcast.pause) — +0·+0·+1·+1 = 엔진 183 · 통과 1205 (새 시나리오만).
 describe('실제 tests/golden 전체를 실제 코어로 (S06b + P2 + I4 + I1 + Y1 + I3 + N2 + I2 + N3 + N5 + N2b-2 + O1 + O3 + O2 + O4 + FB1 + V3 + SMS3 합계)', () => {
-  it('파일 45 · 파서 1022 · 엔진 182 · 통과 1204, 나머지 0', () => {
+  it('파일 45 · 파서 1022 · 엔진 183 · 통과 1205, 나머지 0', () => {
     const goldenDir = fileURLToPath(new URL('../../../../tests/golden', import.meta.url))
     const report = runGoldenDir({ goldenDir, core: realCore, displayRoot: goldenDir })
     expect(report.totals).toEqual({
       files: 45,
       parserCases: 1022,
-      scenarios: 182,
-      pass: 1204,
+      scenarios: 183,
+      pass: 1205,
       mismatch: 0,
       notImplementedAllowed: 0,
       notImplementedDisallowed: 0,

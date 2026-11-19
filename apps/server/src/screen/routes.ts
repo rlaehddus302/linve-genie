@@ -17,6 +17,7 @@ import type { Context, Hono } from 'hono'
 import { bearerMatches } from '../app.ts'
 import type { Db } from '../db/database.ts'
 import { broadcasts, events, tiktokLinks, youtubeLinks } from '../db/schema.ts'
+import { PAUSED_MESSAGE, isPausedBroadcast } from '../pause.ts'
 import type { Service } from '../service.ts'
 import { carriedBy } from './catalog.ts'
 
@@ -169,6 +170,17 @@ export async function openBroadcastsOfVideo(db: Db, videoId: string): Promise<{ 
   return [...seen.values()].sort((x, y) => (x.sellerId === y.sellerId ? (x.broadcastId < y.broadcastId ? -1 : 1) : x.sellerId < y.sellerId ? -1 : 1))
 }
 
+/** 잠깐 멈춤(D-PAUSE-01)이 아닌 방송만 (순서 그대로). 등록은 기록 트랜잭션 안에서 한 번 더 본다(service #writeWithVoiceLog) */
+async function notPaused(deps: ScreenIntakeDeps, open: readonly { sellerId: string; broadcastId: string }[]): Promise<{ sellerId: string; broadcastId: string }[]> {
+  const out: { sellerId: string; broadcastId: string }[] = []
+  for (const item of open) {
+    const [broadcast] = await deps.db.select({ date: broadcasts.date }).from(broadcasts).where(and(eq(broadcasts.id, item.broadcastId), eq(broadcasts.sellerId, item.sellerId)))
+    if (broadcast !== undefined && isPausedBroadcast((await deps.service.writer.read(item.sellerId, broadcast.date)).state, item.broadcastId)) continue
+    out.push(item)
+  }
+  return out
+}
+
 export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
   app.post('/internal/screen/register', async (c) => {
     if (deps.token === null) return json({ error: { code: 'NOT_FOUND', message: '없는 주소예요.' } }, 404)
@@ -205,8 +217,11 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (tentative === null) return bad('tentative는 { reasons, candidates? } 모양이에요.')
     if (price === undefined && tentative === undefined) return bad('price는 0~100,000,000 정수(원)예요. 가격 없이는 임시 등록(tentative)만 보낼 수 있어요.')
     const withPrice = price === undefined ? {} : { price }
-    const open = await openBroadcastsOfVideo(deps.db, videoId)
-    if (open.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
+    const linked = await openBroadcastsOfVideo(deps.db, videoId)
+    if (linked.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
+    // 잠깐 멈춤 (D-PAUSE-01): 판매자가 멈춘 방송에는 넣지 않는다. 모두 멈췄으면 423 — 일꾼은 다시 보내지 않는다(다시 켠 뒤 보이는 상품만 새로 올린다)
+    const open = await notPaused(deps, linked)
+    if (open.length === 0) return json({ error: { code: 'PAUSED', message: PAUSED_MESSAGE } }, 423)
     const voiceLog: Record<string, unknown> = { heard, source: 'voice', device: 'livegenie-screen', ...(conf === undefined ? {} : { conf }) }
     const results: { broadcastId: string; changed: boolean; duplicate: boolean; tentative?: true; skip?: string }[] = []
     for (const { sellerId, broadcastId } of open) {
@@ -286,8 +301,11 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (name !== undefined && (typeof name !== 'string' || [...name].length > NAME_MAX)) return bad(`name은 ${String(NAME_MAX)}자까지예요.`)
     const pieces = kind === 'confirm' ? piecesOf(body['pieces']) : undefined
     if (pieces === null) return bad('pieces는 1~99 정수예요.')
-    const open = await openBroadcastsOfVideo(deps.db, videoId)
-    if (open.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
+    const linked = await openBroadcastsOfVideo(deps.db, videoId)
+    if (linked.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
+    // 잠깐 멈춤 (D-PAUSE-01): 판매자가 멈춘 방송에는 넣지 않는다. 모두 멈췄으면 423 — 일꾼은 다시 보내지 않는다(다시 켠 뒤 보이는 상품만 새로 올린다)
+    const open = await notPaused(deps, linked)
+    if (open.length === 0) return json({ error: { code: 'PAUSED', message: PAUSED_MESSAGE } }, 423)
     const results: { broadcastId: string; changed: boolean; skip?: string; kept?: string[] }[] = []
     for (const { sellerId, broadcastId } of open) {
       const [broadcast] = await deps.db.select({ date: broadcasts.date }).from(broadcasts).where(and(eq(broadcasts.id, broadcastId), eq(broadcasts.sellerId, sellerId)))
@@ -374,8 +392,11 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (typeof requestId !== 'string' || !REQUEST_RE.test(requestId)) return bad('requestId는 screen-로 시작해야 해요.')
     // D-SCR-10: 바꿀 번호는 일꾼이 방금 보낸 그 등록(요청 번호)이 만든 상품이어야 한다 — 같은 번호의 옛 상품(다시 켠 일꾼이 모르는 것)은 건드리지 않는다
     if (typeof registerRequestId !== 'string' || !REQUEST_RE.test(registerRequestId)) return bad('registerRequestId는 screen-로 시작해야 해요.')
-    const open = await openBroadcastsOfVideo(deps.db, videoId)
-    if (open.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
+    const linked = await openBroadcastsOfVideo(deps.db, videoId)
+    if (linked.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
+    // 잠깐 멈춤 (D-PAUSE-01): 판매자가 멈춘 방송에는 넣지 않는다. 모두 멈췄으면 423 — 일꾼은 다시 보내지 않는다(다시 켠 뒤 보이는 상품만 새로 올린다)
+    const open = await notPaused(deps, linked)
+    if (open.length === 0) return json({ error: { code: 'PAUSED', message: PAUSED_MESSAGE } }, 423)
     const results: { broadcastId: string; changed: boolean; skip?: string }[] = []
     for (const { sellerId, broadcastId } of open) {
       const [broadcast] = await deps.db.select({ date: broadcasts.date }).from(broadcasts).where(and(eq(broadcasts.id, broadcastId), eq(broadcasts.sellerId, sellerId)))
@@ -444,8 +465,11 @@ export function registerScreenIntake(app: Hono, deps: ScreenIntakeDeps): void {
     if (field === 'price' && (typeof value !== 'number' || !Number.isInteger(value) || value < 100 || value > 10_000_000)) return bad('price는 100~10,000,000원 정수예요.')
     if (typeof requestId !== 'string' || !REQUEST_RE.test(requestId)) return bad('requestId는 screen-로 시작해야 해요.')
     const next = field === 'name' ? (value as string).trim() : (value as number)
-    const open = await openBroadcastsOfVideo(deps.db, videoId)
-    if (open.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
+    const linked = await openBroadcastsOfVideo(deps.db, videoId)
+    if (linked.length === 0) return json({ error: { code: 'NOT_LINKED', message: '이 영상에 이어진 방송이 없어요.' } }, 404)
+    // 잠깐 멈춤 (D-PAUSE-01): 판매자가 멈춘 방송에는 넣지 않는다. 모두 멈췄으면 423 — 일꾼은 다시 보내지 않는다(다시 켠 뒤 보이는 상품만 새로 올린다)
+    const open = await notPaused(deps, linked)
+    if (open.length === 0) return json({ error: { code: 'PAUSED', message: PAUSED_MESSAGE } }, 423)
     const results: { broadcastId: string; changed: boolean; skip?: string }[] = []
     for (const { sellerId, broadcastId } of open) {
       const [broadcast] = await deps.db.select({ date: broadcasts.date }).from(broadcasts).where(and(eq(broadcasts.id, broadcastId), eq(broadcasts.sellerId, sellerId)))

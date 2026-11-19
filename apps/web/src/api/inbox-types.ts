@@ -43,7 +43,7 @@ export interface InboxStaleNotice {
 }
 
 /** 확인 필요 사유 (ORD-13 "화면 문구") — LATE 늦게 온 문자(D-SMS3-30), REJECTED 엔진이 바로 받지 않음(D-SMS3-31) */
-export type InboxReviewReason = 'UNCLEAR' | 'NO_NUMBER' | 'OPTIONS' | 'NOT_ON_SALE' | 'LATE' | 'REJECTED'
+export type InboxReviewReason = 'UNCLEAR' | 'NO_NUMBER' | 'OPTIONS' | 'NOT_ON_SALE' | 'LATE' | 'REJECTED' | 'PAUSED'
 
 /** 콘솔 "문자 확인" 카드 하나 */
 export interface InboxCardView {

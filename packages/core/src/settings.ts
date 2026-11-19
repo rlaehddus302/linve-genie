@@ -51,6 +51,13 @@ export interface SaleSettings {
    * 다시 재생한 상태가 그때 저장한 상태와 글자까지 같게(재생 검사 D-072). 운영은 서버 판매자 기본값으로 참을 넣는다.
    */
   'thanks.followEdits'?: boolean
+  /**
+   * 채팅·상품 인식 잠깐 멈춤 (D-PAUSE-01): 참이면 그 방송의 채팅은 받은 메시지로 기록만 하고 찜·취소·확인 필요로 판정하지 않는다
+   * (나중에 판매자가 "찜으로 바꾸기"로 살릴 수 있다). 서버는 멈춤 중 음성·화면 일꾼의 상품 등록·변경과 휴대폰 문자함 자동 문자찜을 받지 않는다.
+   * 방송 중에만 broadcast.pause로 켜고 끈다 — 판매자 기본값·방송 시작 설정으로는 쓰지 않는다(서버가 막는다).
+   * 기본값이 없는 칸: 켠 적이 없는 방송의 스냅샷에는 들어가지 않는다(옛 이벤트 로그 재생 상태가 그대로, D-072)
+   */
+  'claim.paused'?: boolean
 }
 
 export type SettingKey = keyof SaleSettings
@@ -84,7 +91,7 @@ export const DEFAULT_SETTINGS: Readonly<SaleSettings> = Object.freeze({
 
 const SETTING_KEYS = Object.freeze(Object.keys(DEFAULT_SETTINGS) as SettingKey[])
 /** 기본값이 없는 칸 — 적었을 때만 스냅샷에 들어간다(적지 않으면 아니요로 읽는다). 옛 방송의 재생 상태가 달라지지 않게 (D-RETRO-02, D-072) */
-const OPTIONAL_SETTING_KEYS = Object.freeze(['thanks.followEdits'] as const satisfies readonly SettingKey[])
+const OPTIONAL_SETTING_KEYS = Object.freeze(['thanks.followEdits', 'claim.paused'] as const satisfies readonly SettingKey[])
 
 /**
  * 기본값 위에 덮어쓴 새 설정 객체를 돌려준다. 넘긴 객체는 바꾸지 않는다.
@@ -152,6 +159,7 @@ const SETTING_RULES: Readonly<Record<SettingKey, SettingRule>> = {
   'thanks.videoComment': choice('OFF', 'PER_SALE', 'SUMMARY'),
   'thanks.batchWindowSec': int(0, 600),
   'thanks.followEdits': YES_NO,
+  'claim.paused': YES_NO,
 }
 
 /** 세 자리마다 쉼표 (실행 환경의 언어 설정과 무관하게) */

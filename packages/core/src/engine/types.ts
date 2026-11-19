@@ -121,6 +121,16 @@ export interface BroadcastPendingExpireEvent extends EventBase {
   readonly expire: boolean
 }
 
+/**
+ * 방송 중 채팅·상품 인식 잠깐 멈춤 켜기·끄기 (D-PAUSE-01): 그 방송의 설정 스냅샷에서 claim.paused만 바꾼다. 그 뒤 받는 채팅부터 따른다 —
+ * 이미 만든 찜·이미 받은 메시지는 그대로. 값이 지금과 같으면 아무 일도 없다. 끈 방송은 스냅샷에 claim.paused: false가 남는다
+ */
+export interface BroadcastPauseEvent extends EventBase {
+  readonly type: 'broadcast.pause'
+  readonly b: string
+  readonly paused: boolean
+}
+
 export interface ProductRegisterEvent extends EventBase {
   readonly type: 'product.register'
   readonly b: string
@@ -447,6 +457,7 @@ export type EngineEvent =
   | BroadcastEndEvent
   | BroadcastThanksEvent
   | BroadcastPendingExpireEvent
+  | BroadcastPauseEvent
   | ProductRegisterEvent
   | ProductCommandEvent
   | ProductUpdateEvent

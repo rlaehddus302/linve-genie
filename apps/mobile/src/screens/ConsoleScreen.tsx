@@ -32,6 +32,7 @@ import { FAB_SIZE, FLOAT_PILL_GAP, FLOAT_PILL_HEIGHT, pillBottom } from './conso
 import { ConsoleContext, type ConsoleApi } from './console/context.ts'
 import { useConsoleSignals, useScopeCommand, useScopeStore, type ConsoleSignal } from './console/scope.tsx'
 import { ConsoleManage, MANAGE_LABEL } from './console/Manage.tsx'
+import { PausedNotice } from './console/Pause.tsx'
 import { ProductList, ProductToolbar, shownProducts, type RowNode } from './console/ProductBoard.tsx'
 import { DEFAULT_PRODUCT_SORT, type ProductSort } from '../lib/product-sort.ts'
 import { feedRows } from './console/feed-rows.ts'
@@ -691,6 +692,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           {/* 알림이 하나도 없으면 줄 사이(gap)를 위로 지운다 — 탭 바와 목록 사이가 옛과 같게 */}
           <View testID="console-notices" onLayout={(event) => { const shown = event.nativeEvent.layout.height > 0; setNoticesShown((was) => (was === shown ? was : shown)) }} style={{ gap: SPACE.sm, marginTop: noticesShown ? 0 : -SPACE.sm }}>
             {help !== null ? <Txt step="caption" color="textSub">{help}</Txt> : null}
+            {/* 채팅·상품 인식 잠깐 멈춤 중 (D-PAUSE-01) — 노란 줄 + [다시 받기] */}
+            <PausedNotice broadcastId={broadcastId} seller={seller} closed={closed} />
             <AwayLine />
             {/* 라벨 탭: [대기 중인 라벨 모두 출력하기] (D-PRINTALL-01 — 옛 라이브 관리 "대기 n장 지금 뽑기") */}
             {shownTab === 'labels' ? <PrintAllWaiting /> : null}

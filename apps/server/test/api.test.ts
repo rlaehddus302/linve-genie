@@ -100,8 +100,9 @@ describe('AC-S04-51 이벤트 쓰기 API', () => {
     expect(types).toContain('host.resolveReview')
     expect(types).toContain('host.dismissReview')
     // D-YT-SRV-24: 방송 중 감사 켜기·끄기 broadcast.thanks를 방송 메뉴에서 보낸다 — 종류 하나 추가 (+1)
-    expect(types.filter((type) => type.startsWith('broadcast.'))).toEqual(['broadcast.thanks'])
-    expect(types).toHaveLength(9 + 14 + 4 + 2 + 1 + 1)
+    // D-PAUSE-01: 방송 중 채팅·상품 인식 잠깐 멈춤 broadcast.pause를 라이브 관리 화면에서 보낸다 — 종류 하나 추가 (+1)
+    expect(types.filter((type) => type.startsWith('broadcast.'))).toEqual(['broadcast.thanks', 'broadcast.pause'])
+    expect(types).toHaveLength(9 + 14 + 4 + 2 + 1 + 2)
     for (const type of types) expect(EVENT_TYPES).toContain(type)
     // D-RETRO-85: broadcast.pendingExpire(D-PEND-01)는 서버가 상품 공개 이벤트 앞에 스스로 덧붙이는 종류다(writer.ts withPendingKept) — 화면이 보내는 종류가 아니다.
     // D-PEND-01이 엔진에 종류를 더하며 이 목록을 고치지 않아 깨져 있던 것을 스펙(R-5 "방송 중에는 broadcast.pendingExpire로")대로 바로잡는다

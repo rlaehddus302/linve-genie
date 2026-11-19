@@ -25,6 +25,7 @@
 | `claim.ignoreOwner` | 방송자 본인 채팅 무시 | 예/아니오 | 예 |
 | `claim.preOpenWindowSec` | 공개 전 찜 유효 시간 | 초 | `30` |
 | `claim.preOpenExpire` | 공개 순간 유효 시간보다 오래된 보류 찜을 만료하나 (D-PEND-01) | 예/아니요 | `예`(엔진 — 옛 방송 재생 호환). 운영 판매자 기본값은 `아니요` |
+| `claim.paused` | 채팅·상품 인식 잠깐 멈춤 (D-PAUSE-01) — 방송 중에만 `broadcast.pause`로 켜고 끈다. 판매자 기본값·방송 시작 설정으로는 쓰지 않는다(서버가 막는다) | 예/아니요 | 없음(적지 않으면 `아니요` — 켠 적 없는 방송의 스냅샷에는 이 칸이 없다, D-072) |
 | `waitlist.max` | 대기 인원 한도 (0=대기 없음) | 정수 | `5` |
 | `cancel.buyerChat` | 시청자 채팅 취소 | `OFF` / `REQUEST` / `AUTO` | `REQUEST` |
 | `cancel.succession` | 1등 취소 시 (`ASK`는 엔진만 안다 — 판매자 설정으로는 고를 수 없고 저장된 값은 `AUTO`로 읽는다, D-SUCCESSION-01) | `AUTO` / `ASK` / `REOPEN` | `AUTO` |
@@ -69,6 +70,7 @@
 | `broadcast.start` | 방송 ID, 날짜, 회차(제목), 설정 스냅샷(선택 — 기본값 위에 덮어쓴 값, 아래 "방송 시작·종료") |
 | `broadcast.end` | 방송 ID |
 | `broadcast.thanks` | 방송 ID, 감사 채팅 켜기(참·거짓) |
+| `broadcast.pause` | 방송 ID, 잠깐 멈춤 켜기(참·거짓) (D-PAUSE-01) |
 | `product.register` | 번호, 품종, 가격(확인 중 칸 `tentative`이 있을 때만 생략 가능 — R-2 "가격 없는 확인 중", D-RECOG-22), 재고(기본 1), 상태(`OPEN` 기본 / `READY`), 확인 중 칸 `tentative`(선택 — R-2 "확인 중", D-RETRO-80), 개수 `pieces`(선택, 1~99 — 묶음 포기 수, 표시만, 1이면 기록하지 않음, D-PIECES-01) |
 | `product.open` / `product.hold` / `product.close` | 번호 |
 | `product.confirm` | 번호, 최종 번호 `to`(선택), 최종 품종 `name`(선택), 최종 가격 `price`(선택), 개수 `pieces`(선택, D-PIECES-01) — 확인 중 상품의 확정 (R-2 "확인 중") |
@@ -109,7 +111,8 @@
 - 설정 스냅샷은 DOMAIN_RULES 기본값 위에 덮어쓴 값이고, 키·값은 "설정값 범위" 안이어야 한다(밖이면 입력 오류). `settlement.groupBy=MANUAL`이면 미구현(`NotImplementedError`, D-059)이고 상태는 바뀌지 않는다.
 - 서버는 빈 엔진에서 시작해 모든 방송을 `broadcast.start`로 선언하고, 스냅샷에는 **모든** 설정 키를 적는다 — 나중에 기본값이 바뀌어도 같은 로그를 재생하면 같은 결과가 나오게(NFR-02, INV-4).
 - `broadcast.end`는 그 방송이 끝났다는 기록(끝난 시각 = 그 이벤트의 `at`)만 남긴다. 판정·정산은 바뀌지 않는다 — 끝난 뒤 도착한 채팅(끝나기 전에 게시된 것), 늦게 입력한 문자찜, 방송자 조치, 정산 기록도 평소대로 처리한다. 이미 끝난 방송의 `broadcast.end`는 아무 일도 없다. 끝난 방송을 다시 여는 이벤트는 없다.
-- `broadcast.thanks`는 방송 중에 그 방송 설정의 `thanks.liveChat`만 바꾼다(D-YT-SRV-24). 그 뒤 확정부터 따르고 이미 낸 감사 효과는 그대로 둔다. 지금과 같은 값이면 아무 일도 없다. 다른 설정은 방송 중에 바꾸지 않는다.
+- `broadcast.thanks`는 방송 중에 그 방송 설정의 `thanks.liveChat`만 바꾼다(D-YT-SRV-24). 그 뒤 확정부터 따르고 이미 낸 감사 효과는 그대로 둔다. 지금과 같은 값이면 아무 일도 없다. 다른 설정은 방송 중에 바꾸지 않는다(아래 `broadcast.pause`·`broadcast.pendingExpire`는 예외).
+- `broadcast.pause`는 방송 중에 그 방송 설정의 `claim.paused`만 바꾼다(D-PAUSE-01). 같은 값이면 아무 일도 없다(켠 적 없는 방송에 끄기 포함). 그 뒤 받는 `chat`부터 따른다: 멈춤이면 R-11 구매자 기록·닉네임 갱신까지만 하고 메시지를 주문도 취소도 아니었던 메시지로 기록한다 — 찜·취소·확인 필요 항목을 만들지 않는다(R-7 4 메시지 변환으로 살릴 수 있다). 재수신·방송자 본인 메시지 판단은 멈춤보다 먼저다. `sms`·`product.*`·`host.*`는 엔진에서 멈춤과 상관없다(자동 입력을 막는 일은 서버가 한다 — SPEC ORD-01 AC4).
 
 **입력 오류와 맞지 않는 명령** (D-050 — 이전에는 모르는 이벤트 종류·형식이 틀린 이벤트를 조용히 무시해 `sms.claim`처럼 이름만 틀린 문자찜이 알림 없이 사라졌다)
 - **입력 오류**: 이 표에 없는 종류, 필수 필드가 없거나 값의 형식이 틀림(번호·금액·재고 범위, 열거값, 사유는 빈 문자열이 아닌 문자열, 문자 수신 시각 `HH:MM`·`HH:MM:SS`, 문자찜 `ref`·`phoneKey`·`phoneLast4` 형식, 방송 날짜 `YYYY-MM-DD`, 설정 스냅샷의 키·값·범위), 표에 없는 필드(모든 종류 — `type`·`seq`·`at`과 그 종류의 필드 밖, D-073), 함께 와야 하는 필드가 한쪽만 옴(`host.assign`의 `replace`·`replaceTo` — D-065, `sms`의 `phoneKey`·`phoneLast4`), `sms`에 전화번호 원문 필드 `phone`이 있음(D-061), 선언하지 않은 방송, `seq`·`at`이 수가 아님. 엔진(`applyEvent`)은 상태를 바꾸지 않고 입력 오류(`NotImplementedError`와 다른 오류 하나)를 던진다. 같은 검사에 아래 "판매자가 적는 칸의 휴대폰 번호" 검사를 더한 순수 함수 `checkEvent`를 코어가 내보내고, 서버는 기록하기 전에 그 함수로 걸러 로그에 쓰지 않는다. 아직 지원하지 않는 종류(아래)도 기록하지 않는다(D-072).

@@ -9,6 +9,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { describe, expect, it } from 'vitest'
 import { SessionProvider } from '../src/services.tsx'
 import { ConsoleScreen, LINK_TITLE, THANKS_TITLE } from '../src/screens/ConsoleScreen.tsx'
+import { PAUSED_LINE, PAUSE_TITLE, RESUME_LABEL } from '../src/screens/console/Pause.tsx'
 import { END_LINK_LABEL } from '../src/screens/console/EndBroadcast.tsx'
 import { ASK_ADD, ASK_NAME, ASK_NO, ASK_PIECES, ASK_PRICE } from '../src/screens/console/ProductAdd.tsx'
 import { DOCK_STATE } from '../src/screens/console/StreamAudio.tsx'
@@ -732,6 +733,28 @@ describe('ConsoleScreen', () => {
     expect(await screen.findByRole('switch', { name: `${THANKS_TITLE} — 켜짐` })).toBeTruthy()
     expect(screen.queryByText(/감사 채팅을 켰어요/)).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  // D-PAUSE-01 (사용자 요청 2026-11-20 "상품 인식과 채팅 수집 일시 중지 … 온오프 하듯이"): 라이브 관리 스위치로 멈추고, 멈춘 동안 탭 바 밑 노란 줄의 [다시 받기] 한 번으로 다시 받는다
+  it('라이브 관리의 잠깐 멈춤 스위치를 켜면 broadcast.pause(켬)가 가고, 라이브 화면에 멈춤 줄이 보이며 [다시 받기]로 끈다', async () => {
+    const world = makeWorld({ products: [product(15)] })
+    await open(world)
+    expect(screen.queryByTestId('paused-notice')).toBeNull()
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=5/, () => ({ body: changes(5, 6, { broadcasts: [{ ...BROADCAST_VIEW, settings: { ...SETTINGS, 'claim.paused': true } }] }) }))
+    world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=6/, () => ({ body: changes(6, 7, { broadcasts: [{ ...BROADCAST_VIEW, settings: { ...SETTINGS, 'claim.paused': false } }] }) }))
+    openMenu()
+    fireEvent.click(await screen.findByRole('switch', { name: `${PAUSE_TITLE} — 꺼짐` }))
+    await waitFor(() => expect(world.events.some((call) => call.body?.type === 'broadcast.pause')).toBe(true))
+    expect(world.events.find((call) => call.body?.type === 'broadcast.pause')?.body).toMatchObject({ type: 'broadcast.pause', b: 'b1', paused: true })
+    expect(await screen.findByRole('switch', { name: `${PAUSE_TITLE} — 켜짐` })).toBeTruthy()
+    const page = await screen.findByRole('dialog', { name: '라이브 관리' })
+    fireEvent.click(within(page).getByRole('button', { name: '뒤로' }))
+    const notice = await screen.findByTestId('paused-notice')
+    expect(notice.textContent).toContain(PAUSED_LINE)
+    fireEvent.click(within(notice).getByRole('button', { name: RESUME_LABEL }))
+    await waitFor(() => expect(world.events.filter((call) => call.body?.type === 'broadcast.pause')).toHaveLength(2))
+    expect(world.events.filter((call) => call.body?.type === 'broadcast.pause')[1]?.body).toMatchObject({ paused: false })
+    await waitFor(() => expect(screen.queryByTestId('paused-notice')).toBeNull())
   })
 
   // 옛 시험: "직접 넣기 예시는 그 방송 가격 단위와 같은 꼴" — 빠른 입력 한 줄을 없앴다(D-UX4-31). 가격 단위와 상관없는 원문 "원"은 (+) 상품 추가 시험이 본다.

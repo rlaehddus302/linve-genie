@@ -1,4 +1,5 @@
 import { statementFile } from './statement-file.ts'
+import { PAUSED_MESSAGE, isPausedBroadcast } from './pause.ts'
 import { groupOfBroadcast, mergeBroadcasts, readGroups, splitGroup, type BroadcastGroup, type MergeResult, type SplitResult } from './broadcast-groups.ts'
 import type { FullView as ClientFullView } from '../../web/src/api/types.ts'
 import { readQueue } from './print-store.ts'
@@ -430,6 +431,10 @@ export class Service {
     }
     if (own(record, 'settlement.groupBy') === 'MANUAL') {
       return { ok: false, rejection: rejection(400, 'NOT_SUPPORTED', '아직 지원하지 않는 설정이에요.', [{ field: 'settings.settlement.groupBy', message: '아직 지원하지 않아요.' }]) }
+    }
+    // 잠깐 멈춤(D-PAUSE-01)은 방송 중에만 라이브 화면에서 켜고 끈다 — 판매자 기본값으로 저장하면 새 방송이 멈춘 채 시작한다
+    if (Object.hasOwn(record, 'claim.paused')) {
+      return { ok: false, rejection: rejection(400, 'NOT_SUPPORTED', '고를 수 없는 설정이에요.', [{ field: 'settings.claim.paused', message: '잠깐 멈춤은 라이브 화면에서만 켜고 끌 수 있어요.' }]) }
     }
     const saved = await this.#options.db.transaction(async (tx) => {
       await tx.select({ id: sellers.id }).from(sellers).where(eq(sellers.id, sellerId)).for('update')
@@ -1123,6 +1128,8 @@ export class Service {
       guard: async (tx, runtime) => {
         const refused = outerGuard === undefined ? null : await outerGuard(tx, runtime)
         if (refused !== null) return refused
+        // 잠깐 멈춤 (D-PAUSE-01): 음성·화면 일꾼이 읽은 상품 등록·고침은 멈춘 방송에 넣지 않는다(실패 줄로 남는다). 판매자의 손 입력은 막지 않는다
+        if (isPausedBroadcast(runtime.state, fields['b'])) return rejection(409, 'PAUSED', PAUSED_MESSAGE)
         planned.plans = planVoiceLog(runtime.state, fields, undo)
         // 음성 번호 옮기기(되돌리기 포함): 옮길 상품에 살아 있는 찜이 있으면 옮기지 않는다 (R-24, RA-V3-001 — R-10 번호 바꾸기는 그 찜을 RENUMBERED로 끝낸다).
         // 같은 범위 락 안의 지금 상태로 본다. 거절하면 트랜잭션이 롤백되고 아래에서 실패 줄을 남긴다
