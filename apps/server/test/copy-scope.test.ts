@@ -1,7 +1,9 @@
 // D-IDLOGIN-03 하루 라이브 기록을 다른 가게로 복사 (사용자 2026-11-20 "db에서 지금까지 모든 방송 이력 보고 두 계정에 적절하게 나눠서 넣어")
+import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { checkReplay } from '../src/check-replay.ts'
 import { copyScope } from '../src/copy-scope.ts'
+import { scopes, tiktokLinks, youtubeLinks } from '../src/db/schema.ts'
 import { addSeller, client, createBroadcast, expectOk, newWorld, rid, writeEvent, type Seller, type TestServer } from './support.ts'
 
 async function chat(world: TestServer, seller: Seller, b: { id: string; date: string }, id: string, nick: string, text: string) {
@@ -28,6 +30,11 @@ describe('D-IDLOGIN-03 하루 라이브 기록 복사', () => {
     await chat(world, from, b, 'm1', '손님하나', '12')
     await chat(world, from, b, 'm2', '손님둘', '안녕하세요')
     await expectOk(client(world, from.cookie).post(`/api/broadcasts/${b.id}/end`, { requestId: rid('end') }))
+    // 지난 라이브 목록의 플랫폼·채널 이름 — 유튜브는 아직 끊지 않은 잇기, 틱톡은 이어진 상태로 남은 기록
+    const [scope] = await world.database.db.select({ id: scopes.id }).from(scopes).where(and(eq(scopes.sellerId, from.sellerId), eq(scopes.date, b.date)))
+    const at = new Date('2026-10-19T03:00:00Z')
+    await world.database.db.insert(youtubeLinks).values({ id: rid(), sellerId: from.sellerId, scopeId: scope!.id, broadcastId: b.id, videoId: 'abc', liveChatId: 'chat', broadcastChannelTitle: '보스삼촌', linkedAt: at })
+    await world.database.db.insert(tiktokLinks).values({ sellerId: from.sellerId, scopeId: scope!.id, broadcastId: b.id, state: 'LINKED', tiktokId: 'bossuncle', linkedAt: at, startedAt: at, createdAt: at })
     const beforeFrom = await client(world, from.cookie).get(`/api/days/${b.date}`)
 
     const preview = await copyScope(world.database.db, { fromSellerId: from.sellerId, toSellerId: to.sellerId, date: b.date }, { apply: false })
@@ -40,7 +47,12 @@ describe('D-IDLOGIN-03 하루 라이브 기록 복사', () => {
     const newId = done.broadcasts[0]?.to ?? ''
     expect(newId).not.toBe(b.id)
     const list = (await client(world, to.cookie).get('/api/broadcasts')).body.broadcasts as { id: string; ended: boolean; title: string }[]
-    expect(list).toEqual([expect.objectContaining({ id: newId, ended: true, title: '보스삼촌 라이브' })])
+    expect(list).toEqual([expect.objectContaining({ id: newId, ended: true, title: '보스삼촌 라이브', platforms: ['youtube', 'tiktok'], channelName: '보스삼촌' })])
+    // 복사한 잇기는 늘 끊은 것 — 복사본에서 채팅 받기가 다시 시작되지 않는다
+    const copiedYoutube = await world.database.db.select().from(youtubeLinks).where(eq(youtubeLinks.sellerId, to.sellerId))
+    expect(copiedYoutube.map((row) => [row.broadcastId, row.unlinkedAt !== null])).toEqual([[newId, true]])
+    const copiedTiktok = await world.database.db.select().from(tiktokLinks).where(eq(tiktokLinks.sellerId, to.sellerId))
+    expect(copiedTiktok.map((row) => [row.broadcastId, row.state, row.unlinkedAt !== null])).toEqual([[newId, 'UNLINKED', true]])
     const day = await client(world, to.cookie).get(`/api/days/${b.date}`)
     expect(day.status).toBe(200)
     expect(day.body.products).toEqual(JSON.parse(JSON.stringify(beforeFrom.body.products).split(b.id).join(newId)))

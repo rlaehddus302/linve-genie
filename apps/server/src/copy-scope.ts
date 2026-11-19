@@ -4,12 +4,13 @@
 // - 원래 가게의 기록은 그대로 둔다(복사 — 지우지 않는다).
 // - 범위·방송 ID는 새로 만들고, 이벤트 본문의 방송 ID를 새 ID로 바꾼 뒤 요약값을 다시 계산한다. 요청 번호·문자 ref는 겹치지 않게 앞에 copy-를 붙인다.
 // - 이벤트를 손으로 쓴 계정은 다른 가게 계정이라 비운다. 발송함은 다시 만든 것으로만(restored — 라벨·감사 메시지를 다시 내지 않는다, 유튜브에 아무것도 쓰지 않는다).
+// - 지난 라이브 목록의 플랫폼·채널 이름을 위해 유튜브·틱톡 잇기 기록도 복사하되, 늘 끊은 것으로 넣는다(복사본에서 채팅 받기가 다시 시작되지 않는다).
 // - 넣은 뒤 재생 무결성 검사로 확인한다. 하나라도 어긋나면 트랜잭션을 되돌린다.
 import { applyEvent, type EngineEvent, type EngineState } from '@livejjim/core'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 import { checkReplay, type ScopeCheck } from './check-replay.ts'
 import type { Db } from './db/database.ts'
-import { broadcasts, chatRaw, events, outbox, scopes } from './db/schema.ts'
+import { broadcasts, chatRaw, events, outbox, scopes, tiktokLinks, youtubeLinks } from './db/schema.ts'
 import { randomIds, type IdSource } from './ids.ts'
 import { emptyState } from './runtime.ts'
 import { mergeRaw } from './store.ts'
@@ -101,6 +102,40 @@ export async function copyScope(db: Db, input: CopyScopeInput, options: { readon
       }
       for (const row of sourceBroadcasts) {
         await tx.insert(broadcasts).values({ ...row, id: idMap.get(row.id) ?? row.id, sellerId: input.toSellerId, scopeId })
+      }
+      const sourceIds = [...idMap.keys()]
+      if (sourceIds.length > 0) {
+        const youtube = await tx.select().from(youtubeLinks).where(and(eq(youtubeLinks.sellerId, input.fromSellerId), inArray(youtubeLinks.broadcastId, sourceIds)))
+        for (const row of youtube) {
+          await tx.insert(youtubeLinks).values({
+            ...row,
+            id: `copy-${row.id}-${scopeId}`,
+            sellerId: input.toSellerId,
+            scopeId,
+            broadcastId: idMap.get(row.broadcastId) ?? row.broadcastId,
+            requestId: null,
+            linkedBy: null,
+            unlinkedBy: null,
+            unlinkedAt: row.unlinkedAt ?? row.chatEndedAt ?? now,
+            chatEndedAt: row.chatEndedAt ?? row.unlinkedAt ?? now,
+          })
+        }
+        const tiktok = await tx.select().from(tiktokLinks).where(and(eq(tiktokLinks.sellerId, input.fromSellerId), inArray(tiktokLinks.broadcastId, sourceIds)))
+        for (const { id: _id, ...row } of tiktok) {
+          await tx.insert(tiktokLinks).values({
+            ...row,
+            sellerId: input.toSellerId,
+            scopeId,
+            broadcastId: idMap.get(row.broadcastId) ?? row.broadcastId,
+            state: 'UNLINKED',
+            actorAccountId: null,
+            unlinkedBy: null,
+            endedAt: row.endedAt ?? row.unlinkedAt ?? now,
+            unlinkedAt: row.unlinkedAt ?? row.endedAt ?? now,
+            extStatusAt: null,
+            extScreen: null,
+          })
+        }
       }
       const [check] = await checkReplay(tx as unknown as Db, { sellerId: input.toSellerId, date: source.date, rehearsal: false })
       if (check === undefined || !check.ok) throw new Rollback(check ?? ({ ok: false } as ScopeCheck))
