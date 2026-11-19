@@ -1,6 +1,7 @@
 // 판매자·계정 만들기 (AC-S04-32·40, D-073, D-074). 가입 API는 없다 — 운영자가 명령(commands/create-account.ts)으로 만든다.
 // 판매자를 만들 때 32바이트 무작위 전화번호 키를 만들어 마스터 키로 암호화해 저장한다(평문 키는 DB·로그·응답에 없다).
 // N5: 선택 항목 사업자등록번호(G-BIL bizno로 읽는다 — 틀리면 계정을 만들지 않는다). 번호만 암호화해 사업자 정보에 두고, 상호·대표자는 화면에서 적는다(AC-N5-12).
+import { eq } from 'drizzle-orm'
 import type { Db } from './db/database.ts'
 import { BILLING_MESSAGES, sealedBusinessNumber } from './billing/service.ts'
 import { ISSUED_RECEIPT_KIND } from './billing/documents.ts'
@@ -73,6 +74,26 @@ export async function createSellerAccount(db: Db, masterKey: Buffer, input: NewA
     }
   })
   return { ok: true, sellerId, accountId, loginId }
+}
+
+/**
+ * 있는 가게에 아이디·비밀번호 로그인을 하나 더 붙인다 (D-IDLOGIN-02, 사용자 2026-11-20 "테스트 계정 2개 만들어. 하나는 비트다육, 하나는 보스다육으로"):
+ * 여러 사람이 한 가게로 휴대폰 인증 없이 들어가 같은 라이브·찜·문자·입금을 본다. 가게·기록은 바꾸지 않는다
+ */
+export async function addLoginToSeller(db: Db, input: { readonly sellerId: string; readonly loginId: string; readonly password: string }, options: CreateAccountOptions = {}): Promise<CreateAccountResult> {
+  const loginId = normalizeLoginId(input.loginId)
+  if (!LOGIN_ID_RE.test(loginId)) return { ok: false, message: "아이디는 영문 소문자로 시작하는 3~32자(영문 소문자·숫자·'_'·'.'·'-')로 적어 주세요." }
+  if (input.password.length < PASSWORD_MIN || input.password.length > PASSWORD_MAX) {
+    return { ok: false, message: `비밀번호는 ${String(PASSWORD_MIN)}자 이상 ${String(PASSWORD_MAX)}자 이하로 적어 주세요.` }
+  }
+  const seller = await db.select({ id: sellers.id }).from(sellers).where(eq(sellers.id, input.sellerId)).limit(1)
+  if (seller.length === 0) return { ok: false, message: '그 가게를 찾지 못했어요.' }
+  if (await loginIdTaken(db, loginId)) return { ok: false, message: '이미 있는 아이디예요.' }
+  const accountId = (options.ids ?? randomIds).account()
+  const now = new Date((options.clock ?? systemClock).now())
+  const passwordHash = await hashPassword(input.password, options.passwordCost ?? DEFAULT_PASSWORD_COST)
+  await db.insert(accounts).values({ id: accountId, sellerId: input.sellerId, loginId, passwordHash, createdAt: now })
+  return { ok: true, sellerId: input.sellerId, accountId, loginId }
 }
 
 // ── 판매자가 화면에서 정하는 이름 (가게 이름 AC-I3-47 · 보조자 이름 AC-I3-60) ──────────────

@@ -1,7 +1,7 @@
 // AC-S04-40 로그인·세션, AC-S04-41 요청 보호(CSRF·CORS), AC-S04-42 판매자 격리
 import type { PGlite } from '@electric-sql/pglite'
 import { describe, expect, it } from 'vitest'
-import { createSellerAccount } from '../src/accounts.ts'
+import { addLoginToSeller, createSellerAccount } from '../src/accounts.ts'
 import { Auth, LOCK_AFTER_FAILURES, LOCK_MS, SESSION_EXTEND_AFTER_MS, SESSION_TTL_MS } from '../src/auth.ts'
 import type { Db } from '../src/db/database.ts'
 import type { LogRecord } from '../src/log.ts'
@@ -10,6 +10,29 @@ import { FAST_COST, ORIGIN, addSeller, client, countRows, createBroadcast, dumpA
 
 const loginRequest = (world: TestServer, loginId: string, password: string) =>
   world.server.app.request('/api/login', { method: 'POST', headers: { Origin: ORIGIN, 'Content-Type': 'application/json' }, body: JSON.stringify({ loginId, password }) })
+
+describe('D-IDLOGIN-02 있는 가게에 아이디 로그인 더 붙이기 (사용자 2026-11-20 "테스트 계정 2개 만들어. 하나는 비트다육, 하나는 보스다육으로")', () => {
+  it('두 아이디로 들어가도 같은 가게·같은 라이브를 본다. 없는 가게·겹친 아이디는 거절', async () => {
+    const world = await newWorld()
+    const key = Buffer.from(world.masterKey, 'base64')
+    const shop = await createSellerAccount(world.database.db, key, { shopName: '비트다육', loginId: 'owner1', password: 'plain-secret-9' }, { passwordCost: FAST_COST })
+    if (!shop.ok) throw new Error('가게를 못 만들었다')
+    const added = await addLoginToSeller(world.database.db, { sellerId: shop.sellerId, loginId: 'Bit.Test', password: 'plain-secret-8' }, { passwordCost: FAST_COST })
+    expect(added).toMatchObject({ ok: true, sellerId: shop.sellerId, loginId: 'bit.test' })
+    expect(await addLoginToSeller(world.database.db, { sellerId: shop.sellerId, loginId: 'owner1', password: 'plain-secret-8' }, { passwordCost: FAST_COST })).toEqual({ ok: false, message: '이미 있는 아이디예요.' })
+    expect(await addLoginToSeller(world.database.db, { sellerId: 'sel_none', loginId: 'nobody', password: 'plain-secret-8' }, { passwordCost: FAST_COST })).toEqual({ ok: false, message: '그 가게를 찾지 못했어요.' })
+
+    const first = await loginRequest(world, 'owner1', 'plain-secret-9')
+    const second = await loginRequest(world, 'bit.test', 'plain-secret-8')
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    const cookieOf = (response: Response) => (response.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+    const b = await createBroadcast(world, { cookie: cookieOf(first) } as Parameters<typeof createBroadcast>[1])
+    const seen = await client(world, cookieOf(second)).get('/api/broadcasts')
+    expect((seen.body.broadcasts as { id: string }[]).map((one) => one.id)).toContain(b.id)
+    expect(((await client(world, cookieOf(second)).get('/api/me')).body.seller as { name: string }).name).toBe('비트다육')
+  })
+})
 
 describe('AC-S04-40 계정 만들기', () => {
   it('판매자·아이디·비밀번호로 만들고 비밀번호는 scrypt 해시로만 저장한다. 가입 API는 없다', async () => {
