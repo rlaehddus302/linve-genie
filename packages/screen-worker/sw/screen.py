@@ -1,10 +1,12 @@
 # 화면 1초 1장 → 번호 후보 → 화면 구간 (scratchpad num/ocr_dir.py + fuse2.py의 이미지 규칙을 실시간용으로 옮김, 숫자 그대로)
-#  - 읽기: Apple Vision OCR 두 번(전체 화면, 가운데 8~88%를 2배 키운 화면). 숫자가 든 글자만 남긴다.
+#  - 읽기: 글자 읽기 엔진(OCR_BACKEND: Apple Vision 또는 RapidOCR) 두 번(전체 화면, 가운데 8~88%를 2배 키운 화면). 숫자가 든 글자만 남긴다.
 #  - 번호: "123", "123.", "123번" 모양만, 확신도 0.5 이상.
 #  - 배경 숫자: 같은 번호가 같은 자리(8% 칸)에 100번 넘게, 20분 넘게 보이면 배경(전화번호·선반 표 등)으로 보고 뺀다.
 #  - 대표 번호: 남은 번호 중 글자가 가장 큰 것. 최근 5초 중 2번 이상이면 현재 번호, 12초 동안 아무 번호도 없으면 모름.
 import collections
+import os
 import re
+import sys
 
 NUM = re.compile(r"^(\d{1,3})[.번]?$")
 STABLE, WIN, EXPIRE = 2, 5, 12
@@ -12,9 +14,44 @@ STATIC_N, STATIC_SPAN = 100, 1200
 CO_SIZE, CO_MIN = 0.6, 5   # 같이 보인 번호표: 대표 글자 크기의 60% 이상, 5번 넘게 읽힘
 
 
+# 글자 읽기 엔진(D-SCR-OCR-01): vision = Apple Vision(맥에서만) · rapid = RapidOCR(PP-OCRv6, onnxruntime — 리눅스·GPU 서버에서도 돈다).
+#   OCR_BACKEND를 안 주면 맥은 vision, 그 밖은 rapid. 11-12 방송 60번호 600장: 3장 넘게 읽은 번호 vision 32 · rapid 39, 장당 132ms · 175ms(맥 CPU)
+OCR_BACKEND = os.environ.get("OCR_BACKEND") or ("vision" if sys.platform == "darwin" else "rapid")
+_RAPID = None
+
+
+def _read_vision(img):
+    """Apple Vision → [(글자, 확신도, x, y(위쪽 원점), w, h)] (0~1)"""
+    from ocrmac import ocrmac
+
+    return [(txt, conf, x, 1 - (y + h), w, h)
+            for txt, conf, (x, y, w, h) in ocrmac.OCR(img, recognition_level="accurate", language_preference=["ko-KR", "en-US"]).recognize()]
+
+
+def _read_rapid(img):
+    """RapidOCR → 같은 모양. 엔진은 프로세스마다 한 번만 만든다"""
+    global _RAPID
+    import numpy as np
+
+    if _RAPID is None:
+        from rapidocr import RapidOCR
+
+        _RAPID = RapidOCR()
+    W, H = img.size
+    r = _RAPID(np.asarray(img.convert("RGB"))[:, :, ::-1])   # BGR
+    out = []
+    for box, txt, score in zip(r.boxes if r.boxes is not None else [], r.txts or [], r.scores or []):
+        xs, ys = [p[0] for p in box], [p[1] for p in box]
+        out.append((txt, float(score), min(xs) / W, min(ys) / H, (max(xs) - min(xs)) / W, (max(ys) - min(ys)) / H))
+    return out
+
+
+def _read(img):
+    return _read_rapid(img) if OCR_BACKEND == "rapid" else _read_vision(img)
+
+
 def ocr_frame(path):
     """한 장 → [(번호, x, y, w, h)] (위쪽 원점, 0~1). 다른 프로세스에서 부른다"""
-    from ocrmac import ocrmac
     from PIL import Image
 
     img = Image.open(path)
@@ -22,18 +59,18 @@ def ocr_frame(path):
     W, H = img.size
     out = []
     # 전체 화면
-    for txt, conf, (x, y, w, h) in ocrmac.OCR(img, recognition_level="accurate", language_preference=["ko-KR", "en-US"]).recognize():
+    for txt, conf, x, y, w, h in _read(img):
         m = NUM.match(txt.strip())
         if m and conf >= 0.5:
-            out.append((int(m.group(1)), round(x, 3), round(1 - (y + h), 3), round(w, 3), round(h, 3)))
+            out.append((int(m.group(1)), round(x, 3), round(y, 3), round(w, 3), round(h, 3)))
     # 가운데를 잘라 2배: 작은 번호표 글자를 키운다
     top, bot = int(H * 0.08), int(H * 0.88)
     crop = img.crop((0, top, W, bot)).resize((W * 2, (bot - top) * 2), Image.LANCZOS)
     oy, sh = top / H, (bot - top) / H
-    for txt, conf, (x, y, w, h) in ocrmac.OCR(crop, recognition_level="accurate", language_preference=["ko-KR", "en-US"]).recognize():
+    for txt, conf, x, y, w, h in _read(crop):
         m = NUM.match(txt.strip())
         if m and conf >= 0.5:
-            out.append((int(m.group(1)), round(x, 3), round(oy + (1 - (y + h)) * sh, 3), round(w, 3), round(h * sh, 3)))
+            out.append((int(m.group(1)), round(x, 3), round(oy + y * sh, 3), round(w, 3), round(h * sh, 3)))
     return out
 
 
