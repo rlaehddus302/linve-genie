@@ -137,16 +137,58 @@ describe('AC-SMS3-22 외부 키', () => {
     expect(await list(world, seller, 'AUTO_APPLIED')).toHaveLength(1)
   })
 
-  // D-DEP2-13: 잔액 없는 믿을 입금은 BALANCE_GAP(먼저 보는 것) — 예전 시험은 첫째가 자동 확인되고 둘째가 POSSIBLE_DUPLICATE라고 기대했다
-  it('잔액 없는 같은 내용 알림 둘(다른 id) → 입금 둘, 둘 다 확인 필요 BALANCE_GAP, 자동으로 적지 않는다', async () => {
+  // D-DEP2-18: 은행 앱 알림은 잔액이 없어도 표시하지 않는다 — 첫째는 자동 확인, 같은 내용의 둘째는 DP-5 쌍둥이로 확인 필요.
+  // (D-DEP2-13 때는 둘 다 BALANCE_GAP을 기대했다 — 카카오뱅크·토스 앱 알림 입금이 늘 확인 필요로 남아 "입금 인식이 안 됨"의 원인)
+  it('잔액 없는 같은 내용 앱 알림 둘(다른 id) → 입금 둘, 첫째 자동 확인·둘째는 쌍둥이라 확인 필요', async () => {
     const { world, seller, token } = await soldToYounghee()
     world.clock.advance(5 * 60_000)
     await statuses(world, token, [app('k1', 'com.kakaobank.channel', '입금 14,000원', '김영희', '2026-10-31T20:05:00+09:00'), app('k2', 'com.kakaobank.channel', '입금 14,000원', '김영희', '2026-10-31T20:05:00+09:00')])
-    expect(await list(world, seller, 'AUTO_APPLIED')).toEqual([])
-    const all = await list(world, seller)
-    expect(all).toHaveLength(2)
-    expect(all.map((item) => item.review?.reason)).toEqual(['BALANCE_GAP', 'BALANCE_GAP'])
-    expect(await settlementEvents(world, seller, SMS3_DAY)).toEqual([])
+    expect(await list(world, seller, 'AUTO_APPLIED')).toHaveLength(1)
+    const review = await list(world, seller)
+    expect(review).toHaveLength(1)
+    expect(review[0]?.review?.reason).not.toBe('BALANCE_GAP')
+    expect(await settlementEvents(world, seller, SMS3_DAY)).toHaveLength(1)
+  })
+})
+
+describe('D-DEP2-18 은행 앱 알림 입금 (잔액이 없는 카카오뱅크·토스 알림)', () => {
+  it('카카오뱅크 앱 알림(잔액 없음, 앞선 잔액 없음) → 바로 자동 확인, 정산에 입금 완료', async () => {
+    const { world, seller, token, buyer } = await soldToYounghee()
+    expect(await statuses(world, token, [app('k', 'com.kakaobank.channel', '입금 14,000원', '김영희 → 내 입출금통장(1234)')])).toEqual(['SAVED'])
+    expect(await list(world, seller, 'AUTO_APPLIED')).toMatchObject([{ name: '김영희', amount: 14_000, source: { kind: 'PHONE' } }])
+    const state = (await world.server.writer.read(seller.sellerId, SMS3_DAY)).state
+    expect(getSettlement(state, buyer, SMS3_DAY)).toMatchObject({ payment: 'PAID' })
+  })
+
+  it('토스 문장 "…님이 …원을 입금하셨습니다" → 이름을 읽어 자동 확인', async () => {
+    const { world, seller, token } = await soldToYounghee()
+    expect(await statuses(world, token, [app('t', 'viva.republica.toss', null, '김영희님이 14,000원을 입금하셨습니다.')])).toEqual(['SAVED'])
+    expect(await list(world, seller, 'AUTO_APPLIED')).toHaveLength(1)
+  })
+
+  it('NH올원뱅크 앱도 믿는 은행 앱 — 자동 확인', async () => {
+    const { world, seller, token } = await soldToYounghee()
+    expect(await statuses(world, token, [app('n', 'com.nonghyup.nhallonebank', 'NH농협 입금', '14,000원 김영희')])).toEqual(['SAVED'])
+    expect(await list(world, seller, 'AUTO_APPLIED')).toHaveLength(1)
+  })
+
+  it('앱 알림이라도 잔액이 앞선 잔액과 이어지지 않으면 BALANCE_GAP (빠진 알림)', async () => {
+    const { world, seller, token } = await soldToYounghee()
+    await statuses(world, token, [app('w', 'com.shinhan.sbanking', null, '신한 10/31 20:01 출금 1,000 잔액 1,014,000')])
+    expect(await statuses(world, token, [app('d', 'com.shinhan.sbanking', '신한 10/31 20:05', '입금 14,000 잔액 1,030,000 김영희')])).toEqual(['SAVED'])
+    expect((await list(world, seller))[0]?.review?.reason).toBe('BALANCE_GAP')
+  })
+
+  it('잔액 없는 은행 문자(대표번호)는 그대로 BALANCE_GAP — 문자는 흉내 낼 수 있다', async () => {
+    const { world, seller, token } = await soldToYounghee()
+    expect(await statuses(world, token, [sms('s', SHINHAN, '신한10/31 20:05 입금 14,000 김영희')])).toEqual(['SAVED'])
+    expect((await list(world, seller))[0]?.review?.reason).toBe('BALANCE_GAP')
+  })
+
+  it('표 밖 앱(메신저 등)의 입금 모양 알림은 그대로 UNTRUSTED_SOURCE', async () => {
+    const { world, seller, token } = await soldToYounghee()
+    expect(await statuses(world, token, [app('x', 'com.example.fakebank', '입금 14,000원', '김영희')])).toEqual(['SAVED'])
+    expect((await list(world, seller))[0]?.review?.reason).toBe('UNTRUSTED_SOURCE')
   })
 })
 

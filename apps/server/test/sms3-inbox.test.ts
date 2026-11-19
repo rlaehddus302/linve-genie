@@ -10,7 +10,7 @@ import { SMS3_DAY, SMS3_T0, app, cards, claimsOf, inboxWorld, liveSale, makeToke
 
 /** DP-9 1 표의 대표번호 16개, 숫자만 (C-04 filters.bankNumbers, D-SMS3-26) */
 const BANK_NUMBERS = ['15889999', '16449999', '15999999', '15778000', '15998000', '15885000', '15995000', '15881111', '15991111', '16613000', '15882100', '15662566', '15882588', '15993333', '16617654', '15221000']
-const BANK_APPS = ['com.kbstar.kbbank', 'com.shinhan.sbanking', 'com.wooribank.smart.npib', 'com.kebhana.hanapush', 'nh.smart.banking', 'com.ibk.android.ionebank', 'com.kakaobank.channel', 'viva.republica.toss', 'com.kbankwith.smartbank']
+const BANK_APPS = ['com.kbstar.kbbank', 'com.shinhan.sbanking', 'com.wooribank.smart.npib', 'com.kebhana.hanapush', 'nh.smart.banking', 'com.nonghyup.nhallonebank', 'com.nh.cashcardapp', 'com.ibk.android.ionebank', 'com.kakaobank.channel', 'viva.republica.toss', 'com.kbankwith.smartbank', 'com.scbank.ma30', 'com.smg.spbs', 'com.epost.psf.sdsi'] // D-DEP2-18: NH 앱 둘·SC제일·새마을금고·우체국 더함
 
 const active = (status: string) => status === 'CONFIRMED' || status === 'WAITLISTED' || status === 'PENDING' || status === 'CONFLICT'
 

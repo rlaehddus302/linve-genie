@@ -1275,6 +1275,84 @@
         "bank": "KB",
         "trusted": true
       }
+    },
+    {
+      "id": "G-DEP-254",
+      "title": "KB 문자 — 거래 낱말 '전자금융입금' 토큰은 이름이 아님 (D-DEP2-18)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "'전자금융입금'은 '입금'이 들어 있어 이름 후보에서 버린다 → 홍길동 하나.",
+      "in": {
+        "channel": "SMS",
+        "from": "1588-9999",
+        "title": null,
+        "text": "[Web발신]\n[KB]11/20 14:23\n123456**789\n홍길동\n전자금융입금\n14,000\n잔액1,014,000",
+        "receivedAt": "2026-11-20T14:23:40+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KB",
+        "trusted": true,
+        "at": "2026-11-20T14:23:00+09:00",
+        "precision": "minute",
+        "amount": 14000,
+        "name": "홍길동",
+        "balance": 1014000
+      }
+    },
+    {
+      "id": "G-DEP-255",
+      "title": "앱 알림 문장 '…님이 …원을 입금하셨습니다' — 이름 하나 (D-DEP2-18)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "'입금하셨습니다'는 '입금'이 들어 있어 버린다. 금액은 입금 앞 '14,000원을'.",
+      "in": {
+        "channel": "APP",
+        "from": "com.kakaobank.channel",
+        "title": "카카오뱅크",
+        "text": "이수진님이 14,000원을 입금하셨습니다.",
+        "receivedAt": "2026-11-20T14:24:05+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "KAKAO",
+        "trusted": true,
+        "at": "2026-11-20T14:24:05+09:00",
+        "precision": "second",
+        "amount": 14000,
+        "name": "이수진",
+        "balance": null
+      }
+    },
+    {
+      "id": "G-DEP-256",
+      "title": "'타행이체' 토큰은 이름이 아님 (D-DEP2-18)",
+      "refs": [
+        "PAY-02",
+        "DP-9"
+      ],
+      "note": "'이체'로 끝나는 토큰은 버린다 → 박민수 하나.",
+      "in": {
+        "channel": "SMS",
+        "from": "1661-3000",
+        "title": null,
+        "text": "농협 입금14,000원 11/20 14:25 351-****-1234-56 타행이체 박민수 잔액1,042,000원",
+        "receivedAt": "2026-11-20T14:25:30+09:00"
+      },
+      "out": {
+        "kind": "DEPOSIT",
+        "bank": "NH",
+        "trusted": true,
+        "at": "2026-11-20T14:25:00+09:00",
+        "precision": "minute",
+        "amount": 14000,
+        "name": "박민수",
+        "balance": 1042000
+      }
     }
   ]
 }

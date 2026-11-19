@@ -491,7 +491,7 @@ export class InboxService {
   /** 은행 알림 (DP-9): 읽기는 순수 함수, 저장·맞추기는 입금 서비스 */
   async #notice(sellerId: string, message: InboxMessageInput, channel: 'SMS' | 'APP', title: string | null, text: string, receivedMs: number): Promise<InboxStatus> {
     const notice = readBankNotice({ channel, from: message.from, title, text, receivedAt: kstIso(receivedMs) })
-    return this.#deps.deposits.receiveNotice(sellerId, message.id, notice)
+    return this.#deps.deposits.receiveNotice(sellerId, message.id, notice, channel)
   }
 
   /** 손님 문자 (R-26) */

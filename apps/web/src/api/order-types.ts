@@ -25,6 +25,12 @@ export interface OrderRow {
   readonly firstClaimAt: string | null
   /** 아직 모르는 손님 정보 (D-UX4-126 — 목록에 빨간 "성함 · 휴대폰 번호 · 주소 모름"). 이 순서로, 다 알면 빈 목록 */
   readonly missing: readonly OrderInfoField[]
+  /** 받은 금액(원, D-ORDPAY-01 — 목록 줄 입금 체크) */
+  readonly received: number
+  /** 입금 상태 (PAID·OVERPAID면 목록에 체크) */
+  readonly payment: PaymentStatus
+  /** 봉인 날짜(30일 지남) — 목록에서 입금 체크를 적을 수 없다 */
+  readonly sealed: boolean
 }
 
 /** 손님 정보 칸 (주문 상세 위 세 줄 · 정보 입력 화면 단계) */

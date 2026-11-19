@@ -24,6 +24,9 @@ interface OrderRow {
   itemCount: number
   firstClaimAt: string | null
   missing: string[]
+  received: number
+  payment: string
+  sealed: boolean
 }
 interface OrdersView {
   today: string
@@ -99,8 +102,8 @@ describe('D-UX4-125 주문 목록', () => {
       [D1, 'UC_A'],
     ])
     const a2 = view.orders[1] as OrderRow
-    // D-UX4-126: 줄에 모르는 손님 정보(missing)가 더해졌다 — 배송지가 있으면 빈 목록
-    expect(a2).toEqual({ date: D2, buyer: 'UC_A', name: '김받는', nickname: '홍길동', platform: 'YOUTUBE', total: 31_000, itemCount: 2, firstClaimAt: new Date(kst(D2, '20:00:10')).toISOString(), missing: [] })
+    // D-UX4-126: 줄에 모르는 손님 정보(missing)가 더해졌다 — 배송지가 있으면 빈 목록. D-ORDPAY-01: 받은 금액·입금 상태·봉인 여부가 더해졌다
+    expect(a2).toEqual({ date: D2, buyer: 'UC_A', name: '김받는', nickname: '홍길동', platform: 'YOUTUBE', total: 31_000, itemCount: 2, firstClaimAt: new Date(kst(D2, '20:00:10')).toISOString(), missing: [], received: 0, payment: 'UNPAID', sealed: false })
     expect(view.orders[0]).toMatchObject({ name: null, nickname: '나래', platform: 'YOUTUBE', total: 6000, itemCount: 1 })
     const smsRow = view.orders[3] as OrderRow
     expect(smsRow).toMatchObject({ name: null, platform: 'SMS', total: 5000 + 4000, itemCount: 1, firstClaimAt: new Date(kst(D1, '20:01:00')).toISOString() })
@@ -180,6 +183,19 @@ describe('D-UX4-125 주문 목록', () => {
     expect((bad.body.error as { problems: { field: string; message: string }[] }).problems).toEqual([{ field: 'before', message: "날짜는 '2026-10-18'처럼 적어 주세요." }])
     expect((await client(world, null).get('/api/orders')).status).toBe(401)
     expect(await list(world, seller)).toEqual({ today: D1, orders: [], more: false, next: null })
+  })
+})
+
+describe('D-ORDPAY-01 주문 목록 입금 체크', () => {
+  it('줄마다 받은 금액·입금 상태가 정산 그대로: 덜 받으면 PARTIAL, 다 받으면 PAID — 입금을 적으면 목록도 바뀐다', async () => {
+    const { world, seller } = await world0()
+    await sell(world, seller)
+    const row = async () => (await list(world, seller)).orders.find((item) => item.date === D2 && item.buyer === 'UC_A') as OrderRow
+    expect(await row()).toMatchObject({ total: 31_000, received: 0, payment: 'UNPAID', sealed: false })
+    await ok(world, seller, { type: 'settlement.payment', buyer: 'UC_A', date: D2, amountText: '10000' }, D2)
+    expect(await row()).toMatchObject({ received: 10_000, payment: 'PARTIAL' })
+    await ok(world, seller, { type: 'settlement.payment', buyer: 'UC_A', date: D2, amountText: '21000' }, D2)
+    expect(await row()).toMatchObject({ received: 31_000, payment: 'PAID' })
   })
 })
 
@@ -279,11 +295,12 @@ describe('D-UX4-125 봉인 날짜 (D-PL1-03·D-PL1-04)', () => {
     expect(beforeDetail.body.claimedAt).not.toBeNull()
     await sealA(world)
     const afterList = await list(world, seller)
-    // D-UX4-126: 봉인(30일 뒤)이면 배송지 보관 기간도 지나 missing은 빈 목록이 된다 — 비교에서 빼고 따로 본다
-    const strip = (rows: OrderRow[]) => rows.map(({ firstClaimAt: _first, missing: _missing, ...rest }) => rest)
+    // D-UX4-126: 봉인(30일 뒤)이면 배송지 보관 기간도 지나 missing은 빈 목록이 된다 — 비교에서 빼고 따로 본다. D-ORDPAY-01: sealed도 따로 본다
+    const strip = (rows: OrderRow[]) => rows.map(({ firstClaimAt: _first, missing: _missing, sealed: _sealed, ...rest }) => rest)
     expect(strip(afterList.orders)).toEqual(expect.arrayContaining(strip(beforeList.orders)))
     expect(afterList.orders).toHaveLength(beforeList.orders.length)
     for (const row of afterList.orders) if (row.date === A) expect(row.firstClaimAt).toBeNull()
+    expect(afterList.orders.map((row) => row.sealed)).toEqual(afterList.orders.map((row) => row.date === A))
     expect(afterList.orders.filter((row) => row.date === A).every((row) => row.missing.length === 0)).toBe(true)
     expect(afterList.orders.filter((row) => row.date === B).every((row) => row.firstClaimAt !== null)).toBe(true)
     const afterDetail = await expectOk(detail(world, seller, A, X))

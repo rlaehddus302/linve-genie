@@ -12,6 +12,10 @@ export const orderRow = (patch: Partial<OrderRow> = {}): OrderRow => ({
   itemCount: 1,
   firstClaimAt: '2026-10-29T11:00:00.000Z',
   missing: [],
+  // D-ORDPAY-01: 목록 줄 입금 체크
+  received: 0,
+  payment: 'UNPAID',
+  sealed: false,
   ...patch,
 })
 

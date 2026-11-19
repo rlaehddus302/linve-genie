@@ -6,30 +6,35 @@ import { addDays, dateText, isRealDate, kstDateOf, kstIso, kstToMs, parseOffsetI
 import { DEPOSIT_AMOUNT_MAX, DEPOSIT_NAME_MAX } from './paste.ts'
 
 /** 은행 코드 (DP-9 1 표) */
-export type BankCode = 'KB' | 'SHINHAN' | 'WOORI' | 'HANA' | 'NH' | 'IBK' | 'KAKAO' | 'TOSS' | 'KBANK'
+export type BankCode = 'KB' | 'SHINHAN' | 'WOORI' | 'HANA' | 'NH' | 'IBK' | 'KAKAO' | 'TOSS' | 'KBANK' | 'SC' | 'MG' | 'EPOST'
 
 interface BankEntry {
   readonly code: BankCode
   readonly name: string
-  readonly app: string
+  /** 이 은행의 앱 패키지들 (은행마다 앱이 여럿일 수 있다 — D-DEP2-18) */
+  readonly apps: readonly string[]
   readonly numbers: readonly string[]
 }
 
 /** 믿을 보낸 곳 표 (DP-9 1). 넓히거나 고치려면 DECISIONS를 거친다 */
 export const BANKS: readonly BankEntry[] = Object.freeze([
-  { code: 'KB', name: 'KB국민', app: 'com.kbstar.kbbank', numbers: ['15889999', '16449999', '15999999'] },
-  { code: 'SHINHAN', name: '신한', app: 'com.shinhan.sbanking', numbers: ['15778000', '15998000'] },
-  { code: 'WOORI', name: '우리', app: 'com.wooribank.smart.npib', numbers: ['15885000', '15995000'] },
-  { code: 'HANA', name: '하나', app: 'com.kebhana.hanapush', numbers: ['15881111', '15991111'] },
-  { code: 'NH', name: 'NH농협', app: 'nh.smart.banking', numbers: ['16613000', '15882100'] },
-  { code: 'IBK', name: 'IBK기업', app: 'com.ibk.android.ionebank', numbers: ['15662566', '15882588'] },
-  { code: 'KAKAO', name: '카카오뱅크', app: 'com.kakaobank.channel', numbers: ['15993333'] },
-  { code: 'TOSS', name: '토스뱅크', app: 'viva.republica.toss', numbers: ['16617654'] },
-  { code: 'KBANK', name: '케이뱅크', app: 'com.kbankwith.smartbank', numbers: ['15221000'] },
+  { code: 'KB', name: 'KB국민', apps: ['com.kbstar.kbbank'], numbers: ['15889999', '16449999', '15999999'] },
+  { code: 'SHINHAN', name: '신한', apps: ['com.shinhan.sbanking'], numbers: ['15778000', '15998000'] },
+  { code: 'WOORI', name: '우리', apps: ['com.wooribank.smart.npib'], numbers: ['15885000', '15995000'] },
+  { code: 'HANA', name: '하나', apps: ['com.kebhana.hanapush'], numbers: ['15881111', '15991111'] },
+  { code: 'NH', name: 'NH농협', apps: ['nh.smart.banking', 'com.nonghyup.nhallonebank', 'com.nh.cashcardapp'], numbers: ['16613000', '15882100'] },
+  { code: 'IBK', name: 'IBK기업', apps: ['com.ibk.android.ionebank'], numbers: ['15662566', '15882588'] },
+  { code: 'KAKAO', name: '카카오뱅크', apps: ['com.kakaobank.channel'], numbers: ['15993333'] },
+  { code: 'TOSS', name: '토스뱅크', apps: ['viva.republica.toss'], numbers: ['16617654'] },
+  { code: 'KBANK', name: '케이뱅크', apps: ['com.kbankwith.smartbank'], numbers: ['15221000'] },
+  // D-DEP2-18: 은행 앱만 더한다(대표번호는 기기 사본과 함께 바꿔야 해서 그대로)
+  { code: 'SC', name: 'SC제일', apps: ['com.scbank.ma30'], numbers: [] },
+  { code: 'MG', name: '새마을금고', apps: ['com.smg.spbs'], numbers: [] },
+  { code: 'EPOST', name: '우체국', apps: ['com.epost.psf.sdsi'], numbers: [] },
 ] as const satisfies readonly BankEntry[])
 
-/** 앱 알림을 보내도 되는 은행 앱 패키지 (C-04 응답 filters.bankApps — DP-9 1 표의 패키지 9개) */
-export const BANK_APPS: readonly string[] = Object.freeze(BANKS.map((bank) => bank.app))
+/** 앱 알림을 보내도 되는 은행 앱 패키지 (C-04 응답 filters.bankApps — DP-9 1 표의 패키지 14개, D-DEP2-18) */
+export const BANK_APPS: readonly string[] = Object.freeze(BANKS.flatMap((bank) => bank.apps))
 /** 기기가 skipWords로 거르지 않을 은행 대표번호 (C-04 응답 filters.bankNumbers — DP-9 1 표의 대표번호 16개, 숫자만, D-SMS3-26) */
 export const BANK_NUMBERS: readonly string[] = Object.freeze(BANKS.flatMap((bank) => bank.numbers))
 
@@ -91,7 +96,7 @@ const BANK_NUMBER_SHAPE_RE = /^[0-9\- ]+$/u
  */
 export function trustedBank(channel: NoticeChannel, from: unknown): BankCode | null {
   if (typeof from !== 'string') return null
-  if (channel === 'APP') return BANKS.find((bank) => bank.app === from)?.code ?? null
+  if (channel === 'APP') return BANKS.find((bank) => bank.apps.includes(from))?.code ?? null
   const trimmed = from.replace(EDGE_SPACE_RE, '')
   if (!BANK_NUMBER_SHAPE_RE.test(trimmed)) return null
   const digits = trimmed.replace(/[^0-9]/gu, '')
@@ -132,6 +137,7 @@ const NAME_ENDINGS = ['님께서', '님이', '님']
 const STOP_WORDS = new Set(
   [
     'KB', '국민', 'KB국민', '국민은행', '신한', '신한은행', '우리', '우리은행', '하나', '하나은행', '농협', 'NH', 'NH농협', '농협은행', '기업', 'IBK', 'IBK기업', '기업은행', '카카오뱅크', '토스', '토스뱅크', '케이뱅크',
+    'SC', 'SC제일', 'SC제일은행', '제일은행', 'MG', '새마을금고', 'MG새마을금고', '우체국', '우체국예금', '올원뱅크', 'NH올원뱅크', '콕뱅크', 'NH콕뱅크',
     '입금', '출금', '지급', '승인', '결제', '입금취소', '취소', '잔액', '원', '이체', '타행', '당행', '알림', ...OVERSEAS_WORDS, '내', '고객님', '입금되었습니다', '입금했어요', '보냈어요', '체크카드', '카드', '일시불',
   ].map((word) => lower(word)),
 )
@@ -219,6 +225,8 @@ function nameOf(s: string): string {
     if (/[0-9]/.test(token) || token.includes('*') || !LETTER_RE.test(token)) continue
     if (STOP_WORDS.has(lower(token))) continue
     if (token.endsWith('통장') || token.endsWith('계좌')) continue
+    // 거래 낱말이 붙은 토큰 (D-DEP2-18): `전자금융입금`·`입금하셨습니다`·`모바일송금`·`타행이체` — 이름이 아니다
+    if (token.includes('입금') || token.includes('송금') || token.endsWith('이체')) continue
     kept.push(token)
     if (kept.length > 1) return ''
   }

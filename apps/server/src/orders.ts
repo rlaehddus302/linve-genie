@@ -12,6 +12,7 @@
 //   배송지 보관 기간(30일)이 지난 날짜는 더 넣을 수 없으니 빈 목록(지난 주문에 "모름"을 띄우지 않는다).
 // - D-UX4-126 주문 한 건 내보내기: GET /api/days/:date/order.csv·order.xlsx?buyer= — 상세와 같은 검사·404. 휴대폰 번호·주소는 넣지 않는다
 //   (AUTO: 파일은 메신저로 넘겨지기 쉽다 — 손님 엑셀도 연락처는 기본으로 빼는 것과 같은 쪽).
+// - D-ORDPAY-01 (판매자 요청 2026-11-20 "주문 탭에서 입금이 완료됐는지 체크 표시"): 목록 줄마다 받은 금액·입금 상태(코어 정산 그대로)·봉인 여부.
 import { DEFAULT_SETTINGS, currentBuyerOf, formatWon, getBuyer, getSettlement, isValidDate, listBroadcasts, listSettlements, type BuyerInfo, type EngineState, type PaymentStatus } from '@livejjim/core'
 import { itemText, textRowsToXlsx } from '@livejjim/documents'
 import type { Context, Hono } from 'hono'
@@ -56,6 +57,12 @@ export interface OrderRow {
   readonly firstClaimAt: string | null
   /** 아직 모르는 손님 정보 (D-UX4-126). 이 순서로, 다 알면 빈 목록. 배송지 보관 기간이 지난 날짜는 빈 목록 */
   readonly missing: readonly OrderInfoField[]
+  /** 받은 금액(원) — 코어 정산 그대로 (D-ORDPAY-01, 목록 줄 입금 체크) */
+  readonly received: number
+  /** 입금 상태 — 코어 정산 그대로 (PAID·OVERPAID면 목록에 체크) */
+  readonly payment: PaymentStatus
+  /** 봉인 날짜(30일 지남) — 목록에서 입금 체크를 적을 수 없다 */
+  readonly sealed: boolean
 }
 
 /** 손님 정보 칸 (D-UX4-126) */
@@ -121,6 +128,8 @@ interface DayOrder {
   readonly total: number
   readonly itemCount: number
   readonly firstClaimAt: string | null
+  readonly received: number
+  readonly payment: PaymentStatus
 }
 
 interface DayEntry {
@@ -179,6 +188,8 @@ export function dayOrdersOf(state: EngineState, date: string): DayOrder[] {
       total: settlement.total,
       itemCount: qty,
       firstClaimAt: first === null ? null : iso(first),
+      received: settlement.received,
+      payment: settlement.payment,
     })
   }
   return out.sort(latestFirst)
@@ -302,7 +313,7 @@ export class OrderService {
       const addresses = await this.#addresses(sellerId, scope.date)
       const missing = await this.#missing(sellerId, scope.date, day, addresses)
       for (const order of day.orders) {
-        orders.push({ date: scope.date, buyer: order.buyer, name: addresses.get(order.buyer)?.name ?? null, ...OrderService.#rowPart(order), missing: missing.get(order.buyer) ?? [] })
+        orders.push({ date: scope.date, buyer: order.buyer, name: addresses.get(order.buyer)?.name ?? null, ...OrderService.#rowPart(order), missing: missing.get(order.buyer) ?? [], sealed: day.sealed })
       }
       dates += 1
       last = scope.date
@@ -319,8 +330,8 @@ export class OrderService {
     return { today, orders, more, next: more ? last : null }
   }
 
-  static #rowPart(order: DayOrder): Omit<OrderRow, 'date' | 'buyer' | 'name' | 'missing'> {
-    return { nickname: order.nickname, platform: order.platform, total: order.total, itemCount: order.itemCount, firstClaimAt: order.firstClaimAt }
+  static #rowPart(order: DayOrder): Omit<OrderRow, 'date' | 'buyer' | 'name' | 'missing' | 'sealed'> {
+    return { nickname: order.nickname, platform: order.platform, total: order.total, itemCount: order.itemCount, firstClaimAt: order.firstClaimAt, received: order.received, payment: order.payment }
   }
 
   /** 주문 한 건 상세 (합쳐진 구매자 ID면 지금의 구매자로 푼다). 품목도 정산 기록도 없는 묶음·모르는 구매자는 없음 */

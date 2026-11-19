@@ -105,7 +105,8 @@ describe('믿을 보낸 곳 흉내 (DP-9 1 — 표와 정확히 같을 때만 �
 
   it('표의 패키지·대표번호는 믿는다 (기준)', () => {
     for (const bank of BANKS) {
-      expect(deposit('APP', bank.app)).toMatchObject({ kind: 'DEPOSIT', trusted: true, bank: bank.code })
+      // D-DEP2-18: 은행마다 앱 여럿 — 모두 믿는다
+      for (const app of bank.apps) expect(deposit('APP', app)).toMatchObject({ kind: 'DEPOSIT', trusted: true, bank: bank.code })
       for (const number of bank.numbers) {
         const dashed = `${number.slice(0, 4)}-${number.slice(4)}`
         expect(deposit('SMS', dashed)).toMatchObject({ kind: 'DEPOSIT', trusted: true, bank: bank.code })
@@ -155,7 +156,7 @@ describe('믿을 보낸 곳 흉내 (DP-9 1 — 표와 정확히 같을 때만 �
   })
 
   it('속성: 믿음이면 앱은 패키지가 표와 정확히 같고, 문자는 보낸 곳에 대표번호 숫자가 그대로 들어 있다', () => {
-    const apps = new Set(BANKS.map((bank) => bank.app))
+    const apps = new Set(BANKS.flatMap((bank) => bank.apps)) // D-DEP2-18: 은행마다 앱 여럿
     const numbers = new Set(BANKS.flatMap((bank) => bank.numbers))
     fc.assert(
       fc.property(fc.constantFrom('SMS', 'APP') as fc.Arbitrary<'SMS' | 'APP'>, fromArb, (channel, from) => {

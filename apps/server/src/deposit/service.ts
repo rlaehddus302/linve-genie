@@ -1007,11 +1007,11 @@ export class DepositService {
    * 결과: SAVED(처리함 — 같은 입금이 이미 있어도) · IGNORED(저장하지 않음 — 은행 알림 아님·믿지 않는 곳의 입금 아닌 알림·원천 꺼짐·받는 기간 밖).
    * 본문은 받지 않는다(이미 읽은 결과만) — 저장하는 것은 입금(DP-1 칸)·잔액 기록·은행 알림 줄뿐이다(DP-INV-8)
    */
-  receiveNotice(sellerId: string, msgId: string, notice: NoticeResult): Promise<'SAVED' | 'IGNORED'> {
-    return this.#serial(sellerId, () => this.#receiveNotice(sellerId, msgId, notice))
+  receiveNotice(sellerId: string, msgId: string, notice: NoticeResult, channel: 'SMS' | 'APP' = 'SMS'): Promise<'SAVED' | 'IGNORED'> {
+    return this.#serial(sellerId, () => this.#receiveNotice(sellerId, msgId, notice, channel))
   }
 
-  async #receiveNotice(sellerId: string, msgId: string, notice: NoticeResult): Promise<'SAVED' | 'IGNORED'> {
+  async #receiveNotice(sellerId: string, msgId: string, notice: NoticeResult, channel: 'SMS' | 'APP'): Promise<'SAVED' | 'IGNORED'> {
     const { db } = this.#deps
     if (notice.kind === 'NONE') return 'IGNORED'
     const source = await findPhoneSource(db, sellerId)
@@ -1054,11 +1054,15 @@ export class DepositService {
     if ((await existingKeys(db, sellerId, source.id, [key])).has(key)) return 'SAVED'
     // 잔액 이어짐 (DP-9 9, D-DEP2-13): 이 알림에 잔액이 있고, 같은 은행의 앞선 잔액 p가 있고, p + 금액 = 잔액일 때만 이어짐.
     // 그 밖(잔액 없음·앞선 잔액 없음·이어지지 않음)은 BALANCE_GAP — 확인 필요로 저장된 입금의 잔액도 다음 비교의 앞선 잔액이 된다(아래 insertBalance)
+    // 은행 앱 알림(D-DEP2-18): 안드로이드 알림은 그 앱만 올릴 수 있어 흉내 낼 수 없다 — 잔액이 없거나 앞선 잔액이 없어도 표시하지 않는다.
+    // 잔액이 있고 앞선 잔액과 이어지지 않을 때만 BALANCE_GAP(빠진 알림). 문자는 그대로 이어짐이 확인될 때만 자동
     let flag: PhoneFlag | null = null
     if (!trusted) flag = 'UNTRUSTED_SOURCE'
     else {
       const previous = notice.balance === null ? null : await previousBalance(db, sellerId, notice.bank as string, at)
-      if (notice.balance === null || previous === null || previous + notice.amount !== notice.balance) flag = 'BALANCE_GAP'
+      if (channel === 'APP') {
+        if (notice.balance !== null && previous !== null && previous + notice.amount !== notice.balance) flag = 'BALANCE_GAP'
+      } else if (notice.balance === null || previous === null || previous + notice.amount !== notice.balance) flag = 'BALANCE_GAP'
     }
     if (trusted && notice.balance !== null) await insertBalance(db, sellerId, { bank: notice.bank as string, at, balance: notice.balance }, now)
     const summary = await this.#ingest(sellerId, source, [{ key, at: atMs, precision: notice.precision, amount: notice.amount, name: cleanDepositName(notice.name), phoneFlag: flag }], null)

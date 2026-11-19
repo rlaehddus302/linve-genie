@@ -4,21 +4,26 @@
 // 줄을 누르면 주문 상세(OrderDetailScreen, 사진2). 날짜를 넘어 최근 주문부터 서버 GET /api/orders, 끝까지 내리면 다음 쪽(?before=)을 잇는다.
 // D-UX4-126 (사용자 지시 2026-11-11): 날짜는 11.7처럼, 줄은 닉네임(굵게) 아래 작은 성함, 모르는 손님 정보는 그 아래 빨간 "성함 · 휴대폰 번호 · 주소 모름".
 // 옛 진행 카드·지금 할 일 카드·단계 칸·끝난 손님 접기(D-UX4-122)는 사용자가 이 모양으로 바꿨다. 금액은 서버(엔진)가 정한 정수 원 그대로.
+// D-ORDPAY-01 (판매자 요청 2026-11-20 "주문 탭에서 입금이 완료됐는지 체크 표시 — 입금 목록 체크박스"): 줄 오른쪽 끝에 입금 체크 칸.
+//   다 받음(PAID·더 받음)은 초록 체크, 덜 받음은 빈 칸 + 금액 아래 주황 "n원 남음", 안 받음은 빈 칸. 빈 칸을 누르면 주문 상세 [입금을 확인했나요?]와
+//   같은 가운데 팝업 [아니요] [확인했어요] → 남은 금액만큼 입금을 적어 다 받은 것으로(같은 settlement.payment). 체크된 칸·30일 지난 날짜는 누를 수 없다.
 import { useEffect, useRef, useState } from 'react'
 import { ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import type { OrderRow, OrdersView } from '@livejjim/web/src/api/order-types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
-import { get, isApiError, withQuery, type ApiError } from '../api/client.ts'
+import type { WriteResult } from '@livejjim/web/src/api/types.ts'
+import { get, isApiError, newRequestId, post, withQuery, withRetry, type ApiError } from '../api/client.ts'
 import { useCachedGet } from '../lib/cached-get.ts'
 import { countWords, dotDate, joinOrders, missingWords, NO_ORDERS, ORDERS_PATH, ORDERS_TOPIC, useOrdersLive } from '../lib/orders.ts'
-import { useScreenSignal } from '../lib/screen-signals.ts'
+import { signalScreens, useScreenSignal } from '../lib/screen-signals.ts'
+import { NOT_APPLIED_SETTLEMENT, remainingOf } from '../lib/settle.ts'
 import { formatWon, RETRY_NOW } from '../lib/words.ts'
-import { Appear, BigButton, EmptyFill, Txt, useKit, useTabBarRoom, useWhiteTop, Tap } from '../ui/kit/index.ts'
+import { Appear, BigButton, EmptyFill, Icon, PopupDialog, Txt, useKit, useTabBarRoom, useWhiteTop, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Loading, Notice } from '../ui/parts.tsx'
 import { useCameLate } from '../ui/late.tsx'
 import { useBuyerInfoList } from './BuyerInfoScreen.tsx'
-import { OrderDetailScreen } from './OrderDetailScreen.tsx'
+import { ASK_PAID, OrderDetailScreen, PAID_CONFIRM } from './OrderDetailScreen.tsx'
 
 export interface SettleNavigation {
   /** 입금 확인 화면 (입금 한꺼번에) */
@@ -116,6 +121,31 @@ function OrderList({ nav, onPick }: { readonly nav: SettleNavigation; readonly o
   // 확인할 손님 정보 문자가 있으면 [고객 정보 받기]에 작은 점 (옛 정산 탭 위 줄 BuyerInfoBanner를 대신 — 알림을 놓치지 않게)
   const { list: infoList } = useBuyerInfoList()
   const infoOpen = infoList === null ? 0 : infoList.cards.filter((card) => card.status === 'OPEN').length
+  // 목록에서 입금 체크 (D-ORDPAY-01) — 한 번 묻고 적는다
+  const [asking, setAsking] = useState<OrderRow | null>(null)
+  const [paying, setPaying] = useState(false)
+  const [payProblem, setPayProblem] = useState<string | null>(null)
+  const requestId = useRef(newRequestId())
+  const confirmPaid = async () => {
+    const row = asking
+    if (row === null || paying) return
+    setPaying(true)
+    setPayProblem(null)
+    try {
+      const result = await withRetry(() => post<WriteResult>(withQuery('/api/events', { date: row.date, rehearsal: false }), { requestId: requestId.current, type: 'settlement.payment', buyer: row.buyer, date: row.date, amountText: String(remainingOf(row)) }))
+      setAsking(null)
+      if (!result.changed) setPayProblem(NOT_APPLIED_SETTLEMENT)
+      requestId.current = newRequestId()
+      // 목록·열려 있는 상세·입금 화면이 다시 받는다
+      signalScreens(ORDERS_TOPIC)
+      void reloadFirst()
+    } catch (caught: unknown) {
+      setAsking(null)
+      setPayProblem(isApiError(caught) ? caught.message : '적지 못했어요. 다시 눌러 주세요.')
+    } finally {
+      setPaying(false)
+    }
+  }
   return (
     <View style={{ flex: 1, backgroundColor: p.surface }} testID="settle-screen">
       <ScrollView
@@ -155,11 +185,12 @@ function OrderList({ nav, onPick }: { readonly nav: SettleNavigation; readonly o
             <View role="list" aria-label="주문 목록">
               {rows.map((row, index) => {
                 const showDate = index === 0 || rows[index - 1]?.date !== row.date
-                return <OrderLine key={`${row.date}/${row.buyer}`} row={row} showDate={showDate} onPress={() => onPick(row.date, row.buyer)} />
+                return <OrderLine key={`${row.date}/${row.buyer}`} row={row} showDate={showDate} onPress={() => onPick(row.date, row.buyer)} onCheck={() => { setPayProblem(null); setAsking(row) }} />
               })}
             </View>
           </Appear>
         )}
+        {payProblem !== null ? <Notice tone="danger" alert>{payProblem}</Notice> : null}
         {paging ? <Loading /> : null}
         {pageError !== null && !paging ? (
           <View style={{ gap: SPACE.sm }}>
@@ -168,6 +199,17 @@ function OrderList({ nav, onPick }: { readonly nav: SettleNavigation; readonly o
           </View>
         ) : null}
       </ScrollView>
+      {/* 단추는 좌우로 — 부정 왼쪽 [아니요], 긍정 오른쪽 [확인했어요] (D-UX4-01, 주문 상세와 같은 팝업) */}
+      <PopupDialog
+        visible={asking !== null}
+        message={ASK_PAID}
+        description={asking === null ? null : `${asking.nickname === '' ? '' : `${asking.nickname} · `}남은 금액 ${formatWon(remainingOf(asking))}을 다 받은 것으로 적어요.`}
+        cancelLabel="아니요"
+        confirmLabel={PAID_CONFIRM}
+        busy={paying}
+        onConfirm={() => void confirmPaid()}
+        onCancel={() => setAsking(null)}
+      />
     </View>
   )
 }
@@ -196,34 +238,73 @@ function TopButton({ label, note = null, onPress }: { readonly label: string; re
 /** 날짜 칸 너비 ("11.11" — 가장 긴 날짜) */
 const DATE_WIDTH = 40
 
-/** 주문 한 줄 (토스 거래 내역 줄): 날짜(그 날짜 첫 줄에만) · 닉네임과 그 아래 작은 성함·빨간 모르는 정보 · 오른쪽 총 금액과 작은 개수 */
-function OrderLine({ row, showDate, onPress }: { readonly row: OrderRow; readonly showDate: boolean; readonly onPress: () => void }) {
+/** 입금이 다 됐나 (PAID·더 받음) — 목록 체크 (D-ORDPAY-01) */
+export const isPaid = (row: Pick<OrderRow, 'payment'>): boolean => row.payment === 'PAID' || row.payment === 'OVERPAID'
+export const PAID_WORD = '입금 완료'
+/** 덜 받음 줄 (금액 아래 주황) — 남은 금액이 있고 조금이라도 받았을 때 */
+export function lackWords(row: Pick<OrderRow, 'payment' | 'total' | 'received'>): string | null {
+  return row.payment === 'PARTIAL' && remainingOf(row) > 0 ? `${formatWon(remainingOf(row))} 남음` : null
+}
+/** 체크 칸 크기 */
+const CHECK_BOX = 24
+
+/** 주문 한 줄 (토스 거래 내역 줄): 날짜(그 날짜 첫 줄에만) · 닉네임과 그 아래 작은 성함·빨간 모르는 정보 · 오른쪽 총 금액과 작은 개수 · 맨 오른쪽 입금 체크 칸 */
+function OrderLine({ row, showDate, onPress, onCheck }: { readonly row: OrderRow; readonly showDate: boolean; readonly onPress: () => void; readonly onCheck: () => void }) {
   const { p, fontScale } = useKit()
   const missing = missingWords(row.missing)
   const words = [dateWords(row.date), row.nickname, row.name, missing, formatWon(row.total), countWords(row.itemCount)].filter((part) => part !== null && part !== '')
+  const paid = isPaid(row)
+  const lack = lackWords(row)
+  // 다 받았거나 30일 지난 날짜(봉인)는 누를 수 없다 — 체크를 푸는 것은 입금 확인 화면 [되돌리기]로
+  const checkable = !paid && !row.sealed && row.total > 0
+  const checkLabel = paid ? `${row.nickname} ${PAID_WORD}` : `${row.nickname} 입금 확인 · 남은 금액 ${formatWon(remainingOf(row))}`
   return (
-    <Tap
-      role="button"
-      aria-label={words.join(' · ')}
-      pressScale={0.99}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm,
-        marginHorizontal: -SPACE.md, paddingHorizontal: pressed ? SPACE.lg : SPACE.md, paddingVertical: SPACE.md,
-        minHeight: 64, borderRadius: RADIUS.md, borderCurve: 'continuous',
-        backgroundColor: pressed ? p.surfaceAlt : 'transparent',
-      })}
-    >
-      <View style={{ width: DATE_WIDTH * fontScale }}>{showDate ? <Txt step="body" weight="medium" color="textSub">{dotDate(row.date)}</Txt> : null}</View>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Txt step="bodyLarge" weight="bold" numberOfLines={1}>{row.nickname}</Txt>
-        {row.name !== null ? <Txt step="caption" color="textSub" numberOfLines={1}>{row.name}</Txt> : null}
-        {missing !== null ? <Txt step="caption" weight="book" color="dangerText" numberOfLines={1}>{missing}</Txt> : null}
-      </View>
-      <View style={{ alignItems: 'flex-end', gap: 2 }}>
-        <Txt step="bodyLarge" weight="bold">{formatWon(row.total)}</Txt>
-        <Txt step="caption" color="textSub">{countWords(row.itemCount)}</Txt>
-      </View>
-    </Tap>
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+      <Tap
+        role="button"
+        aria-label={words.join(' · ')}
+        pressScale={0.99}
+        onPress={onPress}
+        style={({ pressed }) => ({
+          flex: 1, flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm,
+          marginLeft: -SPACE.md, paddingLeft: pressed ? SPACE.lg : SPACE.md, paddingRight: SPACE.xs, paddingVertical: SPACE.md,
+          minHeight: 64, borderRadius: RADIUS.md, borderCurve: 'continuous',
+          backgroundColor: pressed ? p.surfaceAlt : 'transparent',
+        })}
+      >
+        <View style={{ width: DATE_WIDTH * fontScale }}>{showDate ? <Txt step="body" weight="medium" color="textSub">{dotDate(row.date)}</Txt> : null}</View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Txt step="bodyLarge" weight="bold" numberOfLines={1}>{row.nickname}</Txt>
+          {row.name !== null ? <Txt step="caption" color="textSub" numberOfLines={1}>{row.name}</Txt> : null}
+          {missing !== null ? <Txt step="caption" weight="book" color="dangerText" numberOfLines={1}>{missing}</Txt> : null}
+        </View>
+        <View style={{ alignItems: 'flex-end', gap: 2 }}>
+          <Txt step="bodyLarge" weight="bold">{formatWon(row.total)}</Txt>
+          <Txt step="caption" color="textSub">{countWords(row.itemCount)}</Txt>
+          {lack !== null ? <Txt step="caption" weight="medium" color="warnText">{lack}</Txt> : null}
+        </View>
+      </Tap>
+      {/* 입금 체크 칸 (D-ORDPAY-01): 다 받음 = 초록 체크, 아니면 빈 칸 — 누르면 한 번 묻고 다 받은 것으로 */}
+      <Tap
+        role="checkbox"
+        aria-checked={paid}
+        aria-label={checkLabel}
+        aria-disabled={!checkable}
+        disabled={!checkable}
+        testID="order-paid-check"
+        onPress={onCheck}
+        style={{ width: TOUCH.min, minHeight: 64, marginRight: -SPACE.md, alignItems: 'center', justifyContent: 'center' }}
+      >
+        <View
+          style={{
+            width: CHECK_BOX, height: CHECK_BOX, borderRadius: RADIUS.sm, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center',
+            backgroundColor: paid ? p.primary : 'transparent', borderWidth: paid ? 0 : 2, borderColor: lack !== null ? p.warnText : p.borderStrong,
+            opacity: !paid && row.sealed ? 0.45 : 1,
+          }}
+        >
+          {paid ? <Icon name="check" color={p.onPrimary} size={18} /> : null}
+        </View>
+      </Tap>
+    </View>
   )
 }
