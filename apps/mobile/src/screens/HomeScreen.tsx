@@ -20,7 +20,7 @@ import { AppHeader, Appear, BigButton, Icon, RowGroup, TodoRow, Txt, useKit, use
 import { Loading, Notice } from '../ui/parts.tsx'
 import { Late } from '../ui/late.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
-import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts, shownBroadcastTitle, useOpenPast, useSharedPast, withShared } from './BroadcastList.tsx'
+import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts, shownBroadcastTitle, useLeaveAfterView, useOpenPast, useSharedPast, withShared } from './BroadcastList.tsx'
 export { broadcastLength, historyAgo, pastBroadcasts } from './BroadcastList.tsx'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { font } from '../ui/kit/font.ts'
@@ -297,6 +297,8 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
   const shared = useSharedPast(refresh)
   const past = items === null ? [] : withShared(pastBroadcasts(items), shared)
   const opener = useOpenPast(nav.openConsole)
+  // 지난 라이브에서 같이 본 라이브를 보고 돌아오면 저절로 내 가게로 (D-SHARE-LIVE-03)
+  useLeaveAfterView()
   // 홈에는 HOME_BROADCASTS개까지만 — 넘칠 때만 [모두보기] (D-UX4-81, 사용자 지시 2026-11-10)
   const showAll = nav.openAllBroadcasts !== undefined && past.length > HOME_BROADCASTS
   const now = Date.now()

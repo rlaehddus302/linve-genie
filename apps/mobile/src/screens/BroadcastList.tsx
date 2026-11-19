@@ -6,13 +6,13 @@
 // 지난 라이브 머리 오른쪽 [합치기] → 같은 날 끝난 라이브를 골라 정산서 하나로. 합친 라이브 줄에는 "합침 · 1차" 꼬리표 — 어느 줄을 눌러도 합친 정산서가 열린다.
 // 같이 본 라이브 (D-SHARE-LIVE-02, 사용자 2026-11-19 "세 계정으로 동시에 보고 있었을텐데 그거랑 상관없이 기록 남아야 하는거 아니야?"):
 // 다른 가게 라이브에 같이 들어갔던 끝난 라이브도 지난 라이브에 "같이 봄 · 가게" 꼬리표로 — 누르면 그 라이브에 다시 들어가 기록을 연다.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { isApiError, post } from '../api/client.ts'
-import { recheckSession } from '../services.tsx'
+import { recheckSession, useSessionIfAny } from '../services.tsx'
 import { ScrollView, View } from 'react-native'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { dateWords } from '@livejjim/web/src/lib/kst.ts'
-import { useCachedGet } from '../lib/cached-get.ts'
+import { useCachedGet, useScreenFocusCount } from '../lib/cached-get.ts'
 import { EmptyFill, AppHeader, HeaderTextButton, Icon, RowGroup, Txt, useKit, useTabBarRoom, Tap } from '../ui/kit/index.ts'
 import { MERGE_BUTTON, MERGED_TAG, mergeable, roundOf, useBroadcastGroups } from '../lib/broadcast-groups.ts'
 import { MergeLivesSheet } from './console/MergeLives.tsx'
@@ -148,7 +148,35 @@ export function isShared(item: BroadcastItem): item is SharedLive {
   return typeof (item as Partial<SharedLive>).shopName === 'string'
 }
 
-/** 지난 라이브 줄을 누름: 같이 본 라이브면 다시 들어간 뒤 연다 (D-SHARE-LIVE-02) */
+/** 지난 라이브에서 잠깐 보러 다시 들어간 같이 본 라이브 (D-SHARE-LIVE-03) */
+let viewingShared: string | null = null
+
+/**
+ * 지난 라이브에서 같이 본 라이브를 열었다가 목록으로 돌아오면 저절로 나간다 (D-SHARE-LIVE-03, 사용자 2026-11-20 "저 위에 저렇게 왜 뜨는거야?"):
+ * 기록만 보러 연 것이라 홈에 "○○ 라이브를 같이 보고 있어요 [나가기]"가 남아 앱 전체가 그 가게로 바뀌어 있으면 안 된다
+ */
+export function useLeaveAfterView(): void {
+  const focus = useScreenFocusCount()
+  const session = useSessionIfAny()?.session ?? null
+  const joined = session?.state === 'in' ? (session.me.live?.broadcastId ?? null) : null
+  useEffect(() => {
+    if (viewingShared === null || focus === 0) return
+    const id = viewingShared
+    viewingShared = null
+    if (joined !== id) return
+    void (async () => {
+      try {
+        await post('/api/live-join/leave', {})
+        await recheckSession()
+      } catch {
+        // 못 나가면 홈의 [나가기]가 그대로 있다
+      }
+    })()
+    // 다시 보일 때만 본다
+  }, [focus])
+}
+
+/** 지난 라이브 줄을 누름: 같이 본 라이브면 다시 들어간 뒤 연다 (D-SHARE-LIVE-02) — 돌아오면 저절로 나간다 (D-SHARE-LIVE-03) */
 export function useOpenPast(onOpen: (id: string) => void): { readonly open: (item: BroadcastItem) => void; readonly error: string | null } {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -164,6 +192,7 @@ export function useOpenPast(onOpen: (id: string) => void): { readonly open: (ite
       try {
         await post('/api/live-join/reopen', { broadcastId: item.id })
         await recheckSession()
+        viewingShared = item.id
         onOpen(item.id)
       } catch (caught) {
         setError(isApiError(caught) && caught.status !== 404 ? caught.message : SHARED_OPEN_FAILED)
@@ -262,6 +291,7 @@ export function AllBroadcastsScreen({ onOpen, onBack, now = Date.now() }: { read
   const shared = useSharedPast()
   const past = items === null ? [] : withShared(pastBroadcasts(items), shared)
   const opener = useOpenPast(onOpen)
+  useLeaveAfterView()
   const { groups } = useBroadcastGroups()
   const [merging, setMerging] = useState(false)
   const [done, setDone] = useState(false)

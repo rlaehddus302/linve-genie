@@ -2,12 +2,13 @@
 // D-UX4-86 (사용자 지시 2026-11-10 "앱 안에 있는 모든 '방송' 단어 다 라이브로"): 화면 낱말이 바뀌어 기대 글의 '방송'을 '라이브'로(조사 포함) 바꿨다.
 // 홈 '내 방송' (D-UX3-18, 사용자 지시 2026-11-03): 서버 목록(오래된 순)을 뒤집어 최근 것이 위, 돌아갈 방송은 가장 최근의 열린 방송,
 // 홈 카드는 최근 4개(플랫폼 아이콘·날짜·지난 시간) + [모두보기], 모두 보기 화면은 날짜마다 흰 카드.
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { AllBroadcastsScreen, agoWords, byDate, liveBroadcast, withShared, type SharedLive } from '../src/screens/BroadcastList.tsx'
 import { broadcastLength, historyAgo, HomeScreen, pastBroadcasts } from '../src/screens/HomeScreen.tsx'
-import { clearCached } from '../src/lib/cached-get.ts'
+import { clearCached, FOCUS_SETTLE_MS, ScreenFocusProvider } from '../src/lib/cached-get.ts'
+import { SessionProvider } from '../src/services.tsx'
 import { makeWorld } from './screen-support.tsx'
 
 const NOW = Date.parse('2026-11-03T05:30:00.000Z')
@@ -170,5 +171,40 @@ describe('같이 본 라이브 (D-SHARE-LIVE-02)', () => {
     render(world.wrap(<AllBroadcastsScreen onOpen={vi.fn()} onBack={vi.fn()} now={NOW} />))
     const group = await screen.findByRole('group', { name: '지난 라이브' })
     expect(within(group).getAllByRole('button').map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c'])
+  })
+
+  // D-SHARE-LIVE-03 (사용자 2026-11-20 "저 위에 저렇게 왜 뜨는거야?" — 지난 라이브에서 연 뒤 홈에 "비트다육 라이브를 같이 보고 있어요 [나가기]"가 남음)
+  it('지난 라이브에서 연 같이 본 라이브는 보고 돌아오면 저절로 나간다', async () => {
+    clearCached()
+    const world = makeWorld()
+    let live: { broadcastId: string; shopName: string } | null = null
+    world.server.on('GET', /^\/api\/me$/, () => ({ body: { loginId: 'mine', seller: { id: 's1', name: live === null ? '내 가게' : '비트다육' }, ...(live === null ? {} : { live }) } }))
+    world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [item('c', '2026-11-03', { createdAt: '2026-11-03T01:00:00.000Z' })] } }))
+    world.server.on('GET', /^\/api\/live-join\/past$/, () => ({ body: { lives: live === null ? [shared] : [] } }))
+    world.server.on('POST', /^\/api\/live-join\/reopen$/, () => {
+      live = { broadcastId: 's', shopName: '비트다육' }
+      return { body: { live } }
+    })
+    world.server.on('POST', /^\/api\/live-join\/leave$/, () => {
+      live = null
+      return { body: { ok: true } }
+    })
+    const listeners: Record<string, (() => void)[]> = { focus: [], blur: [] }
+    const navigation = { addListener: (event: 'focus' | 'blur', callback: () => void) => { listeners[event]?.push(callback); return () => undefined } }
+    const nav0 = nav()
+    render(world.wrap(<SessionProvider services={world.services}><ScreenFocusProvider navigation={navigation}><HomeScreen nav={nav0} sellerName="김다육" /></ScreenFocusProvider></SessionProvider>))
+    fireEvent.click(await screen.findByTestId('broadcast-s'))
+    await waitFor(() => expect(nav0.openConsole).toHaveBeenCalledWith('s'))
+    expect(await screen.findByTestId('joined-live')).toBeTruthy()
+    // 그 라이브 화면에 갔다가 홈으로 돌아온다
+    act(() => {
+      for (const listener of listeners['blur'] ?? []) listener()
+      for (const listener of listeners['focus'] ?? []) listener()
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, FOCUS_SETTLE_MS + 50))
+    })
+    await waitFor(() => expect(world.server.callsTo('POST', /^\/api\/live-join\/leave$/)).toHaveLength(1))
+    await waitFor(() => expect(screen.queryByTestId('joined-live')).toBeNull())
   })
 })
