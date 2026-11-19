@@ -24,7 +24,7 @@ import {
   type SessionRow,
 } from './store.ts'
 import type { Clock } from './time.ts'
-import { activeJoin, type ActiveJoin } from './live-join.ts'
+import { activeJoin, viewedLive, type ActiveJoin } from './live-join.ts'
 
 export const SESSION_COOKIE = 'lj_session'
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -70,6 +70,8 @@ export interface SessionContext extends SessionRow {
   readonly homeSellerId: string
   /** 같이 보는 라이브에 들어가 있으면 그 방송 (D-SHARE-LIVE-01) */
   readonly joined: ActiveJoin | null
+  /** 이 요청만 같이 본 라이브 하나를 보는 중이면 그 방송 (D-SHARE-LIVE-04 — X-Live-View) */
+  readonly viewing?: ActiveJoin
 }
 
 export function sessionCookie(token: string): string {
@@ -179,7 +181,7 @@ export class Auth {
   }
 
   /** 쿠키의 토큰으로 세션 찾기 (만료·위조면 null). 쓰는 동안 만료 시각을 늘린다 */
-  async session(token: string | undefined): Promise<SessionContext | null> {
+  async session(token: string | undefined, view?: string): Promise<SessionContext | null> {
     if (token === undefined || !/^[A-Za-z0-9_-]{20,100}$/.test(token)) return null
     const { db, clock } = this.#options
     const now = clock.now()
@@ -187,7 +189,14 @@ export class Auth {
     if (row === null) return null
     // 같이 보는 라이브 (D-SHARE-LIVE-01): 들어가 있으면 이 요청은 방송 주인 판매자의 것으로 처리한다
     const joined = await activeJoin(db, row.accountId, new Date(now))
-    const shared = joined === null ? { homeSellerId: row.sellerId, joined: null } : { sellerId: joined.ownerSellerId, sellerName: joined.ownerName, homeSellerId: row.sellerId, joined }
+    // 같이 본 라이브 하나만 보기 (D-SHARE-LIVE-04): 같이 보는 중이 아니고, 이 계정이 같이 본 기록이 있는 방송이면 이 요청만 방송 주인 판매자로
+    const viewing = joined === null && view !== undefined && /^[A-Za-z0-9_-]{1,64}$/.test(view) ? await viewedLive(db, row.accountId, row.sellerId, view) : null
+    const shared =
+      joined !== null
+        ? { sellerId: joined.ownerSellerId, sellerName: joined.ownerName, homeSellerId: row.sellerId, joined }
+        : viewing !== null
+          ? { sellerId: viewing.ownerSellerId, sellerName: viewing.ownerName, homeSellerId: row.sellerId, joined: null, viewing }
+          : { homeSellerId: row.sellerId, joined: null }
     if (now - row.extendedAt.getTime() < SESSION_EXTEND_AFTER_MS) return { ...row, ...shared, refreshedCookie: null }
     const expiresAt = new Date(now + SESSION_TTL_MS)
     await extendSession(db, row, new Date(now), expiresAt)

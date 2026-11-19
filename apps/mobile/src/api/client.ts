@@ -22,13 +22,30 @@ function isAbort(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError'
 }
 
+/**
+ * 같이 본 라이브 하나만 보는 중 (D-SHARE-LIVE-04): 지난 라이브의 "같이 봄" 줄을 눌러 연 라이브 화면 동안만 그 방송 ID를 X-Live-View로 보낸다.
+ * 서버는 그 요청만 방송 주인 가게의 것으로 처리한다 — 내 가게·홈은 그대로
+ */
+let liveView: string | null = null
+export function setLiveView(broadcastId: string | null): void {
+  liveView = broadcastId
+}
+export function currentLiveView(): string | null {
+  return liveView
+}
+/** 내 정보·로그인·같이 보기 경로에는 붙이지 않는다 */
+function viewHeader(path: string): Record<string, string> {
+  if (liveView === null || /^\/api\/(me|login|logout|live-join|stream)\b/.test(path)) return {}
+  return { 'X-Live-View': liveView }
+}
+
 async function request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
   let response: Response
   try {
     response = await apiConfig().fetch(absoluteUrl(path), {
       method,
       credentials: 'include',
-      headers: { Accept: 'application/json', ...(method === 'GET' ? {} : { Origin: appOrigin() }), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      headers: { Accept: 'application/json', ...(method === 'GET' ? {} : { Origin: appOrigin() }), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...viewHeader(path) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     })
@@ -75,7 +92,7 @@ export async function getBytes(path: string, options: RequestOptions = {}): Prom
     response = await apiConfig().fetch(absoluteUrl(path), {
       method: 'GET',
       credentials: 'include',
-      headers: { Accept: '*/*' },
+      headers: { Accept: '*/*', ...viewHeader(path) },
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     })
   } catch (error) {

@@ -131,6 +131,31 @@ describe('D-SHARE-LIVE-02 같이 본 라이브 기록 (사용자 2026-11-19 "세
     expect((await client(world, two.seller.cookie).get('/api/me')).body.live).toBeUndefined()
   })
 
+  // D-SHARE-LIVE-04 (사용자 2026-11-20 "애초에 왜 다른 샵으로 바꿔야 하냐고"): 같이 본 라이브는 가게를 바꾸지 않고 X-Live-View 요청만 방송 주인 것으로
+  it('X-Live-View: 같이 본 라이브는 그 요청만 방송 주인 가게로, 내 가게·내 정보는 그대로, 같이 본 적 없으면 내 가게', async () => {
+    const world = await youtubeWorld()
+    const one = await connectSeller(world)
+    const { b: b1, live } = await linkedBroadcast(world, one)
+    await expectOk(writeEvent(world, one.seller, { type: 'product.register', b: b1.id, no: 12, name: '라울', price: 5000 }))
+    const two = await connectSeller(world, { channelTitle: '두 번째 가게' })
+    const b2 = await createBroadcast(world, two.seller)
+    await client(world, two.seller.cookie).post(`/api/broadcasts/${b2.id}/youtube`, { requestId: rid('link'), video: `https://www.youtube.com/watch?v=${live.videoId}`, confirmInvited: true })
+    await expectOk(client(world, two.seller.cookie).post('/api/live-join/leave', {}))
+    const three = await connectSeller(world, { channelTitle: '세 번째 가게' })
+
+    const view = async (cookie: string, path: string) => client(world, cookie).raw(path, { headers: { 'X-Live-View': b1.id } })
+    const days = await view(two.seller.cookie, `/api/days/${b1.date}`)
+    expect(days.status).toBe(200)
+    expect(((await days.json()) as { products: { no: number }[] }).products).toContainEqual(expect.objectContaining({ no: 12 }))
+    const list = (await (await view(two.seller.cookie, '/api/broadcasts')).json()) as { broadcasts: { id: string }[] }
+    expect(list.broadcasts.map((b) => b.id)).toContain(b1.id)
+    // 머리 없이는 내 가게 그대로, 같이 보기에 들어가지도 않는다
+    expect(((await client(world, two.seller.cookie).get('/api/broadcasts')).body.broadcasts as { id: string }[]).map((b) => b.id)).not.toContain(b1.id)
+    expect((await client(world, two.seller.cookie).get('/api/me')).body.live).toBeUndefined()
+    // 같이 본 적 없는 계정은 머리를 보내도 내 가게
+    expect(((await (await view(three.seller.cookie, `/api/days/${b1.date}`)).json()) as { products?: unknown[] }).products ?? []).toEqual([])
+  })
+
   it('같이 본 적 없는 라이브는 다시 열 수 없다', async () => {
     const world = await youtubeWorld()
     const one = await connectSeller(world)

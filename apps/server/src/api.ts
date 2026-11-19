@@ -292,7 +292,8 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   })
   // 세션 확인: 로그인·헬스체크 밖 전부 (보조자 계정은 D-UX3-32로 없앴다 — 옛 보조자 세션은 auth.session이 없는 것으로 본다)
   const checkSession = async (c: Context<Env>): Promise<Response | null> => {
-    const session = await auth.session(getCookie(c, SESSION_COOKIE))
+    // 같이 본 라이브 하나만 보는 화면이면 X-Live-View (D-SHARE-LIVE-04)
+    const session = await auth.session(getCookie(c, SESSION_COOKIE), c.req.header('x-live-view'))
     if (session === null) return unauthorized()
     c.set('session', session)
     sessionChecked.add(c.req.raw)
@@ -435,7 +436,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   // 지금 같이 보는 중이면 목록이 이미 그 가게 것이라 빈 목록. 줄 모양은 /api/broadcasts와 같고 shopName(방송 주인 가게 이름)이 붙는다
   api.get('/live-join/past', async (c) => {
     const session = c.get('session')
-    if (deps.liveJoin === undefined || session.joined !== null) return c.json({ lives: [] })
+    if (deps.liveJoin === undefined || session.joined !== null || session.viewing !== undefined) return c.json({ lives: [] })
     const visits = await visitedLives(deps.liveJoin.db, session.accountId, session.homeSellerId)
     const owners = new Map<string, { name: string; ids: Set<string> }>()
     for (const visit of visits) {

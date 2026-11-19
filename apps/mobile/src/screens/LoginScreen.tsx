@@ -70,6 +70,9 @@ type SignupStage =
       readonly accounts: readonly ExistingLogin[]
     }
 
+/** 아이디로 로그인 글자 단추 (D-IDLOGIN-01) */
+export const ID_LOGIN_LABEL = '아이디로 로그인'
+
 export function LoginScreen({
   expired,
   offline = false,
@@ -323,7 +326,12 @@ export function LoginScreen({
             {error !== null && error.code === 'LOGIN_FAILED' ? <Hint>{LOGIN_FAILED_HINT}</Hint> : null}
             <BigButton label="로그인" primary disabled={busy} onPress={() => void submit()} />
           </Stack>
-        ) : null}
+        ) : (
+          // 아이디·비밀번호 로그인 (D-IDLOGIN-01, 사용자 2026-11-20 "문자 인증 필요 없는 아이디 비번 방식 ui 만들고"): 옛 판은 서비스 이름을 여러 번 눌러야 열렸다
+          <Tap role="button" aria-label={ID_LOGIN_LABEL} testID="login-id-open" onPress={() => setIdOpen(true)} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 12, opacity: pressed ? 0.5 : 1 })}>
+            <Text allowFontScaling={false} style={{ color: p.textSub, fontSize: 15, ...font('500') }}>{ID_LOGIN_LABEL}</Text>
+          </Tap>
+        )}
       </View>
       {/* 단추와 맨 아래 사이 일정한 빈칸 (위 칸의 절반 비율, 최소 40) */}
       <View style={{ flex: 2, minHeight: 40 }} />

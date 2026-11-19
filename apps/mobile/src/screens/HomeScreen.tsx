@@ -20,7 +20,7 @@ import { AppHeader, Appear, BigButton, Icon, RowGroup, TodoRow, Txt, useKit, use
 import { Loading, Notice } from '../ui/parts.tsx'
 import { Late } from '../ui/late.tsx'
 import { START_ROW_SUB, START_ROW_TITLE, showsStart } from './StartScreen.tsx'
-import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts, shownBroadcastTitle, useLeaveAfterView, useOpenPast, useSharedPast, withShared } from './BroadcastList.tsx'
+import { HistoryRow, HOME_BROADCASTS, newestFirst, pastBroadcasts, shownBroadcastTitle, useEndLiveView, useOpenPast, useSharedPast, withShared } from './BroadcastList.tsx'
 export { broadcastLength, historyAgo, pastBroadcasts } from './BroadcastList.tsx'
 import { RADIUS, GUTTER, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { font } from '../ui/kit/font.ts'
@@ -273,6 +273,8 @@ function JoinedLiveRow() {
 export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation; readonly sellerName?: string; readonly refresh?: number }) {
   const { p } = useKit()
   const room = useTabBarRoom()
+  // 같이 본 라이브 하나만 보기가 남아 있지 않게 — 다시 받기보다 먼저 (D-SHARE-LIVE-04)
+  useEndLiveView()
   // 다른 화면에 갔다 와도 처음부터 다시 그리지 않는다 (D-UX4-77): 기억해 둔 방송 목록·날짜·할 일 숫자로 바로 그리고, 뒤에서 다시 받아 바뀐 것만 바꾼다
   const broadcasts = useCachedGet<{ broadcasts: BroadcastItem[] }>('/api/broadcasts', refresh)
   const items = broadcasts.data?.broadcasts ?? null
@@ -297,8 +299,6 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
   const shared = useSharedPast(refresh)
   const past = items === null ? [] : withShared(pastBroadcasts(items), shared)
   const opener = useOpenPast(nav.openConsole)
-  // 지난 라이브에서 같이 본 라이브를 보고 돌아오면 저절로 내 가게로 (D-SHARE-LIVE-03)
-  useLeaveAfterView()
   // 홈에는 HOME_BROADCASTS개까지만 — 넘칠 때만 [모두보기] (D-UX4-81, 사용자 지시 2026-11-10)
   const showAll = nav.openAllBroadcasts !== undefined && past.length > HOME_BROADCASTS
   const now = Date.now()
@@ -365,11 +365,6 @@ export function HomeScreen({ nav, refresh = 0 }: { readonly nav: HomeNavigation;
               {past.slice(0, HOME_BROADCASTS).map((item) => (
                 <HistoryRow key={item.id} item={item} now={now} onPress={() => opener.open(item)} />
               ))}
-              {opener.error !== null ? (
-                <View style={{ paddingHorizontal: SPACE.xl, paddingTop: SPACE.xs }}>
-                  <Notice tone="danger">{opener.error}</Notice>
-                </View>
-              ) : null}
               {/* 모두보기는 목록 아래 오른쪽, 글자만의 단추 (D-UX3-88). 넘쳐서 안 보이는 방송이 있을 때만(HOME_BROADCASTS개 넘음 — D-UX4-81) */}
               {!showAll || nav.openAllBroadcasts === undefined ? null : (
                 <Tap role="button" aria-label="라이브 모두 보기" onPress={nav.openAllBroadcasts} hitSlop={8} style={({ pressed }) => ({ alignSelf: 'flex-end', marginRight: SPACE.md, marginBottom: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>

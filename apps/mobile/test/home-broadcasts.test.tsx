@@ -8,7 +8,8 @@ import type { BroadcastItem } from '@livejjim/web/src/api/types.ts'
 import { AllBroadcastsScreen, agoWords, byDate, liveBroadcast, withShared, type SharedLive } from '../src/screens/BroadcastList.tsx'
 import { broadcastLength, historyAgo, HomeScreen, pastBroadcasts } from '../src/screens/HomeScreen.tsx'
 import { clearCached, FOCUS_SETTLE_MS, ScreenFocusProvider } from '../src/lib/cached-get.ts'
-import { SessionProvider } from '../src/services.tsx'
+import { currentLiveView, get, setLiveView } from '../src/api/client.ts'
+import { endLiveView } from '../src/lib/live-view.ts'
 import { makeWorld } from './screen-support.tsx'
 
 const NOW = Date.parse('2026-11-03T05:30:00.000Z')
@@ -138,17 +139,19 @@ describe('같이 본 라이브 (D-SHARE-LIVE-02)', () => {
     expect(withShared([...mine, { ...shared }], [shared]).map((one) => one.id)).toEqual(['c', 'y', 'b', 's'])
   })
 
-  it('홈 지난 라이브에 꼬리표와 함께 보이고, 누르면 다시 들어간 뒤 그 라이브를 연다', async () => {
+  // D-SHARE-LIVE-04로 바뀐 기대 (사용자 2026-11-20 "내 앱에서 연결한 라이브들이 보여야 하는데 사라졌다가 무슨 같이 보기 떴다가 누르면 그 라이브를 찾지 못했다"):
+  // 옛: 누르면 POST /api/live-join/reopen으로 같이 보기에 다시 들어가 앱 전체가 그 가게로 바뀜 → 이제 가게는 그대로, 그 라이브 화면의 요청만 X-Live-View로
+  it('홈 지난 라이브에 꼬리표와 함께 보이고, 누르면 가게를 바꾸지 않고 그 라이브 하나만 연다', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     onTestFinished(() => {
       vi.useRealTimers()
+      setLiveView(null)
     })
     clearCached()
     const world = makeWorld()
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [item('c', '2026-11-03', { createdAt: '2026-11-03T01:00:00.000Z' })] } }))
     world.server.on('GET', /^\/api\/live-join\/past$/, () => ({ body: { lives: [shared] } }))
-    world.server.on('POST', /^\/api\/live-join\/reopen$/, () => ({ body: { live: { broadcastId: 's', shopName: '비트다육' } } }))
     const navigation = nav()
     render(world.wrap(<HomeScreen nav={navigation} sellerName="김다육" />))
     const group = await screen.findByRole('group', { name: '지난 라이브' })
@@ -156,12 +159,33 @@ describe('같이 본 라이브 (D-SHARE-LIVE-02)', () => {
     const rows = within(group).getAllByRole('button').filter((button) => button.getAttribute('aria-label') !== '라이브 모두 보기')
     expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c', 'broadcast-s'])
     fireEvent.click(within(group).getByTestId('broadcast-s'))
-    await waitFor(() => expect(navigation.openConsole).toHaveBeenCalledWith('s'))
-    expect(world.server.callsTo('POST', /^\/api\/live-join\/reopen$/).map((call) => call.body)).toEqual([{ broadcastId: 's' }])
-    // 내 라이브는 그대로 바로 연다
+    expect(navigation.openConsole).toHaveBeenCalledWith('s')
+    expect(currentLiveView()).toBe('s')
+    expect(world.server.callsTo('POST', /^\/api\/live-join\//)).toHaveLength(0)
+    // 내 라이브를 누르면 보기가 끝난다
     fireEvent.click(within(group).getByTestId('broadcast-c'))
     expect(navigation.openConsole).toHaveBeenCalledWith('c')
-    expect(world.server.callsTo('POST', /^\/api\/live-join\/reopen$/)).toHaveLength(1)
+    expect(currentLiveView()).toBeNull()
+  })
+
+  it('보는 동안만 X-Live-View를 보내고 내 정보에는 붙이지 않는다', async () => {
+    onTestFinished(() => setLiveView(null))
+    const world = makeWorld()
+    world.server.on('GET', /^\/api\/days\/2026-11-02$/, () => ({ body: {} }))
+    world.server.on('GET', /^\/api\/me$/, () => ({ body: {} }))
+    const seen: (string | null)[] = []
+    const fetch = world.server.fetch
+    world.server.fetch = async (input: string, init?: RequestInit) => {
+      seen.push(new Headers(init?.headers).get('X-Live-View'))
+      return fetch(input, init)
+    }
+    world.server.install()
+    setLiveView('s')
+    await get('/api/days/2026-11-02')
+    await get('/api/me')
+    endLiveView()
+    await get('/api/days/2026-11-02')
+    expect(seen).toEqual(['s', null, null])
   })
 
   it('옛 서버(같이 본 라이브 주소 없음)면 내 목록만', async () => {
@@ -173,30 +197,19 @@ describe('같이 본 라이브 (D-SHARE-LIVE-02)', () => {
     expect(within(group).getAllByRole('button').map((row) => row.getAttribute('data-testid'))).toEqual(['broadcast-c'])
   })
 
-  // D-SHARE-LIVE-03 (사용자 2026-11-20 "저 위에 저렇게 왜 뜨는거야?" — 지난 라이브에서 연 뒤 홈에 "비트다육 라이브를 같이 보고 있어요 [나가기]"가 남음)
-  it('지난 라이브에서 연 같이 본 라이브는 보고 돌아오면 저절로 나간다', async () => {
+  // D-SHARE-LIVE-04로 바뀐 기대 (옛 D-SHARE-LIVE-03: 다시 들어간 같이 보기를 돌아오면 POST /api/live-join/leave로 나감 — 이제 같이 보기에 들어가지 않는다)
+  it('그 라이브를 보고 홈으로 돌아오면 보기가 끝나 내 가게 자료로 돌아온다', async () => {
     clearCached()
+    onTestFinished(() => setLiveView(null))
     const world = makeWorld()
-    let live: { broadcastId: string; shopName: string } | null = null
-    world.server.on('GET', /^\/api\/me$/, () => ({ body: { loginId: 'mine', seller: { id: 's1', name: live === null ? '내 가게' : '비트다육' }, ...(live === null ? {} : { live }) } }))
     world.server.on('GET', /^\/api\/broadcasts$/, () => ({ body: { broadcasts: [item('c', '2026-11-03', { createdAt: '2026-11-03T01:00:00.000Z' })] } }))
-    world.server.on('GET', /^\/api\/live-join\/past$/, () => ({ body: { lives: live === null ? [shared] : [] } }))
-    world.server.on('POST', /^\/api\/live-join\/reopen$/, () => {
-      live = { broadcastId: 's', shopName: '비트다육' }
-      return { body: { live } }
-    })
-    world.server.on('POST', /^\/api\/live-join\/leave$/, () => {
-      live = null
-      return { body: { ok: true } }
-    })
+    world.server.on('GET', /^\/api\/live-join\/past$/, () => ({ body: { lives: [shared] } }))
     const listeners: Record<string, (() => void)[]> = { focus: [], blur: [] }
     const navigation = { addListener: (event: 'focus' | 'blur', callback: () => void) => { listeners[event]?.push(callback); return () => undefined } }
     const nav0 = nav()
-    render(world.wrap(<SessionProvider services={world.services}><ScreenFocusProvider navigation={navigation}><HomeScreen nav={nav0} sellerName="김다육" /></ScreenFocusProvider></SessionProvider>))
+    render(world.wrap(<ScreenFocusProvider navigation={navigation}><HomeScreen nav={nav0} sellerName="김다육" /></ScreenFocusProvider>))
     fireEvent.click(await screen.findByTestId('broadcast-s'))
-    await waitFor(() => expect(nav0.openConsole).toHaveBeenCalledWith('s'))
-    expect(await screen.findByTestId('joined-live')).toBeTruthy()
-    // 그 라이브 화면에 갔다가 홈으로 돌아온다
+    expect(currentLiveView()).toBe('s')
     act(() => {
       for (const listener of listeners['blur'] ?? []) listener()
       for (const listener of listeners['focus'] ?? []) listener()
@@ -204,7 +217,8 @@ describe('같이 본 라이브 (D-SHARE-LIVE-02)', () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, FOCUS_SETTLE_MS + 50))
     })
-    await waitFor(() => expect(world.server.callsTo('POST', /^\/api\/live-join\/leave$/)).toHaveLength(1))
-    await waitFor(() => expect(screen.queryByTestId('joined-live')).toBeNull())
+    expect(currentLiveView()).toBeNull()
+    expect(world.server.callsTo('POST', /^\/api\/live-join\//)).toHaveLength(0)
+    expect(await screen.findByTestId('broadcast-c')).toBeTruthy()
   })
 })

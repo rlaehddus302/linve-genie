@@ -79,6 +79,21 @@ export async function visitedLives(db: Db, accountId: string, homeSellerId: stri
 }
 
 /**
+ * 같이 본 라이브 하나만 보기 (D-SHARE-LIVE-04): 이 계정이 같이 본 기록이 있는 방송이면 그 방송 주인 (없으면 null).
+ * 앱은 그 라이브 화면에서만 X-Live-View 머리로 보내고, 그 요청만 방송 주인 판매자의 것으로 처리한다 — 가게 전체를 바꾸지 않는다
+ */
+export async function viewedLive(db: Db, accountId: string, homeSellerId: string, broadcastId: string): Promise<ActiveJoin | null> {
+  const rows = await db
+    .select({ ownerSellerId: liveJoinVisits.ownerSellerId, ownerName: sellers.name, broadcastId: liveJoinVisits.broadcastId })
+    .from(liveJoinVisits)
+    .innerJoin(sellers, eq(sellers.id, liveJoinVisits.ownerSellerId))
+    .innerJoin(broadcasts, and(eq(broadcasts.id, liveJoinVisits.broadcastId), eq(broadcasts.sellerId, liveJoinVisits.ownerSellerId)))
+    .where(and(eq(liveJoinVisits.accountId, accountId), eq(liveJoinVisits.homeSellerId, homeSellerId), eq(liveJoinVisits.broadcastId, broadcastId), ne(liveJoinVisits.ownerSellerId, homeSellerId)))
+    .limit(1)
+  return rows[0] ?? null
+}
+
+/**
  * 지난 라이브에서 같이 본 라이브를 다시 연다 (D-SHARE-LIVE-02): 같이 본 기록이 있는 방송이면 다시 들어간다(연 때부터 12시간). 기록이 없으면 null
  */
 export async function reopenVisited(db: Db, session: { readonly accountId: string; readonly homeSellerId: string }, broadcastId: string, now: Date): Promise<JoinedView | null> {

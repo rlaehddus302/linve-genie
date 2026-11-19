@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { Animated, BackHandler, Keyboard, Platform, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
 import { get, put, withQuery } from '../api/client.ts'
+import { endLiveView } from '../lib/live-view.ts'
 import { BuyerNames, alertCounts, boardProducts } from '../lib/derive.ts'
 import type { ScopeSnapshot } from '../lib/scope-store.ts'
 import { useAppForeground } from '../lib/use-app-state.ts'
@@ -145,6 +146,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const [noticesShown, setNoticesShown] = useState(false)
   const services = useServices()
   const { store, snapshot } = useScopeStore(broadcastId)
+  // 같이 본 라이브 하나만 보기는 이 화면을 닫으면 끝난다 (D-SHARE-LIVE-04)
+  useEffect(() => () => endLiveView(broadcastId), [broadcastId])
   const { p } = useKit()
   const inset = useBottomInset()
   const pageTop = usePageTop()

@@ -115,7 +115,7 @@ describe('LoginScreen', () => {
       const t = install(null, {}, {}, ['apple', 'kakao', 'naver', 'google'])
       render(<LoginScreen expired={false} onLogin={async () => {}} onSocialDone={async () => {}} />)
       const apple = await screen.findByRole('button', { name: 'Apple로 로그인' })
-      const names = screen.getAllByRole('button').map((item) => item.getAttribute('aria-label')).filter((name) => name?.endsWith('로 로그인'))
+      const names = screen.getAllByRole('button').map((item) => item.getAttribute('aria-label')).filter((name) => name?.endsWith('로 로그인') && name !== '아이디로 로그인') // D-IDLOGIN-01: 아이디로 로그인 글자 단추는 간편 로그인 단추가 아니다
       expect(names).toEqual(['카카오로 로그인', '네이버로 로그인', '구글로 로그인', 'Apple로 로그인'])
       fireEvent.click(apple)
       await waitFor(() => expect(t.opened).toEqual([`https://livegenie.test/api/auth/app/start?provider=apple&challenge=${'C'.repeat(43)}`]))
@@ -165,14 +165,17 @@ describe('LoginScreen', () => {
     // D-UX3-31 (사용자 지시 2026-11-05 "아이디 비밀번호 방식 다 지우고 소셜 로그인만 남기고 밑에 쓸데 없는 설명은 지우고 필수적인거만")
     // D-UX3-32 (사용자 지시 2026-11-06 "도우미 기능 필요없어 … 로그인 화면은 첨부 사진과 같이"): 옛 기대 "[아이디로 로그인]을 누르면 칸이 열린다"
     // → 새 기대 "그 링크는 없고, 서비스명을 2초 안에 다섯 번 누르면 칸이 열린다"
-    it('간편 로그인이 켜진 서버면 첫 화면은 서비스명·단추 셋·맨 아래 약관과 고객센터뿐(동의 안내 한 줄 없음 — D-UX3-33), 아이디 칸·[아이디로 로그인]은 없다', async () => {
+    it('간편 로그인이 켜진 서버면 첫 화면은 서비스명·단추 셋·[아이디로 로그인]·맨 아래 약관과 고객센터(동의 안내 한 줄 없음 — D-UX3-33), 아이디 칸은 누르면 열린다 (D-IDLOGIN-01)', async () => {
       install(null, {})
       render(<LoginScreen expired={false} onLogin={async () => {}} />)
       await screen.findByRole('button', { name: '카카오로 로그인' })
       expect(screen.getByRole('heading', { name: '라이브지니' })).toBeTruthy()
       expect(screen.queryByLabelText('아이디')).toBeNull()
       expect(screen.queryByLabelText('비밀번호')).toBeNull()
-      expect(screen.queryByRole('button', { name: '아이디로 로그인' })).toBeNull()
+      // D-IDLOGIN-01로 바뀐 기대 (사용자 2026-11-20 "문자 인증 필요 없는 아이디 비번 방식 ui 만들고"): 옛 "[아이디로 로그인]은 없다" → 단추 아래 글자 단추로 보이고, 누르면 칸이 열린다
+      fireEvent.click(screen.getByRole('button', { name: '아이디로 로그인' }))
+      expect(screen.getByLabelText('아이디')).toBeTruthy()
+      expect(screen.getByLabelText('비밀번호')).toBeTruthy()
       expect(screen.queryByText('또는')).toBeNull()
       expect(screen.queryByText(/운영자에게 물어봐/)).toBeNull()
       const footer = screen.getByTestId('login-footer')
