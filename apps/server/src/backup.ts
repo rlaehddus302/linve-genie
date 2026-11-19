@@ -116,6 +116,7 @@ import {
   pasteRequests,
   receiptLinkRequests,
   receiptLinks,
+  statementBuyerEvents,
   printAttempts,
   printJobs,
   printLabels,
@@ -1724,6 +1725,8 @@ export const RESTORE_REPLACED_TABLES = [
   assistCache,
   receiptLinks,
   receiptLinkRequests,
+  // D-STMT-JOIN-01 정산서 손님 합치기: 구매자 ID로 잇는다 — 복구한 기록의 구매자 ID가 다른 사람을 가리킬 수 있어 지운다(번호가 같은 손님은 다시 저절로 묶인다)
+  statementBuyerEvents,
   depositLinks,
   depositActions,
   igDmRows,

@@ -225,6 +225,37 @@ export class ReceiptSmsService {
     return out
   }
 
+  /**
+   * 구매자마다 아는 번호(정규화, 가장 최근에 넣은 것) — 정산서 손님 합치기(D-STMT-JOIN-01)가 같은 번호를 찾을 때만 쓴다. 번호는 응답·로그에 나가지 않는다.
+   * 그날 범위가 봉인되어 엔진 상태가 없으면 판매자가 넣은 번호 키(봉인 직전에 문자찜 번호도 옮겨 둔다)만 본다
+   */
+  async phonesOf(sellerId: string, date: string, buyers: readonly string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>()
+    if (!isValidDate(date) || buyers.length === 0) return out
+    const runtime = await this.#deps.writer.read(sellerId, date, false)
+    const keysByBuyer = new Map(buyers.map((buyer) => [buyer, runtime.seq === 0 ? [manualPhoneKey(date, buyer)] : this.#keysOf(runtime.state, date, buyer)]))
+    const allKeys = [...new Set([...keysByBuyer.values()].flat())]
+    if (allKeys.length === 0) return out
+    const rows = await this.#deps.db
+      .select({ key: buyerPhones.key, phoneEnc: buyerPhones.phoneEnc, updatedAt: buyerPhones.updatedAt })
+      .from(buyerPhones)
+      .where(and(eq(buyerPhones.sellerId, sellerId), inArray(buyerPhones.key, allKeys)))
+    const opened = new Map<string, { phone: string; at: number }>()
+    for (const row of rows) {
+      try {
+        const phone = normalizePhone(openSellerText(this.#deps.masterKey, PHONE_PURPOSE, sellerId, row.phoneEnc))
+        if (phone !== null) opened.set(row.key, { phone, at: row.updatedAt.getTime() })
+      } catch {
+        // 열 수 없는 행은 건너뛴다
+      }
+    }
+    for (const [buyer, keys] of keysByBuyer) {
+      const latest = keys.map((key) => opened.get(key)).filter((row) => row !== undefined).sort((a, b) => b.at - a.at)[0]
+      if (latest !== undefined) out.set(buyer, latest.phone)
+    }
+    return out
+  }
+
   /** 구매자 줄의 문자 상태 (리허설·없는 범위는 빈 맵) */
   async statuses(sellerId: string, date: string, buyers: readonly string[]): Promise<Map<string, ReceiptSmsView>> {
     const result = new Map<string, ReceiptSmsView>()

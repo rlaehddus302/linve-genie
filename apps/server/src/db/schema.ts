@@ -2921,8 +2921,37 @@ export const broadcastGroupEvents = pgTable(
   (t) => [unique('broadcast_group_events_request_uq').on(t.sellerId, t.requestId), index('broadcast_group_events_seller_idx').on(t.sellerId, t.id)],
 )
 
+/**
+ * 정산서 손님 합치기 기록 (D-STMT-JOIN-01): 같은 날 정산서에서 닉네임이 다른 구매자 여럿을 정산서 한 장으로 묶고(join) 다시 한 명씩 두는(apart) 판매자 결정.
+ * 덧붙이기만 한다. 엔진 이벤트가 아니다 — 판정·금액은 바뀌지 않고 정산서 화면·파일만 묶어 보인다. 휴대폰 번호가 같은 구매자는 기록 없이 저절로 묶인다
+ */
+export const statementBuyerEvents = pgTable(
+  'statement_buyer_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sellerId: text('seller_id')
+      .notNull()
+      .references(() => sellers.id),
+    /** 화면 요청 번호 (같은 번호로 다시 오면 처음 결과) */
+    requestId: text('request_id').notNull(),
+    /** join(한 정산서로) · apart(한 명씩) */
+    kind: text('kind').notNull(),
+    /** 라이브 날짜 (KST) */
+    date: text('date').notNull(),
+    /** join의 묶음 표지 (apart는 빈 글) */
+    link: text('link').notNull(),
+    /** 구매자 ID 목록 (JSON 배열 문자열) */
+    buyerIds: text('buyer_ids').notNull(),
+    /** 누가 (로그인 계정 ID) */
+    accountId: text('account_id'),
+    createdAt: timestamptz('created_at').notNull(),
+  },
+  (t) => [unique('statement_buyer_events_request_uq').on(t.sellerId, t.requestId), index('statement_buyer_events_seller_date_idx').on(t.sellerId, t.date, t.id)],
+)
+
 export const schema = {
   broadcastGroupEvents,
+  statementBuyerEvents,
   liveCatalogBackfill,
   liveCatalogDelivery,
   voiceAliases,

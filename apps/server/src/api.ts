@@ -40,6 +40,7 @@ import type { InstagramModule } from './instagram/index.ts'
 import { INSTAGRAM_PUBLIC_PATHS, registerLiveRoutes } from './instagram/routes.ts'
 import type { ReceiptLinkService } from './receipt-links.ts'
 import type { ReceiptSmsService } from './receipt-sms.ts'
+import { JOIN_MESSAGES, joinBuyersInput, type StatementJoinGroup, type StatementJoins } from './statement-joins.ts'
 import type { TikTokLive } from './tiktok-live/live.ts'
 import type { PasteService } from './tiktok-live/paste-service.ts'
 import { registerTiktokRoutes } from './tiktok-live/routes.ts'
@@ -112,6 +113,8 @@ export interface ApiDeps {
   readonly receiptLinks?: ReceiptLinkService
   /** 영수증 문자 (D-REAL-03). 없으면 문자 칸이 없다 */
   readonly receiptSms?: ReceiptSmsService
+  /** 정산서 손님 합치기 (D-STMT-JOIN-01). 없으면 묶음 없이 닉네임마다 정산서 */
+  readonly statementJoins?: StatementJoins
   readonly auth: Auth
   readonly hub: StreamHub
   /** 출력 기록과 출력 기기 (I1). 없으면 /api/print 경로가 없다 */
@@ -542,13 +545,48 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 방송 (AC-S04-21) ──────────────────────────────────────────────────
   api.get('/broadcasts', async (c) => c.json({ broadcasts: await service.broadcasts(sellerOf(c)) }))
+  // (앞에 둔다 — 아래 :tab/:format 경로가 buyer를 먼저 잡지 않게)
+  // 구매자 한 명 정산서 파일 (D-STMT-EACH-01): ?buyer=<정산서 줄 키(합친 정산서면 대표 구매자)> — 상품 줄·배송비·총액·입금 안내. 휴대폰 번호·주소는 넣지 않는다
+  api.get('/broadcasts/:id/statement/buyer/:format', async c => {
+    const { id, format } = c.req.param()
+    if (format !== 'csv' && format !== 'xlsx') return notFound()
+    const buyer = c.req.query('buyer') ?? ''
+    if (buyer === '' || buyer.length > 64 || /[\p{Cc}]/u.test(buyer)) return notFound()
+    const file = await service.buyerStatementFile(sellerOf(c), id, buyer, format, (date) => joinsOf(sellerOf(c), date))
+    if (!file) return notFound()
+    return fileResponse(file.bytes, MIME[format], `정산서-${file.date}.${format}`, `statement-${file.date}-buyer.${format}`)
+  })
   api.get('/broadcasts/:id/statement/:tab/:format', async c => {
     const { id, tab, format } = c.req.param()
     if ((tab !== 'buyers' && tab !== 'products') || (format !== 'csv' && format !== 'xlsx')) return notFound()
-    const file = await service.statementFile(sellerOf(c), id, tab, format)
+    const file = await service.statementFile(sellerOf(c), id, tab, format, (date) => joinsOf(sellerOf(c), date))
     if (!file) return notFound()
     const name = `정산내역서-${file.date}-${tab === 'buyers' ? '구매자별' : '상품별'}.${format}`
     return fileResponse(file.bytes, MIME[format], name, `statement-${file.date}-${tab}.${format}`)
+  })
+  // 정산서 손님 합치기 (D-STMT-JOIN-01): 같은 날 정산서에서 한 장으로 보일 구매자 묶음. 번호가 같으면 저절로, 판매자가 고르면 기록대로
+  const joinsOf = async (sellerId: string, date: string): Promise<StatementJoinGroup[]> => (deps.statementJoins === undefined ? [] : deps.statementJoins.groups(sellerId, date))
+  api.get('/days/:date/statement-joins', async c => {
+    const date = c.req.param('date')
+    if (!isValidDate(date)) return notFound()
+    if (c.req.query('rehearsal') === 'true') return c.json({ groups: [] })
+    return c.json({ groups: await joinsOf(sellerOf(c), date) })
+  })
+  api.post('/days/:date/statement-joins', async c => {
+    const date = c.req.param('date')
+    if (!isValidDate(date)) return notFound()
+    const input = body(c)
+    const requestId = requestIdOf(input)
+    if (requestId === null) return invalidRequestId()
+    const extra = onlyKeys(input, ['requestId', 'kind', 'buyers'])
+    if (extra !== null) return extra
+    const kind = input.kind
+    if (kind !== 'join' && kind !== 'apart') return apiError(400, 'INVALID_INPUT', JOIN_MESSAGES.count, [{ field: 'kind', message: JOIN_MESSAGES.count }])
+    const buyers = joinBuyersInput(input.buyers, kind)
+    if (buyers === null) return apiError(400, 'INVALID_INPUT', JOIN_MESSAGES.count, [{ field: 'buyers', message: JOIN_MESSAGES.count }])
+    if (deps.statementJoins === undefined) return notFound()
+    const groups = await deps.statementJoins.change(sellerOf(c), c.get('session').accountId, requestId, date, kind, buyers)
+    return c.json({ groups })
   })
   // 라이브 합치기 (D-MERGE-LIVE-01~): 같은 날 끝난 실제 라이브 여럿을 정산서 하나로. 엔진 기록은 바꾸지 않고 덧붙이기만 하는 묶음 기록을 남긴다
   api.get('/broadcast-groups', async c => c.json({ groups: await service.broadcastGroups(sellerOf(c)) }))

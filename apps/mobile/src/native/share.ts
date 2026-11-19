@@ -22,3 +22,34 @@ export const shareFile: ShareFile = async (bytes, name, mimeType) => {
   file.write(bytes)
   await Sharing.shareAsync(file.uri, { mimeType, dialogTitle: name })
 }
+
+/**
+ * 구매자마다 따로 저장 (D-STMT-EACH-01): 판매자가 고른 폴더(아이폰 "파일" 앱 폴더 · 안드로이드 저장소 폴더)에 파일 여러 개를 쓴다.
+ * 폴더 고르기를 닫으면 null. 고른 폴더에 쓰지 못하면 던진다(부르는 쪽이 하나씩 공유 창으로 넘어간다)
+ */
+export interface FolderWriter {
+  readonly write: (name: string, bytes: Uint8Array, mimeType: string) => void
+}
+export type PickSaveFolder = () => Promise<FolderWriter | null>
+
+const isCancel = (error: unknown): boolean => {
+  const text = error instanceof Error ? `${error.message} ${(error as { code?: unknown }).code ?? ''}` : String(error)
+  return /cancel/i.test(text)
+}
+
+export const pickSaveFolder: PickSaveFolder = async () => {
+  const { Directory } = await import('expo-file-system')
+  let folder: InstanceType<typeof Directory>
+  try {
+    folder = await Directory.pickDirectoryAsync()
+  } catch (error) {
+    if (isCancel(error)) return null
+    throw error
+  }
+  return {
+    write: (name, bytes, mimeType) => {
+      const file = folder.createFile(name, mimeType)
+      file.write(bytes)
+    },
+  }
+}

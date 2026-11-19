@@ -1,4 +1,5 @@
-import { statementFile } from './statement-file.ts'
+import { buyerStatementFile, statementFile } from './statement-file.ts'
+import type { StatementJoinGroup } from './statement-joins.ts'
 import { PAUSED_MESSAGE, isPausedBroadcast } from './pause.ts'
 import { groupOfBroadcast, mergeBroadcasts, readGroups, splitGroup, type BroadcastGroup, type MergeResult, type SplitResult } from './broadcast-groups.ts'
 import type { FullView as ClientFullView } from '../../web/src/api/types.ts'
@@ -1285,7 +1286,25 @@ export class Service {
    * 정산서 내려받기. 합친 라이브(D-MERGE-LIVE-01)면 묶음의 라이브를 모두 담고, 가게 이름은 묶음 첫 라이브(1차)의 것 —
    * 화면 정산서와 같은 범위라 1차만 담긴 파일이 따로 나가지 않는다
    */
-  async statementFile(sellerId: string, id: string, tab: 'buyers' | 'products', format: 'csv' | 'xlsx') {
+  async statementFile(sellerId: string, id: string, tab: 'buyers' | 'products', format: 'csv' | 'xlsx', joins?: (date: string) => Promise<readonly StatementJoinGroup[]>) {
+    const scope = await this.#statementScope(sellerId, id)
+    if (scope === null) return null
+    const groups = scope.row.rehearsal || joins === undefined ? [] : await joins(scope.row.date)
+    return { date: scope.row.date, bytes: await statementFile(scope.view, scope.members, scope.shop, tab, format, scope.hideSuffix, groups) }
+  }
+
+  /** 구매자 한 명 정산서 파일 (D-STMT-EACH-01) — 정산서 화면과 같은 범위·묶음. 정산서에 없는 구매자면 null */
+  async buyerStatementFile(sellerId: string, id: string, buyer: string, format: 'csv' | 'xlsx', joins?: (date: string) => Promise<readonly StatementJoinGroup[]>) {
+    const scope = await this.#statementScope(sellerId, id)
+    if (scope === null) return null
+    const [info, groups] = await Promise.all([this.statementInfo(sellerId), scope.row.rehearsal || joins === undefined ? [] : joins(scope.row.date)])
+    if (info === null) return null
+    const bytes = await buyerStatementFile(scope.view, scope.members, scope.shop, buyer, info, format, scope.hideSuffix, groups)
+    return bytes === null ? null : { date: scope.row.date, bytes }
+  }
+
+  /** 정산서 범위: 합친 라이브면 묶음의 라이브 모두, 가게 이름은 묶음 첫 라이브(1차)의 것 */
+  async #statementScope(sellerId: string, id: string) {
     const row = await findBroadcast(this.#options.db, sellerId, id)
     if (!row) return null
     const group = row.rehearsal ? null : await groupOfBroadcast(this.#options.db, sellerId, id)
@@ -1293,7 +1312,7 @@ export class Service {
     const lead = members[0] ?? id
     const [view, shop, queue] = await Promise.all([this.scopeView(sellerId, row.date, row.rehearsal), this.orderShop(sellerId, lead), readQueue(this.#options.db, sellerId)])
     if (!view || shop === null) return null
-    return { date: row.date, bytes: await statementFile(view as unknown as ClientFullView, members, shop, tab, format, queue?.hideNicknameSuffix === true) }
+    return { row, members, shop, view: view as unknown as ClientFullView, hideSuffix: queue?.hideNicknameSuffix === true }
   }
 
   /** 지금 합친 라이브 묶음 (D-MERGE-LIVE-01) */

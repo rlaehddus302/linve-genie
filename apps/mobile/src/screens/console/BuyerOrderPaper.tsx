@@ -13,7 +13,7 @@
 // - 손님 전화번호·계좌번호는 기록(로그)에 남기지 않는다. 손님 닉네임은 글자(Txt)로만 그린다.
 // - 합친 라이브(D-MERGE-LIVE-01): 번호는 라이브마다 다시 쓰여 "1차 12번"·"2차 12번"으로 가른다(화면·사진·문자 글 모두). 배송비는 합친 정산서 한 장에 한 번.
 //   다른 정산서(합치기·나누기 전)를 먼저 받은 손님이면 단추 위에 알린다(D-MERGE-LIVE-04) — 같은 상품 값을 두 번 청구하지 않게.
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 import { ScrollView, View, useWindowDimensions } from 'react-native'
 import Svg, { G as SvgGroup, Line, Rect, Text as SvgText } from 'react-native-svg'
 import { wrap, snapshot } from './paper-image.ts'
@@ -25,7 +25,8 @@ import { nativeSms, nativeShareFile } from '../../native/index.ts'
 import { BigButton, BottomSheet, ButtonRow, SmallButton, TextField, Txt, useKit } from '../../ui/kit/index.ts'
 import { GUTTER, RADIUS, SPACE, TOUCH } from '../../ui/kit/tokens.ts'
 
-const WIDTH = 412
+export const PAPER_WIDTH = 412
+const WIDTH = PAPER_WIDTH
 const INK = '#172F39'
 const MUTED = '#526976'
 const TITLE_GREEN = '#1E7B34'
@@ -133,27 +134,8 @@ export interface SendQueue {
   readonly last: boolean
 }
 
-export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, rehearsal, info, queue, onSent, earlier = false }: {
-  order: BuyerOrder; shop: string; date: string; buyerName: string; inset: number; sealed: boolean; rehearsal: boolean
-  /** 다른 정산서(합치기·나누기 전)를 먼저 받은 손님 (D-MERGE-LIVE-04) */
-  earlier?: boolean
-  /** 정산 정보 — 계좌·전화번호·방송 이름·배송비 규칙 */
-  info: StatementInfo
-  queue?: SendQueue | undefined
-  /** 이 손님에게 문자를 보냈다 (마지막 장까지) */
-  onSent?: (() => void) | undefined
-}) {
-  const svg = useRef<Svg>(null)
-  const { p } = useKit()
-  const { width } = useWindowDimensions()
-  const [pageIndex, setPageIndex] = useState(0)
-  const [busy, setBusy] = useState(false)
-  const [askPhone, setAskPhone] = useState(false)
-  const [phone, setPhone] = useState('')
-  const [notice, setNotice] = useState('')
-  const [phoneError, setPhoneError] = useState('')
-  /** 연속 보내기에서 문자 앱을 열었지만 보냈는지 알 수 없다(안드로이드) — [다음 손님]을 기다린다 */
-  const [opened, setOpened] = useState(false)
+/** 사진 그림의 자리 잡기 — 화면의 정산서와 구매자마다 따로 저장(D-STMT-EACH-01)이 같은 셈을 쓴다 */
+export function paperLayout(order: BuyerOrder, shop: string, date: string, buyerName: string, info: StatementInfo, pageIndex: number) {
   const pages = pagesOf(order.lines)
   const index = Math.min(pageIndex, pages.length - 1)
   const page = pages[index]!
@@ -191,6 +173,91 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
   const tableEnd = last ? phoneY + phoneHeight : rowsEnd
   const gridEnd = last ? accountY : rowsEnd
   const height = tableEnd + (pages.length > 1 ? 24 : 10)
+  return { pages, index, page, last, charged, shipping, total, account, sellerPhone, host, titleLines, titleHeight, buyerWord, dateWord, buyerLines, infoY, buyerY, tableTop, start, rowsEnd, feeY, totalY, accountLines, accountY, accountHeight, phoneY, tableEnd, gridEnd, height }
+}
+export type PaperLayout = ReturnType<typeof paperLayout>
+
+/** 사진 그림 (옛 양식, D-RETRO-61) — 한 장 */
+export function PaperSvg({ order, layout, svgRef }: { readonly order: BuyerOrder; readonly layout: PaperLayout; readonly svgRef: RefObject<Svg | null> }) {
+  const { pages, index, page, last, charged, shipping, total, account, sellerPhone, host, titleLines, titleHeight, dateWord, buyerLines, infoY, buyerY, tableTop, start, feeY, totalY, accountLines, accountY, accountHeight, phoneY, tableEnd, gridEnd, height } = layout
+  const pageWord = `${index + 1}/${pages.length}`
+  return (
+      <Svg ref={svgRef} width={WIDTH} height={height} viewBox={`0 0 ${WIDTH} ${height}`}>
+        <Rect width={WIDTH} height={height} fill="white" />
+        <Rect width={WIDTH} height={titleHeight} fill={BAND_LIGHT} />
+        {titleLines.map((line, i) => ink(line, WIDTH / 2, 33 + i * 28, 22, true, 'middle', TITLE_GREEN))}
+        {host !== '' && ink(host, X.left + 4, infoY, 13, false, 'start', MUTED)}
+        {ink(dateWord, X.right - 4, infoY, 13, false, 'end', MUTED)}
+        {buyerLines.map((line, i) => ink(line, WIDTH / 2, buyerY + i * 20, 14, true, 'middle'))}
+        <Rect x={X.left} y={tableTop} width={X.right - X.left} height={HEAD_ROW} fill={BAND_DARK} />
+        {ink('번호', MID.no, tableTop + 20, 13, true, 'middle')}{ink('종자', MID.name, tableTop + 20, 13, true, 'middle')}
+        {ink('개수', MID.qty, tableTop + 20, 13, true, 'middle')}{ink('가격(원)', (X.price + X.right) / 2, tableTop + 20, 13, true, 'middle')}
+        {page.map(({ line, words, y, height: rowHeight }) => {
+          const mid = start + y + rowHeight / 2 + 5
+          return <SvgGroup key={line.key}>
+            {ink(line.round ? `${line.round} ${String(line.no)}` : String(line.no), MID.no, mid, line.round ? 13 : 14, false, 'middle')}
+            {words.map((word, i) => ink(word, MID.name, mid - (words.length - 1) * 9 + i * 18, 14, false, 'middle'))}
+            {ink(String(line.qty), MID.qty, mid, 14, false, 'middle')}
+            {price(line.amount, mid)}
+            <Line x1={X.left} x2={X.right} y1={start + y + rowHeight} y2={start + y + rowHeight} stroke={GRID} />
+          </SvgGroup>
+        })}
+        {last && <>
+          {charged && <SvgGroup>
+            {ink('배송비', MID.name, feeY + 22, 14, false, 'middle')}
+            {shipping === 0 ? ink('무료', X.right - 8, feeY + 22, 14, false, 'end') : price(shipping, feeY + 22)}
+            <Line x1={X.left} x2={X.right} y1={feeY + FEE_ROW} y2={feeY + FEE_ROW} stroke={GRID} />
+          </SvgGroup>}
+          <Rect x={X.left} y={totalY} width={X.right - X.left} height={TOTAL_ROW} fill={BAND_LIGHT} />
+          {ink('총 개수', MID.no, totalY + 24, 13, true, 'middle')}{ink(String(order.qty), MID.name, totalY + 24, 15, true, 'middle')}
+          {ink('개', MID.qty, totalY + 24, 14, true, 'middle')}{price(total, totalY + 24, true)}
+          {account !== null && <SvgGroup>
+            <Line x1={X.left} x2={X.right} y1={accountY} y2={accountY} stroke={GRID} />
+            {ink('계좌', MID.no, accountY + accountHeight / 2 + 5, 13, true, 'middle')}
+            {accountLines.map((line, i) => ink(line, MID.wide, accountY + accountHeight / 2 + 5 - (accountLines.length - 1) * 9 + i * 18, 14, false, 'middle'))}
+          </SvgGroup>}
+          {sellerPhone !== '' && <SvgGroup>
+            <Line x1={X.left} x2={X.right} y1={phoneY} y2={phoneY} stroke={GRID} />
+            {ink('전화번호', MID.no, phoneY + 21, 13, true, 'middle')}
+            {ink(sellerPhone, MID.wide, phoneY + 21, 14, false, 'middle')}
+          </SvgGroup>}
+        </>}
+        {/* 칸 선: 표 바깥 테두리 · 세로 선(상품·배송비·총 개수 줄은 네 칸, 계좌·전화번호 줄은 두 칸) */}
+        <Rect x={X.left} y={tableTop} width={X.right - X.left} height={tableEnd - tableTop} fill="none" stroke={GRID} />
+        <Line x1={X.left} x2={X.right} y1={start} y2={start} stroke={GRID} />
+        <Line x1={X.name} x2={X.name} y1={tableTop} y2={tableEnd} stroke={GRID} />
+        <Line x1={X.qty} x2={X.qty} y1={tableTop} y2={gridEnd} stroke={GRID} />
+        <Line x1={X.price} x2={X.price} y1={tableTop} y2={gridEnd} stroke={GRID} />
+        {pages.length > 1 && ink(pageWord, X.right, height - 7, 11, false, 'end', MUTED)}
+      </Svg>
+  )
+}
+
+export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, rehearsal, info, queue, onSent, earlier = false, top }: {
+  order: BuyerOrder; shop: string; date: string; buyerName: string; inset: number; sealed: boolean; rehearsal: boolean
+  /** 제목 아래 칸 — 정산서 손님 합치기 (D-STMT-JOIN-01) */
+  top?: ReactNode
+  /** 다른 정산서(합치기·나누기 전)를 먼저 받은 손님 (D-MERGE-LIVE-04) */
+  earlier?: boolean
+  /** 정산 정보 — 계좌·전화번호·방송 이름·배송비 규칙 */
+  info: StatementInfo
+  queue?: SendQueue | undefined
+  /** 이 손님에게 문자를 보냈다 (마지막 장까지) */
+  onSent?: (() => void) | undefined
+}) {
+  const svg = useRef<Svg>(null)
+  const { p } = useKit()
+  const { width } = useWindowDimensions()
+  const [pageIndex, setPageIndex] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [askPhone, setAskPhone] = useState(false)
+  const [phone, setPhone] = useState('')
+  const [notice, setNotice] = useState('')
+  const [phoneError, setPhoneError] = useState('')
+  /** 연속 보내기에서 문자 앱을 열었지만 보냈는지 알 수 없다(안드로이드) — [다음 손님]을 기다린다 */
+  const [opened, setOpened] = useState(false)
+  const layout = paperLayout(order, shop, date, buyerName, info, pageIndex)
+  const { pages, index, last, charged, shipping, total, account, sellerPhone, host, buyerWord, dateWord, height } = layout
   const displayWidth = Math.min(width - 2 * GUTTER, 540)
 
   const mounted = useRef(true)
@@ -263,6 +330,7 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
       <Txt step="headline" weight="bold" role="heading" aria-level={1} testID="buyer-statement-title">{`${buyerWord} 정산서`}</Txt>
       {queue !== undefined ? <Txt step="caption" color="textSub">{`모두에게 보내기 · ${queue.total}명 가운데 ${queue.position}번째`}</Txt> : null}
     </View>
+    {top !== undefined && queue === undefined ? <View style={{ width: displayWidth }}>{top}</View> : null}
     <View testID="buyer-statement" role="group" aria-label={label} style={{ width: displayWidth, gap: SPACE.xl }}>
       <Card label={LINES_TITLE}>
         {order.lines.map((line, i) => <View key={line.key}>{i > 0 ? <Divider /> : null}<LineRow line={line} /></View>)}
@@ -319,54 +387,7 @@ export function BuyerOrderPaper({ order, shop, date, buyerName, inset, sealed, r
         아이폰은 그림의 실제 크기(bounds)에 그리므로 사진 크기(WIDTH × height)와 같게 둔다.
         스크롤 밖(형제)에 두어 스크롤이 화면 밖 줄을 떼어 내도 그림은 남는다. */}
     <View aria-hidden pointerEvents="none" testID="buyer-statement-photo" style={{ position: 'absolute', left: -10000, top: 0, width: WIDTH, height }}>
-      <Svg ref={svg} width={WIDTH} height={height} viewBox={`0 0 ${WIDTH} ${height}`}>
-        <Rect width={WIDTH} height={height} fill="white" />
-        <Rect width={WIDTH} height={titleHeight} fill={BAND_LIGHT} />
-        {titleLines.map((line, i) => ink(line, WIDTH / 2, 33 + i * 28, 22, true, 'middle', TITLE_GREEN))}
-        {host !== '' && ink(host, X.left + 4, infoY, 13, false, 'start', MUTED)}
-        {ink(dateWord, X.right - 4, infoY, 13, false, 'end', MUTED)}
-        {buyerLines.map((line, i) => ink(line, WIDTH / 2, buyerY + i * 20, 14, true, 'middle'))}
-        <Rect x={X.left} y={tableTop} width={X.right - X.left} height={HEAD_ROW} fill={BAND_DARK} />
-        {ink('번호', MID.no, tableTop + 20, 13, true, 'middle')}{ink('종자', MID.name, tableTop + 20, 13, true, 'middle')}
-        {ink('개수', MID.qty, tableTop + 20, 13, true, 'middle')}{ink('가격(원)', (X.price + X.right) / 2, tableTop + 20, 13, true, 'middle')}
-        {page.map(({ line, words, y, height: rowHeight }) => {
-          const mid = start + y + rowHeight / 2 + 5
-          return <SvgGroup key={line.key}>
-            {ink(line.round ? `${line.round} ${String(line.no)}` : String(line.no), MID.no, mid, line.round ? 13 : 14, false, 'middle')}
-            {words.map((word, i) => ink(word, MID.name, mid - (words.length - 1) * 9 + i * 18, 14, false, 'middle'))}
-            {ink(String(line.qty), MID.qty, mid, 14, false, 'middle')}
-            {price(line.amount, mid)}
-            <Line x1={X.left} x2={X.right} y1={start + y + rowHeight} y2={start + y + rowHeight} stroke={GRID} />
-          </SvgGroup>
-        })}
-        {last && <>
-          {charged && <SvgGroup>
-            {ink('배송비', MID.name, feeY + 22, 14, false, 'middle')}
-            {shipping === 0 ? ink('무료', X.right - 8, feeY + 22, 14, false, 'end') : price(shipping, feeY + 22)}
-            <Line x1={X.left} x2={X.right} y1={feeY + FEE_ROW} y2={feeY + FEE_ROW} stroke={GRID} />
-          </SvgGroup>}
-          <Rect x={X.left} y={totalY} width={X.right - X.left} height={TOTAL_ROW} fill={BAND_LIGHT} />
-          {ink('총 개수', MID.no, totalY + 24, 13, true, 'middle')}{ink(String(order.qty), MID.name, totalY + 24, 15, true, 'middle')}
-          {ink('개', MID.qty, totalY + 24, 14, true, 'middle')}{price(total, totalY + 24, true)}
-          {account !== null && <SvgGroup>
-            <Line x1={X.left} x2={X.right} y1={accountY} y2={accountY} stroke={GRID} />
-            {ink('계좌', MID.no, accountY + accountHeight / 2 + 5, 13, true, 'middle')}
-            {accountLines.map((line, i) => ink(line, MID.wide, accountY + accountHeight / 2 + 5 - (accountLines.length - 1) * 9 + i * 18, 14, false, 'middle'))}
-          </SvgGroup>}
-          {sellerPhone !== '' && <SvgGroup>
-            <Line x1={X.left} x2={X.right} y1={phoneY} y2={phoneY} stroke={GRID} />
-            {ink('전화번호', MID.no, phoneY + 21, 13, true, 'middle')}
-            {ink(sellerPhone, MID.wide, phoneY + 21, 14, false, 'middle')}
-          </SvgGroup>}
-        </>}
-        {/* 칸 선: 표 바깥 테두리 · 세로 선(상품·배송비·총 개수 줄은 네 칸, 계좌·전화번호 줄은 두 칸) */}
-        <Rect x={X.left} y={tableTop} width={X.right - X.left} height={tableEnd - tableTop} fill="none" stroke={GRID} />
-        <Line x1={X.left} x2={X.right} y1={start} y2={start} stroke={GRID} />
-        <Line x1={X.name} x2={X.name} y1={tableTop} y2={tableEnd} stroke={GRID} />
-        <Line x1={X.qty} x2={X.qty} y1={tableTop} y2={gridEnd} stroke={GRID} />
-        <Line x1={X.price} x2={X.price} y1={tableTop} y2={gridEnd} stroke={GRID} />
-        {pages.length > 1 && ink(pageWord, X.right, height - 7, 11, false, 'end', MUTED)}
-      </Svg>
+      <PaperSvg order={order} layout={layout} svgRef={svg} />
     </View>
   </>
 }

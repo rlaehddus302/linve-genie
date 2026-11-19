@@ -20,6 +20,15 @@ export interface BuyerOrder {
   lines: SaleLine[]
   qty: number
   subtotal: number | null
+  /** 정산서 한 장으로 합친 구매자들 (D-STMT-JOIN-01 — 대표 id가 첫째). 혼자면 없다 */
+  members?: readonly string[]
+  /** 같은 휴대폰 번호라 저절로 합쳤다 (판매자가 고른 묶음이면 거짓) */
+  auto?: boolean
+}
+/** 정산서 손님 묶음 (GET /api/days/:date/statement-joins) */
+export interface StatementJoinGroup {
+  readonly buyers: readonly string[]
+  readonly auto: boolean
 }
 export const salesMoney = (amount: number | null) => amount === null ? '금액 확인 필요' : formatWon(amount)
 /** 정산서 배송비 규칙 (D-RETRO-60): 받을지 · 금액 · 얼마 이상 무료. 금액은 정수 원 */
@@ -121,6 +130,39 @@ export function broadcastSales(claims: ScopeData['claims'], products: ScopeData[
   return { lines: sortedLines(grouped, rank), orders, buyers: orders.length, qty, total }
 }
 
+/**
+ * 정산서 손님 합치기 (D-STMT-JOIN-01): 묶음의 구매자 주문을 대표(첫째 구매자) 주문 하나로 — 상품 줄은 같은 상품이면 개수·금액을 더하고,
+ * 배송비는 정산서 한 장에 한 번(statementTotals가 합친 금액으로 센다). 묶음 구매자 가운데 정산서에 줄이 있는 사람이 둘 이상일 때만 합친다.
+ * 상품별 줄·총액·판매 수량은 그대로(같은 판매를 다르게 묶을 뿐이다)
+ */
+export function joinSales<T extends { orders: BuyerOrder[]; buyers: number }>(sales: T, groups: readonly StatementJoinGroup[]): T {
+  if (groups.length === 0) return sales
+  const byId = new Map(sales.orders.map(order => [order.id, order]))
+  const taken = new Set<string>()
+  const joined = new Map<string, BuyerOrder>()
+  for (const group of groups) {
+    const present = group.buyers.filter(id => byId.has(id) && !taken.has(id))
+    if (present.length < 2) continue
+    const lines = new Map<string, SaleLine>()
+    for (const id of present) {
+      taken.add(id)
+      for (const line of byId.get(id)!.lines) addLine(lines, line)
+    }
+    // 한 구매자 정산서와 같은 순서: 라이브 차례 → 번호
+    const merged = sortedLines(lines, line => (line.round === undefined ? 0 : Number.parseInt(line.round, 10)))
+    const qty = merged.reduce((n, line) => n + line.qty, 0)
+    const subtotal = merged.reduce<number | null>((sum, line) => sum === null || line.amount === null ? null : sum + line.amount, 0)
+    joined.set(present[0]!, { id: present[0]!, lines: merged, qty, subtotal, members: present, auto: group.auto })
+  }
+  if (joined.size === 0) return sales
+  const orders = sales.orders.flatMap(order => joined.get(order.id) ?? (taken.has(order.id) ? [] : [order]))
+  return { ...sales, orders, buyers: orders.length }
+}
+
+/** 정산서 줄의 구매자 이름 — 합친 정산서면 "구제불능 · 구제불능2" */
+export const orderName = (order: Pick<BuyerOrder, 'id' | 'members'>, name: (id: string) => string): string =>
+  (order.members ?? [order.id]).map(id => statementName(name(id))).join(' · ')
+
 export type StatementTab = 'buyers' | 'products'
 export interface StatementRow { key: string; no: number | null; label: string; money: number | null; qty: number; /** 합친 라이브의 차례 ("1차") */ round?: string }
 export function statementName(name: string): string {
@@ -131,7 +173,7 @@ export function statementRows(sales: ReturnType<typeof broadcastSales>, tab: Sta
   if (tab === 'products') return sales.lines.map(line => ({
     key: line.key, no: line.no, label: [line.name, line.variant].filter(Boolean).join(' '), money: line.amount, qty: line.qty, ...(line.round ? { round: line.round } : {}),
   }))
-  return sales.orders.map(order => ({ key: order.id, no: null, label: statementName(name(order.id)), money: order.subtotal, qty: order.qty }))
+  return sales.orders.map(order => ({ key: order.id, no: null, label: orderName(order, name), money: order.subtotal, qty: order.qty }))
     .sort((a, b) => a.label.localeCompare(b.label, 'ko') || a.key.localeCompare(b.key))
 }
 export const statementColumns = (tab: StatementTab) => tab === 'products' ? ['번호', '상품명', '판매 금액', '개수'] : ['구매자', '판매 금액', '개수']

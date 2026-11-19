@@ -27,7 +27,10 @@ import { Animated, ScrollView, View, useWindowDimensions } from 'react-native'
 import type { BroadcastItem, ReceiptBuyers } from '@livejjim/web/src/api/types.ts'
 import { getBytes, isApiError, newRequestId, post, withRetry } from '../../api/client.ts'
 import { useCachedGet, useScreenFocusCount } from '../../lib/cached-get.ts'
-import { type broadcastSales, salesMoney, statementInfoMissing, statementName, statementRows, type StatementRow } from '../../lib/broadcast-sales.ts'
+import { type broadcastSales, orderName, salesMoney, statementInfoMissing, statementName, statementRows, type StatementRow } from '../../lib/broadcast-sales.ts'
+import { JOINS_LOAD_FAILED, useJoinedSales, useStatementJoins } from '../../lib/statement-joins.ts'
+import { StatementJoinBar } from './StatementJoinBar.tsx'
+import { EACH_ROW, useEachSave } from './StatementEachSave.tsx'
 import {
   GROUPS_CHECKING, GROUPS_FAILED, GROUPS_PATH, GROUPS_RETRY, SPLIT_BUTTON, SPLIT_DESCRIPTION, SPLIT_FAILED, SPLIT_QUESTION, MERGE_BUTTON, earlierSent, markScopeSent, mergedNote, sameDayOthers, siblingsNote,
   statementScope, useBroadcastGroups, type StatementScope,
@@ -80,7 +83,7 @@ function rowLabel(row: StatementRow, sent: boolean, buyers: readonly string[] = 
   return `${row.label} 정산서 · ${salesMoney(row.money)} · ${row.qty}개${sent ? ` · ${SENT_WORD}` : ''}`
 }
 
-export function BroadcastSalesList({ broadcastId, title, date, sales, names, buyer, select, openBuyer, inset, rehearsal, sealed, justEnded = false, header, scope: given }: {
+export function BroadcastSalesList({ broadcastId, title, date, sales: rawSales, names, buyer, select, openBuyer, inset, rehearsal, sealed, justEnded = false, header, scope: given }: {
   broadcastId: string; title: string; date: string; sales: Sales; names: BuyerNames; buyer: string | null; select: (id: string | null) => void; inset: number; rehearsal: boolean; sealed: boolean
   /** 정산서가 담는 라이브 (합친 라이브, D-MERGE-LIVE-01) — sales와 같은 범위여야 한다. 없으면(시험·웹) 이 라이브 하나 */
   scope?: StatementScope & { readonly reload: () => Promise<void> }
@@ -106,6 +109,11 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   const [groupNote, setGroupNote] = useState('')
   const splitRequest = useRef(newRequestId())
   const statement = useStatementInfo()
+  // 정산서 손님 합치기 (D-STMT-JOIN-01): 같은 번호·판매자가 고른 닉네임은 정산서 한 장 — 구매자별 줄·보내기·파일 모두 같은 묶음
+  const joins = useStatementJoins(date, rehearsal)
+  const sales = useJoinedSales(rawSales, joins)
+  /** [보내기]를 눌렀는데 합친 손님을 받는 중이었다 — 받으면 연다 */
+  const sendWhenReady = useRef(false)
   const { width: windowWidth } = useWindowDimensions()
   const tabHide = useTabBarHide()
   /** 아래 고정 판 높이 (그리기 전 어림 — 총계 두 줄과 큰 단추) */
@@ -135,7 +143,8 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   const rows = useMemo(() => statementRows(sales, tab, id => names.name(id)), [tab, sales, names])
   const buyerRows = useMemo(() => statementRows(sales, 'buyers', id => names.name(id)), [sales, names])
   // 상품별 줄마다 산 구매자 — 구매자별 줄과 같은 이름 (D-UX4-179)
-  const lineBuyers = useMemo(() => productBuyers(sales.orders, id => statementName(names.name(id))), [sales, names])
+  // 상품별은 실제로 산 닉네임 (합치기 전 주문)
+  const lineBuyers = useMemo(() => productBuyers(rawSales.orders, id => statementName(names.name(id))), [rawSales, names])
   // 사진만 A4 장으로 나눈다 (D-UX4-145)
   const pages = useMemo(() => statementPages(rows, tab), [rows, tab])
   const sheet = { tab, date, shop: shop?.name || title, total: sales.total, qty: sales.qty } as const
@@ -145,6 +154,17 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
   const { data: receipts, error: receiptsError } = useCachedGet<ReceiptBuyers>(receiptsPath)
   const checking = receiptsPath !== null && receipts === null && receiptsError === null
   const sendable = useMemo(() => sendGroups(buyerRows, receipts, !sealed, earlier), [buyerRows, receipts, sealed, earlier])
+  // 구매자마다 따로 저장하기 (D-STMT-EACH-01): 구매자별 줄 순서대로
+  const [eachNote, setEachNote] = useState<{ text: string; tone: 'info' | 'danger' } | null>(null)
+  const eachOrders = useMemo(() => buyerRows.map(row => sales.orders.find(order => order.id === row.key)).filter((order): order is NonNullable<typeof order> => order !== undefined), [buyerRows, sales])
+  const each = useEachSave({ broadcastId, date, orders: eachOrders, name: id => names.name(id), shop: shop?.name || title, info: statement.info,
+    onNote: (text, tone) => setEachNote(text === '' ? null : { text, tone }) })
+  const openEach = async () => {
+    setMenu(false)
+    setEachNote(null)
+    await wait(SHEET_GAP_MS)
+    each.open()
+  }
   const sentCount = sendable.sendable.filter(row => sent.includes(row.key)).length
   const firstUnsent = sendable.sendable.find(row => !sent.includes(row.key))
 
@@ -183,9 +203,16 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
     setShareError('')
     // 묶음을 받기 전에는 보내지 않는다 — 합친 라이브의 1차만 담긴 정산서가 나가지 않게
     if (!scope.ready) return
+    // 합친 손님을 아직 받는 중이면 받은 뒤에 연다 (짧다 — 닉네임마다 따로 나간 정산서에 배송비가 두 번 붙지 않게)
+    if (!joins.ready) { sendWhenReady.current = true; return }
     if (shop !== null && shop.name.trim() === '') openInfo()
     else setMenu(true)
   }
+  useEffect(() => {
+    if (!joins.ready || !sendWhenReady.current) return
+    sendWhenReady.current = false
+    openSend()
+  }, [joins.ready])
   const exportFile = async (kind: ExportKind) => {
     if (saving) return
     setShareError('')
@@ -243,14 +270,15 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
     const at = order === undefined ? -1 : queueKeys.indexOf(order.id)
     const inQueue = queue && at >= 0
     const lastInQueue = queueKeys.slice(at + 1).every(key => sent.includes(key))
-    return <BuyerStatementBody broadcastId={broadcastId} order={order} date={date} buyerName={statementName(names.name(pageBuyer))} inset={inset} rehearsal={rehearsal} sealed={sealed}
-      earlier={earlier.includes(pageBuyer)} shopBroadcast={scope.lead}
+    const top = !rehearsal && !sealed && order !== undefined ? <StatementJoinBar order={order} orders={sales.orders} name={id => names.name(id)} joins={joins} /> : undefined
+    return <BuyerStatementBody broadcastId={broadcastId} order={order} date={date} buyerName={orderName(order ?? { id: pageBuyer }, id => names.name(id))} inset={inset} rehearsal={rehearsal} sealed={sealed}
+      earlier={earlier.includes(pageBuyer)} shopBroadcast={scope.lead} top={top}
       onSent={() => setSent(markScopeSent(scope, pageBuyer))} onOpenInfo={openInfo}
       queue={inQueue ? { position: at + 1, total: queueKeys.length, last: lastInQueue, next: () => nextBuyer(pageBuyer, sentBuyers(scope.key)) } : undefined} />
   }
   const buyerSlide = useSlideProgress(buyer !== null)
   const buyerPage = (
-    <SlidePage visible={buyer !== null} progress={buyerSlide} onClose={() => select(null)} name={pageBuyer === null ? BUYER_PAGE_NAME : buyerPageName(statementName(names.name(pageBuyer)))} gray scroll={false} testID="buyer-page">
+    <SlidePage visible={buyer !== null} progress={buyerSlide} onClose={() => select(null)} name={pageBuyer === null ? BUYER_PAGE_NAME : buyerPageName(orderName(sales.orders.find(row => row.id === pageBuyer) ?? { id: pageBuyer }, id => names.name(id)))} gray scroll={false} testID="buyer-page">
       {buyerContent()}
     </SlidePage>
   )
@@ -326,8 +354,13 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
         </View>
       ) : null}
       {groupNote ? <Txt color="dangerText" role="alert">{groupNote}</Txt> : null}
+      {joins.failed ? <View testID="statement-joins-failed" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
+        <View style={{ flex: 1 }}><Txt color="textSub">{JOINS_LOAD_FAILED}</Txt></View>
+        <SmallButton label={GROUPS_RETRY} onPress={() => void joins.reload()} />
+      </View> : null}
       {shownNote ? <Txt color="textSub">{shownNote}</Txt> : null}
       {shareError ? <Txt color="dangerText">{shareError}</Txt> : null}
+      {eachNote !== null ? <Txt color={eachNote.tone === 'danger' ? 'dangerText' : 'textSub'} testID="statement-each-note">{eachNote.text}</Txt> : null}
       <StatementList tab={tab} rows={rows} sent={sent} buyers={lineBuyers}
         rowLabel={row => rowLabel(row, sent.includes(row.key), products ? lineBuyers.get(row.key) : [])}
         // 누르면 바로 그 손님 정산서 — 정산 정보를 묻지 않는다 (D-UX4-192)
@@ -344,8 +377,12 @@ export function BroadcastSalesList({ broadcastId, title, date, sales, names, buy
         {(['photo', 'xlsx', 'csv'] as const).map(kind => (
           <MenuRow key={kind} title={EXPORT_LABEL[kind]} busy={saving === kind} disabled={saving !== null && saving !== kind} onPress={() => void exportFile(kind)} />
         ))}
+        <MenuRow title={EACH_ROW} {...(buyerRows.length === 0 ? { sub: SMS_ALL_NOBODY } : { sub: `구매자 ${buyerRows.length}명 · 한 명씩 파일로` })}
+          disabled={buyerRows.length === 0 || saving !== null || each.busy} busy={each.busy} onPress={() => void openEach()} testID="statement-each-row" />
       </View>
     </BottomSheet>
+    {each.sheet}
+    {each.canvas}
     {photo && <StatementPhoto pages={pages} sheet={sheet} width={paperWidth} onClose={() => setPhoto(false)} onError={() => setShareError(EXPORT_FAILED)} />}
     <BottomSheet visible={sendAll} title={SEND_ALL_TITLE} description={SEND_ALL_BODY} onClose={() => setSendAll(false)} testID="send-all"
       actions={<>

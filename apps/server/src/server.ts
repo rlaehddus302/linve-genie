@@ -38,6 +38,9 @@ import { loginLimitSecret, readMasterKey, type PasswordCost } from './secrets.ts
 import { realTimer as realGeneratorTimer, type GeneratorTimer } from './generator.ts'
 import { PrintService } from './print.ts'
 import { ReceiptSmsService } from './receipt-sms.ts'
+import { statementBuyersOf } from './statement-file.ts'
+import { StatementJoins } from './statement-joins.ts'
+import type { FullView as ClientFullView } from '../../web/src/api/types.ts'
 import { BotAlerts } from './youtube/chat-send/bot-alerts.ts'
 import { ReceiptLinkService } from './receipt-links.ts'
 import { registerReceiptPage } from './receipt-page.ts'
@@ -658,6 +661,16 @@ export function createServer(options: ServerOptions): LivejjimServer {
     },
   })
   service.usePhoneMemory((sellerId, phoneKey, phone) => receiptSms.remember(sellerId, phoneKey, phone))
+  // 정산서 손님 합치기 (D-STMT-JOIN-01) — 같은 번호 구매자는 저절로, 판매자가 고른 구매자는 기록대로 정산서 한 장
+  const statementJoins = new StatementJoins({
+    db,
+    clock,
+    buyers: async (sellerId, date) => {
+      const view = await service.scopeView(sellerId, date, false)
+      return view === null ? [] : statementBuyersOf(view as unknown as ClientFullView)
+    },
+    phones: (sellerId, date, buyers) => receiptSms.phonesOf(sellerId, date, buyers),
+  })
   const publishYoutube = (sellerId: string, data: Readonly<Record<string, unknown>>) => hub.publishYoutube(sellerId, data)
   // 크롬 확장으로 감사 채팅 올리기 (X1 AC11~AC17) — 공식 발송함 실행기가 공식으로 올릴 수 없는 회차의 감사를 맡긴다
   const extensionThanks = new ExtensionThanks({ db, timer, log, writer, publishOutbox: publishYoutube })
@@ -900,6 +913,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
       closing,
       receiptLinks,
       receiptSms,
+      statementJoins,
       auth,
       hub,
       print: printService,
