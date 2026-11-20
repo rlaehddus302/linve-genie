@@ -1,6 +1,6 @@
 # 클라우드 화면 일꾼 (D-SCR-CLOUD-01)
 
-> **2026-11-20부터 운영은 다시 맥 미니(D-SCR-CLOUD-02).** 실제 라이브에서 CPU 포화로 받아쓰기가 15~55초 밀려 판매자 손 등록보다 늦었다. `lg-screen`은 꺼 두었다(disable).
+> **2026-11-20부터 운영은 다시 맥 미니(D-SCR-CLOUD-02).** 실제 라이브에서 CPU 포화로 받아쓰기가 15~55초 밀려 판매자 손 등록보다 늦었다. `lg-screen`은 꺼 두었고(disable) 인스턴스 i-0b71991de2b3aa6c0도 중지했다(stop).
 
 화면 일꾼(packages/screen-worker)을 Mac mini 대신 AWS CPU 서버에서 돌린다. 유튜브는 AWS 주소를 봇으로 막으므로
 **유튜브 영상만** Mac mini 집 회선 프록시(deploy/home-proxy)를 거친다. 서버 등록·Claude·틱톡은 바로 나간다.
