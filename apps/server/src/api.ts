@@ -350,6 +350,11 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   const body = (c: Context<Env>) => c.get('body') ?? {}
   const actorOf = (c: Context<Env>): Actor => ({ kind: 'account', accountId: c.get('session').accountId })
   const sellerOf = (c: Context<Env>) => c.get('session').sellerId
+  /**
+   * 이 계정의 원래 가게 (D-SHARE-HOME-01): 같이 보는 라이브(잇기·X-Live-View) 동안에도 가게 하나에 딸린 것 — 정산 정보(계좌·전화번호·정산서 왼쪽 위 이름)·가게 설정·가게 이름 —
+   * 은 늘 내 가게 것을 읽고 쓴다. 옛: 방송 주인 가게 것이라 남의 휴대폰 정산서에 내 계좌가 찍히고, 거기서 저장하면 주인 가게 계좌를 덮었다
+   */
+  const homeOf = (c: Context<Env>) => c.get('session').homeSellerId
   const requestIdOf = (value: Record<string, unknown>): string | null => {
     const id = own(value, 'requestId')
     return typeof id === 'string' && REQUEST_ID_RE.test(id) && !id.startsWith(DEPOSIT_REQUEST_PREFIX) ? id : null
@@ -471,11 +476,11 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   api.put('/shop', async (c) => {
     const input = body(c)
     if (ownKeys(input).length === 1 && Object.hasOwn(input, 'name')) {
-      const name = await closing.renameShop(sellerOf(c), own(input, 'name'))
+      const name = await closing.renameShop(homeOf(c), own(input, 'name'))
       if (name === null) return apiError(400, 'INVALID_INPUT', SHOP_NAME_MESSAGE, [{ field: 'name', message: SHOP_NAME_MESSAGE }])
       return c.json({ shop: { name } })
     }
-    const result = await closing.updateShop(sellerOf(c), input)
+    const result = await closing.updateShop(homeOf(c), input)
     if (!result.ok) return apiError(result.rejection.status, result.rejection.code, result.rejection.message, result.rejection.problems)
     return c.json({ shop: result.shop })
   })
@@ -548,7 +553,15 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   })
 
   // ── 방송 (AC-S04-21) ──────────────────────────────────────────────────
-  api.get('/broadcasts', async (c) => c.json({ broadcasts: await service.broadcasts(sellerOf(c)) }))
+  // 같이 보는 라이브 동안(잇기·X-Live-View)에는 그 라이브 하나만 (D-SHARE-HOME-01) — 옛: 방송 주인 가게의 지난 라이브가 모두 보였다(남의 휴대폰에 내 지난 라방 기록).
+  // 내 가게 라이브도 넣지 않는다 — 그동안의 요청은 주인 가게로 가서 내 라이브를 열면 찾지 못한다. 나가면 내 목록이 그대로 돌아온다
+  api.get('/broadcasts', async (c) => {
+    const session = c.get('session')
+    const list = await service.broadcasts(session.sellerId)
+    const shared = session.viewing ?? session.joined
+    if (session.sellerId === session.homeSellerId || shared === null) return c.json({ broadcasts: list })
+    return c.json({ broadcasts: list.filter((item) => item.id === shared.broadcastId) })
+  })
   // (앞에 둔다 — 아래 :tab/:format 경로가 buyer를 먼저 잡지 않게)
   // 구매자 한 명 정산서 파일 (D-STMT-EACH-01): ?buyer=<정산서 줄 키(합친 정산서면 대표 구매자)> — 상품 줄·배송비·총액·입금 안내. 휴대폰 번호·주소는 넣지 않는다
   api.get('/broadcasts/:id/statement/buyer/:format', async c => {
@@ -556,7 +569,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
     if (format !== 'csv' && format !== 'xlsx') return notFound()
     const buyer = c.req.query('buyer') ?? ''
     if (buyer === '' || buyer.length > 64 || /[\p{Cc}]/u.test(buyer)) return notFound()
-    const file = await service.buyerStatementFile(sellerOf(c), id, buyer, format, (date) => joinsOf(sellerOf(c), date), (date) => carriesOf(sellerOf(c), date))
+    const file = await service.buyerStatementFile(sellerOf(c), id, buyer, format, (date) => joinsOf(sellerOf(c), date), (date) => carriesOf(sellerOf(c), date), homeOf(c))
     if (!file) return notFound()
     return fileResponse(file.bytes, MIME[format], `정산서-${file.date}.${format}`, `statement-${file.date}-buyer.${format}`)
   })
@@ -666,11 +679,11 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   })
   // 정산 정보 (D-RETRO-60): 정산서에 찍는 계좌·전화번호·방송 이름·배송비. 값은 로그에 남기지 않는다
   api.get('/statement-info', async c => {
-    const info = await service.statementInfo(sellerOf(c))
+    const info = await service.statementInfo(homeOf(c))
     return info === null ? notFound() : c.json({ info })
   })
   api.put('/statement-info', async c => {
-    const result = await service.updateStatementInfo(sellerOf(c), body(c))
+    const result = await service.updateStatementInfo(homeOf(c), body(c))
     if (!result.ok) return apiError(result.rejection.status, result.rejection.code, result.rejection.message, result.rejection.problems)
     return c.json({ info: result.info })
   })
@@ -948,7 +961,7 @@ export function createApi(deps: ApiDeps): Hono<Env> {
   }
 
   // 가게 설정 (AC-I2-01) — 바꾸기(PUT /api/shop)는 위 "가게"에서 가게 이름만과 함께 받는다
-  api.get('/shop', async (c) => c.json({ shop: await closing.shop(sellerOf(c)) }))
+  api.get('/shop', async (c) => c.json({ shop: await closing.shop(homeOf(c)) }))
 
   // 확인서 (AC-I2-10·11): 데이터(JSON = 확인서 데이터 그대로)·PDF·PNG·전원 PDF
   api.get('/days/:date/receipt', async (c) => {

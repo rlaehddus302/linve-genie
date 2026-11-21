@@ -141,10 +141,14 @@ export const CONFIRM_GAP = SPACE.xl
  * 아직 넘치지 않았으면 이번 누름은 받아 보여 준다 — 00으로 두 자리를 넘겨도 친 것이 보인다(D-UX4-61 → D-UX4-111).
  * 이미 limit(자리 수 끝)을 넘긴 뒤에 더 치면 null(받지 않음 — 흔든다)
  */
+/** 가격이 1~99원일 때 (0원은 이벤트 상품으로 받는다, D-FREEITEM-01) */
+export const PRICE_LOW = '가격은 100원 이상으로 적어 주세요. 이벤트 상품은 0원으로 적어요.'
+
 export function typeDigits(current: string, value: string, limit: number): string | null {
   if (value === 'back') return current.slice(0, -1)
   if (current.length > limit) return null
-  return (current + value).replace(/^0+/, '')
+  // 맨 앞 0은 떼되 0 하나는 남긴다 — 이벤트 상품 0원 (D-FREEITEM-01)
+  return (current + value).replace(/^0+(?=\d)/, '')
 }
 
 /** 비어 있는 큰 칸 맨 앞 글자 자리 표시가 한 번 나타났다 사라지는 시간 (D-UX4-111 — 서서히) */
@@ -770,7 +774,7 @@ export function ProductAddFlow({ askName, onAdded, stepBack, startNo, onShow, li
     setStep('price')
   }
   const nextFromPrice = () => {
-    if (price === '' || Number(price) < 100) return setError('가격은 100원 이상으로 적어 주세요.')
+    if (price === '' || (Number(price) !== 0 && Number(price) < 100)) return setError(PRICE_LOW)
     setError(null)
     setStep(askName ? 'name' : 'confirm')
   }

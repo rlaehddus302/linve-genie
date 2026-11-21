@@ -23,7 +23,7 @@ import { formatWon, priceWords } from '../../lib/words.ts'
 import { FocusInput, BigButton, BottomSheet, ErrorLine, HandwritingButton, HandwritingSheet, Icon, PopupDialog, Txt, font, useKit, useWrongShake, Tap } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE, TYPE, WEIGHT } from '../../ui/kit/tokens.ts'
 import { useConsoleApi } from './context.ts'
-import { BigNumber, NumberKeys, PRICE_LIMIT, SameNumberButtons, SameNumberLine, liveProductAt, noLimitWords, typeDigits, type SameNumber } from './ProductAdd.tsx'
+import { BigNumber, NumberKeys, PRICE_LIMIT, PRICE_LOW, SameNumberButtons, SameNumberLine, liveProductAt, noLimitWords, typeDigits, type SameNumber } from './ProductAdd.tsx'
 import { ProductDetail, rowName } from './ProductBoard.tsx'
 import { PRICE_SCOPE_ALL, PRICE_SCOPE_NEW, claimedBuyers, priceScopeAsk } from './price-scope.ts'
 import { PIECES_NOTE, PiecesStepper, VarietyChips } from './VarietyChips.tsx'
@@ -231,7 +231,7 @@ export function ProductSheet({ product, onClose, onKey, onDecide, onShow, focus 
       const other = to === product.no ? null : liveProductAt(api.data.products, api.b, to)
       if (other !== null) return { message: `${String(to)}번은 이미 있어요.`, same: other }
     }
-    if (which === 'price' && Number(text) < 100) return { message: '가격은 100원 이상으로 적어 주세요.' }
+    if (which === 'price' && Number(text) !== 0 && Number(text) < 100) return { message: PRICE_LOW }
     return null
   }
   const firstWrong = (values = draft): { readonly field: EditField; readonly message: string; readonly same?: SameNumber } | null => {

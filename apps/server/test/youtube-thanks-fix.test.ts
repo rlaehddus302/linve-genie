@@ -202,9 +202,10 @@ describe('D-RETRO-105 값이 고쳐지면 올라간 감사를 지우고 고친 �
     await w.timer.advance(10_000)
     await run(w)
     expect(w.fake.removed.map((item) => item.id)).toEqual([w.fake.posted[0]?.id])
-    // 정정은 지우기만 — 새로 당첨된 사람의 감사는 그 효과로 나간다
-    expect(posted(w)).toEqual(['15번 상광 10,000원 가나다님 구매 감사합니다', '15번 상광 10,000원 라마바님 구매 감사합니다'])
-    expect((await fixes(w, connected, b.id)).map((fix) => [fix.state, JSON.parse(fix.sentTexts)])).toEqual([['DONE', []]])
+    // 새로 당첨된 사람의 감사는 그 효과로 나간다. D-PASSCHAT-01: 옛 기대는 정정이 지우기만(올린 글 없음, sentTexts []).
+    // 이제 취소로 풀린 감사는 "… 님 패스"를 올린다 — 같은 바퀴라 새 감사(발송함)가 먼저, 패스(정정)가 뒤
+    expect(posted(w)).toEqual(['15번 상광 10,000원 가나다님 구매 감사합니다', '15번 상광 10,000원 라마바님 구매 감사합니다', '15번 상광 10,000원 가나다님 패스'])
+    expect((await fixes(w, connected, b.id)).map((fix) => [fix.state, JSON.parse(fix.sentTexts)])).toEqual([['DONE', ['15번 상광 10,000원 가나다님 패스']]])
   })
 })
 
@@ -245,6 +246,29 @@ describe('D-RETRO-105 지우지 못하면 [수정] 글', () => {
       await run(w)
     }
     expect(w.fake.calls('liveChatMessages.delete')).toBe(4)
+    // D-PASSCHAT-01 (판매자 요청 2026-11-21 "구매 취소 댓글도 필요. 예시. 00번 00원 00님 패스"): 옛 기대 마지막 줄 '[수정] 앞 글의 16번 라울 5,000원 라마바님 감사는 잘못 올라갔어요'.
+    // 취소(host.cancel)로 풀린 감사는 이제 "… 님 패스"로 알린다 — "잘못 올라갔어요"는 취소가 아닌 까닭(무효·역전·교체·번호 변경)에 남는다(아래 시험)
+    expect(posted(w)).toEqual([
+      '15번 상광 10,000원 가나다님, 16번 라울 5,000원 라마바님 구매 감사합니다',
+      '[수정] 15번 상광 10,000원 가나다님 구매 감사합니다',
+      '16번 라울 5,000원 라마바님 패스',
+    ])
+  })
+
+  it('지우지 못했는데 무효(host.reject)로 풀린 감사는 "잘못 올라갔어요"로 알린다 — 패스가 아니다', async () => {
+    const w = await world({ start: EIGHT_PM })
+    const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
+    const { b } = await linkedBroadcast(w, connected, { settings: LIVE })
+    await product(w, connected, b.id, 15, '상광', 10000)
+    await product(w, connected, b.id, 16, '라울', 5000)
+    await chat(w, connected, b.id, 'c1', 'UCa', '가나다', '15')
+    await chat(w, connected, b.id, 'c2', 'UCb', '라마바', '16')
+    await postThanks(w)
+    w.fake.fail('liveChatMessages.delete', { status: 403, reason: 'forbidden' }, 10)
+    await expectOk(writeEvent(w, connected.seller, { type: 'host.reject', b: b.id, no: 16, buyer: 'UCb', reason: '판매자 착오' }))
+    await tick(w)
+    await w.timer.advance(10_000)
+    await run(w)
     expect(posted(w)).toEqual([
       '15번 상광 10,000원 가나다님, 16번 라울 5,000원 라마바님 구매 감사합니다',
       '[수정] 15번 상광 10,000원 가나다님 구매 감사합니다',
@@ -252,11 +276,37 @@ describe('D-RETRO-105 지우지 못하면 [수정] 글', () => {
     ])
   })
 
+  it('D-PASSCHAT-01 감사가 올라간 뒤 손님이 패스하면 감사 글을 지우고 "{번호}번 … {구매자}님 패스"를 올린다', async () => {
+    const w = await world({ start: EIGHT_PM })
+    const connected = await connectSeller(w, { publish: 'LIVE_CHAT' })
+    const { b, liveChatId } = await linkedBroadcast(w, connected, { settings: LIVE })
+    await product(w, connected, b.id, 16, '라울', 5000)
+    await chat(w, connected, b.id, 'c1', 'UCb', '라마바', '16')
+    await postThanks(w)
+    const first = w.fake.posted[0]?.id as string
+    // 손님이 "16 패스"라고 쓰면 판매자가 취소한다(취소 요청 승인과 같은 CANCELLED)
+    await expectOk(writeEvent(w, connected.seller, { type: 'host.cancel', b: b.id, no: 16, buyer: 'UCb', reason: '손님 패스' }))
+    await tick(w)
+    await w.timer.advance(10_000)
+    await run(w)
+    expect(w.fake.removed).toEqual([{ liveChatId, id: first, channel: connected.channel.id }])
+    expect(posted(w)).toEqual(['16번 라울 5,000원 라마바님 구매 감사합니다', '16번 라울 5,000원 라마바님 패스'])
+    // 패스 글도 우리 글이다 (찜·취소로 읽지 않는다)
+    const second = w.fake.posted[1]?.id as string
+    expect(await isOurPost(w.database.db, connected.seller.sellerId, b.id, second, '16번 라울 5,000원 라마바님 패스', new Date(w.timer.now() - 600_000))).toBe(true)
+    const [check] = await checkReplay(w.database.db, { sellerId: connected.seller.sellerId, rehearsal: false })
+    expect(check).toMatchObject({ ok: true })
+  })
+
   it('[수정] 글 만들기: 앞말까지 200자 안에 들게 나누고, 지웠으면 앞말이 없다', () => {
     const kept = [['e1', '15번 상광 10,000원 가나다님 구매 감사합니다'] as const]
     expect(fixMessages(kept, [], true)).toEqual(['15번 상광 10,000원 가나다님 구매 감사합니다'])
     expect(fixMessages(kept, [], false)).toEqual([`${FIX_PREFIX}15번 상광 10,000원 가나다님 구매 감사합니다`])
     expect(fixMessages([], ['16번 라울 5,000원 라마바님 구매 감사합니다'], true)).toEqual([])
+    // D-PASSCHAT-01: 취소로 빠진 감사는 지웠든 못 지웠든 "… 님 패스" (앞말 없음)
+    const gone = '16번 라울 5,000원 라마바님 구매 감사합니다'
+    expect(fixMessages([], [gone], true, [gone])).toEqual(['16번 라울 5,000원 라마바님 패스'])
+    expect(fixMessages(kept, [gone], false, [gone])).toEqual([`${FIX_PREFIX}15번 상광 10,000원 가나다님 구매 감사합니다`, '16번 라울 5,000원 라마바님 패스'])
     const many = Array.from({ length: 8 }, (_, index) => [`e${String(index)}`, `${String(index + 10)}번 아주긴품종이름입니다 10,000원 손님이름${String(index)}님 구매 감사합니다`] as const)
     for (const text of fixMessages(many, [], false)) {
       expect(text.startsWith(FIX_PREFIX)).toBe(true)

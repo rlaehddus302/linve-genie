@@ -140,7 +140,7 @@ export function useStatementInfoForm(info: StatementInfo | null, onSaved: (info:
         <View role="group" aria-label="연락처" style={{ gap: SPACE.md }}>
           <GroupLabel>연락처</GroupLabel>
           <TextField label="전화번호" value={draft.phone} placeholder="010-0000-0000" keyboardType="phone-pad" autoComplete="off" maxLength={40} help="손님이 물어볼 번호예요. 비워 두면 정산서에서 빠져요." onChangeText={(phone) => change({ phone })} error={problem('phone')} />
-          <TextField label="방송 이름" value={draft.hostName} placeholder="초록다육 라이브" maxLength={40} help="정산서 위쪽에 찍혀요. 비워 두면 빠져요." onChangeText={(hostName) => change({ hostName })} error={problem('hostName')} />
+          <TextField label={HOST_LABEL} value={draft.hostName} placeholder="초록다육 라이브" maxLength={40} help={HOST_HELP} onChangeText={(hostName) => change({ hostName })} error={problem('hostName')} />
         </View>
         <View role="group" aria-label="배송비" style={{ gap: SPACE.md }}>
           <GroupLabel>배송비</GroupLabel>
@@ -164,6 +164,10 @@ export function useStatementInfoForm(info: StatementInfo | null, onSaved: (info:
 // 처음 한 번 묻는 판(방송을 끝낸 직후·정산서를 처음 만들 때)은 가게 이름과 합친 console/StatementSetup.tsx의 StatementSetupSheet (D-UX4-172)
 
 /** 전체 탭 "정산 정보" 쌓인 화면 */
+/** 정산서 사진 왼쪽 위 작은 글 (옛 이름 "방송 이름" — 판매자가 정산서에서 보는 자리로 찾게, D-STMT-HOST-01) */
+export const HOST_LABEL = '정산서 왼쪽 위 이름'
+export const HOST_HELP = '정산서 사진 왼쪽 위에 작게 찍혀요. 빼려면 칸을 비우고 저장해 주세요.'
+
 export function StatementInfoScreen({ onBack }: { readonly onBack: () => void }) {
   const state = useStatementInfo()
   const [saved, setSaved] = useState(false)

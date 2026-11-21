@@ -88,7 +88,7 @@ describe('정산 정보 화면 (전체 탭 → 정산 정보)', () => {
     expect(screen.getByDisplayValue('50000')).toBeTruthy()
     expect(screen.getByText('상품 합계가 50,000원보다 적으면 배송비 5,000원을 더해요. 50,000원부터는 무료예요.')).toBeTruthy()
     expect(screen.getByText(SHIPPING_APPLY_NOTE)).toBeTruthy()
-    for (const [label, value] of [['은행', '농협'], ['계좌번호', '302-9988-7766-11'], ['예금주', '김판매'], ['전화번호', '010-1234-5678'], ['방송 이름', '홍재라이브']] as const) {
+    for (const [label, value] of [['은행', '농협'], ['계좌번호', '302-9988-7766-11'], ['예금주', '김판매'], ['전화번호', '010-1234-5678'], ['정산서 왼쪽 위 이름', '홍재라이브']] as const) {
       fireEvent.change(screen.getByLabelText(label), { target: { value } })
     }
     fireEvent.click(screen.getByRole('button', { name: SAVE_LABEL }))
@@ -167,7 +167,7 @@ describe('방송을 끝낸 직후·정산서를 처음 만들 때 묻기', () =>
     const { world, puts } = salesWorld(EMPTY)
     render(world.wrap(<ConsoleScreen broadcastId="b1" seller justEnded onBack={() => {}} />))
     const sheet = await screen.findByRole('dialog', { name: '정산 정보' })
-    for (const [label, value] of [['은행', '농협'], ['계좌번호', '302-9988-7766-11'], ['예금주', '김판매'], ['전화번호', '010-1234-5678'], ['방송 이름', '홍재라이브']] as const) {
+    for (const [label, value] of [['은행', '농협'], ['계좌번호', '302-9988-7766-11'], ['예금주', '김판매'], ['전화번호', '010-1234-5678'], ['정산서 왼쪽 위 이름', '홍재라이브']] as const) {
       fireEvent.change(within(sheet).getByLabelText(label), { target: { value } })
     }
     fireEvent.click(within(sheet).getByRole('button', { name: SAVE_LABEL }))

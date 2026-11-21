@@ -161,6 +161,19 @@ describe('AC-SRV1-02 빠른 입력 원문 등록 (약속 1·2)', () => {
     expect(listProducts((await world.server.writer.read(seller.sellerId, b.date)).state).map((p) => [p.no, p.price])).toEqual([[16, 5000]])
   })
 
+  it('D-FREEITEM-01 고치기 칸 가격 0원은 이벤트 상품으로 등록한다 — 빠른 입력 한 줄의 0원은 그대로 막는다', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const b = await createBroadcast(world, seller)
+    const api = client(world, seller.cookie)
+    await expectOk(api.post('/api/events', { requestId: rid(), type: 'product.register', b: b.id, noText: '999', name: '이벤트', priceText: '0원' }))
+    await expectOk(api.post('/api/events', { requestId: rid(), type: 'product.register', b: b.id, noText: '20', name: '라울', priceText: '5천' }))
+    await expectOk(api.post('/api/events', { requestId: rid(), type: 'product.update', b: b.id, noText: '20', priceText: '0원' }))
+    const line = await api.post('/api/events', { requestId: rid(), type: 'product.register', b: b.id, text: '21 라울 0원' })
+    expect(line.body.error).toMatchObject({ code: 'QUICK_FIX' })
+    expect(listProducts((await world.server.writer.read(seller.sellerId, b.date)).state).map((p) => [p.no, p.price]).sort((x, y) => x[0]! - y[0]!)).toEqual([[20, 0], [999, 0]])
+  })
+
   it('다른 판매자의 방송은 읽기·쓰기 모두 404, Origin이 다르면 403, 로그인 없으면 401, 2,000자 넘는 글은 400', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)

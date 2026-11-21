@@ -57,7 +57,11 @@ describe('숫자판 빠르게 누르기 (D-UX4-102)', () => {
   })
 
   it('누름 하나는 옛 값이 아니라 지금 값에 이어 붙인다 (순수 계산)', () => {
-    expect(typeDigits('', '0', 3)).toBe('')
+    // D-FREEITEM-01 (판매자 "이벤트 당첨자는 0원에 등록 필요"): 옛 기대 typeDigits('', '0', 3) → ''. 이제 0 하나는 남는다(0원 이벤트 상품), 앞 0은 그대로 뗀다
+    expect(typeDigits('', '0', 3)).toBe('0')
+    expect(typeDigits('0', '0', 3)).toBe('0')
+    expect(typeDigits('0', '7', 3)).toBe('7')
+    expect(typeDigits('', '00', 9)).toBe('0')
     expect(typeDigits('', '7', 3)).toBe('7')
     expect(typeDigits('12', '00', 9)).toBe('1200')
     expect(typeDigits('123', 'back', 3)).toBe('12')

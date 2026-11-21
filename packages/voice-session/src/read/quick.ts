@@ -135,7 +135,8 @@ export function decideFixForm<P>(
   if (no === null) return fix('NUMBER_INVALID', settings, null, name)
   const price = parseAmount(input.price, settings)
   if (price === null) return fix('PRICE_MISSING', settings, no, name)
-  if (price < 100) return fix('PRICE_TOO_LOW', settings, no, name)
+  // 0원은 받는다 — 이벤트 당첨 상품을 0원으로 올린다(D-FREEITEM-01). 1~99원은 잘못 친 값일 수 있어 그대로 묻는다(빠른 입력 한 줄·목록 가져오기·음성은 100원 하한 그대로)
+  if (price !== 0 && price < 100) return fix('PRICE_TOO_LOW', settings, no, name)
   const product = findProduct(no)
   if (product !== undefined) return { kind: 'edit', product, no, name, price }
   return { kind: 'register', no, name, price }

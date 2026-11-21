@@ -156,6 +156,38 @@ describe('D-SHARE-LIVE-02 같이 본 라이브 기록 (사용자 2026-11-19 "세
     expect(((await (await view(three.seller.cookie, `/api/days/${b1.date}`)).json()) as { products?: unknown[] }).products ?? []).toEqual([])
   })
 
+  // D-SHARE-HOME-01 (판매자 2026-11-21 "갑자기 사장님 폰에 내 지난 라방 기록들이 다 노출됨 … 사장님 폰으로 분명히 사장님 계좌 입력했는데 갑자기 내 계좌 적힘")
+  it('같이 보는 동안에도 정산 정보·가게 설정은 내 가게 것, 지난 라이브 목록은 그 라이브 하나만 — 주인 가게의 다른 라이브와 계좌가 보이지 않고 덮이지 않는다', async () => {
+    const world = await youtubeWorld()
+    const one = await connectSeller(world)
+    const older = await createBroadcast(world, one.seller, { title: '주인 가게 지난 라이브' })
+    const { b: b1, live } = await linkedBroadcast(world, one)
+    const OWNER = { bank: '우리', accountNumber: '1002-111-222333', accountHolder: '주인', phone: '010-1111-2222', hostName: '주인가게', shipping: { charge: false, fee: 0, freeFrom: null } }
+    const VIEWER = { bank: '농협', accountNumber: '302-9988-7766-11', accountHolder: '사장', phone: '010-3333-4444', hostName: '', shipping: { charge: false, fee: 0, freeFrom: null } }
+    await expectOk(client(world, one.seller.cookie).put('/api/statement-info', OWNER))
+    const two = await connectSeller(world, { channelTitle: '두 번째 가게' })
+    const b2 = await createBroadcast(world, two.seller)
+    await client(world, two.seller.cookie).post(`/api/broadcasts/${b2.id}/youtube`, { requestId: rid('link'), video: `https://www.youtube.com/watch?v=${live.videoId}`, confirmInvited: true })
+    // 잇기로 들어가 있는 동안: 목록은 그 라이브 하나, 정산 정보는 내 가게(아직 비어 있음)
+    const joinedList = (await client(world, two.seller.cookie).get('/api/broadcasts')).body.broadcasts as { id: string }[]
+    expect(joinedList.map((b) => b.id)).toEqual([b1.id])
+    expect((await client(world, two.seller.cookie).get('/api/statement-info')).body.info).toMatchObject({ accountNumber: '', hostName: '' })
+    // 거기서 저장하면 내 가게에 — 주인 가게 계좌는 그대로
+    await expectOk(client(world, two.seller.cookie).put('/api/statement-info', VIEWER))
+    expect((await client(world, one.seller.cookie).get('/api/statement-info')).body.info).toMatchObject({ accountNumber: OWNER.accountNumber, hostName: '주인가게' })
+    expect((await client(world, two.seller.cookie).get('/api/statement-info')).body.info).toMatchObject({ accountNumber: VIEWER.accountNumber, accountHolder: '사장' })
+    await expectOk(client(world, two.seller.cookie).post('/api/live-join/leave', {}))
+    // X-Live-View로 볼 때도 같다
+    const view = async (path: string, init: RequestInit = {}) => client(world, two.seller.cookie).raw(path, { ...init, headers: { 'X-Live-View': b1.id, ...(init.headers as Record<string, string> | undefined) } })
+    const viewed = (await (await view('/api/broadcasts')).json()) as { broadcasts: { id: string }[] }
+    expect(viewed.broadcasts.map((b) => b.id)).toEqual([b1.id])
+    expect(viewed.broadcasts.map((b) => b.id)).not.toContain(older.id)
+    const info = (await (await view('/api/statement-info')).json()) as { info: { accountNumber: string } }
+    expect(info.info.accountNumber).toBe(VIEWER.accountNumber)
+    // 나오면 내 목록 그대로
+    expect(((await client(world, two.seller.cookie).get('/api/broadcasts')).body.broadcasts as { id: string }[]).map((b) => b.id)).toContain(b2.id)
+  })
+
   it('같이 본 적 없는 라이브는 다시 열 수 없다', async () => {
     const world = await youtubeWorld()
     const one = await connectSeller(world)

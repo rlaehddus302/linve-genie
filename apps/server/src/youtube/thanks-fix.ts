@@ -62,6 +62,8 @@ export interface FixPlan {
   readonly kept: readonly (readonly [string, string])[]
   /** 빠지는 감사(확정이 풀린 찜)의 올린 때 문구 */
   readonly removed: readonly string[]
+  /** 그중 취소(손님 패스·판매자 취소·취소 요청 승인·교체 취소)로 풀린 찜의 올린 때 문구 — "{번호}번 … {구매자}님 패스"로 알린다 (D-PASSCHAT-01) */
+  readonly passed: readonly string[]
   /** 효과마다 올린 때의 문구 (줄에 적는다) */
   readonly oldTexts: readonly string[]
 }
@@ -102,6 +104,7 @@ export function planFix(state: EngineState, posted: PostedThanks): FixPlan | nul
   const products = new Map(listProducts(state).map((product) => [product.key, product]))
   const kept: [string, string][] = []
   const removed: string[] = []
+  const passed: string[] = []
   const oldTexts: string[] = []
   let itemChanged = false
   for (const [index, id] of posted.effectIds.entries()) {
@@ -112,6 +115,7 @@ export function planFix(state: EngineState, posted: PostedThanks): FixPlan | nul
     const claim = claims.get(effect.claim)
     if (claim === undefined || claim.status !== 'CONFIRMED' || claim.confirmVersion !== effect.confirmVersion || claim.price === null) {
       removed.push(old)
+      if (claim?.status === 'CANCELLED') passed.push(old)
       continue
     }
     const product = products.get(claim.product)
@@ -133,18 +137,27 @@ export function planFix(state: EngineState, posted: PostedThanks): FixPlan | nul
     const messages = compose(kept)
     changed = messages.length !== 1 || messages[0] !== posted.oldMessage
   } else changed = itemChanged
-  return { changed, kept, removed, oldTexts }
+  return { changed, kept, removed, passed, oldTexts }
 }
+
+/** 취소로 빠진 감사를 알리는 글: 올린 감사의 항목 + " 패스" (`15번 라울 8,000원 홍길동님 패스`, D-PASSCHAT-01) */
+export function passText(old: string): string {
+  return `${itemOf(old)}${PASS_SUFFIX}`
+}
+export const PASS_SUFFIX = ' 패스'
 
 /**
  * 새로 올릴 글. 지웠으면 남은 감사를 처음과 같은 묶음 글로. 지우지 못했으면 글마다 앞에 "[수정] "(200자 안에 들게 묶음을 나눔)을 붙이고,
- * 빠진 감사가 있으면 "[수정] 앞 글의 {번호}번 … {구매자}님 감사는 잘못 올라갔어요"를 덧붙인다(손님이 앞 글이 틀렸음을 알게)
+ * 취소가 아닌 까닭으로 빠진 감사가 있으면 "[수정] 앞 글의 {번호}번 … {구매자}님 감사는 잘못 올라갔어요"를 덧붙인다(손님이 앞 글이 틀렸음을 알게).
+ * 취소(손님 패스·판매자 취소)로 빠진 감사는 지웠든 못 지웠든 "{번호}번 … {구매자}님 패스"로 알린다 — 대기 손님·시청자가 그 번호가 다시 났음을 알게 (D-PASSCHAT-01)
  */
-export function fixMessages(kept: readonly (readonly [string, string])[], removed: readonly string[], deleted: boolean): string[] {
-  if (deleted) return compose(kept)
+export function fixMessages(kept: readonly (readonly [string, string])[], removed: readonly string[], deleted: boolean, passed: readonly string[] = []): string[] {
+  const passes = compose(passed.map((old, index) => [`pass-${String(index)}`, passText(old)] as const))
+  if (deleted) return [...compose(kept), ...passes]
   const out = compose(kept, LIVE_CHAT_MAX - charCount(FIX_PREFIX)).map((text) => `${FIX_PREFIX}${text}`)
-  if (removed.length > 0) out.push(truncate(`${FIX_PREFIX}앞 글의 ${removed.map(itemOf).join(', ')} 감사는 잘못 올라갔어요`, LIVE_CHAT_MAX))
-  return out
+  const wrong = removed.filter((old) => !passed.includes(old))
+  if (wrong.length > 0) out.push(truncate(`${FIX_PREFIX}앞 글의 ${wrong.map(itemOf).join(', ')} 감사는 잘못 올라갔어요`, LIVE_CHAT_MAX))
+  return [...out, ...passes]
 }
 
 /** JSON 칸 → 값 (깨졌으면 기본값) */
@@ -579,7 +592,7 @@ export class ThanksFixer {
       const removal = await this.#removeAll(route, link, fix, idsOf(fix.oldRemoteIds))
       if (removal === 'retry' && fix.attempts + 1 <= FIX_MAX_RETRIES) return this.#retry(fix, fix.attempts + 1)
       deleted = removal === 'deleted'
-      sentTexts = fixMessages(plan.kept, plan.removed, deleted)
+      sentTexts = fixMessages(plan.kept, plan.removed, deleted, plan.passed)
       const saved = await this.#update(
         fix,
         { deleted, sentTexts: JSON.stringify(sentTexts), newTexts: JSON.stringify(plan.kept), attemptAt: this.#now(), attempts: 0 },

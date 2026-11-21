@@ -1295,12 +1295,13 @@ export class Service {
   }
 
   /** 구매자 한 명 정산서 파일 (D-STMT-EACH-01) — 정산서 화면과 같은 범위·묶음. 정산서에 없는 구매자면 null */
-  async buyerStatementFile(sellerId: string, id: string, buyer: string, format: 'csv' | 'xlsx', joins?: (date: string) => Promise<readonly StatementJoinGroup[]>, carries?: (date: string) => Promise<readonly StatementCarry[]>) {
+  /** infoSellerId: 계좌·전화번호를 읽을 가게 — 같이 보는 라이브면 보는 사람의 가게 (D-SHARE-HOME-01). 없으면 그 방송 가게 */
+  async buyerStatementFile(sellerId: string, id: string, buyer: string, format: 'csv' | 'xlsx', joins?: (date: string) => Promise<readonly StatementJoinGroup[]>, carries?: (date: string) => Promise<readonly StatementCarry[]>, infoSellerId: string = sellerId) {
     const scope = await this.#statementScope(sellerId, id)
     if (scope === null) return null
     const real = !scope.row.rehearsal
     const [info, groups, past] = await Promise.all([
-      this.statementInfo(sellerId),
+      this.statementInfo(infoSellerId),
       !real || joins === undefined ? [] : joins(scope.row.date),
       // 지난 주문 같이 보내기 (D-STMT-CARRY-01) — 실제 라이브만
       !real || carries === undefined ? [] : carries(scope.row.date),
