@@ -164,14 +164,15 @@ describe('링크 화면 → 연결 확인 화면 (D-UX4-117)', () => {
   })
 
   // D-RECENT-LIVE-01 (사용자 "그 아래 애매한 빈 줄은 뭐니? 차라리 지금 유튜브에서 라이브 중이에요 이렇게 넣어")
-  it('지금 라이브 중인 줄은 빈 줄 대신 "지금 유튜브에서 라이브 중이에요"', async () => {
+  // D-RECENT-LIVE-02 (사용자 "지금 유튜브에서 라이브 중이에요 -> 지금 빼"): 옛 기대 "지금 유튜브에서 라이브 중이에요"
+  it('지금 라이브 중인 줄은 빈 줄 대신 "유튜브에서 라이브 중이에요"', async () => {
     const w = world({
       recent: [{ videoId: 'LIVE0000001', title: '지금 라이브', status: 'LIVE', scheduledStartTime: null, actualStartTime: null, linkedBroadcast: null, channelId: 'UC_A', channelTitle: '가게A' }],
     })
     render(w.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => {}} />))
     const rows = await screen.findAllByTestId('recent-live')
     expect(within(rows[0] as HTMLElement).getByTestId('recent-live-sub').textContent).toBe(LIVE_NOW_YOUTUBE)
-    expect(LIVE_NOW_YOUTUBE).toBe('지금 유튜브에서 라이브 중이에요')
+    expect(LIVE_NOW_YOUTUBE).toBe('유튜브에서 라이브 중이에요')
   })
 })
 

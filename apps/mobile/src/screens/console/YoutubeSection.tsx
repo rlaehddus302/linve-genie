@@ -459,9 +459,10 @@ export const RECENT_CHANNELS_TITLE = '최근 연결한 채널'
 /** 최근 채널에 지금 라이브가 없을 때 (D-RECENT-YT-02, 사용자 "문구도 지금 라이브 중이 아니에요로 바꾸고" — 옛 "지금 라이브가 없어요") */
 export const NO_LIVE_NOW = '지금 라이브 중이 아니에요'
 /** 최근 채널이 지금 라이브 중일 때의 회색 글 (D-RECENT-LIVE-01, 사용자 "그 아래 애매한 빈 줄은 뭐니? 차라리 지금 유튜브에서 라이브 중이에요 이렇게 넣어" — 옛: 글 없음) */
-export const LIVE_NOW_YOUTUBE = '지금 유튜브에서 라이브 중이에요'
+/** D-RECENT-LIVE-02 (사용자 "지금 유튜브에서 라이브 중이에요 -> 지금 빼"): 앞의 "지금"을 뺐다 */
+export const LIVE_NOW_YOUTUBE = '유튜브에서 라이브 중이에요'
 /** 틱톡이 라이브 중이라고 한 계정 줄의 회색 글 (D-RECENT-LIVE-01 — 유튜브 줄과 같게, 옛: "틱톡") */
-export const LIVE_NOW_TIKTOK = '지금 틱톡에서 라이브 중이에요'
+export const LIVE_NOW_TIKTOK = '틱톡에서 라이브 중이에요'
 /** 최근 라이브 줄의 플랫폼 그림 크기 (토스 계좌 줄의 은행 그림처럼 두 줄 높이) */
 const RECENT_ICON = 40
 /** 최근 연결한 채널 줄 수 — 유튜브 채널과 틱톡 계정을 합쳐서 (D-UX4-187 5곳, D-RECENT-TT-01) */
@@ -920,7 +921,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
               // 내 채널 목록(구글 연결로 읽는 서버)에는 채널 이름이 없다 — 그때는 라이브 제목 ("(이름 없음)"을 보이지 않게)
               const name = webChat === null ? title : channelName(item.channelTitle)
               const live = item.status === 'LIVE'
-              // 라이브 중이면 빈 줄 대신 "지금 유튜브에서 라이브 중이에요" (D-RECENT-LIVE-01)
+              // 라이브 중이면 빈 줄 대신 "유튜브에서 라이브 중이에요" (D-RECENT-LIVE-01·02)
               const sub = other ? '다른 라이브에 연결돼 있어요' : live ? LIVE_NOW_YOUTUBE : '예정'
               return (
                 <View key={item.videoId} testID="recent-live" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>

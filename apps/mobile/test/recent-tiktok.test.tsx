@@ -83,7 +83,7 @@ describe('최근 연결한 채널에 틱톡 계정 (D-RECENT-TT-01)', () => {
     expect(within(rows[0]!).getByTestId('recent-live-sub').textContent).toBe(NO_LIVE_NOW)
     expect(within(rows[0]!).queryByRole('button')).toBeNull()
     expect(within(rows[1]!).getByRole('button', { name: '한별 농원 연결' })).toBeTruthy()
-    // 틱톡이 라이브 중이라고 하면 "지금 틱톡에서 라이브 중이에요" (D-RECENT-LIVE-01, 옛: "틱톡") — 모르면 그대로 "틱톡"
+    // 틱톡이 라이브 중이라고 하면 "틱톡에서 라이브 중이에요" (D-RECENT-LIVE-01·02, 옛: "틱톡" → "지금 틱톡에서 라이브 중이에요") — 모르면 그대로 "틱톡"
     expect(within(rows[1]!).getByTestId('recent-live-sub').textContent).toBe(LIVE_NOW_TIKTOK)
     expect(within(rows[2]!).getByRole('button', { name: '@shop.three 연결' })).toBeTruthy()
     expect(within(rows[2]!).getByTestId('recent-live-sub').textContent).toBe(RECENT_TIKTOK_SUB)
