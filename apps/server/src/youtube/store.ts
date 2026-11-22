@@ -132,10 +132,11 @@ export async function linkByRequest(db: Db, sellerId: string, requestId: string)
 }
 
 /** 그 영상이 이어진, 끝나지 않은 이 판매자의 라이브찜 방송 (끊지 않은 연결) */
-export async function openLinksForVideo(db: Db, sellerId: string, videoIds: readonly string[]): Promise<{ videoId: string; broadcastId: string }[]> {
+export async function openLinksForVideo(db: Db, sellerId: string, videoIds: readonly string[]): Promise<{ videoId: string; broadcastId: string; draft: boolean }[]> {
   if (videoIds.length === 0) return []
   return db
-    .select({ videoId: youtubeLinks.videoId, broadcastId: youtubeLinks.broadcastId })
+    // draft: 방송 화면에 한 번도 들어오지 않은(만드는 중이던) 방송 (D-DRAFT-01)
+    .select({ videoId: youtubeLinks.videoId, broadcastId: youtubeLinks.broadcastId, draft: sql<boolean>`${broadcasts.openedAt} is null` })
     .from(youtubeLinks)
     .innerJoin(broadcasts, and(eq(broadcasts.id, youtubeLinks.broadcastId), eq(broadcasts.sellerId, sellerId)))
     .where(and(eq(youtubeLinks.sellerId, sellerId), inArray(youtubeLinks.videoId, [...videoIds]), isNull(youtubeLinks.unlinkedAt), isNull(broadcasts.endedAt)))

@@ -563,7 +563,8 @@ export class YoutubeSystem {
    * 확인 상태는 서버에 남기지 않는다 — 확인 요청마다 영상을 다시 조회해 다시 판단하고, 다른 받는 조건은 확인이 있어도 그대로 본다
    */
   async link(session: SessionInfo, b: string, video: string, requestId: string, confirmInvited = false, move = false): Promise<LinkOutcome> {
-    if (move) await this.#releaseVideo(session, b, video)
+    // 옮기기면 다른 회차 모두, 아니면 만드는 중에 그만둔 회차(목록에 안 보여 판매자가 끝낼 수 없다)만 놓아준다 (D-YT-MOVE-01·D-DRAFT-01)
+    await this.#releaseVideo(session, b, video, move ? 'all' : 'drafts')
     if (this.web !== null) return this.#linkWeb(session, b, video, requestId, confirmInvited, this.web)
     const { db, timer } = this.#options
     const sellerId = session.sellerId
@@ -855,13 +856,15 @@ export class YoutubeSystem {
    * 옮기기 (D-YT-MOVE-01, 사용자 "왜 이미 다른 방송에 이어진 유튜브 방송이라고 뜨지?"): 같은 영상이 끝나지 않은 다른 회차에 이어져 있으면(VIDEO_IN_USE)
    * 판매자가 [옮기기]를 눌렀을 때만 그 회차들의 연결을 끊는다(끊기와 같은 길 — 수집기 멈춤·기다리던 감사 NO_LINK). 그다음 잇기는 평소대로 판단한다.
    * 이 회차가 없거나 끝났으면 아무것도 끊지 않는다. 봉인한 회차는 끊지 못해 잇기가 그대로 VIDEO_IN_USE로 거절된다
+   * 'drafts'(옮기기 없이 잇기, D-DRAFT-01): 방송 화면에 한 번도 들어오지 않은 회차 — 새 라이브 만들기를 그만둬 목록에 안 보이는 회차 — 만 묻지 않고 놓아준다
    */
-  async #releaseVideo(session: SessionInfo, b: string, video: string): Promise<void> {
+  async #releaseVideo(session: SessionInfo, b: string, video: string, which: 'all' | 'drafts'): Promise<void> {
     const videoId = parseVideoId(video)
     if (videoId === null) return
+    const others = (await openLinksForVideo(this.#options.db, session.sellerId, [videoId])).filter((other) => other.broadcastId !== b && (which === 'all' || other.draft))
+    if (others.length === 0) return
     const row = await findBroadcast(this.#options.db, session.sellerId, b)
     if (row === null || row.endedAt != null) return
-    const others = (await openLinksForVideo(this.#options.db, session.sellerId, [videoId])).filter((other) => other.broadcastId !== b)
     for (const other of new Set(others.map((item) => item.broadcastId))) {
       const outcome = await this.unlink(session, other)
       if (outcome.kind === 'ok') this.#options.log({ level: 'info', code: 'YT_LINK_MOVED' })

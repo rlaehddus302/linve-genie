@@ -9,6 +9,7 @@ import { approve, callback, type YoutubeWorld } from './youtube-support.ts'
 import { chatEvents, collectorOfWorld, errorOf, pass, waitFor, webLinked, webWorld, type WebWorld } from './youtube-web-support.ts'
 
 const OPS_TOKEN = 'ops-token-for-youtube-web-chat-tests-0123456789'
+const SCREEN_TOKEN = 'screen-worker-token-0123456789abcdef'
 
 const worlds: WebWorld[] = []
 async function world(options: Parameters<typeof webWorld>[0] = {}): Promise<WebWorld> {
@@ -429,6 +430,31 @@ describe('D-YT-MOVE-01 다른 방송에 이어진 유튜브 라이브 옮기기'
     expect(moved.body).toMatchObject({ link: { videoId: video.videoId } })
     expect((await api.get(`/api/broadcasts/${b.id}/youtube`)).body.link).toBeNull()
     expect(w.logs.some((record) => record.code === 'YT_LINK_MOVED')).toBe(true)
+  })
+})
+
+describe('D-DRAFT-01 만들다 그만둔 회차', () => {
+  // 2026-11-23: 새 라이브 만들기에서 링크까지 이은 뒤 그만둔 회차(방송 화면에 들어온 적 없음)가 목록에 안 보인 채 연결을 붙잡아
+  // 배포 문지기가 "방송 중"으로 보고 배포를 막았고, 같은 라이브를 다른 회차에 이으면 VIDEO_IN_USE였다
+  it('그만둔 회차는 "지금 볼 라이브"에 들지 않고, 같은 영상을 다른 회차에 이으면 묻지 않고 그 회차를 놓아준다 — 열린 회차는 그대로 VIDEO_IN_USE', async () => {
+    const w = await world({ overrides: { screenWorkerToken: SCREEN_TOKEN } })
+    const seller = await addSeller(w)
+    const api = client(w, seller.cookie)
+    const video = w.web.addVideo()
+    const draft = await api.post('/api/broadcasts', { requestId: 'draft-1', date: '2026-10-22', title: '만들다 그만둔', draft: true })
+    expect(draft.status).toBe(200)
+    const draftId = (draft.body.broadcast as { id: string }).id
+    expect((await api.post(`/api/broadcasts/${draftId}/youtube`, { requestId: 'draft-l1', video: video.videoId, confirmInvited: true })).status).toBe(200)
+    const live = async () => (await (await w.server.app.request('/internal/screen/live', { headers: { Authorization: `Bearer ${SCREEN_TOKEN}` } })).json()) as { videos: { videoId: string }[] }
+    expect((await live()).videos).toEqual([])
+    const b2 = await createBroadcast(w, seller, { date: '2026-10-22' })
+    const linked = await api.post(`/api/broadcasts/${b2.id}/youtube`, { requestId: 'draft-l2', video: video.videoId, confirmInvited: true })
+    expect(linked.status).toBe(200)
+    expect((await api.get(`/api/broadcasts/${draftId}/youtube`)).body.link).toBeNull()
+    expect((await live()).videos.map((row) => row.videoId)).toEqual([video.videoId])
+    // 열린 회차가 붙잡고 있으면 묻는다(옮기기는 판매자가 누를 때만)
+    const b3 = await createBroadcast(w, seller, { date: '2026-10-22' })
+    expect(errorOf((await api.post(`/api/broadcasts/${b3.id}/youtube`, { requestId: 'draft-l3', video: video.videoId, confirmInvited: true })).body).code).toBe('VIDEO_IN_USE')
   })
 })
 

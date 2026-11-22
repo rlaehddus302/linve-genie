@@ -12,7 +12,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getBroadcast, getProduct, type ProductInfo } from '@livejjim/core'
-import { and, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
 import type { Context, Hono } from 'hono'
 import { bearerMatches } from '../app.ts'
 import type { Db } from '../db/database.ts'
@@ -616,18 +616,22 @@ async function priceUnitOfVideo(deps: ScreenIntakeDeps, videoId: string): Promis
   }
 }
 
-/** 지금 이어진 라이브 열쇠 (끊지 않은 연결·끝나지 않은 방송, 겹치면 하나) — 유튜브 영상 번호와 틱톡 `@아이디`(D-SCR-TT-01) */
+/**
+ * 지금 이어진 라이브 열쇠 (끊지 않은 연결·끝나지 않은 방송, 겹치면 하나) — 유튜브 영상 번호와 틱톡 `@아이디`(D-SCR-TT-01).
+ * 방송 화면에 한 번도 들어오지 않은(만드는 중인) 방송은 빼다 (D-DRAFT-01): 그 연결은 화면에 들어와야 받기 시작하고(D-UX3-27),
+ * 새 라이브 만들기를 그만두면 앱 목록에 보이지 않은 채 남아 배포 문지기가 "방송 중"으로 보고 배포를 막았다(2026-11-23)
+ */
 export async function liveVideos(db: Db): Promise<string[]> {
   const rows = await db
     .selectDistinct({ videoId: youtubeLinks.videoId })
     .from(youtubeLinks)
     .innerJoin(broadcasts, and(eq(broadcasts.id, youtubeLinks.broadcastId), eq(broadcasts.sellerId, youtubeLinks.sellerId)))
-    .where(and(isNull(youtubeLinks.unlinkedAt), isNull(broadcasts.endedAt)))
+    .where(and(isNull(youtubeLinks.unlinkedAt), isNull(broadcasts.endedAt), isNotNull(broadcasts.openedAt)))
   const tiktok = await db
     .selectDistinct({ tiktokId: tiktokLinks.tiktokId })
     .from(tiktokLinks)
     .innerJoin(broadcasts, and(eq(broadcasts.id, tiktokLinks.broadcastId), eq(broadcasts.sellerId, tiktokLinks.sellerId)))
-    .where(and(eq(tiktokLinks.state, 'LINKED'), isNull(tiktokLinks.unlinkedAt), isNull(broadcasts.endedAt)))
+    .where(and(eq(tiktokLinks.state, 'LINKED'), isNull(tiktokLinks.unlinkedAt), isNull(broadcasts.endedAt), isNotNull(broadcasts.openedAt)))
   const keys = [...rows.map((row) => row.videoId), ...tiktok.map((row) => `@${row.tiktokId}`)]
   return [...new Set(keys.filter((id): id is string => typeof id === 'string' && VIDEO_RE.test(id)))].sort()
 }
