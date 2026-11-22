@@ -413,6 +413,25 @@ describe('D-RECENT-YT-02 끊은 뒤 다시 잇는 라이브', () => {
   })
 })
 
+describe('D-YT-MOVE-01 다른 방송에 이어진 유튜브 라이브 옮기기', () => {
+  // 사용자 2026-11-23 "왜 이미 다른 방송에 이어진 유튜브 방송이라고 뜨지?" — 끝나지 않은 다른 회차에 같은 영상이 이어져 있으면 VIDEO_IN_USE, [옮기기]면 그 회차를 끊고 잇는다
+  it('move 없이는 VIDEO_IN_USE 그대로, move: true면 앞 회차 연결을 끊고 이 회차에 잇는다 — 그 밖의 값은 거절', async () => {
+    const w = await world()
+    const { seller, b, video } = await webLinked(w)
+    const api = client(w, seller.cookie)
+    const b2 = await createBroadcast(w, seller, { date: '2026-10-22' })
+    const refused = await api.post(`/api/broadcasts/${b2.id}/youtube`, { requestId: 'move-1', video: video.videoId })
+    expect([refused.status, errorOf(refused.body).code, errorOf(refused.body).message]).toEqual([409, 'VIDEO_IN_USE', '이미 다른 방송에 이어진 유튜브 방송이에요.'])
+    expect((await api.get(`/api/broadcasts/${b.id}/youtube`)).body.link).not.toBeNull()
+    expect((await api.post(`/api/broadcasts/${b2.id}/youtube`, { requestId: 'move-2', video: video.videoId, move: 'yes' })).status).toBe(400)
+    const moved = await api.post(`/api/broadcasts/${b2.id}/youtube`, { requestId: 'move-3', video: video.videoId, move: true })
+    expect(moved.status).toBe(200)
+    expect(moved.body).toMatchObject({ link: { videoId: video.videoId } })
+    expect((await api.get(`/api/broadcasts/${b.id}/youtube`)).body.link).toBeNull()
+    expect(w.logs.some((record) => record.code === 'YT_LINK_MOVED')).toBe(true)
+  })
+})
+
 describe('D-YT-SRV-20 한 방송은 유튜브에서 한 번만 읽는다', () => {
   it('두 판매자 계정이 같은 영상을 이으면 채팅 요청은 한 수집기 만큼만 가고, 두 계정 모두 같은 채팅을 각자 기록한다', async () => {
     const w = await world()

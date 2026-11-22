@@ -147,7 +147,8 @@ describe('링크 화면 → 연결 확인 화면 (D-UX4-117)', () => {
     expect(w.server.callsTo('POST', /\/api\/youtube\/preview$/)).toHaveLength(0)
   })
 
-  it('예정 라이브는 라이브 표시 없이 "예정", 다른 라이브에 연결된 것은 그 말과 흐린 [연결]', async () => {
+  // 다른 라이브에 연결된 줄의 [연결]은 흐리지 않고 누를 수 있다 — 누르면 옮길지 묻는다 (D-YT-MOVE-01로 바뀜, 옛: 흐린 [연결])
+  it('예정 라이브는 라이브 표시 없이 "예정", 다른 라이브에 연결된 것은 그 말과 누를 수 있는 [연결] (D-YT-MOVE-01)', async () => {
     const w = world({
       recent: [
         { videoId: 'SOON0000001', title: '예정 라이브', status: 'UPCOMING', scheduledStartTime: null, actualStartTime: null, linkedBroadcast: null, channelId: 'UC_A', channelTitle: '가게A' },
@@ -159,7 +160,7 @@ describe('링크 화면 → 연결 확인 화면 (D-UX4-117)', () => {
     expect(within(rows[0] as HTMLElement).queryByTestId('channel-live-tag')).toBeNull()
     expect(within(rows[0] as HTMLElement).getByTestId('recent-live-sub').textContent).toBe('예정')
     expect(within(rows[1] as HTMLElement).getByTestId('recent-live-sub').textContent).toBe('다른 라이브에 연결돼 있어요')
-    expect(within(rows[1] as HTMLElement).getByRole('button', { name: '가게B 연결' }).getAttribute('aria-disabled')).toBe('true')
+    expect(within(rows[1] as HTMLElement).getByRole('button', { name: '가게B 연결' }).getAttribute('aria-disabled')).not.toBe('true')
   })
 })
 

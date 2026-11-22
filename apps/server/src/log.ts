@@ -83,6 +83,7 @@ export type LogCode =
   | 'COLLECTOR_SAVE_FAILED'
   // YT-11 서버 웹 읽기 (D-YT-SRV-06·07·12): 막힘·모르는 모양·연결 오류 경보 재료(판매자 정보 없음), 모르는 종류 이름·수, 끄기 스위치 값 경고(값 없음)
   | 'YT_CHAT_BLOCKED'
+  | 'YT_LINK_MOVED'
   | 'YT_CHAT_FORMAT'
   | 'YT_CHAT_NETWORK'
   | 'YT_CHAT_UNKNOWN_ITEM'
@@ -284,6 +285,7 @@ const MESSAGES: Readonly<Record<LogCode, string>> = {
   COLLECTOR_STOPPED: '채팅 수집을 멈췄어요',
   COLLECTOR_SAVE_FAILED: '받은 채팅을 저장하지 못해 이어받기 지점을 남기지 않았어요',
   YT_CHAT_BLOCKED: '유튜브가 서버의 채팅 읽기를 막았어요(429·403·봇 확인)',
+  YT_LINK_MOVED: '판매자가 다른 회차에 이어진 유튜브 라이브를 이 회차로 옮겼어요',
   YT_CHAT_FORMAT: '유튜브 채팅 응답 모양을 알아볼 수 없어요(읽기를 고쳐야 해요)',
   YT_CHAT_NETWORK: '유튜브 채팅 읽기가 연결 오류로 다섯 번 이어 실패했어요',
   YT_CHAT_UNKNOWN_ITEM: '유튜브 채팅에 모르는 항목 종류가 있어 버렸어요(이름·수만 남김)',

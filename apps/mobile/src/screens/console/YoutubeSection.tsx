@@ -284,6 +284,8 @@ export interface LinkBody {
   readonly requestId: string
   readonly video: string
   readonly confirmInvited?: true
+  /** 끝나지 않은 다른 방송에 이어진 영상을 이 방송으로 옮긴다 (D-YT-MOVE-01) */
+  readonly move?: true
 }
 
 /** 어느 플랫폼에 무엇을 보내 잇나 (D-UX3-14) */
@@ -564,6 +566,8 @@ function ConnectButton({ label, disabled, onPress }: { readonly label: string; r
 
 /** 다른 방송에 틱톡이 이어져 있을 때 (D-UX3-17) — 서버 TIKTOK_ELSEWHERE 문장과 같은 뜻, 팝업이라 줄을 나눈다 (D-UX4-02) */
 export const TIKTOK_MOVE_QUESTION = '다른 라이브에 틱톡이 연결돼 있어요.\n이 라이브로 옮길까요?'
+/** 끝나지 않은 다른 방송에 같은 유튜브 라이브가 이어져 있을 때 (D-YT-MOVE-01 — 서버 VIDEO_IN_USE) */
+export const YOUTUBE_MOVE_QUESTION = '다른 라이브에 이 유튜브 라이브가 연결돼 있어요.\n이 라이브로 옮길까요?'
 
 /** 잇기 거절을 짧게 (D-UX3-11, 사용자 지시 2026-11-03 "구체적으로 말고 추상적으로 짧게"). 모르는 거절은 서버 문장 그대로 */
 const SHORT_LINK_ERRORS: Readonly<Record<string, string>> = {
@@ -621,11 +625,13 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
   // 팝업이 닫히는 동안에도 채널 이름이 남아 있게
   const shownAsk = useRef(ask)
   if (ask !== null) shownAsk.current = ask
-  const pending = useRef<{ video: string; confirmed: boolean; requestId: string } | null>(null)
+  const pending = useRef<{ video: string; confirmed: boolean; move: boolean; requestId: string } | null>(null)
   const [canPaste, setCanPaste] = useState(false)
   const [note, setNote] = useState<{ id: number; message: string } | null>(null)
   /** 틱톡 동의 안내·밴드 글 고르기 (D-UX3-14), 다른 방송의 틱톡을 옮길지 묻기 (D-UX3-17) */
-  const [step, setStep] = useState<'none' | 'tiktokConsent' | 'tiktokMove' | 'bandPick'>('none')
+  const [step, setStep] = useState<'none' | 'tiktokConsent' | 'tiktokMove' | 'youtubeMove' | 'bandPick'>('none')
+  /** 옮길지 묻는 유튜브 링크 (D-YT-MOVE-01) */
+  const moving = useRef<{ video: string; confirmed: boolean } | null>(null)
 
   // 클립보드는 읽지 않고 글이 있는지만 본다 — 아이폰 "붙여넣기 허용" 창이 뜨지 않게 (D-UX3-11).
   // 글이 있으면 빈 링크 칸 오른쪽에 [붙여넣기](아이폰 기본 단추 — 누르는 것이 허락). 칸을 열 때와 앱·브라우저에서 돌아올 때 다시 본다.
@@ -755,16 +761,16 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
     }
   }
 
-  const link = async (video: string, confirmed = false) => {
+  const link = async (video: string, confirmed = false, move = false) => {
     if (busy || disabled === true || video.trim() === '') return
-    if (pending.current?.video !== video || pending.current.confirmed !== confirmed) pending.current = { video, confirmed, requestId: newRequestId() }
+    if (pending.current?.video !== video || pending.current.confirmed !== confirmed || pending.current.move !== move) pending.current = { video, confirmed, move, requestId: newRequestId() }
     const { requestId } = pending.current
     setBusy(true)
     setError(null)
     // 확인 화면에서 [연결하기]면 보내는 동안 그 화면 그대로 (D-UX4-117) — 처음 잇는 채널 팝업은 닫는다
     setAsk((now) => (confirmed && now?.kind === 'live' ? now : null))
     try {
-      const body: LinkBody = confirmed ? { requestId, video, confirmInvited: true } : { requestId, video }
+      const body: LinkBody = { requestId, video, ...(confirmed ? { confirmInvited: true as const } : {}), ...(move ? { move: true as const } : {}) }
       await submit({ platform: 'youtube', body })
       pending.current = null
     } catch (caught) {
@@ -776,6 +782,11 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
         const channel = caught.details.channel
         const title = typeof channel === 'object' && channel !== null ? (channel as { title?: unknown }).title : undefined
         setAsk({ kind: 'firstChannel', video, name: channelName(title) })
+      } else if (!move && caught.code === 'VIDEO_IN_USE') {
+        // 끝나지 않은 다른 방송에 이어진 영상 — 옮길지 묻는다 (D-YT-MOVE-01, 사용자 "왜 이미 다른 방송에 이어진 유튜브 방송이라고 뜨지?")
+        setAsk(null)
+        moving.current = { video, confirmed }
+        setStep('youtubeMove')
       } else {
         // 못 이으면 링크 화면으로 돌아가 칸 아래에 까닭을 보인다
         setAsk(null)
@@ -896,7 +907,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
                       </Txt>
                     )}
                   </View>
-                  <ConnectButton label={`${name} 연결`} disabled={off || other} onPress={() => void check(item.videoId, { title, name: channelName(item.channelTitle), channelId: item.channelId ?? null })} />
+                  {/* 다른 라이브에 이어져 있어도 누를 수 있다 — 이으려 하면 옮길지 묻는다 (D-YT-MOVE-01) */}
+                  <ConnectButton label={`${name} 연결`} disabled={off} onPress={() => void check(item.videoId, { title, name: channelName(item.channelTitle), channelId: item.channelId ?? null })} />
                 </View>
               )
             })}
@@ -916,6 +928,19 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
         onConfirm={() => {
           const url = liveLinkOf(address.trim())?.url ?? address.trim()
           void sendOther((requestId) => ({ platform: 'tiktok', body: { requestId, url, move: true } }), `tiktok-move ${url}`)
+        }}
+      />
+      <PopupDialog
+        visible={step === 'youtubeMove'}
+        message={YOUTUBE_MOVE_QUESTION}
+        cancelLabel="취소"
+        confirmLabel="옮기기"
+        busy={off}
+        onCancel={() => setStep('none')}
+        onConfirm={() => {
+          const target = moving.current
+          setStep('none')
+          if (target !== null) void link(target.video, target.confirmed, true)
         }}
       />
       {/* 처음 잇는 채널(미리 보기 없는 옛 흐름)만 팝업 — 미리 본 라이브는 연결 확인 화면으로 (D-UX4-117) */}

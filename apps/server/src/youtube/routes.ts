@@ -170,8 +170,13 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
     const input = body(c)
     const requestId = requestIdOf(input)
     if (requestId === null) return invalidRequestId()
-    const extra = onlyKeys(input, ['requestId', 'video', 'confirmInvited'])
+    const extra = onlyKeys(input, ['requestId', 'video', 'confirmInvited', 'move'])
     if (extra !== null) return extra
+    // 옮기기 (D-YT-MOVE-01): JSON 불리언만 — true만 옮김
+    const move = own(input, 'move')
+    if (move !== undefined && typeof move !== 'boolean') {
+      return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'move', message: '옮기기 값이 올바르지 않아요.' }])
+    }
     // 초대 방송 확인 표시 (D-INV1-02): JSON 불리언만 — true만 확인, 없거나 false는 확인 아님, 다른 모양("true"·1·{})은 거절
     const confirm = own(input, 'confirmInvited')
     if (confirm !== undefined && typeof confirm !== 'boolean') {
@@ -186,7 +191,7 @@ export function registerYoutubeRoutes(api: Hono<Env>, deps: YoutubeRouteDeps): v
       const joined = await joinIfShared(deps.liveJoin.db, session(c), { platform: 'youtube', videoId }, new Date(deps.liveJoin.clock.now()))
       if (joined !== null) return c.json({ joined })
     }
-    return linkResponse(c, await youtube.link(info(c), c.req.param('id'), video, requestId, confirm === true))
+    return linkResponse(c, await youtube.link(info(c), c.req.param('id'), video, requestId, confirm === true, move === true))
   })
   // 잇기 전 미리 보기 (D-UX4-08): { video } → { title, channelTitle }. 아무것도 넣지 않는다. 서버 읽기가 아니면 404 PREVIEW_UNAVAILABLE(화면은 옛 흐름)
   api.post('/youtube/preview', async (c) => {
