@@ -373,7 +373,9 @@ export class LabelQueue {
         !this.#manualDisconnect && !this.#reconnecting && !this.#snapshot.testing && queue.pause === null) {
         this.#reconnecting = true
         try {
-          await ble.reconnect('bluetooth')
+          // 판매자가 누른 것이 아니다 — 기억한 프린터만 잇는다. 그 프린터가 보이지 않아도 고르기 창을 띄우지 않는다
+          // (옛: reconnect — 꺼 둔 프린터면 앱을 열 때마다 "라벨 프린터를 골라 주세요" 창이 저절로 떴다, D-NOPICK-01)
+          await ble.connectRemembered()
         } finally {
           this.#reconnecting = false
         }

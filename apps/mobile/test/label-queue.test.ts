@@ -82,6 +82,35 @@ describe('LabelQueue', () => {
     expect(queue.getSnapshot().job).toBeNull()
   })
 
+  it('앱으로 돌아와 저절로 다시 잇는 것은 기억한 프린터만 — 고르기 창을 여는 잇기(connect·reconnect)는 부르지 않는다 (D-NOPICK-01)', async () => {
+    const { server, ble, queue } = setup()
+    server.on('GET', /^\/api\/print$/, () => ({ body: { queue: queueSummary({ waiting: 0 }) } }))
+    server.on('POST', /^\/api\/print\/device\/state$/, () => ({ body: { ok: true } }))
+    server.on('POST', /^\/api\/print\/claim$/, () => ({ body: { job: null, reason: 'EMPTY' } }))
+    ble.restoreRemembered({ method: 'bluetooth', deviceId: 'fake-b1' })
+    const calls: string[] = []
+    ble.connect = async () => {
+      calls.push('connect')
+      return { ok: false, error: { code: 'NOT_SELECTED', message: '' } } as PrinterResult
+    }
+    ble.reconnect = async () => {
+      calls.push('reconnect')
+      return { ok: false, error: { code: 'NOT_SELECTED', message: '' } } as PrinterResult
+    }
+    ble.connectRemembered = async () => {
+      calls.push('remembered')
+      return { ok: false, error: { code: 'DISCONNECTED', message: '' } } as PrinterResult
+    }
+    // 앱을 켤 때(start)와 앞으로 돌아올 때(resume) 둘 다
+    queue.start()
+    await flush(20)
+    queue.resume()
+    await flush(20)
+    expect(calls).toEqual(['remembered', 'remembered'])
+    expect(queue.getSnapshot().printerError).toBeNull()
+    queue.stop()
+  })
+
   it('복귀 시 놓친 찜을 이어 찍고, 서버가 연결 끊김으로 멈췄어도 이미 연결된 프린터를 다시 알린다', async () => {
     const { server, ble, queue, clock } = setup()
     const waiting = queueSummary({ rev: 3, pause: { reason: 'DISCONNECTED', message: '끊김', backlog: false } })
