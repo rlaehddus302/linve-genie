@@ -6,7 +6,7 @@ import { BroadcastLinkScreen } from '../src/screens/BroadcastLinkScreen.tsx'
 import { NO_LIVE_NOW, RECENT_CHANNELS_TITLE } from '../src/screens/console/YoutubeSection.tsx'
 import { makeWorld } from './screen-support.tsx'
 
-it('최근 채널 차례대로(맨 위가 가장 최근) — 라이브면 [연결], 없으면 "지금 라이브가 없어요"', async () => {
+it('최근 채널 차례대로(맨 위가 가장 최근) — 라이브면 [연결], 없으면 "지금 라이브 중이 아니에요" (D-RECENT-YT-02 문구)', async () => {
   const world = makeWorld({ products: [] })
   world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: { status: 'NOT_CONNECTED', channel: null, permissions: { read: false, publish: false }, consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } } }, webChat: { on: true }, oauth: true } }))
   world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: null, collector: null } }))
@@ -27,6 +27,7 @@ it('최근 채널 차례대로(맨 위가 가장 최근) — 라이브면 [연�
   expect(rows.map(row => within(row).getByTestId('recent-live-channel').textContent)).toEqual(['첫째네', '두째네', '<b>셋째네</b>', '넷째네', '(이름 없음)'])
   expect(rows.map(row => within(row).queryByRole('button') === null ? NO_LIVE_NOW : 'connect')).toEqual([NO_LIVE_NOW, 'connect', NO_LIVE_NOW, 'connect', NO_LIVE_NOW])
   expect(within(rows[0]!).getByTestId('recent-live-sub').textContent).toBe(NO_LIVE_NOW)
+  expect(NO_LIVE_NOW).toBe('지금 라이브 중이 아니에요') // 문구 바뀜 (D-RECENT-YT-02)
   expect(within(rows[1]!).getByRole('button', { name: '두째네 연결' })).toBeTruthy()
   // 닉네임·채널 이름은 글자 그대로
   expect(rows[2]!.querySelector('b')).toBeNull()

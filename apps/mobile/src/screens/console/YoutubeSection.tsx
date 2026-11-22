@@ -453,7 +453,8 @@ export const RECENT_LIVE_TITLE = '최근 연결한 채널의 라이브가 있어
 /** 최근 연결한 채널 5곳 묶음 이름 (D-UX4-187 — 라이브가 없는 채널도 보인다) */
 export const RECENT_CHANNELS_TITLE = '최근 연결한 채널'
 /** 지금 라이브·예정이 없는 채널 줄의 회색 글 (D-UX4-187) */
-export const NO_LIVE_NOW = '지금 라이브가 없어요'
+/** 최근 채널에 지금 라이브가 없을 때 (D-RECENT-YT-02, 사용자 "문구도 지금 라이브 중이 아니에요로 바꾸고" — 옛 "지금 라이브가 없어요") */
+export const NO_LIVE_NOW = '지금 라이브 중이 아니에요'
 /** 최근 라이브 줄의 플랫폼 그림 크기 (토스 계좌 줄의 은행 그림처럼 두 줄 높이) */
 const RECENT_ICON = 40
 /** 최근 연결한 채널 줄 수 — 유튜브 채널과 틱톡 계정을 합쳐서 (D-UX4-187 5곳, D-RECENT-TT-01) */
@@ -787,7 +788,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
 
   const recentTitle = webChat === null ? MY_CHANNEL_TITLE : channels !== null ? RECENT_CHANNELS_TITLE : RECENT_LIVE_TITLE
   // 줄 차례 (D-UX4-187, 사용자 "최근 5군데 채널 다 보여주도록 해. 맨위가 젤 최근으로"): 서버가 준 최근 채널 차례대로 — 라이브·예정이 있으면 그 라이브 줄,
-  // 없으면 [연결] 없이 "지금 라이브가 없어요". 옛 서버(채널 목록 없음)면 라이브 줄만
+  // 없으면 [연결] 없이 "지금 라이브 중이 아니에요"(D-RECENT-YT-02). 옛 서버(채널 목록 없음)면 라이브 줄만
   // 최근 연결한 틱톡 계정도 이은 때 차례로 섞는다 (D-RECENT-TT-01, 판매자 "최근 연결한 채널에 틱톡은 없음") — 합쳐 5줄
   const recentRows: readonly ({ readonly kind: 'live'; readonly item: LiveBroadcastItem } | { readonly kind: 'quiet'; readonly channel: RecentChannel } | { readonly kind: 'tiktok'; readonly account: RecentTiktok })[] =
     channels === null

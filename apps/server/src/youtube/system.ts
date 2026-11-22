@@ -156,6 +156,12 @@ export interface LiveBroadcastItem {
 
 /** 최근 연결한 채널을 몇 곳까지 찾는지 (D-UX4-187, 사용자 "최근 5군데 채널 다 보여주도록 해" — 옛 3곳) */
 export const RECENT_CHANNELS_MAX = 5
+/**
+ * 채널 라이브 주소로 라이브를 못 찾았을 때, 그 채널에서 가장 최근에 이은 영상을 직접 다시 보는 기한 (D-RECENT-YT-02).
+ * 판매자 "라이브 연결했다가 끊고 다시 링크 넣는 화면에 오면 라이브 중인데도 지금 라이브가 없다고 뜬다" — 채널 라이브 주소는 서버 IP에서 봇 확인으로 막히거나
+ * 일부 공개 라이브를 보여 주지 않는다. 이은 지 하루가 지난 영상은 다시 보지 않는다(쓸데없는 요청을 줄인다)
+ */
+export const RECENT_VIDEO_RECHECK_MS = 24 * 60 * 60_000
 
 /**
  * 최근 연결한 채널 한 곳 (D-UX4-187): 최근 연결한 것이 먼저. 지금 라이브·예정이 있으면 그 영상(videoId — broadcasts의 같은 줄),
@@ -793,17 +799,26 @@ export class YoutubeSystem {
     // 라이브가 없는 채널도 최근 순서 그대로 알린다 (D-UX4-187). 채널은 한 곳씩 차례로 본다 — 한꺼번에 여러 번 부르면 유튜브가 막을 수 있다
     const channels: RecentChannel[] = []
     for (const channel of await linkedChannels(this.#options.db, sellerId, RECENT_CHANNELS_MAX)) {
-      let page: WatchPage
+      let found: WatchPage | null = null
       try {
-        page = await web.channelLive(channel.id)
+        found = await web.channelLive(channel.id)
       } catch (error) {
         if (error instanceof WebChatError && error.kind === 'OFF') return { kind: 'rejected', status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
         if (error instanceof WebChatError && error.kind === 'BLOCKED') this.#options.log({ level: 'warn', code: 'YT_CHAT_BLOCKED' })
-        channels.push({ channelId: channel.id, channelTitle: channel.title, videoId: null, linkedAt: channel.linkedAt.toISOString() })
-        continue
       }
-      if ((page.state !== 'LIVE' && page.state !== 'UPCOMING') || page.videoId === null || page.channelId !== channel.id) {
-        channels.push({ channelId: channel.id, channelTitle: page.channelId === channel.id ? (page.channelTitle ?? channel.title) : channel.title, videoId: null, linkedAt: channel.linkedAt.toISOString() })
+      const own = found !== null && found.channelId === channel.id
+      let page = own && found !== null && (found.state === 'LIVE' || found.state === 'UPCOMING') && found.videoId !== null ? found : null
+      // 채널 라이브 주소로 못 찾았으면 그 채널에서 가장 최근에 이은 영상을 직접 본다 (D-RECENT-YT-02) — 끊은 뒤 다시 잇는 라이브가 빠지지 않게
+      if (page === null && this.#options.timer.now() - channel.linkedAt.getTime() <= RECENT_VIDEO_RECHECK_MS) {
+        try {
+          const again = await web.pageOrNext(channel.videoId)
+          if ((again.state === 'LIVE' || again.state === 'UPCOMING') && (again.channelId === null || again.channelId === channel.id)) page = { ...again, videoId: channel.videoId, channelId: channel.id }
+        } catch (error) {
+          if (error instanceof WebChatError && error.kind === 'OFF') return { kind: 'rejected', status: 409, code: 'YOUTUBE_WEB_CHAT_OFF' }
+        }
+      }
+      if (page === null || page.videoId === null) {
+        channels.push({ channelId: channel.id, channelTitle: own ? (found?.channelTitle ?? channel.title) : channel.title, videoId: null, linkedAt: channel.linkedAt.toISOString() })
         continue
       }
       channels.push({ channelId: channel.id, channelTitle: page.channelTitle ?? channel.title, videoId: page.videoId, linkedAt: channel.linkedAt.toISOString() })

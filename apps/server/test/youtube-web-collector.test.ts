@@ -2,7 +2,7 @@
 // 구글 연결 없이 잇기·처음 잇는 채널 확인·거절, 수집(메시지 종류·잇기 전 거르기·지움/숨김 알림), 간격(timeoutMs 1~10초)·백오프(연결 오류·막힘),
 // 끝 확인, 이어받기·지점 거절, 모르는 모양, 운영자 끄기(요청 0), 구글 연결 상태와 무관, 예정 방송, 최근 채널 찾기, 운영 상태 합계.
 import { afterEach, describe, expect, it } from 'vitest'
-import { FIRST_CHANNEL_CONFIRM_MESSAGE } from '../src/youtube/system.ts'
+import { FIRST_CHANNEL_CONFIRM_MESSAGE, RECENT_VIDEO_RECHECK_MS } from '../src/youtube/system.ts'
 import { DESKTOP_USER_AGENT } from '../src/youtube/web-chat-source.ts'
 import { addSeller, client, createBroadcast } from './support.ts'
 import { approve, callback, type YoutubeWorld } from './youtube-support.ts'
@@ -377,6 +377,39 @@ describe('D-UX4-187 최근 연결한 채널 5곳', () => {
     expect((found.body.broadcasts as { videoId: string }[]).map((row) => row.videoId)).toEqual([videos[5]!.videoId, videos[4]!.videoId, videos[2]!.videoId])
     // 채널마다 한 번씩만 (여섯째는 부르지 않는다)
     expect(w.web.calls('channelLive') - before).toBe(5)
+  })
+})
+
+describe('D-RECENT-YT-02 끊은 뒤 다시 잇는 라이브', () => {
+  // 판매자 2026-11-23 "라이브 연결 했다가 끊고 나서 다시 라이브 링크 넣는 화면 오면 해당 라이브가 진행 중인데도 최근 연결한 채널에 지금 라이브가 없다고 뜬다"
+  it('채널 라이브 주소가 봇 확인으로 막혀도(또는 일부 공개라 안 보여도) 방금 끊은 라이브가 지금 라이브면 최근 채널에 보인다', async () => {
+    const w = await world()
+    const { seller, b, video } = await webLinked(w)
+    const api = client(w, seller.cookie)
+    expect((await api.post(`/api/broadcasts/${b.id}/youtube/unlink`, {})).status).toBe(200)
+    w.web.fail('channelLive', { kind: 'bot' })
+    const found = await api.get('/api/youtube/live-broadcasts')
+    expect(found.status).toBe(200)
+    expect((found.body.channels as { videoId: string | null }[]).map((row) => row.videoId)).toEqual([video.videoId])
+    expect((found.body.broadcasts as { videoId: string; status: string; linkedBroadcast: string | null }[]).map((row) => [row.videoId, row.status, row.linkedBroadcast])).toEqual([[video.videoId, 'LIVE', null]])
+    // 429로 막혀도 같다
+    w.web.fail('channelLive', { status: 429 })
+    expect(((await api.get('/api/youtube/live-broadcasts')).body.channels as { videoId: string | null }[]).map((row) => row.videoId)).toEqual([video.videoId])
+  })
+
+  it('그 영상이 끝났거나, 이은 지 하루가 지났으면 다시 보지 않고 "라이브 아님" 그대로', async () => {
+    const w = await world()
+    const { seller, video } = await webLinked(w)
+    const api = client(w, seller.cookie)
+    video.state = 'ended'
+    w.web.fail('channelLive', { kind: 'bot' })
+    expect(((await api.get('/api/youtube/live-broadcasts')).body.channels as { videoId: string | null }[]).map((row) => row.videoId)).toEqual([null])
+    video.state = 'live'
+    await pass(w, RECENT_VIDEO_RECHECK_MS + 60_000, 60 * 60_000)
+    w.web.fail('channelLive', { kind: 'bot' })
+    const watch = w.web.calls('watch')
+    expect(((await api.get('/api/youtube/live-broadcasts')).body.channels as { videoId: string | null }[]).map((row) => row.videoId)).toEqual([null])
+    expect(w.web.calls('watch')).toBe(watch)
   })
 })
 
