@@ -3,7 +3,9 @@
 // 1) "라벨을 뽑을까요?" — 설명 + 라벨이 뽑혀 나오는 그림(D-UX4-03). [아니요](왼쪽)는 라벨 출력을 끄고 바로 라이브로, [뽑을게요](오른쪽)는 꺼져 있으면 켠다
 //    (D-LBL-ASKNO-01, 사용자 지시 2026-11-23 "왼쪽 버튼 이름을 아니요 … 아니요 누르면 그 라이브 세팅에서 라벨 출력 오프" — 옛 D-LBL-NOPRN-01 [프린터 없이]는 켠 채 대기열에 쌓았다).
 //    연결 화면에서 프린터가 아직 안 이어졌으면 [나중에 연결] — 이것도 라벨 출력을 끄고 라이브로. 다시 쓰려면 라이브 관리의 [라벨 출력]을 켠다.
-//    단계 사이는 밀어 넘긴다(SlideSwitch — 다음은 오른쪽에서, 뒤로는 왼쪽에서).
+//    단계마다 따로 쌓이는 화면이다 (D-LABEL-ROUTE-01, 사용자 지시 2026-11-23 "라벨 프린터를 연결해 주세요 화면은 왜 별도 화면이 아니라 그 전 화면이랑
+//    같은걸로 되어있어? 별도 화면으로 분리해") — 다음은 경로를 하나 더 쌓고(openStep), 뒤로(머리 ‹ · 왼쪽 끝 밀기 · 안드로이드 뒤로)는 아래 화면으로.
+//    옛: 한 경로 안에서 밀어 넘겼다(SlideSwitch) — 휴대폰에는 화면 하나라 밀어서 뒤로 가면 라벨 단계를 통째로 나갔다.
 // 2) "라벨 프린터를 연결해 주세요" — 전원·블루투스 그림(D-UX4-04). 들어오면 바로 찾기 시작: 기억한 프린터면 고르기 없이 다시 잇고,
 //    아니면 주변 프린터 목록을 이 화면에 바로 보인다(찾는 동안 계속 늘어나고, 아무것도 없으면 10초마다 다시 찾음).
 //    그림은 왼쪽 휴대폰(블루투스)·오른쪽 프린터(전원)가 이어지는 모습, [새로고침]은 없다(저절로 다시 찾음). 줄을 누르면 이 화면에서 그 줄에
@@ -26,7 +28,6 @@ import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { BigButton, BottomCTA, BottomSheet, FormPage, HeaderTextButton, LineTab, LineTabs, NavBar, SheetChoices, usePageTop, useWhiteTop, ChoiceCheck, Icon, ListRow, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
-import { SlideSwitch } from '../ui/kit/slide.tsx'
 import { LabelPrintArt, PrinterConnectArt } from '../ui/LabelArt.tsx'
 import { Notice } from '../ui/parts.tsx'
 import { DEVICE_NAME_MAX, TEST_QUESTION, replaceQuestion } from './LabelsScreen.tsx'
@@ -113,6 +114,9 @@ export function sortedSizes(sizes: readonly string[]): string[] {
 }
 
 type Step = 'ask' | 'connect' | 'design' | 'test' | 'device'
+/** 라이브 시작 라벨 단계의 화면 하나 — 묻기 → 프린터 연결 → 라벨 디자인 → 출력 기기 (D-LABEL-ROUTE-01, 화면마다 따로 쌓인다) */
+export type LabelFlowStep = 'ask' | 'connect' | 'design' | 'device'
+export const LABEL_FLOW_STEPS: readonly LabelFlowStep[] = ['ask', 'connect', 'design', 'device']
 
 interface DraftPreview {
   readonly template: ProductTemplate
@@ -127,13 +131,17 @@ const errorText = (caught: unknown): string => (isApiError(caught) ? caught.mess
 /** 라벨 프린트 화면에서 한 단계만 다시 할 때 (D-UX4-80): 프린터 연결 · 라벨 디자인 · 테스트 인쇄 */
 export type LabelSetupStep = 'connect' | 'design' | 'test'
 
-/** only: 그 단계 하나만 — 뒤로는 onBack, 끝나면 onDone (방송 시작 때 하지 않았어도 방송 관리 → 라벨 프린트에서 다시 한다) */
-export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: () => void; readonly onDone: () => void; readonly only?: LabelSetupStep }) {
+/**
+ * only: 그 단계 하나만 — 뒤로는 onBack, 끝나면 onDone (방송 시작 때 하지 않았어도 방송 관리 → 라벨 프린트에서 다시 한다).
+ * 아니면 라이브 시작 라벨 단계의 화면 step 하나 — 다음 화면은 openStep으로 쌓고, 뒤로는 onBack(아래 화면), 다 하면 onDone(라이브로) (D-LABEL-ROUTE-01).
+ * focused: 이 화면이 맨 위에 보이나 — 프린터 연결 화면은 위에 다른 화면이 쌓인 동안 찾지 않는다.
+ */
+export function LabelSetupScreen(props: { readonly onBack: () => void; readonly onDone: () => void; readonly focused?: boolean } & ({ readonly only: LabelSetupStep } | { readonly step?: LabelFlowStep; readonly openStep: (next: LabelFlowStep) => void })) {
+  const { onBack, onDone, focused = true } = props
+  const only = 'only' in props ? props.only : undefined
+  const step: Step = 'only' in props ? props.only : props.step ?? 'ask'
   const { labels } = useServices()
   const snapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
-  const [step, setStep] = useState<Step>(only ?? 'ask')
-  /** 뒤로 가는 넘김인가 — 밀어 넘기는 방향 */
-  const [back, setBack] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -154,10 +162,10 @@ export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: ()
     await put('/api/settings/labels', { enabled })
     await labels.reload()
   }
-  const go = (next: Step, backward = false) => {
+  /** 다음 화면을 쌓는다 (뒤로는 늘 onBack — 아래 쌓인 화면이 앞 단계다) */
+  const go = (next: LabelFlowStep) => {
     setError(null)
-    setBack(backward)
-    setStep(next)
+    if (!('only' in props)) props.openStep(next)
   }
   /** 라벨 출력을 끄고 라이브로 — [아니요]·[나중에 연결] (D-LBL-ASKNO-01) */
   const skipLabels = () =>
@@ -172,11 +180,7 @@ export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: ()
       </Notice>
     )
 
-  return (
-    <SlideSwitch id={step} back={back} testID="label-setup">
-      {page()}
-    </SlideSwitch>
-  )
+  return <View testID="label-setup" style={{ flex: 1 }}>{page()}</View>
 
   function page() {
   if (step === 'ask') {
@@ -205,14 +209,14 @@ export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: ()
     )
   }
   // 라이브 관리 > 프린터 연결(only)로 열면 이어져도 아래 단추가 없다 — 뒤로 ‹로 돌아간다 (D-CHECK-02, 사용자 지시 "다음 버튼이 왜 있어 걍 아무것도 없애")
-  if (step === 'connect') return <ConnectStep onBack={() => (only === undefined ? go('ask', true) : onBack())} busy={busy} error={errorLine} {...(only === undefined ? { onNext: () => go('design'), onLater: skipLabels } : {})} />
-  if (step === 'design') return <DesignStep saveLabel={only === undefined ? '저장하고 다음' : '저장'} queue={snapshot.queue} profileId={snapshot.profileId} onBack={() => (only === undefined ? go('connect', true) : onBack())} onSaved={() => (only === undefined && !snapshot.mine ? go('device') : onDone())} />
-  return <TestStep selectDevice={step === 'device'} busy={busy} run={run} onBack={() => (only === undefined ? go('design', true) : onBack())} onDone={onDone} error={errorLine} />
+  if (step === 'connect') return <ConnectStep active={focused} onBack={onBack} busy={busy} error={errorLine} {...(only === undefined ? { onNext: () => go('design'), onLater: skipLabels } : {})} />
+  if (step === 'design') return <DesignStep saveLabel={only === undefined ? '저장하고 다음' : '저장'} queue={snapshot.queue} profileId={snapshot.profileId} onBack={onBack} onSaved={() => (only === undefined && !snapshot.mine ? go('device') : onDone())} />
+  return <TestStep selectDevice={step === 'device'} busy={busy} run={run} onBack={onBack} onDone={onDone} error={errorLine} />
   }
 }
 
 /** 2) 프린터 연결과 확인 — 들어오면 바로 찾고, 찾은 프린터를 이 화면에 줄로 (D-UX4-04). 고른 줄에서 바로 연결 확인, 이어지면 [다음] (D-UX4-10) */
-function ConnectStep({ onBack, onNext, onLater, busy = false, error = null }: { readonly onBack: () => void; readonly onNext?: () => void; readonly onLater?: () => void; readonly busy?: boolean; readonly error?: React.ReactNode }) {
+function ConnectStep({ active = true, onBack, onNext, onLater, busy = false, error = null }: { readonly active?: boolean; readonly onBack: () => void; readonly onNext?: () => void; readonly onLater?: () => void; readonly busy?: boolean; readonly error?: React.ReactNode }) {
   const { labels } = useServices()
   const { p } = useKit()
   const snapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
@@ -246,19 +250,23 @@ function ConnectStep({ onBack, onNext, onLater, busy = false, error = null }: { 
     pickPrinter(entry.device)
   }
 
-  // 들어오면 바로 찾는다 (이미 잇는 중이거나 이어져 있으면 그대로)
+  // 들어오면(위 화면에서 돌아와도) 바로 찾는다 (이미 잇는 중이거나 이어져 있으면 그대로). 위에 다른 화면이 쌓이면 찾기를 멈춘다 (D-LABEL-ROUTE-01)
   useEffect(() => {
+    if (!active) {
+      cancelPrinterPick()
+      return
+    }
     if (labels.getSnapshot().printer === 'DISCONNECTED') start()
-  }, [labels, start])
+  }, [active, labels, start])
   // 아무것도 못 찾으면 잠깐마다 다시 찾는다 — 찾은 것이 있으면 찾기가 이어지며 목록이 저절로 늘어난다. 고른 줄을 잇는 동안은 기다린다
   const nothingYet = !linked && picked === null && (found === null || found.length === 0)
   useEffect(() => {
-    if (!nothingYet) return
+    if (!nothingYet || !active) return
     const timer = setInterval(() => {
       if (labels.getSnapshot().printer !== 'CONNECTED') void refresh()
     }, RESCAN_MS)
     return () => clearInterval(timer)
-  }, [nothingYet, labels, refresh])
+  }, [nothingYet, active, labels, refresh])
 
   // 그만둔 고르기(NOT_SELECTED)는 판매자가 한 일이 아니라 다시 찾는 중이라 보이지 않는다
   const problem = snapshot.printerError !== null && snapshot.printerError.code !== 'NOT_SELECTED' && !linked ? snapshot.printerError.message : null

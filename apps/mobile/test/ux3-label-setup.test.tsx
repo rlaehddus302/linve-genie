@@ -7,7 +7,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import type { BleDeviceInfo, PickEntry } from '@livejjim/mobile-ble'
 import { describe, expect, it, vi } from 'vitest'
 import { pickDevice, setPickEntries } from '../src/native/printer-pick.ts'
-import { LabelSetupScreen } from '../src/screens/LabelSetupScreen.tsx'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { useState } from 'react'
+import { LabelSetupScreen, type LabelFlowStep } from '../src/screens/LabelSetupScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { flush } from './support.ts'
 
@@ -33,6 +36,25 @@ function labelWorld(labelsEnabled = true) {
   return world
 }
 
+/**
+ * 라이브 시작 라벨 단계 — 단계마다 따로 쌓이는 화면 (D-LABEL-ROUTE-01): 휴대폰 화면 쌓기처럼 openStep은 위에 쌓고 onBack은 맨 위를 걷는다.
+ * 옛: LabelSetupScreen 하나가 한 화면 안에서 단계를 바꿨다 — 시험은 그 화면 하나를 그렸다. 기대는 그대로, 그리는 틀만 쌓기로 바꿨다.
+ */
+function LabelFlow({ onBack, onDone, steps }: { readonly onBack: () => void; readonly onDone: () => void; readonly steps?: (stack: readonly LabelFlowStep[]) => void }) {
+  const [stack, setStack] = useState<readonly LabelFlowStep[]>(['ask'])
+  const top = stack.at(-1) ?? 'ask'
+  steps?.(stack)
+  return (
+    <LabelSetupScreen
+      key={stack.length}
+      step={top}
+      openStep={(next) => setStack((now) => [...now, next])}
+      onBack={() => (stack.length > 1 ? setStack((now) => now.slice(0, -1)) : onBack())}
+      onDone={onDone}
+    />
+  )
+}
+
 describe('D-UX3-19 라이브 시작 라벨 단계', () => {
   // 옛 기대: 단추 [네, 뽑을게요](위)·[안 뽑아요](아래). D-UX4-01·03: 좌우로 [괜찮아요](왼쪽)·[뽑을게요](오른쪽), 설명 세 줄과 라벨 그림.
   // D-LBL-NOPRN-01 (사용자 지시 2026-11-16): 왼쪽은 [프린터 없이] — 라벨 기능을 켠 채 라이브로, 설명에 "프린터가 없어도 … 대기열에 쌓였다가" 한 줄.
@@ -41,7 +63,7 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
   it('[아니요]: 라벨 출력을 끄고 바로 라이브로 (D-LBL-ASKNO-01)', async () => {
     const world = labelWorld()
     const onDone = vi.fn()
-    render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={onDone} />))
+    render(world.wrap(<LabelFlow onBack={() => {}} onDone={onDone} />))
     const page = screen.getByRole('dialog', { name: '라벨' })
     expect(within(page).getByRole('heading', { name: '라벨을 뽑을까요?' })).toBeTruthy()
     expect(page.textContent).toContain('찜이 확정되면 라벨 프린터로 바로 출력해요.\n상품 번호, 가격, 구매자 이름 등을 기록할 수 있어서\n나중에 포장할 때 헷갈리지 않아요.')
@@ -65,7 +87,7 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
       return new Promise(() => {})
     })
     const onDone = vi.fn()
-    render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={onDone} />))
+    render(world.wrap(<LabelFlow onBack={() => {}} onDone={onDone} />))
     await flush()
     fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
     const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
@@ -80,7 +102,7 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
   it('[뽑을게요] → 바로 연결 → 꾸미기(크기·가격·항목, 서버 미리 보기) → 저장 → 테스트 "예" → 이 기기를 출력 기기로 → 라이브', async () => {
     const world = labelWorld()
     const onDone = vi.fn()
-    render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={onDone} />))
+    render(world.wrap(<LabelFlow onBack={() => {}} onDone={onDone} />))
     await flush()
     fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
     // 이미 켜져 있으면 켬/끔을 건드리지 않는다
@@ -128,7 +150,7 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
   it('방송 시작에는 테스트 화면을 열지 않고 기기를 지정한다', async () => {
     const world = labelWorld()
     const onDone = vi.fn()
-    render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={onDone} />))
+    render(world.wrap(<LabelFlow onBack={() => {}} onDone={onDone} />))
     await flush()
     fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
     const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
@@ -146,9 +168,38 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
     world.services.labels.stop()
   })
 
+  it('프린터 연결은 묻기 화면과 따로 쌓인 화면 — [뽑을게요]가 위에 쌓고, 연결 화면 뒤로는 아래 묻기 화면으로 (D-LABEL-ROUTE-01)', async () => {
+    const world = labelWorld()
+    const seen: (readonly LabelFlowStep[])[] = []
+    const onBack = vi.fn()
+    render(world.wrap(<LabelFlow onBack={onBack} onDone={() => {}} steps={(stack) => seen.push(stack)} />))
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
+    const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
+    expect(seen.at(-1)).toEqual(['ask', 'connect'])
+    // 묻기 화면은 연결 화면 안에 함께 그려지지 않는다 (따로 쌓인 화면)
+    expect(screen.queryByText('라벨을 뽑을까요?')).toBeNull()
+    fireEvent.click(within(connect).getByRole('button', { name: '뒤로' }))
+    await screen.findByRole('button', { name: '뽑을게요' })
+    expect(seen.at(-1)).toEqual(['ask'])
+    expect(onBack).not.toHaveBeenCalled()
+    world.services.labels.stop()
+  })
+
+  it('경로: 묻기(/new-broadcast/labels) 위에 단계마다 /new-broadcast/label-step을 쌓는다 (D-LABEL-ROUTE-01)', () => {
+    const read = (path: string) => readFileSync(join(import.meta.dirname, '..', path), 'utf8')
+    expect(read('app/new-broadcast/labels.tsx')).toContain('<LabelSetupScreen step="ask"')
+    expect(read('app/new-broadcast/label-step.tsx')).toContain('<LabelSetupScreen step={step}')
+    const nav = read('src/lib/label-flow-nav.ts')
+    expect(nav).toContain("router.push({ pathname: '/new-broadcast/label-step', params: { id, step: next } })")
+    // 못 이으면 쌓인 라벨 화면을 모두 걷어 링크 화면으로
+    expect(nav).toContain('routerRef.current.dismiss(stacked + 1)')
+    expect(read('src/screens/LabelSetupScreen.tsx')).not.toContain('SlideSwitch id={step}')
+  })
+
   it('라벨 기능이 꺼져 있으면 [뽑을게요]가 켠다', async () => {
     const world = labelWorld(false)
-    render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={() => {}} />))
+    render(world.wrap(<LabelFlow onBack={() => {}} onDone={() => {}} />))
     await flush()
     fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
     await screen.findByRole('dialog', { name: '프린터 연결' })
@@ -161,7 +212,7 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
   /** 묻기 → 연결(바로 이어짐) → 꾸미기 화면까지 */
   async function openDesign() {
     const world = labelWorld()
-    render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={() => {}} />))
+    render(world.wrap(<LabelFlow onBack={() => {}} onDone={() => {}} />))
     await flush()
     fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
     const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
@@ -180,7 +231,7 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     const notSelected = { ok: false as const, error: { code: 'NOT_SELECTED' as const, message: '프린터를 고르지 않았어요.' } }
     vi.spyOn(world.ble, 'connect').mockResolvedValue(notSelected)
     vi.spyOn(world.ble, 'reconnect').mockResolvedValue(notSelected)
-    render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={() => {}} />))
+    render(world.wrap(<LabelFlow onBack={() => {}} onDone={() => {}} />))
     await flush()
     fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
     const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
@@ -223,7 +274,7 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
       await gate
       return realConnect(method)
     })
-    render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={() => {}} />))
+    render(world.wrap(<LabelFlow onBack={() => {}} onDone={() => {}} />))
     await flush()
     fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
     const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
