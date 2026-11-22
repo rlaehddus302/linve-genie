@@ -7,7 +7,7 @@
 // 2) "라벨 프린터를 연결해 주세요" — 전원·블루투스 그림(D-UX4-04). 들어오면 바로 찾기 시작: 기억한 프린터면 고르기 없이 다시 잇고,
 //    아니면 주변 프린터 목록을 이 화면에 바로 보인다(찾는 동안 계속 늘어나고, 아무것도 없으면 10초마다 다시 찾음).
 //    그림은 왼쪽 휴대폰(블루투스)·오른쪽 프린터(전원)가 이어지는 모습, [새로고침]은 없다(저절로 다시 찾음). 줄을 누르면 이 화면에서 그 줄에
-//    "연결하는 중…" → "연결됐어요"를 보이고, 이어진 뒤에야 아래 [다음] (D-UX4-10).
+//    "연결하는 중…" → 체크 ✓(글 없이, D-CHECK-02)를 보이고, 이어진 뒤에야 아래 [다음] (D-UX4-10). 라이브 관리에서 연 연결 화면은 [다음]도 없다(D-CHECK-02).
 // 3) 라벨 디자인 — 상단 미리보기에서 칸을 고르고 항목·문구·용지 탭에서 편집한다.
 //    골라진 칸은 끌어서 옮기고 오른쪽 아래 손잡이로 크기(글자 크기도 같이)를 바꾼다. 앱에는 라벨 그리기 코드가 없어(APP-01 AC3) 서버가 초안을 견본 값으로 그려 준다.
 // 4) 출력 기기를 정하고 방송으로 간다. 선택한 테스트 인쇄는 관리 화면에서 연다.
@@ -204,14 +204,15 @@ export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: ()
       </FormPage>
     )
   }
-  if (step === 'connect') return <ConnectStep onBack={() => (only === undefined ? go('ask', true) : onBack())} onNext={() => (only === undefined ? go('design') : onDone())} busy={busy} error={errorLine} {...(only === undefined ? { onLater: skipLabels } : {})} />
+  // 라이브 관리 > 프린터 연결(only)로 열면 이어져도 아래 단추가 없다 — 뒤로 ‹로 돌아간다 (D-CHECK-02, 사용자 지시 "다음 버튼이 왜 있어 걍 아무것도 없애")
+  if (step === 'connect') return <ConnectStep onBack={() => (only === undefined ? go('ask', true) : onBack())} busy={busy} error={errorLine} {...(only === undefined ? { onNext: () => go('design'), onLater: skipLabels } : {})} />
   if (step === 'design') return <DesignStep saveLabel={only === undefined ? '저장하고 다음' : '저장'} queue={snapshot.queue} profileId={snapshot.profileId} onBack={() => (only === undefined ? go('connect', true) : onBack())} onSaved={() => (only === undefined && !snapshot.mine ? go('device') : onDone())} />
   return <TestStep selectDevice={step === 'device'} busy={busy} run={run} onBack={() => (only === undefined ? go('design', true) : onBack())} onDone={onDone} error={errorLine} />
   }
 }
 
 /** 2) 프린터 연결과 확인 — 들어오면 바로 찾고, 찾은 프린터를 이 화면에 줄로 (D-UX4-04). 고른 줄에서 바로 연결 확인, 이어지면 [다음] (D-UX4-10) */
-function ConnectStep({ onBack, onNext, onLater, busy = false, error = null }: { readonly onBack: () => void; readonly onNext: () => void; readonly onLater?: () => void; readonly busy?: boolean; readonly error?: React.ReactNode }) {
+function ConnectStep({ onBack, onNext, onLater, busy = false, error = null }: { readonly onBack: () => void; readonly onNext?: () => void; readonly onLater?: () => void; readonly busy?: boolean; readonly error?: React.ReactNode }) {
   const { labels } = useServices()
   const { p } = useKit()
   const snapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
@@ -273,7 +274,7 @@ function ConnectStep({ onBack, onNext, onLater, busy = false, error = null }: { 
   const rows = found !== null && found.length > 0 ? found : picked !== null ? [picked] : kept !== null ? [kept] : []
   const stateOf = (entry: PickEntry) => (kept !== null && entry.device.id === kept.device.id ? 'done' : picked === null || picked.device.id !== entry.device.id ? null : linked ? 'done' : 'busy')
   return (
-    <FormPage title={CONNECT_TITLE} name="프린터 연결" onBack={onBack} testID="label-setup-connect" actions={linked ? <BigButton label="다음" onPress={onNext} /> : onLater !== undefined ? <BigButton kind="outline" label={CONNECT_LATER} disabled={busy} onPress={onLater} /> : null}>
+    <FormPage title={CONNECT_TITLE} name="프린터 연결" onBack={onBack} testID="label-setup-connect" actions={linked ? (onNext === undefined ? null : <BigButton label="다음" onPress={onNext} />) : onLater !== undefined ? <BigButton kind="outline" label={CONNECT_LATER} disabled={busy} onPress={onLater} /> : null}>
       <Txt step="bodyLarge" color="textSub">
         {CONNECT_BODY}
       </Txt>
@@ -293,11 +294,9 @@ function ConnectStep({ onBack, onNext, onLater, busy = false, error = null }: { 
               const state = stateOf(entry)
               const right =
                 state === 'done' ? (
-                  <View role="status" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
+                  // 글 없이 표준 체크만 (D-CHECK-02, 사용자 지시 "연결됐어요 문구 없애고 그냥 체크 표시만") — 읽어 주기에는 "연결됐어요"
+                  <View role="status" aria-label="연결됐어요">
                     <ChoiceCheck />
-                    <Txt weight="bold" color="primaryText">
-                      연결됐어요
-                    </Txt>
                   </View>
                 ) : state === 'busy' ? (
                   <View role="status" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
