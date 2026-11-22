@@ -179,16 +179,6 @@ export function Icon({ name, color, size = 24, filled = false, cut }: { readonly
   )
 }
 
-/** 됨 표시 ✓ — 앱 체크(포장 담기·후기 고르기 같은 토스식 둥근 표)와 같은 모양: 초록 동그라미 안 흰 ✓ (D-CHECK-01). 맨 ✓만 따로 쓰지 않는다 */
-export function CheckBadge({ size = 22 }: { readonly size?: number }) {
-  const { p } = useKit()
-  return (
-    <View aria-hidden style={{ width: size, height: size, borderRadius: size / 2, borderCurve: 'continuous', backgroundColor: p.primary, alignItems: 'center', justifyContent: 'center' }}>
-      <Icon name="check" color={p.onPrimary} size={Math.round(size * 0.62)} />
-    </View>
-  )
-}
-
 /** 뒤로 화살표 크기 — 모든 화면 머리·전체 화면 판이 같은 크기·색을 쓴다 (D-UX3-08) */
 /** 뒤로 화살표 크기 — 토스 사진을 재어 33(선 두께는 2 그대로, D-UX3-51 — 옛 26) */
 export const BACK_ICON = 33

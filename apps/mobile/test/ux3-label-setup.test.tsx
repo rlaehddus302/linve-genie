@@ -254,6 +254,8 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     expect(within(again).getByText('B1-1234')).toBeTruthy()
     expect(within(again).getByText('NIIMBOT')).toBeTruthy()
     expect(within(again).getByText('연결됐어요')).toBeTruthy()
+    // ✓는 앱 표준 체크(아래 고르기 창의 ChoiceCheck)
+    expect(within(again).getByTestId('choice-check')).toBeTruthy()
     expect(within(again).queryByText('B1-5678')).toBeNull()
     world.services.labels.stop()
   })

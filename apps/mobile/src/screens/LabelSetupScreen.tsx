@@ -24,7 +24,7 @@ import { cancelPrinterPick, lastPickedEntry, pickPrinter, useInlinePrinterPick }
 import { sizeWordMm, testHelp } from '../lib/test-help.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { BigButton, BottomCTA, BottomSheet, FormPage, HeaderTextButton, LineTab, LineTabs, NavBar, SheetChoices, usePageTop, useWhiteTop, CheckBadge, Icon, ListRow, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { BigButton, BottomCTA, BottomSheet, FormPage, HeaderTextButton, LineTab, LineTabs, NavBar, SheetChoices, usePageTop, useWhiteTop, ChoiceCheck, Icon, ListRow, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { SlideSwitch } from '../ui/kit/slide.tsx'
 import { LabelPrintArt, PrinterConnectArt } from '../ui/LabelArt.tsx'
@@ -294,7 +294,7 @@ function ConnectStep({ onBack, onNext, onLater, busy = false, error = null }: { 
               const right =
                 state === 'done' ? (
                   <View role="status" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
-                    <CheckBadge />
+                    <ChoiceCheck />
                     <Txt weight="bold" color="primaryText">
                       연결됐어요
                     </Txt>
