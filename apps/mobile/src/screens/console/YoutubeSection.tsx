@@ -457,6 +457,10 @@ export const RECENT_CHANNELS_TITLE = '최근 연결한 채널'
 /** 지금 라이브·예정이 없는 채널 줄의 회색 글 (D-UX4-187) */
 /** 최근 채널에 지금 라이브가 없을 때 (D-RECENT-YT-02, 사용자 "문구도 지금 라이브 중이 아니에요로 바꾸고" — 옛 "지금 라이브가 없어요") */
 export const NO_LIVE_NOW = '지금 라이브 중이 아니에요'
+/** 최근 채널이 지금 라이브 중일 때의 회색 글 (D-RECENT-LIVE-01, 사용자 "그 아래 애매한 빈 줄은 뭐니? 차라리 지금 유튜브에서 라이브 중이에요 이렇게 넣어" — 옛: 글 없음) */
+export const LIVE_NOW_YOUTUBE = '지금 유튜브에서 라이브 중이에요'
+/** 틱톡이 라이브 중이라고 한 계정 줄의 회색 글 (D-RECENT-LIVE-01 — 유튜브 줄과 같게, 옛: "틱톡") */
+export const LIVE_NOW_TIKTOK = '지금 틱톡에서 라이브 중이에요'
 /** 최근 라이브 줄의 플랫폼 그림 크기 (토스 계좌 줄의 은행 그림처럼 두 줄 높이) */
 const RECENT_ICON = 40
 /** 최근 연결한 채널 줄 수 — 유튜브 채널과 틱톡 계정을 합쳐서 (D-UX4-187 5곳, D-RECENT-TT-01) */
@@ -860,7 +864,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
                 const elsewhere = account.linkedBroadcast !== null && !here
                 // 틱톡이 라이브 아님이라고 할 때만 [연결]을 걷는다 — 모르면(null·옛 서버) 지금처럼 [연결] (D-RECENT-TT-02)
                 const notLive = account.live === false && !here
-                const tiktokSub = here ? `${RECENT_TIKTOK_SUB} · 이 라이브에 연결돼 있어요` : notLive ? NO_LIVE_NOW : elsewhere ? `${RECENT_TIKTOK_SUB} · 다른 라이브에 연결돼 있어요` : RECENT_TIKTOK_SUB
+                const tiktokSub = here ? `${RECENT_TIKTOK_SUB} · 이 라이브에 연결돼 있어요` : notLive ? NO_LIVE_NOW : elsewhere ? `${RECENT_TIKTOK_SUB} · 다른 라이브에 연결돼 있어요` : account.live === true ? LIVE_NOW_TIKTOK : RECENT_TIKTOK_SUB
                 return (
                   <View key={`tiktok-${account.tiktokId}`} testID="recent-live" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
                     <TiktokPhoto broadcastId={account.photoBroadcast} size={RECENT_ICON} />
@@ -895,7 +899,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
               // 내 채널 목록(구글 연결로 읽는 서버)에는 채널 이름이 없다 — 그때는 라이브 제목 ("(이름 없음)"을 보이지 않게)
               const name = webChat === null ? title : channelName(item.channelTitle)
               const live = item.status === 'LIVE'
-              const sub = other ? '다른 라이브에 연결돼 있어요' : live ? null : '예정'
+              // 라이브 중이면 빈 줄 대신 "지금 유튜브에서 라이브 중이에요" (D-RECENT-LIVE-01)
+              const sub = other ? '다른 라이브에 연결돼 있어요' : live ? LIVE_NOW_YOUTUBE : '예정'
               return (
                 <View key={item.videoId} testID="recent-live" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
                   <ChannelPhoto channelId={item.channelId ?? null} size={RECENT_ICON} live={live} testID="recent-live-avatar" />

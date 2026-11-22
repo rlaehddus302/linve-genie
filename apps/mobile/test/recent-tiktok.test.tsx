@@ -4,7 +4,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { BroadcastLinkScreen } from '../src/screens/BroadcastLinkScreen.tsx'
-import { NO_LIVE_NOW, RECENT_CHANNELS_TITLE, RECENT_TIKTOK_SUB, TIKTOK_MOVE_QUESTION, mergeRecent, tiktokLiveUrl } from '../src/screens/console/YoutubeSection.tsx'
+import { LIVE_NOW_TIKTOK, NO_LIVE_NOW, RECENT_CHANNELS_TITLE, RECENT_TIKTOK_SUB, TIKTOK_MOVE_QUESTION, mergeRecent, tiktokLiveUrl } from '../src/screens/console/YoutubeSection.tsx'
 import { makeWorld } from './screen-support.tsx'
 
 const CONNECTION = { connection: { status: 'NOT_CONNECTED', channel: null, permissions: { read: false, publish: false }, consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } } }, webChat: { on: true }, oauth: true }
@@ -83,8 +83,10 @@ describe('최근 연결한 채널에 틱톡 계정 (D-RECENT-TT-01)', () => {
     expect(within(rows[0]!).getByTestId('recent-live-sub').textContent).toBe(NO_LIVE_NOW)
     expect(within(rows[0]!).queryByRole('button')).toBeNull()
     expect(within(rows[1]!).getByRole('button', { name: '한별 농원 연결' })).toBeTruthy()
-    expect(within(rows[1]!).getByTestId('recent-live-sub').textContent).toBe(RECENT_TIKTOK_SUB)
+    // 틱톡이 라이브 중이라고 하면 "지금 틱톡에서 라이브 중이에요" (D-RECENT-LIVE-01, 옛: "틱톡") — 모르면 그대로 "틱톡"
+    expect(within(rows[1]!).getByTestId('recent-live-sub').textContent).toBe(LIVE_NOW_TIKTOK)
     expect(within(rows[2]!).getByRole('button', { name: '@shop.three 연결' })).toBeTruthy()
+    expect(within(rows[2]!).getByTestId('recent-live-sub').textContent).toBe(RECENT_TIKTOK_SUB)
     // 이 라이브에 이어진 계정은 라이브 아님이어도 "이 라이브에 연결돼 있어요" 그대로 (꺼진 [연결])
     expect(within(rows[3]!).getByTestId('recent-live-sub').textContent).toBe('틱톡 · 이 라이브에 연결돼 있어요')
     await waitFor(() => expect(within(rows[0]!).getByTestId('recent-live-avatar').innerHTML).toContain(PHOTO))

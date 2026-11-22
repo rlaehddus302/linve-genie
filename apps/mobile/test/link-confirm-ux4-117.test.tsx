@@ -6,7 +6,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BroadcastLinkScreen } from '../src/screens/BroadcastLinkScreen.tsx'
-import { LINK_CONFIRM_ACTION, LINK_CONFIRM_TITLE, LINK_NEXT } from '../src/screens/console/YoutubeSection.tsx'
+import { LINK_CONFIRM_ACTION, LIVE_NOW_YOUTUBE, LINK_CONFIRM_TITLE, LINK_NEXT } from '../src/screens/console/YoutubeSection.tsx'
 import { setClipboardProbe, setClipboardReader } from '../src/lib/clipboard.ts'
 import { makeWorld } from './screen-support.tsx'
 
@@ -161,6 +161,17 @@ describe('링크 화면 → 연결 확인 화면 (D-UX4-117)', () => {
     expect(within(rows[0] as HTMLElement).getByTestId('recent-live-sub').textContent).toBe('예정')
     expect(within(rows[1] as HTMLElement).getByTestId('recent-live-sub').textContent).toBe('다른 라이브에 연결돼 있어요')
     expect(within(rows[1] as HTMLElement).getByRole('button', { name: '가게B 연결' }).getAttribute('aria-disabled')).not.toBe('true')
+  })
+
+  // D-RECENT-LIVE-01 (사용자 "그 아래 애매한 빈 줄은 뭐니? 차라리 지금 유튜브에서 라이브 중이에요 이렇게 넣어")
+  it('지금 라이브 중인 줄은 빈 줄 대신 "지금 유튜브에서 라이브 중이에요"', async () => {
+    const w = world({
+      recent: [{ videoId: 'LIVE0000001', title: '지금 라이브', status: 'LIVE', scheduledStartTime: null, actualStartTime: null, linkedBroadcast: null, channelId: 'UC_A', channelTitle: '가게A' }],
+    })
+    render(w.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => {}} />))
+    const rows = await screen.findAllByTestId('recent-live')
+    expect(within(rows[0] as HTMLElement).getByTestId('recent-live-sub').textContent).toBe(LIVE_NOW_YOUTUBE)
+    expect(LIVE_NOW_YOUTUBE).toBe('지금 유튜브에서 라이브 중이에요')
   })
 })
 
