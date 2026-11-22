@@ -284,13 +284,13 @@ describe('진짜 쌓인 화면 (D-UX4-57)', () => {
     })
     const page = await screen.findByRole('main', { name: '라이브 관리' })
     // 옛 기대: '방송 끝내기' 줄. 새 기대(D-UX4-79): 방송 연결 안 "방송 연결 끊기"로 옮겼다
-    // 채팅 보기도 없앴다 (D-UX4-84) — 이 화면 위에 뜨는 아래 창은 "화면 아래 창"으로 본다
+    // 채팅 보기도 없앴다 (D-UX4-84) — 이 화면 위에 뜨는 아래 창은 "도우미 창"(D-MANAGE-01 — 옛 "화면 아래 창")으로 본다
     // 음성 설정 줄을 없앴다 (D-UX4-94)
-    for (const row of ['화면 아래 창', '라이브 연결']) expect(within(page).getByRole('button', { name: row })).toBeTruthy()
+    for (const row of ['도우미 창', '라이브 연결']) expect(within(page).getByRole('button', { name: row })).toBeTruthy()
     expect(within(page).queryByRole('button', { name: '음성 설정' })).toBeNull()
     expect(within(page).queryByRole('button', { name: '채팅 보기' })).toBeNull()
     fireEvent.click(within(page).getByTestId('dock-choice'))
-    expect(await screen.findByRole('dialog', { name: '화면 아래 창' })).toBeTruthy()
+    expect(await screen.findByRole('dialog', { name: '도우미 창' })).toBeTruthy()
   })
 })
 

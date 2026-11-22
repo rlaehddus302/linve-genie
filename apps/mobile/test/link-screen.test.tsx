@@ -71,8 +71,9 @@ describe('라이브 연결 정보 (D-UX4-95)', () => {
     const order = ['link-info-platform', 'link-info-channel', 'link-info-title'].map((id) => screen.getByTestId(id))
     expect(before(order[0]!, order[1]!)).toBe(true)
     expect(before(order[1]!, order[2]!)).toBe(true)
-    // 옛 이름 "라이브로 바로가기" → "라이브 바로가기"
-    expect(LINK_INFO_ROWS.open).toBe('라이브 바로가기')
+    // 옛 이름 "라이브로 바로가기" → "라이브 바로가기" → "바로가기"(D-MANAGE-01, 2026-11-23), "라이브 제목" → "제목"
+    expect(LINK_INFO_ROWS.open).toBe('바로가기')
+    expect(LINK_INFO_ROWS.title).toBe('제목')
     // 정보 줄은 누를 수 없다(› 없음), 메뉴는 바로가기 · 연결 끊기 둘
     expect(within(platform).queryByRole('button')).toBeNull()
     expect(within(page).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['뒤로', LINK_INFO_ROWS.open, END_LINK_LABEL])

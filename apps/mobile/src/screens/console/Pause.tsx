@@ -10,11 +10,12 @@ import { useConsoleApi } from './context.ts'
 import { PLAIN } from './parts.tsx'
 
 /** 스위치 이름 */
-export const PAUSE_TITLE = '채팅·상품 인식 잠깐 멈춤'
-export const PAUSE_HELP_TITLE = '잠깐 멈춤이란?'
+// D-MANAGE-01 (사용자 지시 2026-11-23 "채팅 상품 인식 잠깐 멈춤 -> 채팅·음성 인식 잠깐 멈추기")
+export const PAUSE_TITLE = '채팅·음성 인식 잠깐 멈추기'
+export const PAUSE_HELP_TITLE = '잠깐 멈추기란?'
 export const PAUSE_HELP_BODY = '이벤트처럼 채팅을 따로 받을 때 켜 두세요.\n켜 둔 동안 채팅 번호로 찜·취소가 들어가지 않고, 화면·소리로 상품이 등록되거나 바뀌지 않아요.\n휴대폰으로 받은 문자찜은 확인 필요로 남아요.\n직접 넣는 상품·찜은 그대로 돼요.'
 /** 멈춘 동안 라이브 화면에 보이는 줄 */
-export const PAUSED_LINE = '채팅·상품 인식을 잠깐 멈췄어요. 지금은 채팅 찜과 자동 상품 등록이 들어오지 않아요.'
+export const PAUSED_LINE = '채팅·음성 인식을 잠깐 멈췄어요. 지금은 채팅 찜과 자동 상품 등록이 들어오지 않아요.'
 export const RESUME_LABEL = '다시 받기'
 const FAILED = '바꾸지 못했어요. 다시 눌러 주세요.'
 

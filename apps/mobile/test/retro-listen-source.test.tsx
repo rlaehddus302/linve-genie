@@ -1,6 +1,7 @@
 // 소리 듣기 고르기 (D-RETRO-70~72, 사용자 지시 2026-11-13 "휴대폰 마이크로 들을지 라이브 소리로 바로 할지 설정하게 해 달라"):
 // 라이브 관리의 "소리 듣기" 줄 → 고르는 판([휴대폰 마이크] · [라이브 소리]), 고른 값은 서버에(PUT /api/settings/listen-source),
 // 방송 화면 음성 창의 작은 표시(누르면 같은 판), 고른 대로 이 휴대폰 마이크가 따른다. 아이폰·갤럭시 같은 코드(플랫폼 분기 없음).
+// D-LISTEN-MIC-01 (2026-11-23): 고르기를 없앴다 — 서버는 늘 'mic'. 관리 줄·판의 고르기 시험은 바뀐 기대로(아래 describe 주석).
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -200,8 +201,9 @@ async function openManage(): Promise<HTMLElement> {
   return screen.findByRole('dialog', { name: '라이브 관리' })
 }
 
-async function openSheet(page: HTMLElement): Promise<HTMLElement> {
-  fireEvent.click(within(page).getByTestId('listen-source'))
+/** 음성 창 오른쪽 끝 표시를 눌러 판을 연다 (라이브 관리 "소리 듣기" 줄은 없앴다 — D-LISTEN-MIC-01) */
+async function openSheet(): Promise<HTMLElement> {
+  fireEvent.click(within(screen.getByRole('region', { name: '음성 인식 창' })).getByTestId('listen-source-chip'))
   return screen.findByRole('dialog', { name: LISTEN_SOURCE_TITLE })
 }
 
@@ -219,75 +221,43 @@ const rowOf = (button: HTMLElement): HTMLElement => button.parentElement!.parent
 const micStarts = (world: ScreenWorld): number => world.audio.starts.filter((start) => start.capture !== false).length
 const nowLine = (sheet: HTMLElement): string => within(sheet).getByRole('status', { name: '지금 듣는 곳' }).textContent ?? ''
 
-describe('라이브 관리 — "소리 듣기" 줄과 고르는 판 (D-RETRO-70)', () => {
-  it('"채팅·화면 설정" 묶음에 "소리 듣기" 줄 — 고른 것을 오른쪽에. 누르면 판: 지금 듣는 곳 · [휴대폰 마이크] · [라이브 소리]와 줄마다 설명', async () => {
-    await openConsole({ ...BOTH, source: 'stream' })
+// D-LISTEN-MIC-01 (사용자 지시 2026-11-23 "소리 듣기 없애. 그냥 무조건 폰 마이크로 듣는 걸로")으로 바뀐 기대:
+// 라이브 관리의 "소리 듣기" 줄과 판의 [휴대폰 마이크]·[라이브 소리] 고르기를 없앴다. 음성 창 표시를 누르면 여는 판은 지금 상태와 필요한 단추만.
+// 옛 시험 "[라이브 소리]를 고르면 …"·"라이브 소리 듣기가 꺼져 있을 때 [라이브 소리]를 고르면 …"·"서버가 받아 주지 않으면 …"은 고르기가 없어져 뺐다.
+describe('음성 인식 판 — 고르기 없이 휴대폰 마이크 (D-LISTEN-MIC-01)', () => {
+  it('라이브 관리에 "소리 듣기" 줄이 없다', async () => {
+    await openConsole(BOTH)
     const page = await openManage()
-    const row = within(within(page).getByRole('group', { name: '채팅·화면 설정' })).getByTestId('listen-source')
-    expect(row.getAttribute('aria-label')).toBe('소리 듣기')
-    expect(within(row).getByText('라이브 소리')).toBeTruthy()
-    // 고른 쪽으로 듣고 있으면 줄 아래 덧붙이는 말이 없다
-    expect(within(page).queryByTestId('listen-source-note')).toBeNull()
-
-    const sheet = await openSheet(page)
-    expect(sheet.textContent).toContain('라이브에서 하는 말을 어디서 들을지 골라요.')
-    expect(sheet.textContent).toContain('라이브 중에 바꿔도 바로 바뀌어요.')
-    expect(nowLine(sheet)).toContain('라이브 소리로 듣고 있어요')
-    const choices = within(sheet).getAllByRole('radio')
-    expect(choices.map((choice) => choice.getAttribute('aria-label'))).toEqual(['휴대폰 마이크', '라이브 소리'])
-    expect(choices.map((choice) => choice.getAttribute('aria-checked'))).toEqual(['false', 'true'])
-    expect(choices[0]?.textContent).toContain('이 휴대폰 마이크로 바로 들어요. 라이브 소리보다 빨리 글로 바뀌어요. 마이크가 꺼지면 라이브 소리로 들어요.')
-    expect(choices[1]?.textContent).toContain('라이브로 나간 소리를 서버가 들어요. 앱을 닫아도 들어요. 라이브가 늦게 나가는 만큼 늦어요.')
-    // 라이브 소리로 잘 듣는 중에는 단추가 없다
-    expect(within(sheet).queryByTestId('sheet-actions')).toBeNull()
+    expect(within(page).queryByTestId('listen-source')).toBeNull()
+    expect(page.textContent).not.toContain('소리 듣기')
   })
 
-  it('휴대폰 마이크를 골랐는데 마이크가 꺼져 있으면: 줄 아래와 판에 "마이크가 꺼져 있어 라이브 소리로 듣고 있어요", 판에 [휴대폰 마이크 켜기]', async () => {
+  it('판: 제목·설명 · 지금 듣는 곳 · 고르기 없음. 마이크가 꺼져 있으면 [휴대폰 마이크 켜기]', async () => {
     const { world } = await openConsole(BOTH)
     expect(world.services.voice.getView().on).toBe(false)
-    const page = await openManage()
-    expect(within(within(page).getByTestId('listen-source')).getByText('휴대폰 마이크')).toBeTruthy()
-    expect(within(page).getByTestId('listen-source-note').textContent).toBe('마이크가 꺼져 있어 라이브 소리로 듣고 있어요')
-    const sheet = await openSheet(page)
+    const sheet = await openSheet()
+    expect(LISTEN_SOURCE_TITLE).toBe('음성 인식')
+    expect(sheet.textContent).toContain('라이브에서 하는 말을 휴대폰 마이크로 들어요.')
     expect(nowLine(sheet)).toContain('마이크가 꺼져 있어 라이브 소리로 듣고 있어요')
+    expect(within(sheet).queryAllByRole('radio')).toHaveLength(0)
     expect(within(within(sheet).getByTestId('sheet-actions')).getAllByRole('button').map((button) => button.textContent)).toEqual(['휴대폰 마이크 켜기'])
   })
 
   it('마이크 권한이 없으면 "마이크 권한이 없어 …"라고 말한다', async () => {
     const { world } = await openConsole(BOTH)
     Object.assign(world.audio, { canResume: async () => false })
-    const sheet = await openSheet(await openManage())
+    const sheet = await openSheet()
     await waitFor(() => expect(nowLine(sheet)).toContain('마이크 권한이 없어 라이브 소리로 듣고 있어요'))
   })
 
-  it('[라이브 소리]를 고르면 서버에 남기고, 켜져 있던 이 휴대폰 마이크를 바로 끈다', async () => {
-    const { world, remote } = await openConsole(BOTH, 'mic')
-    await micOn(world)
-    const page = await openManage()
-    const sheet = await openSheet(page)
-    expect(nowLine(sheet)).toContain('휴대폰 마이크로 듣고 있어요')
-    const stops = world.audio.stops
-    await act(async () => { fireEvent.click(within(sheet).getByRole('radio', { name: '라이브 소리' })); await flush() })
-    expect(remote.puts).toEqual([{ source: 'stream' }])
-    await waitFor(() => expect(world.services.voice.getView().on).toBe(false))
-    expect(world.audio.stops).toBeGreaterThan(stops)
-    expect(world.server.callsTo('POST', /stream-audio\/restart$/)).toHaveLength(0)
-    await waitFor(() => expect(within(sheet).getByRole('radio', { name: '라이브 소리' }).getAttribute('aria-checked')).toBe('true'))
-    expect(within(within(page).getByTestId('listen-source')).getByText('라이브 소리')).toBeTruthy()
-    // 판은 닫지 않는다 — 바뀐 상태를 그 자리에서 본다
-    expect(screen.getByRole('dialog', { name: LISTEN_SOURCE_TITLE })).toBeTruthy()
-  })
-
-  it('[휴대폰 마이크]를 고르면 서버에 남기고, 처음이면 판 안에서 안내 — 왼쪽 [안 켤래요] · 오른쪽 [알겠어요, 켤게요] 한 줄 — 예를 누르면 마이크를 켠다', async () => {
-    const { world, remote } = await openConsole({ ...BOTH, source: 'stream' })
-    const sheet = await openSheet(await openManage())
+  it('[휴대폰 마이크 켜기]: 처음이면 판 안에서 안내 — 왼쪽 [안 켤래요] · 오른쪽 [알겠어요, 켤게요] 한 줄 — 예를 누르면 마이크를 켠다', async () => {
+    const { world } = await openConsole(BOTH)
+    const sheet = await openSheet()
     const before = micStarts(world)
-    await act(async () => { fireEvent.click(within(sheet).getByRole('radio', { name: '휴대폰 마이크' })); await flush() })
-    expect(remote.puts).toEqual([{ source: 'mic' }])
+    await act(async () => { fireEvent.click(within(within(sheet).getByTestId('sheet-actions')).getByRole('button', { name: '휴대폰 마이크 켜기' })); await flush() })
     const guide = await within(sheet).findByRole('group', { name: '음성 안내' })
     for (const line of VOICE_CONSENT_LINES) expect(guide.textContent).toContain(line)
-    const actions = within(sheet).getByTestId('sheet-actions')
-    const buttons = within(actions).getAllByRole('button')
+    const buttons = within(within(sheet).getByTestId('sheet-actions')).getAllByRole('button')
     expect(buttons.map((button) => button.textContent)).toEqual(['안 켤래요', '알겠어요, 켤게요'])
     // 단추 둘은 위아래가 아니라 좌우 한 줄 (절대 규칙 8)
     expect(getComputedStyle(rowOf(buttons[0]!)).flexDirection).toBe('row')
@@ -296,14 +266,13 @@ describe('라이브 관리 — "소리 듣기" 줄과 고르는 판 (D-RETRO-70)
     await act(async () => { fireEvent.click(buttons[1]!); await flush() })
     await waitFor(() => expect(micStarts(world)).toBe(before + 1))
     await waitFor(() => expect(nowLine(sheet)).toContain('휴대폰 마이크로 듣고 있어요'))
-    expect(within(sheet).getByRole('radio', { name: '휴대폰 마이크' }).getAttribute('aria-checked')).toBe('true')
   })
 
-  it('안내에 [안 켤래요]면 마이크를 켜지 않고, 고른 값은 휴대폰 마이크로 남아 "마이크가 꺼져 있어 …"와 [휴대폰 마이크 켜기]를 보인다', async () => {
-    const { world } = await openConsole({ ...BOTH, source: 'stream' })
-    const sheet = await openSheet(await openManage())
+  it('안내에 [안 켤래요]면 마이크를 켜지 않고 "마이크가 꺼져 있어 …"와 [휴대폰 마이크 켜기]를 보인다', async () => {
+    const { world } = await openConsole(BOTH)
+    const sheet = await openSheet()
     const before = micStarts(world)
-    await act(async () => { fireEvent.click(within(sheet).getByRole('radio', { name: '휴대폰 마이크' })); await flush() })
+    await act(async () => { fireEvent.click(within(within(sheet).getByTestId('sheet-actions')).getByRole('button', { name: '휴대폰 마이크 켜기' })); await flush() })
     await act(async () => { fireEvent.click(within(await within(sheet).findByTestId('sheet-actions')).getByRole('button', { name: '안 켤래요' })); await flush() })
     expect(micStarts(world)).toBe(before)
     expect(world.services.streamKeep.listen.get()?.source).toBe('mic')
@@ -311,33 +280,10 @@ describe('라이브 관리 — "소리 듣기" 줄과 고르는 판 (D-RETRO-70)
     expect(within(within(sheet).getByTestId('sheet-actions')).getByRole('button', { name: '휴대폰 마이크 켜기' })).toBeTruthy()
   })
 
-  it('라이브 소리 듣기가 꺼져 있을 때 [라이브 소리]를 고르면 기다리지 않고 바로 듣게 알린다 (D-RETRO-71), 켜져 있었으면 따로 알리지 않는다', async () => {
-    const RESTART = /^\/api\/broadcasts\/b1\/stream-audio\/restart$/
-    const off = await openConsole({ ...BOTH, streamEnabled: false }, 'off')
-    off.world.server.on('POST', RESTART, () => ({ body: { phase: 'idle' } }))
-    const sheet = await openSheet(await openManage())
-    expect(nowLine(sheet)).toContain('마이크가 꺼져 있어요. 라이브 소리 듣기가 꺼져 있어요. 지금은 듣지 않아요')
-    // 넘어갈 라이브 소리가 없으니 "마이크가 꺼지면 라이브 소리로 들어요"를 말하지 않는다
-    expect(within(sheet).getByRole('radio', { name: '휴대폰 마이크' }).textContent).not.toContain('마이크가 꺼지면')
-    await act(async () => { fireEvent.click(within(sheet).getByRole('radio', { name: '라이브 소리' })); await flush() })
-    expect(off.remote.puts).toEqual([{ source: 'stream' }])
-    await waitFor(() => expect(off.world.server.callsTo('POST', RESTART)).toHaveLength(1))
-    expect(off.world.services.streamKeep.listen.get()).toEqual({ source: 'stream', streamAvailable: true, streamEnabled: true })
-  })
-
-  it('서버가 받아 주지 않으면 그 문장을 빨간 줄로 보이고 고른 값은 그대로다', async () => {
-    const { remote } = await openConsole(BOTH)
-    remote.refuse = { status: 409, message: '지금은 라이브 소리로 들을 수 없어요. 휴대폰 마이크를 골라 주세요.' }
-    const sheet = await openSheet(await openManage())
-    await act(async () => { fireEvent.click(within(sheet).getByRole('radio', { name: '라이브 소리' })); await flush() })
-    expect((await within(sheet).findByRole('alert')).textContent).toContain('지금은 라이브 소리로 들을 수 없어요. 휴대폰 마이크를 골라 주세요.')
-    expect(within(sheet).getByRole('radio', { name: '휴대폰 마이크' }).getAttribute('aria-checked')).toBe('true')
-  })
-
   it('라이브 소리 듣기가 멈췄고 마이크도 꺼져 있으면 단추 둘을 좌우 한 줄로 — [라이브 소리 다시 켜기] · [휴대폰 마이크 켜기]', async () => {
     const { world } = await openConsole(BOTH, 'stopped')
     world.server.on('POST', /^\/api\/broadcasts\/b1\/stream-audio\/restart$/, () => ({ body: { phase: 'idle' } }))
-    const sheet = await openSheet(await openManage())
+    const sheet = await openSheet()
     expect(nowLine(sheet)).toContain('마이크가 꺼져 있어 라이브 소리 듣기가 멈췄어요')
     const buttons = within(within(sheet).getByTestId('sheet-actions')).getAllByRole('button')
     expect(buttons.map((button) => button.textContent)).toEqual(['라이브 소리 다시 켜기', '휴대폰 마이크 켜기'])
@@ -347,10 +293,10 @@ describe('라이브 관리 — "소리 듣기" 줄과 고르는 판 (D-RETRO-70)
     await waitFor(() => expect(world.server.callsTo('POST', /stream-audio\/restart$/)).toHaveLength(1))
   })
 
-  it('라이브 소리가 30초 넘게 늦으면 판에 늦음 한 줄', async () => {
-    const { stream } = await openConsole({ ...BOTH, source: 'stream' })
+  it('마이크가 꺼진 동안 대신 듣는 라이브 소리가 30초 넘게 늦으면 판에 늦음 한 줄', async () => {
+    const { stream } = await openConsole(BOTH)
     stream.lagMs = 45_000
-    const sheet = await openSheet(await openManage())
+    const sheet = await openSheet()
     await waitFor(() => expect(sheet.textContent).toContain(STREAM_AUDIO_LATE), { timeout: 3_000 })
   })
 })
@@ -361,7 +307,7 @@ describe('방송 화면 음성 창의 표시 (D-RETRO-72)', () => {
     const dock = screen.getByRole('region', { name: '음성 인식 창' })
     const chip = within(dock).getByTestId('listen-source-chip')
     expect(chip.textContent).toBe('라이브 ›')
-    expect(chip.getAttribute('aria-label')).toBe('소리 듣기 바꾸기 · 마이크가 꺼져 있어 라이브 소리로 듣고 있어요')
+    expect(chip.getAttribute('aria-label')).toBe('음성 인식 · 마이크가 꺼져 있어 라이브 소리로 듣고 있어요')
     // 누르는 칸 안에 누르는 칸을 넣지 않았다
     const expand = within(dock).getByRole('button', { name: '음성 인식 펼치기' })
     expect(expand.contains(chip)).toBe(false)
@@ -369,13 +315,14 @@ describe('방송 화면 음성 창의 표시 (D-RETRO-72)', () => {
     const sheet = await screen.findByRole('dialog', { name: LISTEN_SOURCE_TITLE })
     expect(within(dock).getByRole('button', { name: '음성 인식 펼치기' })).toBeTruthy()
     expect(nowLine(sheet)).toContain('마이크가 꺼져 있어 라이브 소리로 듣고 있어요')
-    expect(within(sheet).getAllByRole('radio')).toHaveLength(2)
+    // 고르기는 없앴다 (D-LISTEN-MIC-01)
+    expect(within(sheet).queryAllByRole('radio')).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: '판 닫기' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: LISTEN_SOURCE_TITLE })).toBeNull())
 
     await micOn(world)
     await waitFor(() => expect(within(dock).getByTestId('listen-source-chip').textContent).toBe('마이크 ›'))
-    expect(within(dock).getByTestId('listen-source-chip').getAttribute('aria-label')).toBe('소리 듣기 바꾸기 · 휴대폰 마이크로 듣고 있어요')
+    expect(within(dock).getByTestId('listen-source-chip').getAttribute('aria-label')).toBe('음성 인식 · 휴대폰 마이크로 듣고 있어요')
   })
 
   it('서버가 소리 듣기 설정을 모르면(옛 서버) 고른 값 없이 실제로 듣는 쪽만 표시하고, 음성 창의 펼치기는 예전 그대로다', async () => {
@@ -391,7 +338,7 @@ describe('방송 화면 음성 창의 표시 (D-RETRO-72)', () => {
     const dock = screen.getByRole('region', { name: '음성 인식 창' })
     expect(world.services.streamKeep.listen.get()).toBeNull()
     // 고른 값을 몰라도 서버가 라이브 소리로 듣는 중인 것은 안다 — 까닭("마이크가 꺼져 있어")은 붙이지 않는다
-    await waitFor(() => expect(within(dock).getByTestId('listen-source-chip').getAttribute('aria-label')).toBe('소리 듣기 바꾸기 · 라이브 소리로 듣고 있어요'))
+    await waitFor(() => expect(within(dock).getByTestId('listen-source-chip').getAttribute('aria-label')).toBe('음성 인식 · 라이브 소리로 듣고 있어요'))
     expect(within(dock).getByTestId('listen-source-chip').textContent).toBe('라이브 ›')
     fireEvent.click(within(dock).getByRole('button', { name: '음성 인식 펼치기' }))
     expect(await within(dock).findByRole('button', { name: '음성 인식 접기' })).toBeTruthy()

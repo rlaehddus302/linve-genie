@@ -3,7 +3,10 @@
 // 여기서 여는 아래 창(화면 아래 창)도 이 안에 있다.
 // D-UX4-130 (사용자 지시 2026-11-12 "상품 미리 등록 기능 제거해. 라이브 연결 안에 있는 것들 모두 바깥에 있는 라이브 관리 화면으로 꺼내(뎁스 줄이는 의도)
 // 라벨 프린트 화면도 마찬가지로 밖으로 빼"): 이은 라이브 정보(플랫폼·채널·라이브 제목)·라이브 바로가기·채팅 다시 받기·라이브 연결 끊기와
-// 라벨 줄(라벨 출력·프린터 연결·라벨 디자인·테스트 인쇄·출력 상태·농도)을 이 화면에 바로 둔다. 아직 잇지 않았으면 "라이브 연결 ›"(잇는 화면)만 남는다.
+// 라벨 줄(라벨 출력·프린터 연결·라벨 디자인·테스트 인쇄)을 이 화면에 바로 둔다. 아직 잇지 않았으면 "라이브 연결 ›"(잇는 화면)만 남는다.
+// D-MANAGE-01 (사용자 지시 2026-11-23): 묶음 "라이브 정보"(제목·바로가기, 바로가기 아래 "연결 끊기" — 옛 "방송 종료" 묶음은 없앰) · "채팅·음성"
+// (채팅·음성 인식 잠깐 멈추기 · 닉네임 뒤 영문 숨기기(? 설명) · 찜 감사 채팅 · 찜 감사 채팅 양식 › · 도우미 창 ›) · "라벨·프린터".
+// 없앤 줄: 올라간 감사 채팅(상품·찜을 고치면 저절로 고친다 — D-RETRO-105) · 소리 듣기(늘 휴대폰 마이크 — D-LISTEN-MIC-01) · 직접 인쇄·출력 내역(라이브 화면 라벨 탭에 있다) · 출력 상태·농도.
 import { useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import { useServices } from '../../services.tsx'
@@ -12,16 +15,19 @@ import { DOCK_CHOICES, DOCK_DESCRIPTION, DOCK_TITLE, dockLabel, setDockChoice, u
 import { BottomSheet, SheetChoices, ToggleRow, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
+import { THANKS_TEMPLATE_TITLE, thanksTemplateLabel } from '../../lib/thanks-template.ts'
 import { LABEL_PRINT_TITLE, LabelPrintRows, type LabelPrintNav } from '../LabelPrintScreen.tsx'
+import { useThanksTemplate } from '../ThanksTemplateScreen.tsx'
 import { useConsoleApi } from './context.ts'
 import { EndBroadcastRow } from './EndBroadcast.tsx'
 import { LinkInfo, hasLinkedLive } from './LinkInfo.tsx'
-import { ListenSourceRow, ListenSourceSheet } from './ListenSource.tsx'
 import { MenuGroup, PLAIN, PlainRow } from './parts.tsx'
 import { PauseSwitch } from './Pause.tsx'
-import { THANKS_POSTS_TITLE } from './ThanksPosts.tsx'
 import type { StreamAudio } from './StreamAudio.tsx'
 import type { MobileYoutube } from './YoutubeSection.tsx'
+
+/** 묶음 이름 (D-MANAGE-01) */
+export const MANAGE_GROUPS = { live: '라이브 정보', chat: '채팅·음성', labels: '라벨·프린터' } as const
 
 /** 머리 오른쪽 "관리" 단추·방송 관리 화면 이름 (D-UX4-42) — 화면에는 "관리", 읽기 이름은 "방송 관리" */
 export const MANAGE_LABEL = '라이브 관리'
@@ -31,16 +37,16 @@ export const LINK_TITLE = '라이브 연결'
 /** 라벨 프린트 줄 이름 (D-UX4-80, 사용자 지시 2026-11-10 — 옛 "프린터·라벨") — 그 화면 제목과 같다 */
 export { LABEL_PRINT_TITLE }
 
-/** 감사 채팅 스위치 이름 (D-UX4-63, 사용자 지시 2026-11-10 — 옛 "감사 채팅") */
-export const THANKS_TITLE = '자동 감사 채팅'
-/** ? 를 누르면 올라오는 설명 판 (D-UX4-64) — 한 문장에 한 줄 */
-export const THANKS_HELP_TITLE = '자동 감사 채팅이란?'
-export const THANKS_HELP_BODY = '찜이 1등으로 정해지면 유튜브 라이브 채팅에 감사 인사를 대신 올려요.\n손님은 채팅만 보고도 내 찜이 잡혔는지 바로 알 수 있어요.\n연습 라이브에서는 올리지 않아요.'
+/** 감사 채팅 스위치 이름 (D-UX4-63 → D-MANAGE-01, 사용자 지시 2026-11-23 "자동 감사 채팅 -> 찜 감사 채팅") */
+export const THANKS_TITLE = '찜 감사 채팅'
+/** ? 를 누르면 올라오는 설명 판 (D-UX4-64) — 짧은 문장 하나에 한 줄 (D-MANAGE-01) */
+export const THANKS_HELP_TITLE = '찜 감사 채팅이란?'
+export const THANKS_HELP_BODY = '1등 찜이 정해지면 채팅에 감사 인사를 올려요.\n손님은 채팅만 보고 찜이 된 걸 알아요.\n상품·찜을 고치면 올라간 인사도 고쳐요.\n연습 라이브에서는 올리지 않아요.'
 /** 설명 판의 예시 채팅 (실제로 올리는 감사 문구 꼴 — core format 감사 문구와 같다) */
 export const THANKS_EXAMPLE = { buyer: '홍길동', order: '15', thanks: '15번 핑크프릴 10,000원 홍길동님 구매 감사합니다' } as const
 
 /**
- * 감사 채팅 스위치 (D-YT-SRV-24 → D-UX4-20 스위치로 → D-UX4-63·64): 이름은 "자동 감사 채팅", 이름 옆 ? — 그 자리를 누르면 꾸욱 눌리고 아래에서 설명 판이 올라온다.
+ * 감사 채팅 스위치 (D-YT-SRV-24 → D-UX4-20 스위치로 → D-UX4-63·64 → D-MANAGE-01): 이름은 "찜 감사 채팅", 이름 옆 ? — 그 자리를 누르면 꾸욱 눌리고 아래에서 설명 판이 올라온다.
  * 켜고 끈 결과 줄은 띄우지 않는다(스위치가 지금 상태를 보인다). 바꾸지 못했을 때만 빨간 줄.
  */
 export function ThanksSwitch({ on, busy, onPress }: { readonly on: boolean; readonly busy: boolean; readonly onPress: (next: boolean) => void }) {
@@ -82,7 +88,7 @@ function ThanksExample() {
   )
 }
 
-type ManageSheet = 'none' | 'dock' | 'listen'
+type ManageSheet = 'none' | 'dock'
 
 export interface ConsoleManageProps {
   readonly broadcastId: string
@@ -103,15 +109,21 @@ export interface ConsoleManageProps {
   readonly labels?: LabelPrintNav
   /** 라이브 연결을 끊은 뒤 (없으면 끊기 줄이 없다) */
   readonly onEnded?: () => void
-  /** 올라간 감사 채팅 화면 (D-THANKSFIX-01) — 없으면 그 줄이 없다 */
-  readonly openThanks?: () => void
+  /** 찜 감사 채팅 양식 화면 (D-THANKS-FMT-01) — 없으면 그 줄이 없다 */
+  readonly openThanksTemplate?: () => void
 }
+
+/** 닉네임 뒤 영문 숨기기 (D-MANAGE-01: 아래 설명 줄 대신 이름 옆 ? — 다른 스위치와 같은 모양) */
+export const NICK_HIDE_TITLE = '닉네임 뒤 영문 숨기기'
+export const NICK_HIDE_HELP_TITLE = '닉네임 뒤 영문 숨기기란?'
+export const NICK_HIDE_HELP_BODY = '라이브 화면과 라벨에서 닉네임 뒤 영문을 빼고 보여요.\n예: ‘꽃언니-ab12’ → ‘꽃언니’'
 
 function NicknameDisplaySwitch() {
   const { labels } = useServices()
   const { queue } = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [help, setHelp] = useState(false)
   const change = async (hideSuffix: boolean) => {
     setBusy(true)
     setError('')
@@ -125,16 +137,25 @@ function NicknameDisplaySwitch() {
     }
   }
   return <View style={{ paddingHorizontal: PLAIN.side }}>
-    <ToggleRow title="닉네임 뒤 영문 숨기기" subtitle="방송 화면과 라벨에 ‘꽃언니-ab12’를 ‘꽃언니’로 표시해요." on={queue?.hideNicknameSuffix === true}
-      disabled={queue === null || busy} onChange={(next) => void change(next)} />
+    <ToggleRow title={NICK_HIDE_TITLE} titleStep="bodyLarge" titleWeight={PLAIN.weight} titleInk={PLAIN.ink} rowHeight={PLAIN.row} on={queue?.hideNicknameSuffix === true}
+      disabled={queue === null || busy} testID="nick-hide-switch" onChange={(next) => void change(next)} onHelp={() => setHelp(true)} />
     {error ? <Notice tone="danger" alert>{error}</Notice> : null}
+    <BottomSheet visible={help} onClose={() => setHelp(false)} title={NICK_HIDE_HELP_TITLE}>
+      <Txt step="bodyLarge" color="textSub">{NICK_HIDE_HELP_BODY}</Txt>
+    </BottomSheet>
   </View>
 }
 
+/** 찜 감사 채팅 양식 줄 — 오른쪽에 지금 양식 이름 */
+function ThanksTemplateRow({ onPress }: { readonly onPress: () => void }) {
+  const { blocks } = useThanksTemplate()
+  const value = thanksTemplateLabel(blocks)
+  return <PlainRow title={THANKS_TEMPLATE_TITLE} {...(value === undefined ? {} : { value })} testID="thanks-template-row" onPress={onPress} />
+}
+
 /** 각 기능은 관리 화면에서 바로 열고, 사용할 수 있는 기능이 있는 묶음만 보여 준다. */
-export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, canLink, stream, onClose, onShowLink, yt, labels, onEnded, openThanks }: ConsoleManageProps) {
+export function ConsoleManage({ broadcastId, seller, rehearsal, closed, canLink, stream, onClose, onShowLink, yt, labels, onEnded, openThanksTemplate }: ConsoleManageProps) {
   const api = useConsoleApi()
-  const services = useServices()
   const { p } = useKit()
   const [sheet, setSheet] = useState<ManageSheet>('none')
   const [thanksBusy, setThanksBusy] = useState(false)
@@ -155,40 +176,35 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
   const showLink = !linked && (canLink || !closed)
   const showThanks = seller && !closed && !rehearsal
   const showLabels = labels !== undefined && !rehearsal
-  const showEnd = seller && !closed && onEnded !== undefined
-  // 소리 듣기 (D-RETRO-70): 듣기는 판매자 일이고, 끝난 라이브에는 들을 것이 없다
-  const showListen = seller && !closed
+  // 연결 끊기 (D-MANAGE-01): "라이브 정보" 안 바로가기 바로 아래 — 끝나지 않은 라이브의 판매자만
+  const ending = seller && !closed && onEnded !== undefined ? onEnded : undefined
   return (
     <View style={{ marginHorizontal: -SPACE.lg }}>
       <View style={{ gap: SPACE.md, backgroundColor: p.background }}>
-        {linked || showLink ? (
-          <MenuGroup title="방송 정보">
-            {linked && yt !== undefined ? <LinkInfo grouped broadcastId={broadcastId} yt={yt} closed={closed} /> : null}
+        {linked || showLink || ending !== undefined ? (
+          <MenuGroup title={MANAGE_GROUPS.live}>
+            {linked && yt !== undefined ? <LinkInfo grouped broadcastId={broadcastId} yt={yt} closed={closed} {...(ending === undefined ? {} : { onEnded: ending })} /> : null}
             {showLink ? <PlainRow title={LINK_TITLE} onPress={onShowLink} /> : null}
+            {/* 아직 잇지 않은 라이브도 끝낼 수 있게 — 이은 라이브는 위 LinkInfo 안에 있다 */}
+            {!linked && ending !== undefined ? <EndBroadcastRow broadcastId={broadcastId} onEnded={ending} plain /> : null}
           </MenuGroup>
         ) : null}
 
-        <MenuGroup title="채팅·화면 설정">
-          {/* 채팅·상품 인식 잠깐 멈춤 (D-PAUSE-01) — 끝나지 않은 라이브의 판매자만, 맨 위 */}
+        <MenuGroup title={MANAGE_GROUPS.chat}>
+          {/* 채팅·음성 인식 잠깐 멈추기 (D-PAUSE-01) — 끝나지 않은 라이브의 판매자만, 맨 위 */}
           {seller && !closed ? <PauseSwitch broadcastId={broadcastId} /> : null}
           {seller ? <NicknameDisplaySwitch /> : null}
           {showThanks ? <ThanksSwitch on={thanksOn} busy={thanksBusy} onPress={switchThanks} /> : null}
           {thanksError !== null ? <View style={{ paddingHorizontal: PLAIN.side }}><Notice tone="danger" alert>{thanksError}</Notice></View> : null}
-          {showThanks && openThanks !== undefined ? <PlainRow title={THANKS_POSTS_TITLE} testID="thanks-posts-row" onPress={openThanks} /> : null}
-          {showListen ? <ListenSourceRow session={services.voice} keep={services.streamKeep} broadcastId={broadcastId} stream={stream} onPress={() => setSheet('listen')} /> : null}
+          {showThanks && openThanksTemplate !== undefined ? <ThanksTemplateRow onPress={openThanksTemplate} /> : null}
+          {/* 마이크가 꺼진 동안 대신 듣는 라이브 소리가 멈췄을 때만 (D-UX3-73) */}
           {seller && !closed && stream.status?.phase === 'stopped' ? <PlainRow title="라이브 소리 다시 켜기" onPress={() => { onClose(); stream.retry() }} /> : null}
           <PlainRow title={DOCK_TITLE} value={dockLabel(dock)} testID="dock-choice" onPress={() => setSheet('dock')} />
         </MenuGroup>
 
         {showLabels && labels !== undefined ? (
-          <MenuGroup title="라벨·프린터">
-            <LabelPrintRows openStep={labels.openStep} openStatus={labels.openStatus} {...(seller && labels.openDirect ? { openDirect: labels.openDirect } : {})} {...(seller && labels.openHistory ? { openHistory: labels.openHistory } : {})} />
-          </MenuGroup>
-        ) : null}
-
-        {showEnd && onEnded !== undefined ? (
-          <MenuGroup title="방송 종료">
-            <EndBroadcastRow broadcastId={broadcastId} onEnded={onEnded} plain />
+          <MenuGroup title={MANAGE_GROUPS.labels}>
+            <LabelPrintRows openStep={labels.openStep} seller={seller} />
           </MenuGroup>
         ) : null}
       </View>
@@ -197,7 +213,6 @@ export function ConsoleManage({ broadcastId, seller, title, rehearsal, closed, c
         {/* 토스식 고르기 목록 (D-UX4-76 아래 창 SheetChoices) */}
         <SheetChoices label={DOCK_TITLE} choices={DOCK_CHOICES} value={dock} onPick={(next) => { setDockChoice(next); close() }} />
       </BottomSheet>
-      {showListen ? <ListenSourceSheet visible={sheet === 'listen'} onClose={close} session={services.voice} keep={services.streamKeep} broadcastId={broadcastId} title={title} stream={stream} /> : null}
     </View>
   )
 }

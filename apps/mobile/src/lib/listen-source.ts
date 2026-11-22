@@ -1,4 +1,4 @@
-// 소리 듣기 고르기 (D-RETRO-70, 사용자 지시 2026-11-13 "휴대폰 마이크로 들을지 라이브 소리로 바로 할지 설정하게 해 달라"):
+// 소리 듣기 (D-RETRO-70 → D-LISTEN-MIC-01: 고르기는 없앴고 서버는 늘 'mic'을 준다 — 아래 'stream' 처리는 옛 서버 값에 대비해 남긴다):
 // 판매자가 고른 듣는 곳(휴대폰 마이크 · 라이브 소리)은 서버의 판매자 설정에 남는다(GET·PUT /api/settings/listen-source).
 // - 휴대폰 마이크: 이 휴대폰 마이크를 켠다. 마이크가 꺼져 있으면 서버가 라이브 소리로 듣는다(서버 규칙 D-LV1-06 그대로).
 // - 라이브 소리: 이 휴대폰 마이크를 켜지 않는다. 서버가 라이브 방송 소리를 듣는다(앱을 닫아도 — D-LV1-14).
@@ -19,10 +19,10 @@ export interface ListenSetting {
 
 export const LISTEN_SOURCE_PATH = '/api/settings/listen-source'
 
-/** 관리 화면 줄·고르는 판 이름 */
-export const LISTEN_SOURCE_TITLE = '소리 듣기'
+/** 듣는 곳 판 이름 (D-LISTEN-MIC-01 — 옛 "소리 듣기" 고르기는 없앴다) */
+export const LISTEN_SOURCE_TITLE = '음성 인식'
 /** 판 제목 아래 설명 */
-export const LISTEN_SOURCE_DESCRIPTION = '라이브에서 하는 말을 어디서 들을지 골라요.\n라이브 중에 바꿔도 바로 바뀌어요.'
+export const LISTEN_SOURCE_DESCRIPTION = '라이브에서 하는 말을 휴대폰 마이크로 들어요.\n마이크가 꺼진 동안은 라이브 소리로 대신 들어요.'
 export const LISTEN_SOURCE_LABEL: Readonly<Record<ListenSource, string>> = { mic: '휴대폰 마이크', stream: '라이브 소리' }
 /** 음성 창의 작은 표시 */
 export const LISTEN_SOURCE_SHORT = { mic: '마이크', stream: '라이브', otherMic: '다른 기기' } as const

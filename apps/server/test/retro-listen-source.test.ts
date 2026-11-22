@@ -1,5 +1,6 @@
-// 소리 듣기 고르기 (D-RETRO-70·71): 판매자가 고른 듣는 곳(휴대폰 마이크 · 라이브 소리)을 서버에 남긴다.
-// 서버가 방송 소리를 듣는 규칙(D-LV1-06 — 마이크가 켜지면 쉬고 꺼지면 돌아온다)은 고른 값과 상관없이 그대로다.
+// 소리 듣기 (D-RETRO-70·71 → D-LISTEN-MIC-01, 사용자 지시 2026-11-23 "소리 듣기 없애. 그냥 무조건 폰 마이크로 듣는 걸로"):
+// 듣는 곳은 늘 휴대폰 마이크다 — 라이브 소리는 고를 수 없다(옛 앱이 보내면 409, 남긴 값은 마이크 그대로).
+// 서버가 방송 소리를 듣는 규칙(D-LV1-06 — 마이크가 켜지면 쉬고 꺼지면 돌아온다)은 그대로다.
 import { once } from 'node:events'
 import type { Server } from 'node:http'
 import { eq } from 'drizzle-orm'
@@ -41,40 +42,40 @@ const STREAM = '/api/settings/stream-audio'
 const saved = async (world: TestServer, sellerId: string) =>
   (await world.database.db.select({ source: sellers.listenSource, stream: sellers.streamAudio }).from(sellers).where(eq(sellers.id, sellerId)))[0]
 
-describe('D-RETRO-70 소리 듣기 고르기 (서버 설정)', () => {
-  it('처음에는 휴대폰 마이크. 라이브 소리를 고르면 남고, 다시 휴대폰 마이크로 돌릴 수 있다', async () => {
+const REFUSED = { code: 'NOT_SUPPORTED', message: '이제 휴대폰 마이크로만 들어요. 앱을 업데이트해 주세요.' }
+
+describe('D-LISTEN-MIC-01 듣는 곳은 늘 휴대폰 마이크 (옛 D-RETRO-70 고르기)', () => {
+  it('처음에도 휴대폰 마이크. 라이브 소리를 고르면 받지 않고, 휴대폰 마이크는 그대로 받는다', async () => {
     const { world } = await setup()
     const seller = await addSeller(world)
     const api = client(world, seller.cookie)
     expect((await api.get(SOURCE)).body).toEqual({ source: 'mic', streamAvailable: true, streamEnabled: true })
-    expect((await api.put(SOURCE, { source: 'stream' })).body).toEqual({ source: 'stream', streamAvailable: true, streamEnabled: true })
-    expect((await api.get(SOURCE)).body).toEqual({ source: 'stream', streamAvailable: true, streamEnabled: true })
-    expect(await saved(world, seller.sellerId)).toEqual({ source: 'stream', stream: true })
+    const refused = await api.put(SOURCE, { source: 'stream' })
+    expect(refused.status).toBe(409)
+    expect((refused.body as { error: unknown }).error).toEqual(REFUSED)
+    expect((await api.get(SOURCE)).body).toEqual({ source: 'mic', streamAvailable: true, streamEnabled: true })
     expect((await api.put(SOURCE, { source: 'mic' })).body).toEqual({ source: 'mic', streamAvailable: true, streamEnabled: true })
-    // 휴대폰 마이크로 돌려도 라이브 소리 듣기는 켜 둔다 — 마이크가 꺼지면 넘어갈 곳
+    // 라이브 소리 듣기는 켜 둔다 — 마이크가 꺼지면 넘어갈 곳 (D-LV1-06)
     expect(await saved(world, seller.sellerId)).toEqual({ source: 'mic', stream: true })
   })
 
-  it('판매자마다 따로 남는다', async () => {
+  it('예전에 라이브 소리를 골라 둔 판매자도 휴대폰 마이크로 읽힌다', async () => {
     const { world } = await setup()
-    const one = await addSeller(world)
-    const two = await addSeller(world)
-    await client(world, one.cookie).put(SOURCE, { source: 'stream' })
-    expect(((await client(world, one.cookie).get(SOURCE)).body as { source: string }).source).toBe('stream')
-    expect(((await client(world, two.cookie).get(SOURCE)).body as { source: string }).source).toBe('mic')
+    const seller = await addSeller(world)
+    await world.database.db.update(sellers).set({ listenSource: 'stream' }).where(eq(sellers.id, seller.sellerId))
+    expect((await client(world, seller.cookie).get(SOURCE)).body).toEqual({ source: 'mic', streamAvailable: true, streamEnabled: true })
   })
 
-  it('둘 가운데 하나가 아니거나 다른 값이 섞이면 받지 않고, 남긴 값은 그대로다', async () => {
+  it('둘 가운데 하나가 아니거나 다른 값이 섞이면 받지 않는다', async () => {
     const { world } = await setup()
     const seller = await addSeller(world)
     const api = client(world, seller.cookie)
-    await api.put(SOURCE, { source: 'stream' })
     for (const body of [{}, { source: 'web' }, { source: true }, { source: null }, { source: 'mic', enabled: false }, { enabled: true }]) {
       const response = await api.put(SOURCE, body)
       expect(response.status).toBe(400)
       expect((response.body as { error: { code: string; message: string } }).error).toEqual({ code: 'INVALID_INPUT', message: '휴대폰 마이크와 라이브 소리 가운데 하나를 골라 주세요.' })
     }
-    expect(await saved(world, seller.sellerId)).toEqual({ source: 'stream', stream: true })
+    expect(await saved(world, seller.sellerId)).toEqual({ source: 'mic', stream: true })
   })
 
   it('로그인하지 않으면 읽지도 바꾸지도 못한다', async () => {
@@ -85,21 +86,10 @@ describe('D-RETRO-70 소리 듣기 고르기 (서버 설정)', () => {
 })
 
 describe('D-RETRO-71 웹 설정의 라이브 소리 스위치와 같은 값', () => {
-  it('라이브 소리가 꺼져 있을 때 라이브 소리를 고르면 스위치도 같이 켜진다', async () => {
+  it('웹에서 라이브 소리를 끄고 켜도 듣는 곳은 휴대폰 마이크 그대로다', async () => {
     const { world } = await setup()
     const seller = await addSeller(world)
     const api = client(world, seller.cookie)
-    expect((await api.put(STREAM, { enabled: false })).body).toEqual({ available: true, enabled: false })
-    expect((await api.get(SOURCE)).body).toEqual({ source: 'mic', streamAvailable: true, streamEnabled: false })
-    expect((await api.put(SOURCE, { source: 'stream' })).body).toEqual({ source: 'stream', streamAvailable: true, streamEnabled: true })
-    expect((await api.get(STREAM)).body).toEqual({ available: true, enabled: true })
-  })
-
-  it('웹에서 라이브 소리를 끄면 고른 값도 휴대폰 마이크로 돌아가고, 다시 켜도 휴대폰 마이크 그대로다', async () => {
-    const { world } = await setup()
-    const seller = await addSeller(world)
-    const api = client(world, seller.cookie)
-    await api.put(SOURCE, { source: 'stream' })
     expect((await api.put(STREAM, { enabled: false })).body).toEqual({ available: true, enabled: false })
     expect(await saved(world, seller.sellerId)).toEqual({ source: 'mic', stream: false })
     expect((await api.get(SOURCE)).body).toEqual({ source: 'mic', streamAvailable: true, streamEnabled: false })
@@ -116,22 +106,19 @@ describe('D-RETRO-71 웹 설정의 라이브 소리 스위치와 같은 값', ()
     expect((await api.get(STREAM)).body).toEqual({ available: true, enabled: false })
   })
 
-  it('이 서버에서 라이브 소리를 쓸 수 없으면 라이브 소리를 고를 수 없고, 휴대폰 마이크로 읽힌다', async () => {
+  it('이 서버에서 라이브 소리를 쓸 수 없어도 휴대폰 마이크로 읽힌다', async () => {
     const { world } = await setup(false)
     const seller = await addSeller(world)
     const api = client(world, seller.cookie)
     expect((await api.get(SOURCE)).body).toEqual({ source: 'mic', streamAvailable: false, streamEnabled: true })
     const refused = await api.put(SOURCE, { source: 'stream' })
     expect(refused.status).toBe(409)
-    expect((refused.body as { error: { code: string; message: string } }).error).toEqual({ code: 'NOT_SUPPORTED', message: '지금은 라이브 소리로 들을 수 없어요. 휴대폰 마이크를 골라 주세요.' })
+    expect((refused.body as { error: unknown }).error).toEqual(REFUSED)
     expect(await saved(world, seller.sellerId)).toEqual({ source: 'mic', stream: true })
-    // 예전에 라이브 소리를 골라 둔 판매자도 쓸 수 없는 동안에는 휴대폰 마이크로 읽힌다
-    await world.database.db.update(sellers).set({ listenSource: 'stream' }).where(eq(sellers.id, seller.sellerId))
-    expect((await api.get(SOURCE)).body).toEqual({ source: 'mic', streamAvailable: false, streamEnabled: true })
   })
 })
 
-describe('D-RETRO-70 고른 값과 상관없이 서버가 듣는 규칙은 그대로 (D-LV1-06)', () => {
+describe('D-LISTEN-MIC-01 서버가 듣는 규칙은 그대로 (D-LV1-06)', () => {
   class Peer {
     readonly ws: WebSocket
     readonly messages: Record<string, unknown>[] = []
@@ -145,8 +132,8 @@ describe('D-RETRO-70 고른 값과 상관없이 서버가 듣는 규칙은 그�
   }
   const phase = async (world: TestServer, cookie: string, b: string) => ((await client(world, cookie).get(`/api/broadcasts/${b}/stream-audio`)).body as { phase: string }).phase
 
-  for (const source of ['mic', 'stream'] as const) {
-    it(`${source === 'mic' ? '휴대폰 마이크' : '라이브 소리'}를 골랐을 때: 마이크가 꺼져 있으면 라이브 소리로 듣고, 마이크가 켜지면 쉬고, 꺼지면 돌아온다`, async () => {
+  for (const source of ['mic'] as const) {
+    it('마이크가 꺼져 있으면 라이브 소리로 듣고, 마이크가 켜지면 쉬고, 꺼지면 돌아온다', async () => {
       const { world, feed } = await setup()
       const server = createNodeServer({ app: world.server.app })
       servers.push(server)
@@ -179,7 +166,7 @@ describe('D-RETRO-70 고른 값과 상관없이 서버가 듣는 규칙은 그�
       await waitFor(() => feed.sink !== undefined)
       feed.sink!.chunk(Buffer.alloc(3_200), Date.now())
       await waitFor(async () => (await phase(world, seller.cookie, b.id)) === 'listening')
-      // 듣는 동안에도 고른 값은 남아 있다
+      // 듣는 곳은 휴대폰 마이크 그대로
       expect(((await client(world, seller.cookie).get(SOURCE)).body as { source: string }).source).toBe(source)
     })
   }

@@ -546,6 +546,15 @@ export function createApi(deps: ApiDeps): Hono<Env> {
 
   // ── 설정 (AC-S04-50) ──────────────────────────────────────────────────
   api.get('/settings', async (c) => c.json({ settings: await service.settings(sellerOf(c)) }))
+  // 찜 감사 채팅 양식 (D-THANKS-FMT-01): { blocks } — 번호·품명·가격·닉네임·글자 블록. 기본 양식으로 돌리려면 기본 블록을 보낸다
+  api.get('/settings/thanks-template', async (c) => c.json({ blocks: await service.thanksTemplate(sellerOf(c)) }))
+  api.put('/settings/thanks-template', async (c) => {
+    const input = c.get('body') ?? {}
+    if (Object.keys(input).some((key) => key !== 'blocks')) return apiError(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', [{ field: 'blocks', message: '양식만 보낼 수 있어요.' }])
+    const problem = await service.setThanksTemplate(sellerOf(c), input.blocks)
+    if (problem !== null) return apiError(400, 'INVALID_INPUT', problem, [{ field: 'blocks', message: problem }])
+    return c.json({ blocks: await service.thanksTemplate(sellerOf(c)) })
+  })
   api.patch('/settings', async (c) => {
     const result = await service.updateSettings(sellerOf(c), body(c))
     if (!result.ok) return apiError(result.rejection.status, result.rejection.code, result.rejection.message, result.rejection.problems)

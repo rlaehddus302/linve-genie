@@ -46,11 +46,12 @@ describe('라이브 관리 묶음 (D-UX4-78)', () => {
     expect(page.textContent).not.toContain('댓글 붙여넣기')
   })
 
-  it('라이브 관리 경로는 라벨 한 단계 화면·출력 상태를 바로 쌓고, 끊으면 판매 명세로 (D-UX4-130 — 옛: /label-print)', () => {
+  // D-MANAGE-01 (사용자 지시 2026-11-23)으로 바뀐 기대: 출력 상태·직접 인쇄·출력 내역 줄을 없애 그 경로를 쌓지 않는다. 찜 감사 채팅 양식은 /thanks-template
+  it('라이브 관리 경로는 라벨 한 단계 화면·찜 감사 채팅 양식을 쌓고, 끊으면 판매 명세로 (D-UX4-130 — 옛: /label-print)', () => {
     const route = read('app/console/[id]/manage.tsx')
-    expect(route).toContain("labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }), openStatus: () => router.push('/labels?from=console')")
-    expect(route).toContain("openDirect: () => router.push({ pathname: '/console/[id]/print-history', params: { id, mode: 'direct' } })")
-    expect(route).toContain("openHistory: () => router.push({ pathname: '/console/[id]/print-history', params: { id } })")
+    expect(route).toContain("labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }) }}")
+    expect(route).toContain("openThanksTemplate={() => router.push('/thanks-template')}")
+    for (const gone of ['/labels?from=console', 'print-history', '/console/[id]/thanks']) expect(route).not.toContain(gone)
     expect(route).toContain("onEnded={() => router.dismissTo({ pathname: '/console/[id]', params: { id, ended: '1' } })}")
     expect(route).not.toContain('/label-print')
   })

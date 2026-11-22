@@ -20,6 +20,7 @@ import { activeLink, insertOwnMessage, ownMessageHint, type LinkRow } from './st
 import { LIVE_CHAT_MAX, THANKS_SUFFIX, batchMessages, charCount, cleanPostText, truncate } from './texts.ts'
 import { broadcastFixes, deleteFix, dueFixes, insertFix, insertManualFix, recentFixes, staleFixes, updateFix, type FixChange, type FixRow } from './thanks-fix-store.ts'
 import type { Timer } from './timer.ts'
+import { PLAIN_RENDER, batchSuffix, sellerThanksTemplate, thanksRenderer, type ThanksRender } from './thanks-template.ts'
 
 /** 올라간 지 이만큼 안의 감사만 고친다 */
 export const FIX_WINDOW_MS = 30 * 60 * 1000
@@ -87,10 +88,17 @@ const itemOf = (text: string): string => {
   return clean.endsWith(THANKS_SUFFIX) ? clean.slice(0, -THANKS_SUFFIX.length) : clean
 }
 
-/** 남은 감사로 만든 글 (묶음 문구 — 처음 올릴 때와 같은 규칙, 200자 넘으면 나눔) */
-function compose(kept: readonly (readonly [string, string])[], max = LIVE_CHAT_MAX): string[] {
-  return batchMessages(kept.map(([, text], index) => ({ id: index, text })), max).map((message) => message.text)
+/** 남은 감사로 만든 글 (묶음 문구 — 처음 올릴 때와 같은 규칙, 200자 넘으면 나눔). 판매자 양식(D-THANKS-FMT-01)이면 항목마다 양식을 입히고 양식의 끝말로 묶는다 */
+function compose(kept: readonly (readonly [string, string])[], max = LIVE_CHAT_MAX, style: FixStyle = PLAIN_STYLE): string[] {
+  return batchMessages(kept.map(([id, text], index) => ({ id: index, text: style.render(id, text) })), max, style.suffix).map((message) => message.text)
 }
+
+/** 고친 글에 입히는 판매자 감사 양식 (D-THANKS-FMT-01) — 기본은 엔진 문구 그대로 */
+export interface FixStyle {
+  readonly render: ThanksRender
+  readonly suffix: string
+}
+export const PLAIN_STYLE: FixStyle = { render: PLAIN_RENDER, suffix: THANKS_SUFFIX }
 
 /**
  * 고칠지 정한다 (순수 함수). 그 방송이 고침 따라가기를 켜지 않았거나 효과를 찾을 수 없으면 null(아무것도 하지 않는다).
@@ -133,11 +141,20 @@ export function planFix(state: EngineState, posted: PostedThanks): FixPlan | nul
   }
   let changed: boolean
   if (removed.length > 0) changed = true
-  else if (posted.oldMessage !== null) {
+  else if (posted.oldMessage !== null && sameAsDefault(oldTexts, posted.oldMessage)) {
     const messages = compose(kept)
     changed = messages.length !== 1 || messages[0] !== posted.oldMessage
-  } else changed = itemChanged
+  } else {
+    // 앞 정정의 글이거나, 판매자 양식으로 올린 글(D-THANKS-FMT-01): 효과마다 엔진 문구로 견준다 — 양식을 바꾼 것만으로는 다시 올리지 않는다
+    changed = itemChanged
+  }
   return { changed, kept, removed, passed, oldTexts }
+}
+
+/** 올린 글이 엔진 문구(기본 모양)로 묶은 글과 같은가 — 다르면 판매자 양식으로 올린 글이다 */
+function sameAsDefault(oldTexts: readonly string[], oldMessage: string): boolean {
+  const messages = compose(oldTexts.map((text, index) => [String(index), text] as const))
+  return messages.length === 1 && messages[0] === oldMessage
 }
 
 /** 취소로 빠진 감사를 알리는 글: 올린 감사의 항목 + " 패스" (`15번 라울 8,000원 홍길동님 패스`, D-PASSCHAT-01) */
@@ -151,10 +168,10 @@ export const PASS_SUFFIX = ' 패스'
  * 취소가 아닌 까닭으로 빠진 감사가 있으면 "[수정] 앞 글의 {번호}번 … {구매자}님 감사는 잘못 올라갔어요"를 덧붙인다(손님이 앞 글이 틀렸음을 알게).
  * 취소(손님 패스·판매자 취소)로 빠진 감사는 지웠든 못 지웠든 "{번호}번 … {구매자}님 패스"로 알린다 — 대기 손님·시청자가 그 번호가 다시 났음을 알게 (D-PASSCHAT-01)
  */
-export function fixMessages(kept: readonly (readonly [string, string])[], removed: readonly string[], deleted: boolean, passed: readonly string[] = []): string[] {
+export function fixMessages(kept: readonly (readonly [string, string])[], removed: readonly string[], deleted: boolean, passed: readonly string[] = [], style: FixStyle = PLAIN_STYLE): string[] {
   const passes = compose(passed.map((old, index) => [`pass-${String(index)}`, passText(old)] as const))
-  if (deleted) return [...compose(kept), ...passes]
-  const out = compose(kept, LIVE_CHAT_MAX - charCount(FIX_PREFIX)).map((text) => `${FIX_PREFIX}${text}`)
+  if (deleted) return [...compose(kept, LIVE_CHAT_MAX, style), ...passes]
+  const out = compose(kept, LIVE_CHAT_MAX - charCount(FIX_PREFIX), style).map((text) => `${FIX_PREFIX}${text}`)
   const wrong = removed.filter((old) => !passed.includes(old))
   if (wrong.length > 0) out.push(truncate(`${FIX_PREFIX}앞 글의 ${wrong.map(itemOf).join(', ')} 감사는 잘못 올라갔어요`, LIVE_CHAT_MAX))
   return [...out, ...passes]
@@ -592,7 +609,9 @@ export class ThanksFixer {
       const removal = await this.#removeAll(route, link, fix, idsOf(fix.oldRemoteIds))
       if (removal === 'retry' && fix.attempts + 1 <= FIX_MAX_RETRIES) return this.#retry(fix, fix.attempts + 1)
       deleted = removal === 'deleted'
-      sentTexts = fixMessages(plan.kept, plan.removed, deleted, plan.passed)
+      // 고친 글은 판매자 감사 양식으로 (D-THANKS-FMT-01)
+      const template = await sellerThanksTemplate(db, fix.sellerId)
+      sentTexts = fixMessages(plan.kept, plan.removed, deleted, plan.passed, { render: thanksRenderer(runtime.state, template), suffix: batchSuffix(template) })
       const saved = await this.#update(
         fix,
         { deleted, sentTexts: JSON.stringify(sentTexts), newTexts: JSON.stringify(plan.kept), attemptAt: this.#now(), attempts: 0 },

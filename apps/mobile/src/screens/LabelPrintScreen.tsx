@@ -21,12 +21,9 @@ export const LABEL_PRINT_ROWS = { on: '라벨 출력', connect: '프린터 연�
 export const LABEL_ON_HELP_TITLE = '라벨 출력이란?'
 export const LABEL_ON_HELP_BODY = '찜이 확정되면 라벨을 바로 뽑아요.\n끄면 찜은 그대로 받고 라벨만 뽑지 않아요.'
 
-/** 라벨 프린트 줄이 여는 곳 (한 단계는 /label-setup?step=, 출력 상태·농도는 /labels) */
+/** 라벨 프린트 줄이 여는 곳 (한 단계는 /label-setup?step=) — 라이브 관리는 한 단계만 연다(D-MANAGE-01) */
 export interface LabelPrintNav {
   readonly openStep: (step: LabelSetupStep) => void
-  readonly openDirect?: () => void
-  readonly openHistory?: () => void
-  readonly openStatus: () => void
 }
 
 /** 라벨 켜짐·프린터 상태와 켜고 끄기 (라벨 프린트 화면과 라이브 관리가 같이 쓴다) */
@@ -54,11 +51,12 @@ function useLabelPrint() {
 }
 
 /**
- * 라이브 관리 안의 라벨 줄들 (D-UX4-130): 라벨 출력(켜고 끄기) · 프린터 연결(지금 프린터) › · 라벨 디자인 › · 테스트 인쇄 › · 출력 상태·농도 ›.
+ * 라이브 관리 안의 라벨 줄들 (D-UX4-130 → D-MANAGE-01): 라벨 출력(켜고 끄기) · 프린터 연결(지금 프린터) › · 라벨 디자인 › · 테스트 인쇄 ›.
+ * 직접 인쇄·출력 내역은 라이브 화면 라벨 탭에 있어 없앴고, 출력 상태·농도도 없앴다(사용자 지시 2026-11-23 — 인쇄 농도·다른 기기 출력은 전체 탭 "라벨·프린터" 화면에 남는다).
  * 흰 화면 줄 모양(PlainRow — 토스 "비밀번호 · 보안"). 부모는 화면 끝까지 넓어야 한다.
  * 라벨 없는 판매가 있으면 라벨 출력 줄 바로 아래에 "라벨 없는 판매 n건 뽑기" 줄이 생긴다(LabelBacklog — F1-2, D-RETRO-41). 대기 라벨 뽑기는 라벨 탭으로 옮겼다(D-PRINTALL-01).
  */
-export function LabelPrintRows({ openStep, openStatus, openHistory, openDirect }: LabelPrintNav) {
+export function LabelPrintRows({ openStep, seller }: LabelPrintNav & { readonly seller: boolean }) {
   const { snapshot, busy, error, printerName, enabled, switchLabels } = useLabelPrint()
   const [help, setHelp] = useState(false)
   return (
@@ -73,14 +71,11 @@ export function LabelPrintRows({ openStep, openStatus, openHistory, openDirect }
       <View style={{ paddingHorizontal: PLAIN.side }}>
         <ToggleRow title={LABEL_PRINT_ROWS.on} titleStep="bodyLarge" titleWeight={PLAIN.weight} titleInk={PLAIN.ink} rowHeight={PLAIN.row} on={enabled} disabled={busy || snapshot.queue === null} onChange={switchLabels} onHelp={() => setHelp(true)} testID="label-print-on" />
       </View>
-      {/* 라벨 없는 판매 뽑기는 출력 내역과 같은 조건(판매자)에서만 */}
-      <LabelBacklog bulk={openHistory !== undefined} />
+      {/* 라벨 없는 판매 뽑기는 판매자만 */}
+      <LabelBacklog bulk={seller} />
       <PlainRow title={LABEL_PRINT_ROWS.connect} value={printerName} testID="label-print-connect" onPress={() => openStep('connect')} />
       <PlainRow title={LABEL_PRINT_ROWS.design} testID="label-print-design" onPress={() => openStep('design')} />
       <PlainRow title={LABEL_PRINT_ROWS.test} testID="label-print-test" onPress={() => openStep('test')} />
-      {enabled && openDirect ? <PlainRow title="직접 인쇄" testID="label-print-direct" onPress={openDirect} /> : null}
-      {enabled && openHistory ? <PlainRow title="출력 내역" testID="label-print-history" onPress={openHistory} /> : null}
-      <PlainRow title={LABEL_PRINT_ROWS.status} testID="label-print-status" onPress={openStatus} />
       <BottomSheet visible={help} onClose={() => setHelp(false)} title={LABEL_ON_HELP_TITLE}>
         <Txt step="bodyLarge" color="textSub">{LABEL_ON_HELP_BODY}</Txt>
       </BottomSheet>
@@ -88,7 +83,7 @@ export function LabelPrintRows({ openStep, openStatus, openHistory, openDirect }
   )
 }
 
-export function LabelPrintScreen({ onBack, openStep, openStatus }: { readonly onBack: () => void } & LabelPrintNav) {
+export function LabelPrintScreen({ onBack, openStep, openStatus }: { readonly onBack: () => void; readonly openStatus: () => void } & LabelPrintNav) {
   const { snapshot, busy, error, printerName, enabled, switchLabels } = useLabelPrint()
   return (
     <FormPage title={LABEL_PRINT_TITLE} onBack={onBack} testID="label-print">

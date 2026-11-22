@@ -1,21 +1,20 @@
-// 소리 듣기 고르기 화면 조각 (D-RETRO-70, 사용자 지시 2026-11-13 "휴대폰 마이크로 들을지 라이브 소리로 바로 할지 설정하게 해 달라").
-// - ListenSourceRow: 라이브 관리의 "소리 듣기" 줄 — 고른 것을 오른쪽에, 고른 것과 실제로 듣는 쪽이 다르면 아래에 한 줄.
-// - ListenSourceSheet: 고르는 판 — 지금 듣는 곳 한 문장 · [휴대폰 마이크] · [라이브 소리](줄마다 설명) · 필요한 단추.
+// 듣는 곳 화면 조각 (D-RETRO-70 → D-LISTEN-MIC-01, 사용자 지시 2026-11-23 "소리 듣기 없애. 그냥 무조건 폰 마이크로 듣는 걸로"):
+// 고르기는 없앴다 — 늘 휴대폰 마이크로 듣고, 마이크가 꺼진 동안만 서버가 라이브 소리로 대신 듣는다(D-LV1-06).
+// - ListenSourceSheet: 지금 듣는 곳 한 문장 · 필요한 단추([휴대폰 마이크 켜기] · [라이브 소리 다시 켜기]) · 처음 켤 때 안내.
 // - ListenSourceChip: 방송 화면 음성 창의 작은 표시(지금 듣는 쪽) — 누르면 같은 판이 열린다.
 // 고른 값은 서버의 판매자 설정에 남는다(lib/listen-source.ts). 마이크를 끄는 일(라이브 소리를 골랐을 때)은 앱 뿌리의 KeptRunner가 한다.
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import {
-  LISTEN_CONSENT_NO, LISTEN_CONSENT_YES, LISTEN_MIC_START, LISTEN_SAVE_FAILED, LISTEN_SOURCE_DESCRIPTION, LISTEN_SOURCE_LABEL, LISTEN_SOURCE_TITLE, LISTEN_STREAM_RETRY,
-  listenChoices, listenNow, listenShort, type ListenMic, type ListenNow, type ListenSetting, type ListenSource, type ListenTone,
+  LISTEN_CONSENT_NO, LISTEN_CONSENT_YES, LISTEN_MIC_START, LISTEN_SAVE_FAILED, LISTEN_SOURCE_DESCRIPTION, LISTEN_SOURCE_TITLE, LISTEN_STREAM_RETRY,
+  listenNow, listenShort, type ListenMic, type ListenNow, type ListenSetting, type ListenSource, type ListenTone,
 } from '../../lib/listen-source.ts'
 import type { StreamKeep } from '../../lib/stream-keep.ts'
 import type { VoiceSession, VoiceView } from '../../lib/voice-session.ts'
 import { VOICE_CONSENT_LINES } from '../../lib/words.ts'
-import { BigButton, BottomSheet, SheetChoices, Tap, Txt, useKit } from '../../ui/kit/index.ts'
+import { BigButton, BottomSheet, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { RADIUS, SPACE } from '../../ui/kit/tokens.ts'
 import { Notice } from '../../ui/parts.tsx'
-import { PLAIN, PlainRow } from './parts.tsx'
 import type { StreamAudio } from './StreamAudio.tsx'
 
 const NOTICE_TONE: Readonly<Record<ListenTone, 'success' | 'warning' | 'danger' | 'info'>> = { ok: 'success', warn: 'warning', danger: 'danger', info: 'info' }
@@ -45,27 +44,7 @@ function useListenNow({ session, keep, broadcastId, stream }: ListenProps, allow
   return { setting, view, mic, now: listenNow(setting?.source ?? null, mic, stream.status) }
 }
 
-/** 라이브 관리의 "소리 듣기" 줄 */
-export function ListenSourceRow(props: ListenProps & { readonly onPress: () => void }) {
-  const { keep, onPress } = props
-  const { setting, now } = useListenNow(props)
-  // 관리 화면을 열 때마다 서버 값을 다시 읽는다 (웹·다른 기기에서 바꿨을 수 있다)
-  useEffect(() => { void keep.listen.refresh() }, [keep])
-  // 고른 쪽으로 듣고 있으면 줄 하나로 충분 — 다를 때만 까닭 한 줄
-  const differs = setting !== null && now.hearing !== setting.source && now.tone !== 'info'
-  return (
-    <>
-      <PlainRow title={LISTEN_SOURCE_TITLE} {...(setting === null ? {} : { value: LISTEN_SOURCE_LABEL[setting.source] })} testID="listen-source" onPress={onPress} />
-      {differs ? (
-        <View testID="listen-source-note" style={{ paddingHorizontal: PLAIN.side, paddingBottom: SPACE.sm }}>
-          <Txt step="meta" color={now.tone === 'danger' ? 'dangerText' : 'textSub'}>{now.text}</Txt>
-        </View>
-      ) : null}
-    </>
-  )
-}
-
-/** 고르는 판: [휴대폰 마이크] · [라이브 소리] */
+/** 듣는 곳 판: 지금 상태와 [휴대폰 마이크 켜기] (고르기 없음 — D-LISTEN-MIC-01) */
 export function ListenSourceSheet(props: ListenProps & { readonly visible: boolean; readonly onClose: () => void; readonly title: string }) {
   const { visible, onClose, session, keep, broadcastId, title, stream } = props
   const [allowed, setAllowed] = useState<boolean | null>(null)
@@ -127,7 +106,6 @@ export function ListenSourceSheet(props: ListenProps & { readonly visible: boole
           <Notice tone={NOTICE_TONE[now.tone]} label="지금 듣는 곳">{now.text}</Notice>
           {now.late === null ? null : <Txt step="meta" color="textSub">{now.late}</Txt>}
           {micProblem === null || micProblem === '' ? null : <Notice tone="danger" label="휴대폰 마이크 문제">{micProblem}</Notice>}
-          <SheetChoices label={LISTEN_SOURCE_TITLE} choices={listenChoices(setting)} value={setting?.source ?? null} onPick={(next) => void pick(next)} testID="listen-source-choices" />
           {error === null ? null : <Notice tone="danger" alert>{error}</Notice>}
         </>
       )}
@@ -142,7 +120,7 @@ export function ListenSourceChip(props: ListenProps & { readonly onPress: () => 
   const word = listenShort(setting?.source ?? null, now)
   if (word === null) return null
   return (
-    <Tap role="button" aria-label={`${LISTEN_SOURCE_TITLE} 바꾸기 · ${now.text}`} testID="listen-source-chip" onPress={props.onPress}
+    <Tap role="button" aria-label={`${LISTEN_SOURCE_TITLE} · ${now.text}`} testID="listen-source-chip" onPress={props.onPress}
       style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 32, paddingHorizontal: SPACE.sm + 2, borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : p.soft })}>
       <Txt step="caption" weight="bold" color="textSub">{`${word} ›`}</Txt>
     </Tap>

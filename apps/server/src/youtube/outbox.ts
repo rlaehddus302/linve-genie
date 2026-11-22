@@ -58,7 +58,8 @@ import {
 } from './outbox-store.ts'
 import type { QuotaMeter } from './quota.ts'
 import { activeLink, fillLinkLiveChatId, fillLinkPoster, insertOwnMessage, isInvitedLink, latestLink, markChatEnded, markSummaryDone, summaryCandidates, type LinkRow } from './store.ts'
-import { SUMMARY_KIND, batchMessages, commentText, currentThanksTexts, liveChatText, summaryComments, type SummaryLine } from './texts.ts'
+import { LIVE_CHAT_MAX, SUMMARY_KIND, THANKS_SUFFIX, batchMessages, commentText, liveChatText, summaryComments, type SummaryLine } from './texts.ts'
+import { batchSuffix, sellerThanksTemplate, templatedThanksTexts } from './thanks-template.ts'
 import { ThanksFixer, type ManualOutcome, type ThanksPostsView } from './thanks-fix.ts'
 import type { Timer } from './timer.ts'
 import { winnerClaimsOf } from '../winners.ts'
@@ -653,11 +654,15 @@ export class OutboxRunner {
       // 2. 지금 엔진 상태 (R-13 실행 직전 — 메시지마다 새로 읽는다): 취소 → 건너뜀, 완료 → 게시됨.
       //    같은 상태에서 게시 직전의 문구도 읽는다 — 기다리는 동안 판매자가 고친 품종·가격이 글에 들어간다 (D-RETRO-02)
       let current: ReadonlyMap<string, string> = new Map()
+      // 판매자 감사 양식 (D-THANKS-FMT-01) — 메시지마다 다시 읽는다(라이브 중에 바꿔도 다음 글부터)
+      let suffix = THANKS_SUFFIX
       if (first.kind === 'POST_THANKS') {
         const state = (await this.#options.writer.read(sellerId, date, false)).state
         rows = await this.#engineCheck(rows, state)
         if (rows.length === 0) return
-        current = currentThanksTexts(listEffects(state))
+        const template = await sellerThanksTemplate(this.#options.db, sellerId)
+        current = templatedThanksTexts(state, template)
+        suffix = batchSuffix(template)
       }
       // 3. 연결·동의·권한·이은 방송·채팅·할당량
       const open = await this.#gate(rows, target)
@@ -679,7 +684,7 @@ export class OutboxRunner {
       let members: RunnerRow[]
       let text: string
       if (target === 'LIVE_CHAT') {
-        const [message] = batchMessages(rows.map((row) => ({ id: row.id, text: textOf(row) })))
+        const [message] = batchMessages(rows.map((row) => ({ id: row.id, text: textOf(row) })), LIVE_CHAT_MAX, suffix)
         if (message === undefined) return
         members = rows.filter((row) => message.ids.includes(row.id))
         if (members.length === 0) return

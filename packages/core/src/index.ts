@@ -27,6 +27,23 @@ export {
   type SmsTextResult,
 } from './parser.ts'
 export { formatWon, formatThanksHead, formatThanksText, type ThanksHeadInput, type ThanksTextInput } from './format.ts'
+export {
+  DEFAULT_THANKS_TEMPLATE,
+  THANKS_BLOCK_WORD,
+  THANKS_BLOCKS_MAX,
+  THANKS_REQUIRED,
+  THANKS_TEXT_BLOCK_MAX,
+  checkThanksTemplate,
+  isDefaultThanksTemplate,
+  parseThanksTemplate,
+  renderThanks,
+  sameThanksTemplate,
+  thanksTemplateSuffix,
+  type ThanksBlock,
+  type ThanksTemplate,
+  type ThanksValueKind,
+  type ThanksValues,
+} from './format.ts'
 export { normalizeText } from './text.ts'
 export {
   OPTION_LIMITS,

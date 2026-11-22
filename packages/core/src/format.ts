@@ -100,3 +100,128 @@ export function splitPieces(text: string): { readonly name: string; readonly pie
 export function piecesPerSale(product: { readonly name: string; readonly pieces?: number }): number {
   return product.pieces ?? saleSetSize(product.name) ?? 1
 }
+
+// 찜 감사 채팅 양식 (D-THANKS-FMT-01, 사용자 지시 2026-11-23 "찜 감사 채팅 양식 … 블록 코딩 느낌으로 커스텀 … 번호, 품명, 가격, 닉네임 블록"):
+// 판매자가 감사 채팅 글의 모양을 블록으로 정한다. 블록은 번호(`15번`) · 품명(`핑크프릴[ 흰색/대형][ 2개]`) · 가격(`10,000원`) · 닉네임(`홍길동님`) · 글자.
+// 블록 사이는 빈칸 하나로 잇는다(빈 블록은 빠진다). 기본 양식은 엔진 감사 문구(formatThanksText)와 글자까지 같다:
+//   [번호] [품명] [가격] [닉네임] "구매 감사합니다" → `15번 핑크프릴 10,000원 홍길동님 구매 감사합니다`.
+// 순수 함수(앱도 이 파일만 가져온다 — APP-01 AC3) — 엔진 문구(기록·재생·정정 비교)는 늘 기본 모양이고, 글을 올리는 쪽(서버 발송함)만 이 양식으로 바꿔 올린다.
+export type ThanksBlock =
+  | { readonly k: 'no' }
+  | { readonly k: 'name' }
+  | { readonly k: 'price' }
+  | { readonly k: 'buyer' }
+  | { readonly k: 'text'; readonly t: string }
+
+export type ThanksTemplate = readonly ThanksBlock[]
+export type ThanksValueKind = Exclude<ThanksBlock['k'], 'text'>
+
+/** 블록 이름 (화면 글) */
+export const THANKS_BLOCK_WORD: Readonly<Record<ThanksValueKind, string>> = { no: '번호', name: '품명', price: '가격', buyer: '닉네임' }
+/** 꼭 있어야 하는 블록 — 손님이 어느 찜이 누구에게 갔는지 알아야 한다(분쟁) */
+export const THANKS_REQUIRED: readonly ThanksValueKind[] = ['no', 'buyer']
+/** 글자 블록 하나의 길이 (코드 포인트) */
+export const THANKS_TEXT_BLOCK_MAX = 30
+/** 블록 수 상한 */
+export const THANKS_BLOCKS_MAX = 12
+
+export const DEFAULT_THANKS_TEMPLATE: ThanksTemplate = Object.freeze([
+  { k: 'no' },
+  { k: 'name' },
+  { k: 'price' },
+  { k: 'buyer' },
+  { k: 'text', t: '구매 감사합니다' },
+] as const)
+
+export interface ThanksValues {
+  readonly no: number
+  /** 품종 (앞뒤 공백은 뺀다) */
+  readonly name: string
+  /** 단가 (정수 원) */
+  readonly price: number
+  readonly buyerName: string
+  readonly optionText?: string | null
+  readonly qty?: number
+}
+
+/** 블록 하나의 글 (빈 글이면 빠진다) */
+function piece(block: ThanksBlock, values: ThanksValues): string {
+  const qty = values.qty ?? 1
+  switch (block.k) {
+    case 'no':
+      return `${String(values.no)}번`
+    case 'name':
+      return [values.name.trim(), values.optionText ?? '', qty >= 2 ? `${String(qty)}개` : ''].filter((part) => part !== '').join(' ')
+    case 'price':
+      return formatWon(values.price * qty)
+    case 'buyer':
+      return `${values.buyerName}님`
+    case 'text':
+      return block.t.trim()
+  }
+}
+
+/** 양식대로 감사 글을 만든다. 기본 양식이면 formatThanksText와 같다 */
+export function renderThanks(template: ThanksTemplate, values: ThanksValues): string {
+  const qty = values.qty ?? 1
+  if (!Number.isSafeInteger(qty) || qty < 1) throw new RangeError(`수량은 1 이상 정수여야 한다 (값: ${String(qty)})`)
+  return template.map((block) => piece(block, values)).filter((text) => text !== '').join(' ')
+}
+
+/** 두 양식이 같은가 */
+export function sameThanksTemplate(a: ThanksTemplate, b: ThanksTemplate): boolean {
+  return a.length === b.length && a.every((block, index) => {
+    const other = b[index]
+    if (other === undefined || other.k !== block.k) return false
+    return block.k !== 'text' || (other.k === 'text' && other.t.trim() === block.t.trim())
+  })
+}
+
+export function isDefaultThanksTemplate(template: ThanksTemplate): boolean {
+  return sameThanksTemplate(template, DEFAULT_THANKS_TEMPLATE)
+}
+
+/**
+ * 여러 감사를 한 글로 묶을 때의 끝말: 양식의 마지막 블록이 글자면 ` {그 글자}`(묶음은 앞 항목들을 `, `로 잇고 끝말 한 번), 아니면 빈 글(끝말 없이 잇는다).
+ * 기본 양식은 ` 구매 감사합니다`(texts.ts THANKS_SUFFIX와 같다)
+ */
+export function thanksTemplateSuffix(template: ThanksTemplate): string {
+  const last = template.at(-1)
+  return last?.k === 'text' && last.t.trim() !== '' ? ` ${last.t.trim()}` : ''
+}
+
+/** 양식 검사 — 문제가 없으면 null, 있으면 판매자에게 보일 쉬운 문장 */
+export function checkThanksTemplate(value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) return '양식을 만들어 주세요.'
+  if (value.length > THANKS_BLOCKS_MAX) return `블록은 ${String(THANKS_BLOCKS_MAX)}개까지 넣을 수 있어요.`
+  const seen = new Set<string>()
+  for (const raw of value as unknown[]) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return '알 수 없는 블록이 있어요.'
+    const block = raw as Record<string, unknown>
+    const keys = Object.keys(block)
+    if (block.k === 'text') {
+      if (keys.some((key) => key !== 'k' && key !== 't') || typeof block.t !== 'string') return '알 수 없는 블록이 있어요.'
+      if ([...block.t].length > THANKS_TEXT_BLOCK_MAX) return `글자 블록은 ${String(THANKS_TEXT_BLOCK_MAX)}자까지 적을 수 있어요.`
+      if (/[\n\r]/u.test(block.t)) return '글자 블록에는 줄을 바꿀 수 없어요.'
+      continue
+    }
+    if (block.k !== 'no' && block.k !== 'name' && block.k !== 'price' && block.k !== 'buyer') return '알 수 없는 블록이 있어요.'
+    if (keys.some((key) => key !== 'k')) return '알 수 없는 블록이 있어요.'
+    if (seen.has(block.k)) return `${THANKS_BLOCK_WORD[block.k]} 블록은 한 번만 넣을 수 있어요.`
+    seen.add(block.k)
+  }
+  for (const kind of THANKS_REQUIRED) if (!seen.has(kind)) return `${THANKS_BLOCK_WORD[kind]} 블록은 꼭 있어야 해요.`
+  return null
+}
+
+/** 저장된 글(JSON)을 양식으로 — 비었거나 깨졌거나 맞지 않으면 기본 양식 (판매자 안전: 감사는 늘 올라간다) */
+export function parseThanksTemplate(stored: string | null | undefined): ThanksTemplate {
+  if (stored === null || stored === undefined || stored === '') return DEFAULT_THANKS_TEMPLATE
+  try {
+    const value: unknown = JSON.parse(stored)
+    if (checkThanksTemplate(value) !== null) return DEFAULT_THANKS_TEMPLATE
+    return (value as ThanksBlock[]).map((block) => (block.k === 'text' ? { k: 'text', t: block.t.trim() } : { k: block.k }))
+  } catch {
+    return DEFAULT_THANKS_TEMPLATE
+  }
+}

@@ -32,6 +32,8 @@ export const sellers = pgTable('sellers', {
   streamAudio: boolean('stream_audio').notNull().default(true),
   /** 소리 듣기 고르기 (D-RETRO-70): 'mic' 휴대폰 마이크 · 'stream' 라이브 소리 */
   listenSource: text('listen_source').notNull().default('mic'),
+  /** 찜 감사 채팅 양식 (D-THANKS-FMT-01, 마이그레이션 0074): 블록 JSON 배열. null이면 기본 양식 */
+  thanksTemplate: text('thanks_template'),
 })
 
 /**

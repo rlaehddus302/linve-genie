@@ -274,7 +274,8 @@ describe('D-UX4-05 라벨 칸 옮기기·키우기 계산', () => {
     expect([FONT_SIZE_MIN, FONT_SIZE_MAX]).toEqual([LABEL_FONT_MIN, LABEL_FONT_MAX])
     for (const size of ALL_LABEL_SIZES) {
       const info = labelSizeInfo(size)
-      expect(labelDots(size), size).toEqual({ widthMm: info.widthMm, heightMm: info.heightMm, widthDots: info.widthDots, heightDots: info.heightDots })
+      // D-LABEL-SAFE-01로 앱 labelDots에 테이프 여부(tape)가 생겼다 — 라벨 규칙의 tape와도 같아야 한다
+      expect(labelDots(size), size).toEqual({ widthMm: info.widthMm, heightMm: info.heightMm, widthDots: info.widthDots, heightDots: info.heightDots, tape: info.tape })
     }
     expect(labelDots('엉뚱한 크기')).toBeNull()
   })

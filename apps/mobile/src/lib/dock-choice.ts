@@ -12,7 +12,8 @@ export const DOCK_CHOICES: readonly { readonly value: DockChoice; readonly label
 ]
 
 /** 관리 화면 줄 이름 */
-export const DOCK_TITLE = '화면 아래 창'
+/** D-MANAGE-01 (사용자 지시 2026-11-23 "화면 아래 창 -> 도우미 창") */
+export const DOCK_TITLE = '도우미 창'
 /** 아래 창 제목 밑 설명 (D-UX4-89) — 듣기는 고른 것과 상관없이 그대로라는 것도 알린다 */
 export const DOCK_DESCRIPTION = '라이브 화면 맨 아래에 무엇을 띄울지 골라요.\n어느 것을 골라도 음성 인식은 계속돼요.'
 

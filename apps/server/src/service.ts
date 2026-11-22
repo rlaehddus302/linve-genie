@@ -5,12 +5,16 @@ import { PAUSED_MESSAGE, isPausedBroadcast } from './pause.ts'
 import { groupOfBroadcast, mergeBroadcasts, readGroups, splitGroup, type BroadcastGroup, type MergeResult, type SplitResult } from './broadcast-groups.ts'
 import type { FullView as ClientFullView } from '../../web/src/api/types.ts'
 import { readQueue } from './print-store.ts'
+import { saveThanksTemplate, sellerThanksTemplate } from './youtube/thanks-template.ts'
 // 판매자 작업 (AC-S04-21·27·31·33·50~52, AC-S05-20·35·50~52·60·61·80). 판정은 모두 packages/core가 한다 — 여기서는 이벤트를 만들고 기록 경로에 넘기고 조회 함수를 부른다.
 // 범위 = (판매자, 날짜, 리허설인지) (D-081). 날짜로 범위를 고르는 조회·쓰기는 리허설을 명시해야 리허설 범위이고, 적지 않으면 실제 범위다.
 // 방송이 있는 입력은 그 방송의 범위로 간다.
 import {
   buyerOfRef,
   checkSettings,
+  checkThanksTemplate,
+  parseThanksTemplate,
+  type ThanksTemplate,
   compareChars,
   containsPhoneRun,
   currentBuyerOf,
@@ -410,6 +414,19 @@ export class Service {
 
   async settings(sellerId: string): Promise<SaleSettings> {
     return resolveSettings(await this.#settingsOverride(this.#options.db, sellerId))
+  }
+
+  /** 찜 감사 채팅 양식 (D-THANKS-FMT-01) — 저장한 것이 없거나 깨졌으면 기본 양식 */
+  async thanksTemplate(sellerId: string): Promise<ThanksTemplate> {
+    return sellerThanksTemplate(this.#options.db, sellerId)
+  }
+
+  /** 양식 바꾸기. 문제가 있으면 쉬운 문장, 저장했으면 null. 라이브 중에 바꿔도 다음에 올리는 감사부터 들어간다 */
+  async setThanksTemplate(sellerId: string, blocks: unknown): Promise<string | null> {
+    const problem = checkThanksTemplate(blocks)
+    if (problem !== null) return problem
+    await saveThanksTemplate(this.#options.db, sellerId, parseThanksTemplate(JSON.stringify(blocks)))
+    return null
   }
 
   /** 설정 일부 바꾸기. 코어 checkSettings로 검사하고, MANUAL은 아직 지원하지 않는다. 바꾼 설정은 다음에 만드는 방송부터 들어간다 */

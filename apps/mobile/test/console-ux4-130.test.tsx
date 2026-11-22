@@ -1,6 +1,8 @@
 // D-UX4-130 (사용자 지시 2026-11-12): 라이브 관리 화면 — "상품 미리 등록 기능 제거해. 라이브 연결 안에 있는 것들 모두 바깥에 있는 라이브 관리 화면으로 꺼내(뎁스 줄이는 의도)
 // 라벨 프린트 화면도 마찬가지로 밖으로 빼. 라벨 꾸미기 네이밍도 라벨 디자인으로 수정해. 사진 1(토스), 2(라이브지니) 비교해보면 텍스트 크기, 두께, 간격, 여백이 다르다.
 // 토글 버튼 디자인도 똑같이 맞춰라."
+// D-MANAGE-01 (사용자 지시 2026-11-23): 묶음 "방송 정보"→"라이브 정보", "채팅·화면 설정"→"채팅·음성", "방송 종료" 묶음 없앰 —
+// 연결 끊기는 라이브 정보 안 바로가기 바로 아래. 라벨 줄에서 출력 상태·농도·직접 인쇄·출력 내역을 없앰.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { CollectorView, LinkView } from '@livejjim/web/src/api/types.ts'
@@ -29,27 +31,30 @@ async function openManage(link: LinkView) {
   world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: link }))
   world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: [] } }))
   world.server.on('GET', /^\/api\/youtube\/channels\/UC_K\/avatar$/, () => ({ body: { avatar: null } }))
+  world.server.on('GET', /^\/api\/settings\/thanks-template$/, () => ({ body: { blocks: [{ k: 'no' }, { k: 'name' }, { k: 'price' }, { k: 'buyer' }, { k: 'text', t: '구매 감사합니다' }] } }))
   const steps: string[] = []
-  const openStatus = vi.fn()
   const openLink = vi.fn()
   const onEnded = vi.fn()
-  render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={openLink} labels={{ openStep: (step) => steps.push(step), openStatus }} onEnded={onEnded} />))
+  const openThanksTemplate = vi.fn()
+  render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={openLink} labels={{ openStep: (step) => steps.push(step) }} onEnded={onEnded} openThanksTemplate={openThanksTemplate} />))
   await waitFor(() => expect(world.source()).toBeTruthy())
   await act(async () => {
     world.source().open([{ date: '2026-10-29', rehearsal: false, seq: world.seq }])
     await flush()
   })
   const page = await screen.findByRole('main', { name: '라이브 관리' })
-  return { world, page, steps, openStatus, openLink, onEnded }
+  return { world, page, steps, openLink, onEnded, openThanksTemplate }
 }
 
 describe('라이브 관리를 한 화면으로 (D-UX4-130)', () => {
-  it('이은 라이브: 플랫폼·채널·라이브 제목·라이브 바로가기가 라이브 관리에 바로 있고 "라이브 연결 ›" 줄은 없다', async () => {
+  it('이은 라이브: 플랫폼·채널·제목·바로가기가 라이브 관리에 바로 있고 "라이브 연결 ›" 줄은 없다 (D-MANAGE-01 묶음 이름)', async () => {
     const { page } = await openManage(linked())
     await waitFor(() => expect(within(page).getByTestId('link-info-platform')).toBeTruthy())
-    expect(within(page).getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual(['방송 정보', '채팅·화면 설정', '라벨·프린터', '방송 종료'])
+    expect(within(page).getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual(['라이브 정보', '채팅·음성', '라벨·프린터'])
+    expect(LINK_INFO_ROWS.title).toBe('제목')
+    expect(LINK_INFO_ROWS.open).toBe('바로가기')
     expect(within(within(page).getByRole('group', { name: '라벨·프린터' })).getByRole('button', { name: LABEL_PRINT_ROWS.design })).toBeTruthy()
-    expect(within(within(page).getByRole('group', { name: '방송 종료' })).getByRole('button', { name: END_LINK_LABEL })).toBeTruthy()
+    expect(within(within(page).getByRole('group', { name: '라이브 정보' })).getByRole('button', { name: END_LINK_LABEL })).toBeTruthy()
     expect(within(page).getByTestId('link-info-channel').textContent).toContain('다육이네')
     expect(within(page).getByTestId('link-info-title').textContent).toBe(`${LINK_INFO_ROWS.title}오늘 저녁 다육이 경매`)
     expect(within(page).getByRole('button', { name: LINK_INFO_ROWS.open })).toBeTruthy()
@@ -63,8 +68,8 @@ describe('라이브 관리를 한 화면으로 (D-UX4-130)', () => {
     expect(within(page).queryByTestId('link-info-platform')).toBeNull()
   })
 
-  it('라벨 줄이 바로 있다: 라벨 뽑기(? 설명) · 프린터 연결 · 라벨 디자인 · 테스트 인쇄 · 출력 상태·농도 — "라벨 프린트 ›"·"상품 미리 등록"은 없다', async () => {
-    const { page, steps, openStatus } = await openManage(linked())
+  it('라벨 줄이 바로 있다: 라벨 뽑기(? 설명) · 프린터 연결 · 라벨 디자인 · 테스트 인쇄 — "라벨 프린트 ›"·"상품 미리 등록"·출력 상태·농도·직접 인쇄·출력 내역은 없다 (D-MANAGE-01)', async () => {
+    const { page, steps } = await openManage(linked())
     await waitFor(() => expect(within(page).getByRole('switch', { name: `${LABEL_PRINT_ROWS.on} — 켜짐` })).toBeTruthy())
     expect(LABEL_PRINT_ROWS.design).toBe('라벨 디자인')
     const connect = within(page).getByRole('button', { name: LABEL_PRINT_ROWS.connect })
@@ -72,9 +77,8 @@ describe('라이브 관리를 한 화면으로 (D-UX4-130)', () => {
     fireEvent.click(connect)
     fireEvent.click(within(page).getByRole('button', { name: LABEL_PRINT_ROWS.design }))
     fireEvent.click(within(page).getByRole('button', { name: LABEL_PRINT_ROWS.test }))
-    fireEvent.click(within(page).getByRole('button', { name: LABEL_PRINT_ROWS.status }))
     expect(steps).toEqual(['connect', 'design', 'test'])
-    expect(openStatus).toHaveBeenCalledTimes(1)
+    for (const gone of [LABEL_PRINT_ROWS.status, '직접 인쇄', '출력 내역']) expect(within(page).queryByRole('button', { name: gone })).toBeNull()
     fireEvent.click(within(page).getByRole('button', { name: `${LABEL_PRINT_ROWS.on} 설명 보기` }))
     expect(await screen.findByRole('dialog', { name: LABEL_ON_HELP_TITLE })).toBeTruthy()
     expect(within(page).queryByRole('button', { name: LABEL_PRINT_TITLE })).toBeNull()
@@ -82,13 +86,34 @@ describe('라이브 관리를 한 화면으로 (D-UX4-130)', () => {
     expect(page.textContent).not.toContain('라벨 꾸미기')
   })
 
-  it('라이브 연결 끊기는 라이브 관리 맨 아래 빨간 줄 (라이브 연결 안으로 들어가지 않는다)', async () => {
+  it('연결 끊기는 라이브 정보 안 바로가기 바로 아래 빨간 줄 (D-MANAGE-01 — 옛: 맨 아래 "방송 종료" 묶음)', async () => {
     const { page } = await openManage(linked())
+    expect(END_LINK_LABEL).toBe('연결 끊기')
     const end = await within(page).findByRole('button', { name: END_LINK_LABEL })
-    const buttons = within(page).getAllByRole('button')
-    expect(buttons[buttons.length - 1]).toBe(end)
+    const buttons = within(within(page).getByRole('group', { name: '라이브 정보' })).getAllByRole('button')
+    expect(buttons[buttons.indexOf(within(page).getByRole('button', { name: LINK_INFO_ROWS.open })) + 1]).toBe(end)
     // 끊기 줄은 하나뿐 (LinkInfo 안의 끊기 줄과 겹치지 않는다)
     expect(within(page).getAllByRole('button', { name: END_LINK_LABEL })).toHaveLength(1)
+  })
+})
+
+describe('채팅·음성 묶음 (D-MANAGE-01, 사용자 지시 2026-11-23)', () => {
+  it('잠깐 멈추기 · 닉네임 뒤 영문 숨기기(? 설명) · 찜 감사 채팅 · 찜 감사 채팅 양식 › · 도우미 창 › — 올라간 감사 채팅·소리 듣기는 없다', async () => {
+    const { page, openThanksTemplate } = await openManage(linked())
+    const group = within(within(page).getByRole('group', { name: '채팅·음성' }))
+    await waitFor(() => expect(group.getByTestId('thanks-template-row').textContent).toContain('기본'))
+    const names = ['채팅·음성 인식 잠깐 멈추기', '닉네임 뒤 영문 숨기기', '찜 감사 채팅', '찜 감사 채팅 양식', '도우미 창']
+    const text = within(page).getByRole('group', { name: '채팅·음성' }).textContent ?? ''
+    const at = names.map((name) => text.indexOf(name))
+    expect(at.every((index) => index >= 0)).toBe(true)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+    for (const gone of ['올라간 감사 채팅', '소리 듣기', '자동 감사 채팅', '화면 아래 창']) expect(page.textContent).not.toContain(gone)
+    // 닉네임 숨기기 설명은 줄 아래가 아니라 ? 안으로
+    expect(page.textContent).not.toContain('방송 화면과 라벨에')
+    fireEvent.click(group.getByRole('button', { name: '닉네임 뒤 영문 숨기기 설명 보기' }))
+    expect(await screen.findByRole('dialog', { name: '닉네임 뒤 영문 숨기기란?' })).toBeTruthy()
+    fireEvent.click(group.getByTestId('thanks-template-row'))
+    expect(openThanksTemplate).toHaveBeenCalledTimes(1)
   })
 })
 

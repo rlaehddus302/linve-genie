@@ -18,7 +18,8 @@ import { errorKind, type LogSink } from '../../log.ts'
 import type { ScopeWriter } from '../../writer.ts'
 import { ChatSendError } from '../../youtube/chat-send/sender.ts'
 import { TT_LEASE_OWNER, tiktokDueRows, tiktokLapsedRows, tiktokUnreportedRows, updateTiktokRows, type RowChange, type RunnerRow } from '../../youtube/outbox-store.ts'
-import { batchMessages, currentThanksTexts } from '../../youtube/texts.ts'
+import { batchMessages } from '../../youtube/texts.ts'
+import { batchSuffix, sellerThanksTemplate, templatedThanksTexts } from '../../youtube/thanks-template.ts'
 import type { Timer } from '../../youtube/timer.ts'
 import { latestTiktokLink } from '../store.ts'
 import { TT_COMMENT_MAX, type TikTokChatSender } from './browser-sender.ts'
@@ -179,10 +180,13 @@ export class TikTokThanks {
     // 효과 ID는 날짜 범위 안에서만 유일하므로 범위가 하나일 때만 쓴다(한 회차의 행은 한 범위다), 아니면 행의 문구
     const dates = new Set(rows.map((row) => row.date))
     let current: ReadonlyMap<string, string> = new Map()
+    // 판매자 감사 양식 (D-THANKS-FMT-01)
+    const template = await sellerThanksTemplate(db, sellerId)
     for (const date of dates) {
-      const effects = listEffects((await writer.read(sellerId, date, false)).state)
+      const state = (await writer.read(sellerId, date, false)).state
+      const effects = listEffects(state)
       const statuses = new Map(effects.map((effect) => [effect.id, effect.status]))
-      if (dates.size === 1) current = currentThanksTexts(effects)
+      if (dates.size === 1) current = templatedThanksTexts(state, template)
       const ofDate = rows.filter((row) => row.date === date)
       await end(
         ofDate.filter((row) => statuses.get(row.effectId) === 'CANCELLED'),
@@ -206,6 +210,7 @@ export class TikTokThanks {
     const [message] = batchMessages(
       rows.map((row) => ({ id: row.id, text: current.get(row.effectId) ?? effectText(row) })),
       TT_COMMENT_MAX,
+      batchSuffix(template),
     )
     if (message === undefined) return
     const members = rows.filter((row) => message.ids.includes(row.id))

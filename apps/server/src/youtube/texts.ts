@@ -93,21 +93,22 @@ export interface BatchMessage {
   readonly text: string
 }
 
-/** 항목 문구: 끝의 ` 구매 감사합니다`를 뗀 것 (끝말이 없으면 null — 그 효과는 혼자 보낸다) */
-function itemOf(text: string): string | null {
-  return text.endsWith(THANKS_SUFFIX) && text.length > THANKS_SUFFIX.length ? text.slice(0, -THANKS_SUFFIX.length) : null
+/** 항목 문구: 끝의 끝말(기본 ` 구매 감사합니다`)을 뗀 것 (끝말이 없으면 null — 그 효과는 혼자 보낸다). 끝말이 빈 글이면 문구 그대로 */
+function itemOf(text: string, suffix: string): string | null {
+  return text.endsWith(suffix) && text.length > suffix.length ? text.slice(0, text.length - suffix.length) : null
 }
 
 /**
  * 묶음 문구와 200자 분할 (AC-Y1-41, D-Y07). 항목은 효과가 나온 순서대로 받는다.
+ * suffix: 끝말 — 기본 ` 구매 감사합니다`. 판매자 감사 양식(D-THANKS-FMT-01)이면 그 양식의 마지막 글자 블록(없으면 빈 글 — 항목을 `, `로만 잇는다).
  * - 한 건이면 효과 문구 그대로, 여럿이면 각 항목(끝말을 뗀 것)을 `, `로 이은 뒤 ` 구매 감사합니다`.
  * - 메시지 하나는 max자까지. 넘으면 항목 경계에서 나눈다(앞 메시지에 들어갈 수 있는 만큼). 한 사람의 감사가 두 메시지로 갈라지지 않는다.
  * - 항목 하나만으로 넘으면 그 항목은 혼자 한 메시지이고 그 효과의 한 건 문구를 앞 (max − 1)자 + `…`로 자른다.
  */
-export function batchMessages(items: readonly BatchItem[], max = LIVE_CHAT_MAX): BatchMessage[] {
+export function batchMessages(items: readonly BatchItem[], max = LIVE_CHAT_MAX, suffix = THANKS_SUFFIX): BatchMessage[] {
   const messages: BatchMessage[] = []
   let group: { id: number; item: string }[] = []
-  const compose = (members: readonly { item: string }[]): string => `${members.map((member) => member.item).join(', ')}${THANKS_SUFFIX}`
+  const compose = (members: readonly { item: string }[]): string => `${members.map((member) => member.item).join(', ')}${suffix}`
   const flush = () => {
     if (group.length === 0) return
     messages.push({ ids: group.map((member) => member.id), text: compose(group) })
@@ -115,7 +116,7 @@ export function batchMessages(items: readonly BatchItem[], max = LIVE_CHAT_MAX):
   }
   for (const entry of items) {
     const text = cleanPostText(entry.text)
-    const item = itemOf(text)
+    const item = itemOf(text, suffix)
     if (item === null || charCount(text) > max) {
       // 끝말이 없거나 혼자서도 넘는 항목: 혼자 한 메시지
       flush()

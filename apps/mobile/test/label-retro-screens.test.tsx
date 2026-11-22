@@ -9,7 +9,7 @@ import type { LinkView } from '@livejjim/web/src/api/types.ts'
 import { fixPlan } from '../src/lib/label-fix.ts'
 import { FIX_AMOUNT_KEPT, FIX_DONE, FIX_DONE_SAME, FIX_LABEL_ONLY, FIX_NUMBER_LABEL_ONLY, FIX_PRICE_LABEL_ONLY, FIX_PRODUCT_TOO, FIX_QUESTION, PRINT_ALL_WAITING, WAITING_NEED_PRINTER, WAITING_RECONNECT, fixDescription, keepReconnectingMessage, missingQueued, missingRowTitle, waitingResult } from '../src/lib/print-words.ts'
 import { PrintAllWaiting, liveWaitingCount, missingLabelCount } from '../src/screens/LabelBacklog.tsx'
-import { LABEL_PRINT_ROWS } from '../src/screens/LabelPrintScreen.tsx'
+import { LABEL_PRINT_ROWS, LabelPrintRows } from '../src/screens/LabelPrintScreen.tsx'
 import { PrintHistory } from '../src/screens/PrintHistory.tsx'
 import { ScopeConsole } from '../src/screens/console/scope.tsx'
 import { ManageScreen } from '../src/screens/console/StackScreens.tsx'
@@ -34,13 +34,13 @@ async function openScope(world: ScreenWorld) {
   })
 }
 
-async function openManage(world: ScreenWorld, history = true) {
+async function openManage(world: ScreenWorld) {
   // 앱 뿌리처럼 로그인한 동안 라벨 대기열을 돌린다
   world.services.labels.start()
   world.server.on('GET', /^\/api\/youtube\/connection$/, () => ({ body: { connection: { status: 'NOT_CONNECTED', channel: null, permissions: { read: false, publish: false }, consent: { liveChat: { enabled: false, at: null }, videoComment: { enabled: false, at: null } } }, webChat: { on: true }, oauth: true } }))
   world.server.on('GET', /^\/api\/broadcasts\/b1\/youtube$/, () => ({ body: { link: null, collector: null } as unknown as LinkView }))
   world.server.on('GET', /^\/api\/youtube\/live-broadcasts$/, () => ({ body: { broadcasts: [] } }))
-  render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} labels={{ openStep: () => {}, openStatus: () => {}, ...(history ? { openHistory: () => {} } : {}) }} />))
+  render(world.wrap(<ManageScreen broadcastId="b1" onBack={() => {}} openLink={() => {}} labels={{ openStep: () => {} }} />))
   await openScope(world)
   const page = await screen.findByRole('main', { name: '라이브 관리' })
   return within(within(page).getByRole('group', { name: '라벨·프린터' }))
@@ -127,10 +127,14 @@ describe('F1 라이브 관리의 쌓인 라벨 줄', () => {
     expect(group.queryByRole('button', { name: /지금 뽑기/ })).toBeNull()
   })
 
-  it('판매자가 아니면(출력 내역 줄이 없는 화면) 라벨 없는 판매 줄을 보이지 않는다', async () => {
+  // D-MANAGE-01: 출력 내역 줄을 없애 판매자인지를 seller로 바로 넘긴다 (옛: 출력 내역 줄이 있는 화면 = 판매자)
+  it('판매자가 아니면 라벨 없는 판매 줄을 보이지 않는다', async () => {
     const world = makeWorld({ products: [] })
     world.server.on('GET', /^\/api\/print\/labels/, () => ({ body: { date: DAY, labels: [labelOf(333, 'c1')] } }))
-    const group = await openManage(world, false)
+    world.services.labels.start()
+    render(world.wrap(<ScopeConsole broadcastId="b1" waiting={null}>{() => <LabelPrintRows openStep={() => {}} seller={false} />}</ScopeConsole>))
+    await openScope(world)
+    const group = within(screen.getByTestId('label-print-rows'))
     await waitFor(() => expect(group.getByRole('button', { name: LABEL_PRINT_ROWS.connect })).toBeTruthy())
     await act(() => flush())
     expect(group.queryByRole('button', { name: /라벨 없는 판매/ })).toBeNull()

@@ -1,5 +1,5 @@
 // 방송 관리 경로 (/console/<방송 ID>/manage, D-UX4-57): 방송 화면 위에 진짜로 쌓인다. 방송 연결·프린터는 이 위에 또 쌓는다.
-// 방송을 끝내면 해당 방송의 판매 명세로 돌아간다. 라벨 줄(D-UX4-130)은 한 단계 화면(/label-setup?step=)·출력 상태(/labels)를 바로 쌓는다.
+// 방송을 끝내면 해당 방송의 판매 명세로 돌아간다. 라벨 줄(D-UX4-130)은 한 단계 화면(/label-setup?step=)을, 찜 감사 채팅 양식 줄은 /thanks-template를 쌓는다(D-MANAGE-01).
 import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useRef, useState } from 'react'
 import { ManageScreen } from '../../../src/screens/console/StackScreens.tsx'
@@ -24,7 +24,7 @@ export default function ManageRoute() {
   const back = () => (router.canGoBack() ? router.back() : router.replace({ pathname: '/console/[id]', params: { id } }))
   return (
     <RouteFrame>
-        <ManageScreen broadcastId={id} onBack={back} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }), openStatus: () => router.push('/labels?from=console'), openDirect: () => router.push({ pathname: '/console/[id]/print-history', params: { id, mode: 'direct' } }), openHistory: () => router.push({ pathname: '/console/[id]/print-history', params: { id } }) }} onEnded={() => router.dismissTo({ pathname: '/console/[id]', params: { id, ended: '1' } })} openThanks={() => router.push({ pathname: '/console/[id]/thanks', params: { id } })} />
+        <ManageScreen broadcastId={id} onBack={back} refresh={visits} openLink={(closed) => router.push({ pathname: '/link/[id]', params: { id, ...(closed ? { closed: '1' } : {}) } })} labels={{ openStep: (step) => router.push({ pathname: '/label-setup', params: { step } }) }} onEnded={() => router.dismissTo({ pathname: '/console/[id]', params: { id, ended: '1' } })} openThanksTemplate={() => router.push('/thanks-template')} />
       </RouteFrame>
   )
 }

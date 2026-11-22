@@ -25,11 +25,14 @@ export interface ListenSourceView {
   readonly streamEnabled: boolean
 }
 
-/** 저장된 선택과 라이브 소리 켬·끔을 한 번에 읽는다. 모르는 값은 'mic' */
+/**
+ * 듣는 곳과 라이브 소리 켬·끔을 읽는다. 듣는 곳은 늘 'mic' (D-LISTEN-MIC-01, 사용자 지시 2026-11-23 "소리 듣기 없애. 그냥 무조건 폰 마이크로 듣는 걸로") —
+ * 앱은 휴대폰 마이크를 켜고, 마이크가 꺼져 있는 동안만 서버가 라이브 소리로 듣는다(D-LV1-06 그대로, 판매자 안전).
+ */
 export async function sellerListenSource(db: Db, sellerId: string, streamAvailable: boolean): Promise<ListenSourceView> {
-  const rows = await db.select({ on: sellers.streamAudio, source: sellers.listenSource }).from(sellers).where(eq(sellers.id, sellerId)).limit(1)
+  const rows = await db.select({ on: sellers.streamAudio }).from(sellers).where(eq(sellers.id, sellerId)).limit(1)
   const streamEnabled = rows[0]?.on ?? false
-  return { source: rows[0]?.source === 'stream' && streamAvailable && streamEnabled ? 'stream' : 'mic', streamAvailable, streamEnabled }
+  return { source: 'mic', streamAvailable, streamEnabled }
 }
 
 export function registerStreamAudioRoutes(api: Hono<Env>, db: Db, service: StreamAudioService, heard: HeadlessVoice | null = null): void {
@@ -41,10 +44,9 @@ export function registerStreamAudioRoutes(api: Hono<Env>, db: Db, service: Strea
     const input = c.get('body')
     if (input === null || (input.source !== 'mic' && input.source !== 'stream') || Object.keys(input).some((key) => key !== 'source')) return apiError(400, 'INVALID_INPUT', '휴대폰 마이크와 라이브 소리 가운데 하나를 골라 주세요.')
     const sellerId = c.get('session').sellerId
-    if (input.source === 'stream') {
-      if (!service.available) return apiError(409, 'NOT_SUPPORTED', '지금은 라이브 소리로 들을 수 없어요. 휴대폰 마이크를 골라 주세요.')
-      await db.update(sellers).set({ listenSource: 'stream', streamAudio: true }).where(eq(sellers.id, sellerId))
-    } else await db.update(sellers).set({ listenSource: 'mic' }).where(eq(sellers.id, sellerId))
+    // 라이브 소리 고르기는 없앴다 (D-LISTEN-MIC-01) — 옛 앱이 보내면 바꾸지 않고 알린다
+    if (input.source === 'stream') return apiError(409, 'NOT_SUPPORTED', '이제 휴대폰 마이크로만 들어요. 앱을 업데이트해 주세요.')
+    await db.update(sellers).set({ listenSource: 'mic' }).where(eq(sellers.id, sellerId))
     return c.json(await sellerListenSource(db, sellerId, service.available))
   })
   api.get('/settings/stream-audio', async (c) => c.json(await settings(c.get('session').sellerId)))

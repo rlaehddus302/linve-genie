@@ -10,7 +10,8 @@ import { Notice } from '../../ui/parts.tsx'
 import { ConsoleContext } from './context.ts'
 import { MenuGroup, MenuRow, PLAIN, PlainRow } from './parts.tsx'
 
-export const END_LINK_LABEL = '라이브 연결 끊기'
+/** 줄 이름 (D-MANAGE-01, 사용자 지시 2026-11-23 "라이브 연결 끊기는 … '연결 끊기' 이름으로") */
+export const END_LINK_LABEL = '연결 끊기'
 export const END_LINK_QUESTION = '라이브 연결을 끊을까요?'
 export const END_LINK_BODY = '라이브가 끝나요. 끝난 뒤에도 늦게 온 채팅·문자찜은 처리돼요.'
 

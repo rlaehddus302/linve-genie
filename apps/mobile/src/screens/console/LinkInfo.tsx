@@ -22,7 +22,8 @@ import { PLAIN, PlainRow, PlainTitle } from './parts.tsx'
 import { YoutubeWarning, type MobileYoutube } from './YoutubeSection.tsx'
 
 export const LINK_INFO_TITLE = '라이브 연결'
-export const LINK_INFO_ROWS = { platform: '플랫폼', title: '라이브 제목', channel: '채널', open: '라이브 바로가기', restart: '채팅 다시 받기' } as const
+// D-MANAGE-01 (사용자 지시 2026-11-23 "라이브 제목 -> 제목, 라이브 바로가기 -> 바로가기")
+export const LINK_INFO_ROWS = { platform: '플랫폼', title: '제목', channel: '채널', open: '바로가기', restart: '채팅 다시 받기' } as const
 /** 줄 오른쪽 작은 그림 (플랫폼 아이콘·채널 사진) */
 export const LINK_INFO_ICON = 24
 
@@ -158,8 +159,9 @@ export function LinkInfo({ broadcastId, yt, closed, onEnded, grouped = false, bl
       {grouped ? null : <View style={{ height: SPACE.lg }} />}
       <View>
         {link === null ? null : <PlainRow title={LINK_INFO_ROWS.open} testID="link-info-open" onPress={() => void openExternal(liveWatchUrl(link.videoId))} />}
-        {!closed && collector?.restartable === true ? <PlainRow title={LINK_INFO_ROWS.restart} testID="link-info-restart" onPress={() => void restart()} /> : null}
+        {/* 연결 끊기는 바로가기 바로 아래 (D-MANAGE-01) */}
         {onEnded === undefined || closed ? null : <EndBroadcastRow broadcastId={broadcastId} onEnded={onEnded} plain />}
+        {!closed && collector?.restartable === true ? <PlainRow title={LINK_INFO_ROWS.restart} testID="link-info-restart" onPress={() => void restart()} /> : null}
       </View>
     </View>
   )

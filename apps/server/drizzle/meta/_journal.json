@@ -498,6 +498,13 @@
       "when": 1794960000046,
       "tag": "0073_parcel_nick_in_name",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1794960000047,
+      "tag": "0074_thanks_template",
+      "breakpoints": true
     }
   ]
 }
