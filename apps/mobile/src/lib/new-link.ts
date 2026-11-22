@@ -24,3 +24,22 @@ export function trackNewLink(broadcastId: string, work: Promise<unknown>): void 
 export function newLinkSettled(broadcastId: string): Promise<NewLinkResult> {
   return pending.get(broadcastId) ?? Promise.resolve('ok')
 }
+
+/** 라이브 화면으로 들어간(시작한) 새 라이브 — 링크 화면이 사라질 때 이 회차의 연결은 끊지 않는다 (D-DRAFT-02) */
+const started = new Set<string>()
+
+/** 새 라이브를 라이브 화면으로 연다고 알린다 (프린터 화면 마침·라벨 단계 없이 바로 열기) */
+export function markNewLiveStarted(broadcastId: string): void {
+  started.add(broadcastId)
+}
+
+/** 라이브 화면으로 들어간 새 라이브인가 */
+export function newLiveStarted(broadcastId: string): boolean {
+  return started.has(broadcastId)
+}
+
+/** 시험용: 맡긴 잇기·시작 표시를 모두 지운다 (같은 방송 번호를 쓰는 다음 시험에 남지 않게) */
+export function resetNewLinks(): void {
+  pending.clear()
+  started.clear()
+}

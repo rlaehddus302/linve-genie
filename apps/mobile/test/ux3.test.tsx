@@ -264,6 +264,34 @@ describe('새 라이브: 판매 종류 → 라이브 주소 (D-UX3-09·10)', () 
     expect(nav.openConsole).not.toHaveBeenCalled()
   })
 
+  it('링크까지 이은 뒤 링크 화면에서 뒤로 나가면(새 라이브를 그만둠) 그 연결을 끊는다 — 잇지 않았으면 끊지 않는다 (D-DRAFT-01)', async () => {
+    const world = linkableWorld()
+    world.server.on('POST', /^\/api\/broadcasts\/b9\/youtube\/unlink$/, () => ({ body: {} }))
+    const nav = { ...newNav(), openLabelSetup: vi.fn() }
+    render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
+    const page = screen.getByRole('dialog', { name: '새 라이브' })
+    fireEvent.change(await within(page).findByLabelText('라이브 링크'), { target: { value: 'https://www.youtube.com/watch?v=tWnNGwvdN40' } })
+    next()
+    await agree()
+    await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledTimes(1))
+    fireEvent.click(within(screen.getByTestId('link-confirm')).getByRole('button', { name: '뒤로' }))
+    await screen.findByLabelText('라이브 링크')
+    fireEvent.click(within(screen.getByRole('dialog', { name: '새 라이브' })).getAllByRole('button', { name: '뒤로' })[0]!)
+    expect(nav.back).toHaveBeenCalled()
+    await waitFor(() => expect(world.server.callsTo('POST', /^\/api\/broadcasts\/b9\/youtube\/unlink$/)).toHaveLength(1))
+  })
+
+  it('잇지 않고 나가면 아무것도 끊지 않는다 (D-DRAFT-01)', async () => {
+    const world = linkableWorld()
+    const nav = newNav()
+    render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
+    const page = screen.getByRole('dialog', { name: '새 라이브' })
+    await within(page).findByLabelText('라이브 링크')
+    fireEvent.click(within(page).getAllByRole('button', { name: '뒤로' })[0]!)
+    expect(nav.back).toHaveBeenCalled()
+    expect(world.server.callsTo('POST', /unlink$/)).toHaveLength(0)
+  })
+
   // D-UX4-160·162 (사용자 지시 2026-11-16 "그냥 우리 앱 안에서 브라우저 띄워서 해당 라이브 들어간 다음에, 밑에 [이 라이브에요] 버튼을 누르면 자동으로 그 라이브로 연결"):
   // 옛 기대(D-UX3-11) — 유튜브는 앱(없으면 앱 안 브라우저)을 열고, 돌아오면 [붙여넣기] 한 번으로 링크가 들어감, 플랫폼마다 앱 주소·웹 주소(LIVE_PLATFORMS.web).
   // 새 기대 — 고르면 앱 안 브라우저가 뜨고, 라이브 화면에서 [이 라이브예요]를 누르면 브라우저가 닫히고 링크가 칸에 들어가 [다음]과 똑같이 연결 확인 화면으로.

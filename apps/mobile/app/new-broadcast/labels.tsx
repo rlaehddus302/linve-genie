@@ -3,7 +3,7 @@
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useEffect, useRef } from 'react'
 import { newBroadcastNav } from '../../src/lib/new-broadcast-nav.ts'
-import { newLinkSettled } from '../../src/lib/new-link.ts'
+import { markNewLiveStarted, newLinkSettled } from '../../src/lib/new-link.ts'
 import { LabelSetupScreen } from '../../src/screens/LabelSetupScreen.tsx'
 import { useSession } from '../../src/services.tsx'
 import { RouteFrame } from '../../src/ui/kit/route-frame.tsx'
@@ -34,7 +34,11 @@ export default function NewBroadcastLabelsRoute() {
     if (leaving.current) return
     leaving.current = true
     void newLinkSettled(id).then((result) => {
-      if (result === 'ok') nav.openConsole(id)
+      if (result === 'ok') {
+        // 라이브 화면으로 가며 새 라이브 화면들이 닫힌다 — 링크 화면이 이 회차의 연결을 끊지 않게 먼저 알린다 (D-DRAFT-02)
+        markNewLiveStarted(id)
+        nav.openConsole(id)
+      }
       else leaving.current = false
     })
   }

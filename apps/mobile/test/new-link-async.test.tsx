@@ -4,7 +4,7 @@
 // 판매 종류 화면이 최근 연결한 채널 목록을 미리 받아 두고 링크 화면이 그것을 쓴다.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { newLinkSettled, trackNewLink } from '../src/lib/new-link.ts'
+import { markNewLiveStarted, newLinkSettled, trackNewLink } from '../src/lib/new-link.ts'
 import { JoinedLive, RECENT_PREFETCH_MS, prefetchRecentLives } from '../src/screens/console/YoutubeSection.tsx'
 import { NewBroadcastAddressScreen, NewBroadcastCategoryScreen } from '../src/screens/NewBroadcastScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
@@ -83,6 +83,71 @@ describe('새 라이브 [연결하기]는 기다리지 않고 프린터 화면�
     expect(await newLinkSettled('j1')).toBe('joined')
     trackNewLink('f1', Promise.reject(new Error('x')))
     expect(await newLinkSettled('f1')).toBe('failed')
+  })
+})
+
+// D-DRAFT-02 (사용자 "연결하기 눌렀다가 뒤로 돌아가면 홈 화면에 연결 안 된걸로 나오던데 그건 왜 그런건데? 그래서 유령 연결이 생기는거잖아")
+describe('새 라이브를 그만두면 어떻게 나가든 만드는 중에 이은 연결을 끊는다 (D-DRAFT-02)', () => {
+  const UNLINK = /^\/api\/broadcasts\/b9\/youtube\/unlink$/
+  const labelsNav = () => ({ back: vi.fn(), openAddress: vi.fn(), openConsole: vi.fn(), openLabelSetup: vi.fn() })
+
+  it('밀어서 뒤로·뒤로 키처럼 화면이 그냥 사라져도(단추 없이) 끊는다', async () => {
+    const world = linkableWorld()
+    world.server.on('POST', UNLINK, () => ({ body: {} }))
+    const nav = labelsNav()
+    const view = render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
+    await pasteAndConnect()
+    await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledWith('b9'))
+    expect(await newLinkSettled('b9')).toBe('ok')
+    view.unmount()
+    await waitFor(() => expect(world.server.callsTo('POST', UNLINK)).toHaveLength(1))
+  })
+
+  it('잇는 중에 나가면 잇기가 끝나기를 기다렸다가 끊는다 (D-LINK-ASYNC-01)', async () => {
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const world = linkableWorld(async () => {
+      await held
+      return { body: { link: null, collector: null } }
+    })
+    world.server.on('POST', UNLINK, () => ({ body: {} }))
+    const nav = labelsNav()
+    const view = render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
+    await pasteAndConnect()
+    await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledWith('b9'))
+    view.unmount()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(world.server.callsTo('POST', UNLINK)).toHaveLength(0)
+    release()
+    await waitFor(() => expect(world.server.callsTo('POST', UNLINK)).toHaveLength(1))
+  })
+
+  it('라이브 화면으로 들어간 새 라이브는 끊지 않는다 — 프린터 화면 마침 · 라벨 단계 없이 바로 열기', async () => {
+    const world = linkableWorld()
+    world.server.on('POST', UNLINK, () => ({ body: {} }))
+    const nav = labelsNav()
+    const view = render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
+    await pasteAndConnect()
+    await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledWith('b9'))
+    expect(await newLinkSettled('b9')).toBe('ok')
+    markNewLiveStarted('b9')
+    view.unmount()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(world.server.callsTo('POST', UNLINK)).toHaveLength(0)
+  })
+
+  it('못 이었으면 끊을 것이 없다', async () => {
+    const world = linkableWorld(() => ({ status: 409, body: { error: { code: 'VIDEO_IN_USE', message: '이미 다른 방송에 이어진 유튜브 방송이에요.' } } }))
+    const nav = labelsNav()
+    const view = render(world.wrap(<NewBroadcastAddressScreen category="succulent" nav={nav} />))
+    await pasteAndConnect()
+    await waitFor(() => expect(nav.openLabelSetup).toHaveBeenCalledWith('b9'))
+    expect(await newLinkSettled('b9')).toBe('failed')
+    view.unmount()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(world.server.callsTo('POST', /unlink$/)).toHaveLength(0)
   })
 })
 

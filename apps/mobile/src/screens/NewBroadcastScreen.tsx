@@ -15,7 +15,7 @@ import { LIVE_PLATFORMS, type PlatformTarget } from '../lib/open-app.ts'
 import { browserStart, type BrowserHints } from '../lib/live-browser.ts'
 import { readModeOf } from '../lib/youtube.ts'
 import { peekCached, useCachedGet } from '../lib/cached-get.ts'
-import { trackNewLink } from '../lib/new-link.ts'
+import { markNewLiveStarted, newLiveStarted, trackNewLink } from '../lib/new-link.ts'
 import { LiveBrowser, type LiveBrowserOpen } from './LiveBrowser.tsx'
 import { useSheetHandoff } from './console/claim-actions.ts'
 import { BottomSheet, FormPage, Icon, Txt, useKit, Tap } from '../ui/kit/index.ts'
@@ -170,7 +170,10 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
     const openLabels = nav.openLabelSetup
     if (linked.current?.key === key) {
       if (openLabels !== undefined) openLabels(id)
-      else nav.openConsole(id)
+      else {
+        markNewLiveStarted(id)
+        nav.openConsole(id)
+      }
       return
     }
     const work = (async () => {
@@ -181,6 +184,7 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
       await sendLiveLink(id, request)
       linked.current = { key, platform: request.platform }
     })()
+    sending.current = work
     // 방송 화면 전에 라벨을 뽑을지 묻는다 (D-UX3-19) — 잇기를 기다리지 않고 바로 연다 (D-LINK-ASYNC-01): 서버가 유튜브를 다시 읽는 1~3초 동안
     // 판매자는 프린터를 잇는다. 못 이으면 프린터 화면이 이 화면으로 돌아오고, 까닭(옮길까요·처음 채널·오류)은 아래 await가 던져 이 화면이 보인다.
     // 라벨 단계가 없으면(바로 방송 화면 — 이 화면이 닫힌다) 옛처럼 이은 뒤에 간다
@@ -190,15 +194,47 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
       await work
     } else {
       await work
+      markNewLiveStarted(id)
       nav.openConsole(id)
     }
+  }
+  /** 보내는 중인(또는 마지막으로 보낸) 잇기 — 그만둘 때 끝나기를 기다렸다가 끊는다 */
+  const sending = useRef<Promise<void> | null>(null)
+  const abandoned = useRef(false)
+  /**
+   * 새 라이브를 그만두면 만드는 중에 이은 연결을 끊는다 (D-DRAFT-01 → D-DRAFT-02): 그만둔 회차는 목록에 안 보여(D-UX3-25) 홈은 "내 라이브 연결"인데
+   * 서버에는 연결이 남아 유령 연결이 됐다(사용자 "연결하기 눌렀다가 뒤로 돌아가면 홈 화면에 연결 안 된걸로 나오던데 … 그래서 유령 연결이 생기는거잖아").
+   * 옛(D-DRAFT-01)은 화면의 [뒤로]만 받아, 밀어서 뒤로·뒤로 키·프린터 화면에서 나가기와 잇는 중에 나가기(D-LINK-ASYNC-01)를 놓쳤다 —
+   * 이제 이 화면이 사라질 때면 언제나 본다. 라이브 화면으로 들어간 회차(markNewLiveStarted)는 끊지 않는다. 잇는 중이면 끝나기를 기다렸다가 끊고,
+   * 끊기를 기다리지 않는다(못 끊어도 서버가 다음 잇기 때 그 회차를 놓아주고 배포 문지기도 세지 않는다, D-DRAFT-01)
+   */
+  const abandon = () => {
+    const id = made.current
+    if (abandoned.current || id === null || newLiveStarted(id)) return
+    abandoned.current = true
+    void (sending.current ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        const was = linked.current
+        if (was === null || newLiveStarted(id)) return
+        linked.current = null
+        await unlinkLive(id, was.platform)
+      })
+      .catch(() => undefined)
+  }
+  const abandonRef = useRef(abandon)
+  abandonRef.current = abandon
+  useEffect(() => () => abandonRef.current(), [])
+  const leave = () => {
+    abandon()
+    nav.back()
   }
   const linker = useAddressLinker({ enabled: route !== undefined, webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, disabled: busy, onEdit: clearError, onUnknown: () => setFinder(true), confirmNotice: <MakeError error={error} /> })
 
   // 링크 화면 → [다음] → 연결 확인 화면 (D-UX4-117)
   return (
     <LinkPages linker={linker} name="새 라이브">
-      <FormPage title={LINK_ASK_TITLE} name="새 라이브" onBack={nav.back} overlay={linker.popup} actions={linker.action}>
+      <FormPage title={LINK_ASK_TITLE} name="새 라이브" onBack={leave} overlay={linker.popup} actions={linker.action}>
         {route !== undefined ? linker.fields : null}
         <MakeError error={error} />
         <PlatformFinder visible={finder} onClose={() => setFinder(false)} onFound={linker.submitFound} knownChannel={linker.knownChannel} />

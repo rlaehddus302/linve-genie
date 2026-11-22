@@ -3,6 +3,7 @@ import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
 import { resetDockChoice } from '../src/lib/dock-choice.ts'
 import { clearCached } from '../src/lib/cached-get.ts'
+import { resetNewLinks } from '../src/lib/new-link.ts'
 
 afterEach(() => {
   cleanup()
@@ -10,4 +11,6 @@ afterEach(() => {
   resetDockChoice()
   // 기억해 둔 화면 자료는 시험마다 비운다 (D-UX4-77) — 앞 시험의 가짜 서버 자료가 다음 시험에 보이지 않게
   clearCached()
+  // 새 라이브 잇기 맡김·시작 표시도 (D-LINK-ASYNC-01·D-DRAFT-02)
+  resetNewLinks()
 })
