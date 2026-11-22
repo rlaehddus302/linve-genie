@@ -137,7 +137,7 @@ describe('L-5 보장값: 2000~2099 모든 날짜가 기본 템플릿에 20점 �
     expect(DATES).toHaveLength(36_525)
     expect(DATES[0]).toBe('2000-01-01')
     expect(DATES.at(-1)).toBe('2099-12-31')
-    expect(new Set(DATES.map(formatLabelDate)).size).toBe(36_525)
+    expect(new Set(DATES.map((date) => formatLabelDate(date))).size).toBe(36_525)
   })
 
   it('네 크기 기본 상품 템플릿의 날짜 칸은 x 290 · 폭 90 (오른쪽 끝 380 그대로, 가격 칸과 겹치지 않음)', () => {

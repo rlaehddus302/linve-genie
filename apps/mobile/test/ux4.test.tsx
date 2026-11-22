@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { cancelPrinterPick, pickDevice, pickPrinter, setPickEntries, useInlinePrinterPick, usePickWindowShown, withPickWindow } from '../src/native/printer-pick.ts'
-import { FONT_SIZE_MAX, FONT_SIZE_MIN, fontStepped, labelDots, movedItem, resizedItem, sortedSizes } from '../src/screens/LabelSetupScreen.tsx'
+import { FONT_SIZE_MAX, FONT_SIZE_MIN, fontStepped, labelDots, movedItem, resizedItem, sortedSizes, textBoxHeight } from '../src/screens/LabelSetupScreen.tsx'
 import { firstChannelPopup } from '../src/lib/youtube.ts'
 import { EXAMPLE_LABEL, EXAMPLE_LINES } from '../src/lib/label-example.ts'
 import { BigButton, BottomCTA, ConfirmSheet, FormPage, PopupDialog, SmallButton, ToggleRow } from '../src/ui/kit/index.ts'
@@ -120,9 +120,10 @@ describe('D-UX4-06 켜고 끄기는 토스식 스위치', () => {
 })
 
 describe('D-UX4-03 라벨 예시', () => {
-  it('라이브다육 · 26.11.03 · 365번 · 30만원 · 삼광색금 · 지니다육', () => {
-    expect(EXAMPLE_LABEL).toEqual({ shop: '라이브다육', date: '26.11.03', no: 365, price: '30만원', name: '삼광색금', buyer: '지니다육' })
-    expect(Object.values(EXAMPLE_LINES)).toEqual(['-라이브다육-', '번호: 365', '가격: 30만원', '26.11.03', '품종: 삼광색금', '닉네임: 지니다육'])
+  // 옛 기대 '30만원' — 새 기대 D-LABEL-ITEMS-01(만원 표기 "30만 원", 사용자 지시 2026-11-23 "30만 원 이렇게"): 그림 예시도 라벨 규칙과 같은 띄어쓰기
+  it('라이브다육 · 26.11.03 · 365번 · 30만 원 · 삼광색금 · 지니다육', () => {
+    expect(EXAMPLE_LABEL).toEqual({ shop: '라이브다육', date: '26.11.03', no: 365, price: '30만 원', name: '삼광색금', buyer: '지니다육' })
+    expect(Object.values(EXAMPLE_LINES)).toEqual(['-라이브다육-', '번호: 365', '가격: 30만 원', '26.11.03', '품종: 삼광색금', '닉네임: 지니다육'])
   })
 
   it('서버 미리 보기 견본 값도 같은 예시다 (D-UX4-07)', () => {
@@ -247,19 +248,24 @@ describe('D-UX4-05 라벨 칸 옮기기·키우기 계산', () => {
     expect(movedItem(shop, 1000, -1000, W, H)).toMatchObject({ x: W - shop.width, y: 0 })
   })
 
-  it('키우면 글자 크기도 높이만큼 — 라벨 안, 글자 16~120, 최소 글자 ≤ 글자', () => {
+  // 옛 기대: 상자 높이를 끈 만큼 키우고 글자는 높이 비율로, 아래로 끝까지 끌면 y + 높이 = H.
+  // 새 기대 D-LABEL-SNAP-01 (사용자 지시 2026-11-23 "파워포인트에서 텍스트 박스 조절하듯이 … 쓸데없는 여백 생기게 하지 말라"): 끈 높이로 글자를 정하고 높이는 늘 그 글자 한 줄 높이
+  it('키우면 글자 크기가 끈 만큼 — 높이는 글자 한 줄, 라벨 안, 글자 16~120, 최소 글자 ≤ 글자', () => {
     const name = template.items.name
     const bigger = resizedItem(name, 0, 20, W, H)
-    expect(bigger.height).toBe(Math.min(name.height + 20, H - name.y))
-    expect(bigger.fontSize).toBe(Math.round((name.fontSize * bigger.height) / name.height))
+    expect(bigger.fontSize).toBe(Math.min(Math.floor((textBoxHeight(name.fontSize) + 20) / 1.25), FONT_SIZE_MAX))
+    expect(bigger.height).toBe(Math.min(textBoxHeight(bigger.fontSize), H - name.y))
     const tiny = resizedItem(name, -1000, -1000, W, H)
     expect(tiny.width).toBe(24)
-    expect(tiny.height).toBe(20)
+    expect(tiny.height).toBe(textBoxHeight(16))
     expect(tiny.fontSize).toBe(16)
     expect(tiny.minFontSize).toBeLessThanOrEqual(tiny.fontSize)
     const wide = resizedItem(name, 1000, 1000, W, H)
     expect(wide.x + wide.width).toBe(W)
-    expect(wide.y + wide.height).toBe(H)
+    expect(wide.y + wide.height).toBeLessThanOrEqual(H)
+    expect(wide.height).toBe(textBoxHeight(wide.fontSize))
+    // 더 큰 글자는 라벨 밖으로 나가거나 이미 가장 큰 글자
+    expect(wide.fontSize === FONT_SIZE_MAX || wide.y + textBoxHeight(wide.fontSize + 1) > H).toBe(true)
   })
 
   it('글자 크기 한 단계: 커지면 상자 높이도 따라, 16 아래로는 안 내려간다', () => {
@@ -267,6 +273,11 @@ describe('D-UX4-05 라벨 칸 옮기기·키우기 계산', () => {
     const up = fontStepped({ ...number, fontSize: 40 }, 2, H)
     expect(up.fontSize).toBe(42)
     expect(up.height).toBeGreaterThanOrEqual(Math.min(Math.ceil(42 * 1.25), H - number.y))
+    // D-LABEL-SNAP-01: 높이는 글자 한 줄 높이 그대로(줄이면 같이 준다), 라벨 아래 끝을 넘게는 안 커진다
+    expect(up.height).toBe(textBoxHeight(42))
+    expect(fontStepped({ ...number, fontSize: 40, height: 90 }, -2, H).height).toBe(textBoxHeight(38))
+    const low = { ...number, y: H - textBoxHeight(40), fontSize: 40 }
+    expect(fontStepped(low, 2, H)).toBe(low)
     expect(fontStepped({ ...number, fontSize: 16, minFontSize: 16 }, -2, H)).toMatchObject({ fontSize: 16, minFontSize: 16 })
   })
 

@@ -1,7 +1,7 @@
 // 라벨 데이터 형식과 입력 검사 (LABEL_RULES L-0 4, L-3·L-4 데이터 표, R-11, D-P1-03·05).
 // 표에 없는 칸이 하나라도 있으면 INVALID_DATA — 문자찜의 메모·전화번호가 라벨로 새는 길을 형식으로 막는다.
 import { invalidDataError, type LabelError } from './errors.ts'
-import { isCalendarDate, trimLabelText } from './text.ts'
+import { isCalendarDate, isClockTime, trimLabelText } from './text.ts'
 
 /** 구매자: 유튜브는 닉네임, 문자찜은 종류 하나뿐 — 메모·전화번호·이름을 담을 칸이 없다 (AC-P1-04) */
 export type LabelBuyer = { readonly kind: 'youtube'; readonly name: string } | { readonly kind: 'sms' }
@@ -21,6 +21,8 @@ export interface ProductLabelData {
   readonly variant?: string | null
   /** 수량 1~99 (O3, D-O3-01). 없으면 1. 검사를 통과한 데이터에는 2 이상일 때만 있다 */
   readonly qty?: number
+  /** 찜 확정 시각 `HH:MM` (KST 24시간, D-LABEL-TIME-01). 시간 칸에만 찍고 내용 키(L-10)에는 넣지 않는다 */
+  readonly time?: string
 }
 
 /** 포장 라벨의 옵션 항목 (L-4, O3 — D-O3-03). 옵션 글 없고 수량 1이면 정수 번호와 같다 */
@@ -116,12 +118,13 @@ function checkBuyer(value: unknown): Checked<LabelBuyer> {
 /** 상품 라벨 데이터 검사 (L-3). 받은 값을 바꾸지 않고, 통과하면 표의 칸만 담은 새 객체를 돌려준다 */
 export function checkProductData(value: unknown): Checked<ProductLabelData> {
   if (!isPlainObject(value)) return { ok: false, error: invalidDataError('') }
-  const bad = checkKeysWithOptional(value, ['no', 'name', 'price', 'date', 'buyer'], ['variant', 'qty'], '')
+  const bad = checkKeysWithOptional(value, ['no', 'name', 'price', 'date', 'buyer'], ['variant', 'qty', 'time'], '')
   if (bad) return { ok: false, error: invalidDataError(bad) }
   if (!isLabelNumber(value.no)) return { ok: false, error: invalidDataError('no') }
   if (typeof value.name !== 'string') return { ok: false, error: invalidDataError('name') }
   if (!isWon(value.price)) return { ok: false, error: invalidDataError('price') }
   if (typeof value.date !== 'string' || !isCalendarDate(value.date)) return { ok: false, error: invalidDataError('date') }
+  if (value.time !== undefined && (typeof value.time !== 'string' || !isClockTime(value.time))) return { ok: false, error: invalidDataError('time') }
   const buyer = checkBuyer(value.buyer)
   if (!buyer.ok) return buyer
   const option = checkOptionFields(value, '')
@@ -137,6 +140,7 @@ export function checkProductData(value: unknown): Checked<ProductLabelData> {
       buyer: buyer.data,
       ...(option.variant === null ? {} : { variant: option.variant }),
       ...(option.qty === 1 ? {} : { qty: option.qty }),
+      ...(value.time === undefined ? {} : { time: value.time as string }),
     },
   }
 }

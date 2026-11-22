@@ -65,7 +65,8 @@ describe('AC-I1-04 엔진 상태 → 라벨 데이터 (L-9)', () => {
     const p = printApi(world, seller)
     await becomeDevice(world, seller)
     const first = await p.claim(DEVICE_A)
-    expect(first.job?.data).toEqual({ no: 15, name: '핑크프릴 금', price: 12000, date: DAY, buyer: { kind: 'youtube', name: '홍길동' } })
+    // 상품 라벨 데이터에 찜 시각 HH:MM(KST)이 붙는다 (D-LABEL-TIME-01 — 내용 키 밖)
+    expect(first.job?.data).toEqual({ no: 15, name: '핑크프릴 금', price: 12000, date: DAY, time: '12:00', buyer: { kind: 'youtube', name: '홍길동' } })
     expect(await p.done(DEVICE_A, first.job?.attempt ?? '')).toBe(true)
     // 닉네임만 바뀐 것은 재출력 필요가 아니다
     expect((await p.labels()).labels[0]).toMatchObject({ state: 'PRINTED', reprintNeeded: false })

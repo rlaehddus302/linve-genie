@@ -156,7 +156,8 @@ describe('작은 템플릿 — 번호·가격·구매자, 최악값이 들어간
         expect(isSmallLabelSize(size)).toBe(true)
         const { widthDots: W, heightDots: H } = labelSizeInfo(size)
         const visible = Object.fromEntries(PRODUCT_ITEMS.map((id) => [id, t.items[id].visible]))
-        expect(visible).toEqual({ shop: false, number: true, price: true, date: false, name: false, buyer: true })
+        // 시간 칸(D-LABEL-TIME-01)도 처음엔 끈다
+        expect(visible).toEqual({ shop: false, number: true, price: true, date: false, name: false, buyer: true, time: false })
         for (const id of PRODUCT_ITEMS) {
           const box = t.items[id]
           expect(box.x >= 0 && box.y >= 0 && box.x + box.width <= W && box.y + box.height <= H, id).toBe(true)
@@ -210,7 +211,8 @@ describe('작은 템플릿 — 번호·가격·구매자, 최악값이 들어간
         expect(checked.ok).toBe(true)
         expect(checked.warnings.length).toBeGreaterThan(0)
         const r = product(on)
-        expect(r.layout.items.map((i) => i.id).sort()).toEqual([...PRODUCT_ITEMS].sort())
+        // 켠 셋 + 처음부터 켠 셋 — 시간 칸(D-LABEL-TIME-01)은 끈 그대로
+        expect(r.layout.items.map((i) => i.id).sort()).toEqual(PRODUCT_ITEMS.filter((id) => id !== 'time').sort())
         expectLayoutMatchesText(item(r.layout.items, 'date'), '26.10.08')
         expectLayoutMatchesText(item(r.layout.items, 'shop'), '다육농장')
         expectLayoutMatchesText(item(r.layout.items, 'name'), '왕비뇌신금')
@@ -230,8 +232,9 @@ describe('작은 템플릿 — 번호·가격·구매자, 최악값이 들어간
 describe('50×50과 포장 라벨 크기 (AC-N1-12)', () => {
   it('50×50 상품 기본 템플릿은 보통 템플릿(판매자 샘플 배치), 상자는 겹치지 않고 최악값이 20점 이상', () => {
     const t = { ...defaultTemplate('product', '50x50'), shopName: '다육농장' }
-    expect(PRODUCT_ITEMS.every((id) => t.items[id].visible)).toBe(true)
-    const boxes = Object.values(t.items)
+    // 시간 칸(D-LABEL-TIME-01)만 처음에 끄고, 가게 이름 줄 오른쪽 끝에 둔다(켜면 겹침 경고)
+    expect(PRODUCT_ITEMS.every((id) => t.items[id].visible === (id !== 'time'))).toBe(true)
+    const boxes = Object.entries(t.items).filter(([id]) => id !== 'time').map(([, box]) => box)
     for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) expect(overlaps(boxes[i] as TemplateItem, boxes[j] as TemplateItem)).toBe(false)
     const it2 = t.items
     expect(Math.abs(it2.shop.x + it2.shop.width / 2 - 192)).toBeLessThanOrEqual(8)

@@ -1,14 +1,15 @@
 // 저장 전 상품 라벨 초안 미리 보기 (D-UX3-19, 사용자 지시 2026-11-03 "라벨 디자인 커스텀 한 다음에 테스트 출력"): 앱 방송 시작 라벨 단계는 캔버스가 없어
 // 서버가 받은 초안을 견본 값으로 그려 PNG로 준다. 저장과 같은 검사, 가장 긴 값이 안 들어가면 문장만, DB에는 아무것도 쓰지 않는다.
-import { LONGEST_PRODUCT, SAMPLE_PRODUCT, defaultTemplate, encodeLabelPng, productDesign, renderProductLabel } from '@livejjim/label'
+import { LONGEST_PRODUCT, PREVIEW_PRODUCT, defaultTemplate, minItemSizes, encodeLabelPng, productDesign, renderProductLabel } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
 import { describe, expect, it } from 'vitest'
-import { kstDate } from '../src/time.ts'
+import { kstDate, kstTime } from '../src/time.ts'
 import { addSeller, client, expectOk, newWorld } from './support.ts'
 
 const PATH = '/api/print/templates/product/preview'
 
 describe('D-UX3-19 상품 라벨 초안 미리 보기', () => {
+  // 견본은 적당히 긴 품종·닉네임·백만 원 + 오늘·지금 (D-LABEL-SAMPLE-01 — 옛 SAMPLE_PRODUCT + 오늘 날짜)
   it('받은 초안 + 견본 값(오늘 날짜)으로 그린 PNG — 비운 가게 이름은 설정 "가게" 이름, 템플릿은 저장하지 않는다', async () => {
     const world = await newWorld()
     const seller = await addSeller(world)
@@ -16,15 +17,39 @@ describe('D-UX3-19 상품 라벨 초안 미리 보기', () => {
     await expectOk(api.put('/api/shop', { name: '초록다육' }))
     const draft = { ...defaultTemplate('product', '50x40'), priceStyle: 'WON' as const }
     const res = await expectOk(api.post(PATH, { template: draft }))
-    const body = res.body as { width: number; height: number; png: string; longest: string | null }
-    const expected = renderProductLabel(createNodeRenderEnv(), { ...draft, shopName: '초록다육' }, { ...SAMPLE_PRODUCT, date: kstDate(Number(world.clock.now())) })
+    const body = res.body as { width: number; height: number; png: string; longest: string | null; minSizes: Record<string, { width: number; height: number }> }
+    const now = Number(world.clock.now())
+    const expected = renderProductLabel(createNodeRenderEnv(), { ...draft, shopName: '초록다육' }, { ...PREVIEW_PRODUCT, date: kstDate(now), time: kstTime(now).slice(0, 5) })
     if (!expected.ok) throw new Error(expected.error.code)
     const png = encodeLabelPng(expected.image)
     if (!png.ok) throw new Error(png.error.code)
     expect(body).toMatchObject({ width: expected.image.width, height: expected.image.height, png: Buffer.from(png.bytes).toString('base64') })
     expect(body.longest === null || typeof body.longest === 'string').toBe(true)
+    // 칸마다 가장 작은 칸 — 앱이 이보다 작게 줄이지 못한다 (D-LABEL-MINBOX-01)
+    const mins = minItemSizes(createNodeRenderEnv(), { ...draft, shopName: '초록다육' }, { ...PREVIEW_PRODUCT, date: kstDate(now), time: kstTime(now).slice(0, 5) })
+    if (!mins.ok) throw new Error(mins.error.code)
+    expect(body.minSizes).toEqual(mins.sizes)
+    expect(Object.keys(body.minSizes).sort()).toEqual(['buyer', 'date', 'name', 'number', 'price', 'shop'])
     const stored = await world.database.pglite?.query('select 1 from label_templates where seller_id = $1', [seller.sellerId])
     expect(stored?.rows ?? []).toHaveLength(0)
+  })
+
+  // D-LABEL-MINBOX-01: 날짜를 빗금(26/11/23)으로 바꾸면 기본 날짜 칸이 좁다 — fit이면 오른쪽 끝을 두고 가장 작은 크기까지 넓혀 돌려준다
+  it('fit: 모양을 바꿔 좁아진 칸은 가장 작은 크기까지 넓힌 초안으로 그린다 (fit 없이는 칸이 좁다는 문장)', async () => {
+    const world = await newWorld()
+    const seller = await addSeller(world)
+    const api = client(world, seller.cookie)
+    const base = defaultTemplate('product')
+    const wide = { ...base, dateStyle: { year: true, sep: '/' as const }, items: { ...base.items, date: { ...base.items.date, width: 60, x: base.items.date.x + base.items.date.width - 60 } } }
+    const plain = await api.post(PATH, { template: wide })
+    expect(plain.status).toBe(422)
+    const res = await expectOk(api.post(PATH, { template: wide, fit: true }))
+    const body = res.body as { template: typeof wide; minSizes: Record<string, { width: number; height: number }> }
+    const date = body.template.items.date
+    expect(date.width).toBeGreaterThanOrEqual(body.minSizes.date?.width ?? Infinity)
+    expect(date.x + date.width).toBe(wide.items.date.x + wide.items.date.width)
+    expect(body.template.dateStyle).toEqual({ year: true, sep: '/' })
+    expect((await api.post(PATH, { template: wide, fit: 'yes' })).status).toBe(400)
   })
 
   it('가장 긴 값이 칸에 안 들어가면 그 항목의 문장 (미리 보기는 그대로)', async () => {

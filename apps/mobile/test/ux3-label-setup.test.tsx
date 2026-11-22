@@ -10,7 +10,7 @@ import { pickDevice, setPickEntries } from '../src/native/printer-pick.ts'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { useState } from 'react'
-import { LabelSetupScreen, type LabelFlowStep } from '../src/screens/LabelSetupScreen.tsx'
+import { BOX_MIN, LabelSetupScreen, dateWord, resizedItem, textBoxHeight, widenedItem, type LabelFlowStep } from '../src/screens/LabelSetupScreen.tsx'
 import { makeWorld } from './screen-support.tsx'
 import { flush } from './support.ts'
 
@@ -131,15 +131,18 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
     expect(world.server.callsTo('POST', /\/preview$/).at(-1)?.body).toMatchObject({ resize: '50x40' })
     fireEvent.click(within(design).getByRole('tab', { name: '문구' }))
     fireEvent.click(within(design).getByRole('radio', { name: '가격' }))
-    expect(within(within(design).getByRole('radiogroup', { name: '가격 표기' })).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual(['30만원', '300 천원', '300,000원'])
-    fireEvent.click(within(design).getByRole('radio', { name: '300,000원' }))
+    // 옛 기대: '30만원'·'300 천원'·'300,000원' 셋. 새 기대 D-LABEL-ITEMS-01: 견본(백만 원)으로 '1,000,000원'·'100만 원' 둘, 저장본의 천원 표기는 원 표기로 골라져 있다
+    expect(within(within(design).getByRole('radiogroup', { name: '가격 표기' })).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual(['1,000,000원', '100만 원'])
+    expect(within(design).getByRole('radio', { name: '1,000,000원' }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(within(design).getByRole('radio', { name: '100만 원' }))
     fireEvent.click(within(design).getByRole('radio', { name: '날짜' }))
     fireEvent.click(within(within(design).getByRole('group', { name: '날짜 설정' })).getByRole('switch', { name: '찍기 — 켜짐' }))
     fireEvent.click(within(design).getByRole('button', { name: '저장하고 다음' }))
     await waitFor(() => expect(world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)).toHaveLength(1))
     const saved = world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)[0]?.body as { template: { size: string; priceStyle: string; items: { date: { visible: boolean } } }; version: number }
     expect(saved.version).toBe(2)
-    expect(saved.template).toMatchObject({ size: '50x40', priceStyle: 'WON', items: { date: { visible: false } } })
+    // 옛 기대 priceStyle 'WON'(300,000원을 골랐다) — 새 기대 D-LABEL-ITEMS-01: 100만 원을 골라 TEN_THOUSAND
+    expect(saved.template).toMatchObject({ size: '50x40', priceStyle: 'TEN_THOUSAND', items: { date: { visible: false } } })
 
     fireEvent.click(await screen.findByRole('button', { name: '이 기기에서 출력' }))
     expect(world.server.callsTo('GET', /test-bitmap/)).toHaveLength(0)
@@ -325,7 +328,8 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     expect(within(design).getByRole('heading', { name: '라벨 디자인' })).toBeTruthy()
     expect(within(design).queryByRole('button', { name: '템플릿' })).toBeNull()
     expect(within(design).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['용지', '스타일', '문구'])
-    const box = within(design).getByRole('button', { name: '라벨의 품종' })
+    // 화면 이름 '품종' → '품명' (D-LABEL-ITEMS-01)
+    const box = within(design).getByRole('button', { name: '라벨의 품명' })
     expect(box.getAttribute('aria-pressed')).toBe('false')
     fireEvent.click(within(design).getByRole('tab', { name: '용지' }))
     const sizes = within(within(design).getByRole('radiogroup', { name: '라벨 크기' })).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))
@@ -351,6 +355,8 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     await waitFor(() => expect(world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)).toHaveLength(1))
     const saved = world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)[0]?.body as { template: ProductTemplate }
     expect(saved.template.items.number.fontSize).toBe(before + 2)
+    // 칸 높이는 글자 한 줄 높이 — 파워포인트 텍스트 상자처럼 빈 위아래가 없다 (D-LABEL-SNAP-01)
+    expect(saved.template.items.number.height).toBe(textBoxHeight(before + 2))
     world.services.labels.stop()
   })
 })
@@ -400,4 +406,135 @@ it('문구 추가의 첫 위치는 오른쪽 위이며 여러 문구의 내용·
     template: { captions: [{ text: '향남꽃선비 라방', position: 'topRight' }, { text: '감사합니다', position: 'bottomLeft' }] },
   }))
   world.services.labels.stop()
+})
+
+describe('D-LABEL-ITEMS-01 문구 탭 — 왼쪽 항목 목록 · 오른쪽 그 항목의 형식', () => {
+  async function openItems() {
+    const world = labelWorld()
+    render(world.wrap(<LabelSetupScreen only="design" onBack={() => {}} onDone={() => {}} />))
+    await screen.findByRole('radiogroup', { name: '라벨 크기' })
+    fireEvent.click(screen.getByRole('tab', { name: '문구' }))
+    await screen.findByRole('group', { name: '번호 설정' })
+    const save = async () => {
+      fireEvent.click(screen.getByRole('button', { name: '저장' }))
+      await waitFor(() => expect(world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)).toHaveLength(1))
+      return (world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)[0]?.body as { template: ProductTemplate }).template
+    }
+    return { world, save }
+  }
+
+  it('왼쪽 목록 차례는 가게 이름 · 날짜 · 시간 · 번호 · 가격 · 품명 · 닉네임 · 직접 입력', async () => {
+    const { world } = await openItems()
+    const list = screen.getByRole('radiogroup', { name: '라벨 항목' })
+    expect(within(list).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual(['가게 이름', '날짜', '시간', '번호', '가격', '품명', '닉네임', '직접 입력'])
+    world.services.labels.stop()
+  })
+
+  it('가게 이름: 라이브 관리 줄 모양으로 고치고, 양옆 기호를 끄고 켜면 마지막 기호로 돌아온다', async () => {
+    const { world, save } = await openItems()
+    fireEvent.click(screen.getByRole('radio', { name: '가게 이름' }))
+    const group = screen.getByRole('group', { name: '가게 이름 설정' })
+    expect(within(group).getByRole('button', { name: '가게 이름 편집' }).textContent).toContain('가게 설정 이름 사용')
+    expect(within(within(group).getByRole('radiogroup', { name: '기호 모양' })).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual(['-가게-', '<가게>', '[가게]', '(가게)'])
+    expect(within(group).getByRole('radio', { name: '-가게-' }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(within(group).getByRole('radio', { name: '[가게]' }))
+    fireEvent.click(within(group).getByRole('switch', { name: '양옆 기호 — 켜짐' }))
+    expect(within(group).queryByRole('radiogroup', { name: '기호 모양' })).toBeNull()
+    fireEvent.click(within(group).getByRole('switch', { name: '양옆 기호 — 꺼짐' }))
+    expect(within(group).getByRole('radio', { name: '[가게]' }).getAttribute('aria-checked')).toBe('true')
+    expect(await save()).toMatchObject({ shopMark: 'square' })
+    world.services.labels.stop()
+  })
+
+  it('가게 이름 양옆 기호를 끄고 저장하면 shopMark none', async () => {
+    const { world, save } = await openItems()
+    fireEvent.click(screen.getByRole('radio', { name: '가게 이름' }))
+    fireEvent.click(screen.getByRole('switch', { name: '양옆 기호 — 켜짐' }))
+    expect(await save()).toMatchObject({ shopMark: 'none' })
+    world.services.labels.stop()
+  })
+
+  it('날짜: 연도를 끄고 모양(점·빗금·줄표)을 고른다', async () => {
+    const { world, save } = await openItems()
+    fireEvent.click(screen.getByRole('radio', { name: '날짜' }))
+    const group = screen.getByRole('group', { name: '날짜 설정' })
+    expect(within(within(group).getByRole('radiogroup', { name: '날짜 모양' })).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual((['.', '/', '-'] as const).map((sep) => dateWord({ year: true, sep })))
+    fireEvent.click(within(group).getByRole('switch', { name: '연도 — 켜짐' }))
+    const shapes = within(within(group).getByRole('radiogroup', { name: '날짜 모양' })).getAllByRole('radio')
+    expect(shapes.map((radio) => radio.getAttribute('aria-label'))).toEqual((['.', '/', '-'] as const).map((sep) => dateWord({ year: false, sep })))
+    expect(dateWord({ year: false, sep: '/' }, new Date('2026-11-22T17:00:00Z'))).toBe('11/23')
+    expect(dateWord({ year: true, sep: '.' }, new Date('2026-11-22T17:00:00Z'))).toBe('26.11.23')
+    fireEvent.click(within(group).getByRole('radio', { name: dateWord({ year: false, sep: '/' }) }))
+    // 모양을 바꾸면 넓어진 글이 들어가게 서버가 칸을 맞춘다 (D-LABEL-MINBOX-01 fit)
+    await waitFor(() => expect(world.server.callsTo('POST', /\/preview$/).some((c) => (c.body as { fit?: boolean; template: { dateStyle?: { sep: string } } }).fit === true && (c.body as { template: { dateStyle?: { sep: string } } }).template.dateStyle?.sep === '/')).toBe(true))
+    expect(await save()).toMatchObject({ dateStyle: { year: false, sep: '/' } })
+    world.services.labels.stop()
+  })
+
+  it('시간: 켜고 17:30 · 5:30 PM 중 고른다', async () => {
+    const { world, save } = await openItems()
+    fireEvent.click(screen.getByRole('radio', { name: '시간' }))
+    const group = screen.getByRole('group', { name: '시간 설정' })
+    expect(within(group).queryByRole('radiogroup', { name: '시간 모양' })).toBeNull()
+    fireEvent.click(within(group).getByRole('switch', { name: '찍기 — 꺼짐' }))
+    expect(within(within(group).getByRole('radiogroup', { name: '시간 모양' })).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual(['17:30', '5:30 PM'])
+    fireEvent.click(within(group).getByRole('radio', { name: '5:30 PM' }))
+    expect(await save()).toMatchObject({ timeStyle: '12h', items: { time: { visible: true } } })
+    world.services.labels.stop()
+  })
+
+  it('천원 표기 저장본은 건드리지 않아도 원 표기로 저장된다 (화면에 없는 표기로 남지 않게)', async () => {
+    const { world, save } = await openItems()
+    expect(await save()).toMatchObject({ priceStyle: 'WON' })
+    world.services.labels.stop()
+  })
+
+  it('미리 보기가 칸이 좁아 못 그리면 알리지 않고 마지막으로 잘 그려진 칸으로 되돌린다', async () => {
+    const { world } = await openItems()
+    const before = defaultTemplate('product').items.number.fontSize
+    // 처음 초안이 한 번 잘 그려진 뒤(되돌아갈 자리)
+    await waitFor(() => expect(world.server.callsTo('POST', /\/preview$/).length).toBeGreaterThan(0))
+    await flush()
+    world.server.on('POST', /^\/api\/print\/templates\/product\/preview$/, (call) => {
+      const body = call.body as { template: ProductTemplate }
+      if (body.template.items.number.fontSize !== before) return { status: 422, body: { error: { code: 'LABEL_INVALID', message: '번호 칸이 좁아 라벨을 만들 수 없어요. 칸을 넓히거나 최소 글자 크기를 줄여 주세요.' } } }
+      return { body: { template: body.template, width: 400, height: 240, png: PNG, longest: null } }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '번호 글자 작게' }))
+    await waitFor(() => expect(screen.getByLabelText(`번호 글자 크기 ${String(before)}`)).toBeTruthy())
+    expect(screen.queryByText(/칸이 좁아/)).toBeNull()
+    world.services.labels.stop()
+  })
+})
+
+describe('D-LABEL-SNAP-01 칸 크기 — 파워포인트 텍스트 상자처럼', () => {
+  const template = defaultTemplate('product', '50x30')
+  const W = 384
+  const H = 240
+
+  it('오른쪽 아래 손잡이: 끈 만큼 글자가 커지고 높이는 늘 그 글자 한 줄 높이', () => {
+    const name = template.items.name
+    const up = resizedItem(name, 0, 10, W, H)
+    expect(up.fontSize).toBe(Math.floor((textBoxHeight(name.fontSize) + 10) / 1.25))
+    expect(up.height).toBe(textBoxHeight(up.fontSize))
+    // 끌지 않으면 글자 그대로
+    expect(resizedItem(name, 0, 0, W, H).fontSize).toBe(name.fontSize)
+  })
+
+  it('서버가 준 최소 크기(minSizes) 밑으로는 줄지 않는다 — 폭·글자 모두', () => {
+    const number = template.items.number
+    const min = { width: 150, height: 40 }
+    const tiny = resizedItem(number, -1000, -1000, W, H, min)
+    expect(tiny.width).toBe(150)
+    expect(tiny.height).toBeGreaterThanOrEqual(40)
+    expect(tiny.height).toBe(textBoxHeight(tiny.fontSize))
+    expect(widenedItem(number, -1000, W, H, min).width).toBe(150)
+    expect(widenedItem(number, -1000, W, H).width).toBe(BOX_MIN.width)
+  })
+
+  it('오른쪽 가운데 손잡이는 폭만 — 글자 크기는 그대로, 높이는 한 줄 높이', () => {
+    const price = template.items.price
+    const wider = widenedItem(price, 12, W, H)
+    expect(wider).toMatchObject({ width: Math.min(price.width + 12, W - price.x), fontSize: price.fontSize, height: Math.min(textBoxHeight(price.fontSize), H - price.y) })
+  })
 })

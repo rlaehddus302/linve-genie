@@ -9,7 +9,7 @@ import { LABEL_MESSAGES, doesNotFitError, type LabelError } from './errors.ts'
 import type { LabelFont } from './font.ts'
 import { DEFAULT_LABEL_SIZE, isLabelSize, labelSizeInfo, type LabelSizeId } from './sizes.ts'
 import { TEMPLATE_MESSAGES, type TemplateItem } from './template.ts'
-import { formatLabelDate, isCalendarDate, splitGraphemes, trimLabelText } from './text.ts'
+import { SHOP_MARK_TEXT, formatLabelDate, formatLabelTime, isCalendarDate, splitGraphemes, trimLabelText } from './text.ts'
 
 /** 캔버스 2D 문맥에서 이 패키지가 쓰는 부분 (브라우저 캔버스·OffscreenCanvas·Node 캔버스 모두 맞는다) */
 export interface LabelCanvas2D {
@@ -532,6 +532,7 @@ const PRODUCT_SPEC = {
   date: { caption: '', suffix: '', mode: 'number', align: 'right' },
   name: { caption: '품종: ', suffix: '', mode: 'name', align: 'left' },
   buyer: { caption: '닉네임: ', suffix: '', mode: 'text', align: 'left' },
+  time: { caption: '', suffix: '', mode: 'number', align: 'right' },
 } as const satisfies Record<string, { caption: string; suffix: string; mode: Mode; align: Align }>
 
 /** 포장 라벨 항목 (L-4 "찍는 글") */
@@ -546,6 +547,14 @@ const PACKING_SPEC = {
   subtotal: { caption: '상품 합계 ', suffix: '', mode: 'number', align: 'left' },
 } as const satisfies Record<string, { caption: string; suffix: string; mode: Mode; align: Align }>
 
+/** 상품 칸 하나의 그리기 설명: 안전 영역 안 칸(표형은 테두리 안쪽), 가게 이름 양옆 기호(D-LABEL-ITEMS-01) */
+function productSpec(t: ProductText['template'], id: keyof typeof PRODUCT_SPEC, value: string, cellFor: (item: TemplateItem) => TemplateItem): ItemSpec {
+  const cell = cellFor(t.items[id])
+  const box = t.design === 'table' ? { ...cell, x: cell.x + 2, y: cell.y + 1, width: Math.max(1, cell.width - 4), height: Math.max(1, cell.height - 2) } : cell
+  const [caption, suffix] = id === 'shop' ? SHOP_MARK_TEXT[t.shopMark ?? 'dash'] : [PRODUCT_SPEC[id].caption, PRODUCT_SPEC[id].suffix]
+  return { id, box, value, ...PRODUCT_SPEC[id], caption, suffix }
+}
+
 /** 상품 라벨 그리기 — 글 계산 결과(computeProductText)만 받는다 */
 export function renderProductText(env: LabelRenderEnv, text: ProductText): RenderResult<RenderedLabel> {
   const t = text.template
@@ -555,18 +564,93 @@ export function renderProductText(env: LabelRenderEnv, text: ProductText): Rende
   const { body, innerHeight, lines } = productArea(t.captions ?? [], widthDots, heightDots, safeMargin(info))
   const cellFor = (item: TemplateItem) => areaItem(item, widthDots, heightDots, body, innerHeight)
   const specs: ItemSpec[] = []
-  for (const id of ['shop', 'number', 'price', 'date', 'name', 'buyer'] as const) {
+  for (const id of ['shop', 'number', 'price', 'date', 'name', 'buyer', 'time'] as const) {
     const value = text.items[id]
     if (value === undefined) continue
-    const cell = cellFor(t.items[id])
-    const box = t.design === 'table' ? { ...cell, x: cell.x + 2, y: cell.y + 1, width: Math.max(1, cell.width - 4), height: Math.max(1, cell.height - 2) } : cell
-    specs.push({ id, box, value, ...PRODUCT_SPEC[id] })
+    specs.push(productSpec(t, id, value, cellFor))
   }
   for (const line of lines) {
     const box = { x: line.x, y: line.y, width: line.width, height: line.height, fontSize: 20, minFontSize: 12, visible: true }
     specs.push({ id: 'caption', box, value: line.text, caption: '', suffix: '', mode: 'text', align: line.left ? 'left' : 'right' })
   }
   return renderSpecs(env, t.size, specs, t.design === 'table' ? { cells: Object.values(t.items).filter((cell) => cell.visible).map(cellFor) } : {})
+}
+
+/** 칸의 가장 작은 폭·높이 (점, 템플릿 좌표 — 라벨 그림 전체 기준) */
+export interface ItemMinSize {
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * 켜진 상품 칸마다 가장 작은 칸 (D-LABEL-MINBOX-01, 사용자 지시 2026-11-23 "사이즈를 이상하게 줄였을때 칸이 좁아 만들수 없다고 띄우지 말고 걍 안 줄어들게 해").
+ * 그 칸의 최소 글자 크기(minFontSize)로 이 글(견본 값)이 DOES_NOT_FIT 없이 한 줄에 들어가는 가장 작은 폭·높이를 재고,
+ * 안전 영역·문구 줄 축소(areaItem)와 표형 테두리 안쪽(폭 4·높이 2)을 거꾸로 더해 템플릿 좌표로 돌려준다(반올림 여유 1점).
+ * 숫자 칸(번호·가격 — 자르지 않음)은 값 전체, 자를 수 있는 글 칸(가게 이름·품종·닉네임)은 캡션 + 첫 글자 + `…`.
+ * 날짜·시간은 날마다 값이 바뀌어 오늘 값에 맞춘 칸이 다른 날 DOES_NOT_FIT이 될 수 있다 — 그 표기에서 가장 넓은 값으로 잰다(AUTO).
+ * 라벨보다 커야 들어가는 칸은 라벨 크기로 자른다. 시각·난수를 쓰지 않는 순수 계산이다(캔버스는 글자 폭 재기에만).
+ */
+export function minProductItemSizes(env: LabelRenderEnv, text: ProductText): Partial<Record<keyof typeof PRODUCT_SPEC, ItemMinSize>> {
+  const t = text.template
+  const info = labelSizeInfo(t.size)
+  const { widthDots, heightDots } = info
+  const { body, innerHeight } = productArea(t.captions ?? [], widthDots, heightDots, safeMargin(info))
+  const cellFor = (item: TemplateItem) => areaItem(item, widthDots, heightDots, body, innerHeight)
+  const p = new Painter(env.createContext(widthDots, heightDots), env.font)
+  const sx = body.width / widthDots
+  const sy = body.height / heightDots
+  const [padX, padY] = t.design === 'table' ? [4, 2] : [0, 0]
+  const out: Partial<Record<keyof typeof PRODUCT_SPEC, ItemMinSize>> = {}
+  const BIG = 100_000
+  for (const id of ['shop', 'number', 'price', 'date', 'name', 'buyer', 'time'] as const) {
+    const value = text.items[id]
+    if (value === undefined || sx <= 0 || sy <= 0) continue
+    const spec = productSpec(t, id, value, cellFor)
+    const min = spec.box.minFontSize
+    const widest = id === 'date' ? widestOf(p, min, DATE_PROBES.map((d) => formatLabelDate(d, t.dateStyle))) : id === 'time' ? widestOf(p, min, TIME_PROBES.map((v) => formatLabelTime(v, t.timeStyle))) : value
+    const g = splitGraphemes(widest)
+    const probe: ItemSpec = spec.mode === 'number' ? { ...spec, value: widest } : { ...spec, mode: 'number', value: g.length > 1 ? `${g[0] as string}${ELLIPSIS}` : widest }
+    const fits = (w: number, h: number): boolean => !('code' in placeItem(p, { ...probe, box: { ...probe.box, width: w, height: h, fontSize: min, minFontSize: min } }))
+    if (!fits(BIG, BIG)) continue
+    const height = smallest(BIG, (h) => fits(BIG, h))
+    const width = smallest(BIG, (w) => fits(w, height))
+    out[id] = {
+      width: Math.min(widthDots, Math.ceil((width + padX) / sx) + 1),
+      height: Math.min(heightDots, Math.ceil((height + padY) / sy) + 1),
+    }
+  }
+  return out
+}
+
+// 넓은 숫자(0·4·8 등)로 지은 날짜·시각 후보 — 2000~2099 날짜·24시간 시각 중 가장 넓은 것이 이 안에 있다(내장 글꼴, D-STB-01 `04.04.04`)
+const WIDE_DIGITS = ['00', '04', '08', '20', '24', '28', '30', '40', '44', '48', '80', '84', '88'] as const
+const DATE_PROBES: readonly string[] = WIDE_DIGITS.flatMap((yy) => ['02', '04', '08', '10', '12'].flatMap((mm) => ['04', '08', '20', '24', '28', '30'].map((dd) => `20${yy}-${mm}-${dd}`))).filter(isCalendarDate)
+const TIME_PROBES: readonly string[] = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0')).flatMap((hh) => ['00', '04', '08', '20', '24', '28', '40', '44', '48', '50', '58'].map((mm) => `${hh}:${mm}`))
+
+/** 후보 중 그 글자 크기로 가장 넓은 글 */
+function widestOf(p: Painter, size: number, values: readonly string[]): string {
+  let best = values[0] ?? ''
+  let width = -1
+  for (const value of values) {
+    const w = p.extent(size, splitGraphemes(value))
+    if (w > width) {
+      width = w
+      best = value
+    }
+  }
+  return best
+}
+
+/** 1..max 중 fits가 참인 가장 작은 정수 (fits는 커질수록 참이 되는 것) */
+function smallest(max: number, fits: (n: number) => boolean): number {
+  let lo = 1
+  let hi = max
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (fits(mid)) hi = mid
+    else lo = mid + 1
+  }
+  return lo
 }
 
 /** 포장 라벨 한 쪽 그리기 */

@@ -30,6 +30,7 @@ export const ITEM_NAMES: Readonly<Record<string, string>> = {
   number: '번호',
   price: '가격',
   date: '날짜',
+  time: '시간',
   name: '품종',
   buyer: '구매자',
   page: '쪽 표시',
@@ -53,6 +54,7 @@ const DATA_FIELD_NAMES: Readonly<Record<string, string>> = {
   subtotal: '상품 합계',
   variant: '옵션',
   qty: '수량',
+  time: '시간',
 }
 
 export const LABEL_MESSAGES = {

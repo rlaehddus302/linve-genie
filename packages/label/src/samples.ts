@@ -6,6 +6,11 @@ import type { ProductLabelData } from './data.ts'
  * 옛 값: 194번 · 왕비뇌신금 · 8,000원 · 26.10.08 · 우주천사 (라벨 패키지 자체 시험·골든은 그 값을 따로 쓴다 — test/helpers.ts)
  */
 export const SAMPLE_PRODUCT: ProductLabelData = { no: 365, name: '삼광색금', price: 300_000, date: '2026-11-03', buyer: { kind: 'youtube', name: '지니다육' } }
+/**
+ * 서버 라벨 디자인 미리 보기 견본 (D-LABEL-SAMPLE-01, 사용자 지시 2026-11-23 "품명과 닉네임 예시가 너무 짧아서 가늠이 안 되니까 좀 적당히 긴걸로 바꿔.
+ * 가격 예시도 백만원으로"). date·time은 서버가 미리 볼 때의 오늘·지금(KST)으로 바꿔 넣는다. 시험이 많이 쓰는 SAMPLE_PRODUCT는 그대로 둔다
+ */
+export const PREVIEW_PRODUCT: ProductLabelData = { no: 365, name: '라울 금황성 대품 군생', price: 1_000_000, date: '2026-11-23', time: '17:30', buyer: { kind: 'youtube', name: '초록다육이네정원' } }
 /** 가장 넓은 날짜: 2000~2099의 모든 YY.MM.DD 중 내장 글꼴로 가장 넓은 `04.04.04` (L-11 13, D-STB-01) */
 export const WIDEST_DATE = '2004-04-04'
 /** 가장 긴 값 (번호 9999 · 가격 99,999,999원 · 날짜 04.04.04 · 긴 품종·닉네임) */

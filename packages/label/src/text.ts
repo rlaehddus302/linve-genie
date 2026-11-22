@@ -110,15 +110,16 @@ export type PriceStyle = (typeof PRICE_STYLES)[number]
 /**
  * 상품 라벨 가격 표기 (L-3, D-007).
  * THOUSAND: 1,000의 배수이고 0보다 크면 `N 천원`(N은 세 자리 쉼표), 아니면 원 표기. WON: 언제나 원 표기 = 코어 formatWon.
- * TEN_THOUSAND (D-UX4-07): 1,000의 배수이고 0보다 크면 만·천 단위 — `30만원`, `3만 5천원`, `8천원`(만 자리는 세 자리 쉼표), 아니면 원 표기.
+ * TEN_THOUSAND (D-UX4-07 → D-LABEL-PRICE-01): 1,000의 배수이고 0보다 크면 만·천 단위 — `30만 원`, `3만 5천 원`, 만 원 미만은 `3천 원`
+ * (만 자리는 세 자리 쉼표, 한국어 띄어쓰기로 단위 뒤·원 앞 한 칸), 아니면 원 표기. 옛: `30만원`·`3만 5천원`·`8천원`.
  */
 export function formatLabelPrice(price: number, style: PriceStyle): string {
   if (style === 'THOUSAND' && price > 0 && price % 1000 === 0) return `${groupDigits(price / 1000)} 천원`
   if (style === 'TEN_THOUSAND' && price > 0 && price % 1000 === 0) {
     const man = Math.floor(price / 10000)
     const cheon = (price % 10000) / 1000
-    if (man === 0) return `${String(cheon)}천원`
-    return cheon === 0 ? `${groupDigits(man)}만원` : `${groupDigits(man)}만 ${String(cheon)}천원`
+    if (man === 0) return `${String(cheon)}천 원`
+    return cheon === 0 ? `${groupDigits(man)}만 원` : `${groupDigits(man)}만 ${String(cheon)}천 원`
   }
   return formatWon(price)
 }
@@ -147,7 +148,45 @@ export function isCalendarDate(value: string): boolean {
   return day <= days
 }
 
-/** `2026-10-08` → `26.10.08` (L-3). 시각·시간대를 읽지 않고 글자만 바꾼다 */
-export function formatLabelDate(date: string): string {
-  return `${date.slice(2, 4)}.${date.slice(5, 7)}.${date.slice(8, 10)}`
+/** 날짜 표기 (D-LABEL-ITEMS-01): 연도를 찍을지, 사이 기호 */
+export const DATE_SEPARATORS = ['.', '/', '-'] as const
+export interface DateStyle {
+  readonly year: boolean
+  readonly sep: (typeof DATE_SEPARATORS)[number]
+}
+/** 없을 때의 날짜 표기 — 옛 `26.10.08` 그대로 */
+export const DEFAULT_DATE_STYLE: DateStyle = { year: true, sep: '.' }
+
+/** `2026-10-08` → `26.10.08` (L-3). 연도 끄기 → `10.08`, 기호 `/`·`-` (D-LABEL-ITEMS-01). 시각·시간대를 읽지 않고 글자만 바꾼다 */
+export function formatLabelDate(date: string, style: DateStyle = DEFAULT_DATE_STYLE): string {
+  const parts = [date.slice(5, 7), date.slice(8, 10)]
+  return (style.year ? [date.slice(2, 4), ...parts] : parts).join(style.sep)
+}
+
+/** 시간 표기 (D-LABEL-TIME-01): `17:30` · `5:30 PM` */
+export const TIME_STYLES = ['24h', '12h'] as const
+export type TimeStyle = (typeof TIME_STYLES)[number]
+
+/** 시각 `HH:MM`(24시간)인지 */
+export function isClockTime(value: string): boolean {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value)
+}
+
+/** `17:30` → 24h `17:30` · 12h `5:30 PM` (0시 → `12:05 AM`, 12시 → `12:05 PM`). 글자만 바꾼다 */
+export function formatLabelTime(time: string, style: TimeStyle = '24h'): string {
+  if (style === '24h') return time
+  const hour = Number(time.slice(0, 2))
+  const h12 = hour % 12 === 0 ? 12 : hour % 12
+  return `${String(h12)}:${time.slice(3, 5)} ${hour < 12 ? 'AM' : 'PM'}`
+}
+
+/** 가게 이름 양옆 기호 (D-LABEL-ITEMS-01). 없으면 dash(옛 `-가게-`) */
+export const SHOP_MARKS = ['none', 'dash', 'angle', 'square', 'round'] as const
+export type ShopMark = (typeof SHOP_MARKS)[number]
+export const SHOP_MARK_TEXT: Readonly<Record<ShopMark, readonly [string, string]>> = {
+  none: ['', ''],
+  dash: ['-', '-'],
+  angle: ['<', '>'],
+  square: ['[', ']'],
+  round: ['(', ')'],
 }

@@ -3,11 +3,12 @@
 import { CAPTION_POSITIONS, CAPTION_SPACE_HINT, CAPTION_TEXT_MAX, captionsCrowded, safeMargin, type LabelCaption } from './captions.ts'
 import { ITEM_NAMES, LABEL_MESSAGES, type LabelError, type TemplateProblem } from './errors.ts'
 import { DEFAULT_LABEL_SIZE, canMakePackingLabel, isLabelSize, labelSizeInfo, type LabelSizeId } from './sizes.ts'
-import { PRICE_STYLES, trimLabelText, type PriceStyle } from './text.ts'
+import { DATE_SEPARATORS, PRICE_STYLES, SHOP_MARKS, TIME_STYLES, trimLabelText, type DateStyle, type PriceStyle, type ShopMark, type TimeStyle } from './text.ts'
 
 export const TEMPLATE_FORMAT = 1 as const
 
-export const PRODUCT_ITEMS = ['shop', 'number', 'price', 'date', 'name', 'buyer'] as const
+// time은 D-LABEL-TIME-01로 더한 칸 — 맨 뒤에 두어 옛 칸 차례(JSON·그리기)를 바꾸지 않는다
+export const PRODUCT_ITEMS = ['shop', 'number', 'price', 'date', 'name', 'buyer', 'time'] as const
 export const PACKING_ITEMS = ['shop', 'date', 'buyer', 'page', 'broadcast', 'count', 'subtotal', 'numbers'] as const
 export type ProductItemId = (typeof PRODUCT_ITEMS)[number]
 export type PackingItemId = (typeof PACKING_ITEMS)[number]
@@ -46,6 +47,12 @@ export interface ProductTemplate {
   /** 가게 이름 (머리글). 기본은 빈 글 — 판매자가 정한다 */
   readonly shopName: string
   readonly priceStyle: PriceStyle
+  /** 가게 이름 양옆 기호 — 없으면 dash(`-가게-`) (D-LABEL-ITEMS-01) */
+  readonly shopMark?: ShopMark
+  /** 날짜 표기 — 없으면 연도 있음·`.`(`26.11.23`) (D-LABEL-ITEMS-01) */
+  readonly dateStyle?: DateStyle
+  /** 시간 표기 — 없으면 24h(`17:30`) (D-LABEL-TIME-01) */
+  readonly timeStyle?: TimeStyle
   readonly items: Readonly<Record<ProductItemId, TemplateItem>>
 }
 
@@ -82,6 +89,9 @@ const PRODUCT_DEFAULT_ITEMS: Record<LabelSizeId, Record<ProductItemId, TemplateI
     date: item(290, 48, 90, 36, 24),
     name: item(4, 88, 376, 88, 28, 22),
     buyer: item(4, 178, 376, 60, 28),
+    // 시간 칸(D-LABEL-TIME-01): 처음엔 끔. 켜면 가게 이름 줄 오른쪽 끝(날짜 열) — 빈 자리가 없어 가게 이름 칸 끝과 겹친다(켜면 겹침 경고).
+    // 폭 96은 가장 넓은 `10:08 AM`이 20점으로 들어가는 폭
+    time: item(284, 6, 96, 38, 24, 20, false),
   },
   '50x20': {
     shop: item(72, 3, 240, 30, 24),
@@ -90,6 +100,9 @@ const PRODUCT_DEFAULT_ITEMS: Record<LabelSizeId, Record<ProductItemId, TemplateI
     date: item(290, 35, 90, 30, 22),
     name: item(4, 67, 376, 56, 24),
     buyer: item(4, 125, 376, 32, 24),
+    // 시간 칸(D-LABEL-TIME-01): 처음엔 끔. 켜면 가게 이름 줄 오른쪽 끝(날짜 열) — 빈 자리가 없어 가게 이름 칸 끝과 겹친다(켜면 겹침 경고).
+    // 폭 96은 가장 넓은 `10:08 AM`이 20점으로 들어가는 폭
+    time: item(284, 3, 96, 30, 22, 20, false),
   },
   '50x40': {
     shop: item(72, 8, 240, 44, 32),
@@ -98,6 +111,9 @@ const PRODUCT_DEFAULT_ITEMS: Record<LabelSizeId, Record<ProductItemId, TemplateI
     date: item(290, 58, 90, 40, 26),
     name: item(4, 104, 376, 124, 36, 26),
     buyer: item(4, 234, 376, 78, 32),
+    // 시간 칸(D-LABEL-TIME-01): 처음엔 끔. 켜면 가게 이름 줄 오른쪽 끝(날짜 열) — 빈 자리가 없어 가게 이름 칸 끝과 겹친다(켜면 겹침 경고).
+    // 폭 96은 가장 넓은 `10:08 AM`이 20점으로 들어가는 폭
+    time: item(284, 8, 96, 44, 26, 20, false),
   },
   '50x50': {
     shop: item(72, 10, 240, 52, 36),
@@ -106,6 +122,9 @@ const PRODUCT_DEFAULT_ITEMS: Record<LabelSizeId, Record<ProductItemId, TemplateI
     date: item(290, 72, 90, 48, 28),
     name: item(4, 128, 376, 160, 40, 28),
     buyer: item(4, 296, 376, 96, 36),
+    // 시간 칸(D-LABEL-TIME-01): 처음엔 끔. 켜면 가게 이름 줄 오른쪽 끝(날짜 열) — 빈 자리가 없어 가게 이름 칸 끝과 겹친다(켜면 겹침 경고).
+    // 폭 96은 가장 넓은 `10:08 AM`이 20점으로 들어가는 폭
+    time: item(284, 10, 96, 52, 28, 20, false),
   },
   // 작은 템플릿 (작은 크기 — L-5, D-N1-03): 세 줄에 번호 / 가격 / 닉네임만 켠다. 가게 이름·날짜·품종은 끄고,
   // 켤 수 있게 라벨 안에 상자를 둔다(날짜는 번호 줄 오른쪽, 가게 이름은 번호 줄, 품종은 가격 줄 — 켜면 겹침 경고).
@@ -129,6 +148,8 @@ function smallItems(W: number, H: number, top: number, rowH: number, fontSize: n
     date: item(dateX, row(0), W - 4 - dateX, rowH, fontSize, 20, false),
     name: item(4, row(1), inner, rowH, fontSize, 20, false),
     buyer: item(4, row(2), inner, rowH, fontSize),
+    // 시간 칸(D-LABEL-TIME-01): 끔. 켜면 닉네임 줄 오른쪽(날짜 칸과 같은 열)
+    time: item(dateX, row(2), W - 4 - dateX, rowH, fontSize, 20, false),
   }
 }
 
@@ -251,6 +272,9 @@ export const TEMPLATE_MESSAGES = {
   packingSize: NO_PACKING_TEMPLATE,
   shopName: '가게 이름을 다시 적어 주세요.',
   priceStyle: '가격 표기 방법을 다시 골라 주세요.',
+  shopMark: '가게 이름 양옆 기호를 다시 골라 주세요.',
+  dateStyle: '날짜 표기 방법을 다시 골라 주세요.',
+  timeStyle: '시간 표기 방법을 다시 골라 주세요.',
   perPage: `한 장에 넣을 번호 수는 ${String(PER_PAGE_MIN)}~${String(PER_PAGE_MAX)} 사이로 정해 주세요.`,
   locked: (id: string) => `${josa(itemName(id), '은', '는')} 끌 수 없어요.`,
   missingItem: (id: string) => `${itemName(id)} 칸 설정이 없어요.`,
@@ -316,6 +340,13 @@ function checkItem(id: string, value: unknown, locked: boolean, labelW: number, 
   return { visible: visible as boolean, x: x as number, y: y as number, width: width as number, height: height as number, fontSize: fontSize as number, minFontSize: minFontSize as number }
 }
 
+/** 상품 템플릿에 없어도 되는 칸 */
+const PRODUCT_OPTIONAL_KEYS: readonly string[] = ['design', 'captions', 'shopMark', 'dateStyle', 'timeStyle']
+
+function isDateStyle(value: unknown): value is DateStyle {
+  return isPlainObject(value) && Object.keys(value).length === 2 && typeof value.year === 'boolean' && (DATE_SEPARATORS as readonly unknown[]).includes(value.sep)
+}
+
 function overlaps(a: TemplateItem, b: TemplateItem): boolean {
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
@@ -340,7 +371,8 @@ export function validateTemplate(value: unknown): TemplateCheck {
     return fail()
   }
   const allowed = ['format', 'kind', 'size', 'shopName', 'items', kind === 'product' ? 'priceStyle' : 'perPage']
-  for (const key of Object.keys(value)) if (!allowed.includes(key) && !(kind === 'product' && (key === 'design' || key === 'captions'))) problems.push({ path: key, message: TEMPLATE_MESSAGES.unknownKey })
+  const optional: readonly string[] = kind === 'product' ? PRODUCT_OPTIONAL_KEYS : []
+  for (const key of Object.keys(value)) if (!allowed.includes(key) && !optional.includes(key)) problems.push({ path: key, message: TEMPLATE_MESSAGES.unknownKey })
   for (const key of allowed) if (!Object.hasOwn(value, key)) problems.push({ path: key, message: TEMPLATE_MESSAGES.missingKey })
   if (value.format !== TEMPLATE_FORMAT) problems.push({ path: 'format', message: TEMPLATE_MESSAGES.format })
   const size = value.size
@@ -350,6 +382,9 @@ export function validateTemplate(value: unknown): TemplateCheck {
   if (kind === 'product') {
     if (value.design !== undefined && value.design !== 'basic' && value.design !== 'large' && value.design !== 'table') problems.push({ path: 'design', message: '라벨 디자인을 다시 골라 주세요.' })
     if (!(PRICE_STYLES as readonly unknown[]).includes(value.priceStyle)) problems.push({ path: 'priceStyle', message: TEMPLATE_MESSAGES.priceStyle })
+    if (value.shopMark !== undefined && !(SHOP_MARKS as readonly unknown[]).includes(value.shopMark)) problems.push({ path: 'shopMark', message: TEMPLATE_MESSAGES.shopMark })
+    if (value.dateStyle !== undefined && !isDateStyle(value.dateStyle)) problems.push({ path: 'dateStyle', message: TEMPLATE_MESSAGES.dateStyle })
+    if (value.timeStyle !== undefined && !(TIME_STYLES as readonly unknown[]).includes(value.timeStyle)) problems.push({ path: 'timeStyle', message: TEMPLATE_MESSAGES.timeStyle })
   } else if (!isInt(value.perPage) || value.perPage < PER_PAGE_MIN || value.perPage > PER_PAGE_MAX) {
     problems.push({ path: 'perPage', message: TEMPLATE_MESSAGES.perPage })
   }
@@ -381,6 +416,11 @@ export function validateTemplate(value: unknown): TemplateCheck {
     const info = labelSizeInfo(usable ? size : '50x40')
     for (const key of Object.keys(value.items)) if (!ids.includes(key)) problems.push({ path: `items.${key}`, message: TEMPLATE_MESSAGES.unknownKey })
     for (const id of ids) {
+      // 시간 칸이 없는 옛 저장본(D-LABEL-TIME-01 전)은 그 크기의 끈 기본 칸으로 채운다 — 오류가 아니다
+      if (kind === 'product' && id === 'time' && !Object.hasOwn(value.items, id)) {
+        items[id] = PRODUCT_DEFAULT_ITEMS[isLabelSize(size) ? size : '50x40'].time
+        continue
+      }
       if (!Object.hasOwn(value.items, id)) {
         problems.push({ path: `items.${id}`, message: TEMPLATE_MESSAGES.missingItem(id) })
         continue
@@ -401,10 +441,22 @@ export function validateTemplate(value: unknown): TemplateCheck {
   const base = { format: TEMPLATE_FORMAT, size: size as LabelSizeId, shopName: value.shopName as string }
   const template: LabelTemplate =
     kind === 'product'
-      ? { ...base, kind, ...(captions.length ? { captions } : {}), ...(value.design === undefined ? {} : { design: value.design as ProductDesign }), priceStyle: value.priceStyle as PriceStyle, items: items as Record<ProductItemId, TemplateItem> }
+      ? {
+          ...base,
+          kind,
+          ...(captions.length ? { captions } : {}),
+          ...(value.design === undefined ? {} : { design: value.design as ProductDesign }),
+          priceStyle: value.priceStyle as PriceStyle,
+          ...(value.shopMark === undefined ? {} : { shopMark: value.shopMark as ShopMark }),
+          ...(value.dateStyle === undefined ? {} : { dateStyle: { year: (value.dateStyle as DateStyle).year, sep: (value.dateStyle as DateStyle).sep } }),
+          ...(value.timeStyle === undefined ? {} : { timeStyle: value.timeStyle as TimeStyle }),
+          items: items as Record<ProductItemId, TemplateItem>,
+        }
       : { ...base, kind, perPage: value.perPage as number, items: items as Record<PackingItemId, TemplateItem> }
   return { ok: true, template, warnings }
 }
+
+const sameItem = (a: TemplateItem, b: TemplateItem): boolean => ITEM_KEYS.every((key) => a[key] === b[key])
 
 /** 템플릿을 JSON 글로 (저장용). 칸 순서가 정해져 있어 같은 템플릿이면 같은 글이다 */
 export function templateToJson(template: LabelTemplate): string {
@@ -412,11 +464,24 @@ export function templateToJson(template: LabelTemplate): string {
   const items: Record<string, TemplateItem> = {}
   for (const id of ids) {
     const it = (template.items as Record<string, TemplateItem>)[id]
+    // 끈 채 그 크기의 기본 자리인 시간 칸은 적지 않는다 — 옛 템플릿의 JSON이 글자까지 그대로다(읽을 때 같은 칸으로 채운다, D-LABEL-TIME-01)
+    if (template.kind === 'product' && id === 'time' && it !== undefined && sameItem(it, PRODUCT_DEFAULT_ITEMS[template.size].time)) continue
     if (it) items[id] = { visible: it.visible, x: it.x, y: it.y, width: it.width, height: it.height, fontSize: it.fontSize, minFontSize: it.minFontSize }
   }
   const head =
     template.kind === 'product'
-      ? { format: template.format, kind: template.kind, size: template.size, shopName: template.shopName, priceStyle: template.priceStyle, ...(template.captions?.length ? { captions: template.captions } : {}), ...(template.design === undefined ? {} : { design: template.design }) }
+      ? {
+          format: template.format,
+          kind: template.kind,
+          size: template.size,
+          shopName: template.shopName,
+          priceStyle: template.priceStyle,
+          ...(template.captions?.length ? { captions: template.captions } : {}),
+          ...(template.design === undefined ? {} : { design: template.design }),
+          ...(template.shopMark === undefined ? {} : { shopMark: template.shopMark }),
+          ...(template.dateStyle === undefined ? {} : { dateStyle: { year: template.dateStyle.year, sep: template.dateStyle.sep } }),
+          ...(template.timeStyle === undefined ? {} : { timeStyle: template.timeStyle }),
+        }
       : { format: template.format, kind: template.kind, size: template.size, shopName: template.shopName, perPage: template.perPage }
   return JSON.stringify({ ...head, items })
 }

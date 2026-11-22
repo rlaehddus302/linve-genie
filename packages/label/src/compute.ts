@@ -4,7 +4,7 @@ import { formatWon } from '@livejjim/core'
 import { checkPackingData, checkProductData, entryNo, entryQty, entryVariant, isOptionEntry, type LabelBuyer, type PackingLabelData, type ProductLabelData } from './data.ts'
 import { LABEL_MESSAGES, type LabelError } from './errors.ts'
 import { validateTemplate, type PackingItemId, type PackingTemplate, type ProductItemId, type ProductTemplate, type TemplateCheck } from './template.ts'
-import { NO_NAME, NO_TITLE, SMS_BUYER, formatLabelDate, formatLabelPriceWithQty, formatPackingEntry, trimLabelText } from './text.ts'
+import { NO_NAME, NO_TITLE, SMS_BUYER, formatLabelDate, formatLabelPriceWithQty, formatLabelTime, formatPackingEntry, trimLabelText } from './text.ts'
 
 /** 상품 라벨의 찍는 항목 값 (캡션·머리글 꾸밈 빼고, 다듬은 뒤). 찍지 않는 항목은 키가 없다 */
 export type ProductItems = Partial<Record<ProductItemId, string>>
@@ -74,9 +74,11 @@ function productText(t: ProductTemplate, d: ProductLabelData): ProductText {
   items.number = String(d.no)
   // 수량은 가격 자리, 옵션 글은 품종 자리 (O3, D-O3-02) — 템플릿에서 끈 항목이면 그 글도 없다
   if (t.items.price.visible) items.price = formatLabelPriceWithQty(d.price, t.priceStyle, d.qty ?? 1)
-  if (t.items.date.visible) items.date = formatLabelDate(d.date)
+  if (t.items.date.visible) items.date = formatLabelDate(d.date, t.dateStyle)
   if (t.items.name.visible) items.name = nameWithVariant(d)
   items.buyer = buyerText(d.buyer)
+  // 시간 칸은 켜졌고 데이터에 시각이 있을 때만 (D-LABEL-TIME-01) — 없으면 빈 칸, 오류가 아니다
+  if (t.items.time.visible && d.time !== undefined) items.time = formatLabelTime(d.time, t.timeStyle)
   return { kind: 'product', template: t, items }
 }
 

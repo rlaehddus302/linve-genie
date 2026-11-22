@@ -56,7 +56,17 @@ export {
   isCalendarDate,
   splitGraphemes,
   trimLabelText,
+  DATE_SEPARATORS,
+  DEFAULT_DATE_STYLE,
+  SHOP_MARKS,
+  SHOP_MARK_TEXT,
+  TIME_STYLES,
+  formatLabelTime,
+  isClockTime,
+  type DateStyle,
   type PriceStyle,
+  type ShopMark,
+  type TimeStyle,
 } from './text.ts'
 export {
   ITEM_NAMES,
@@ -134,6 +144,8 @@ export {
   renderPackingText,
   renderProductText,
   renderTestLabel,
+  minProductItemSizes,
+  type ItemMinSize,
   type Box,
   type FitMethod,
   type LabelCanvas2D,
@@ -145,7 +157,7 @@ export {
   type RenderedLabel,
   type TestLabelInput,
 } from './render.ts'
-export { renderPackingLabels, renderProductLabel } from './label.ts'
+export { minItemSizes, renderPackingLabels, renderProductLabel } from './label.ts'
 export { PNG_DOTS_PER_METER, encodeLabelPng, type PngResult } from './png.ts'
 export { CUT_LINE_GRAY, CUT_LINE_MM, PT_PER_MM, createA4Pdf, createLabelPdf, type PdfResult } from './pdf.ts'
-export { LONGEST_PRODUCT, SAMPLE_PRODUCT, WIDEST_DATE } from './samples.ts'
+export { LONGEST_PRODUCT, PREVIEW_PRODUCT, SAMPLE_PRODUCT, WIDEST_DATE } from './samples.ts'

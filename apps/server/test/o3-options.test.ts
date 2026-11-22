@@ -149,17 +149,18 @@ describe('AC-O3-20 상품 라벨 데이터 — 옵션 글·수량·찜 금액', 
     const overview = await p.overview()
     const byLabel = overview.jobs.map((job) => ({ broadcast: job.label.broadcast, no: job.label.no, data: job.data }))
     const sms = { kind: 'sms' }
+    // 상품 라벨 데이터에 찜 시각 HH:MM(KST)이 붙는다 (D-LABEL-TIME-01 — 내용 키 밖, 다육 7번 내용 키는 O3 전과 같다)
     expect(byLabel).toEqual([
-      { broadcast: b1, no: 7, data: { no: 7, name: '핑크프릴', price: 8000, date: D, buyer: { kind: 'youtube', name: '홍길동' } } },
-      { broadcast: b2, no: 21, data: { no: 21, name: '반바지', price: 10000, variant: 'M', date: D, buyer: { kind: 'youtube', name: '홍길동' } } },
-      { broadcast: b2, no: 21, data: { no: 21, name: '반바지', price: 10000, variant: 'L', date: D, buyer: { kind: 'youtube', name: '홍길동' } } },
-      { broadcast: b2, no: 22, data: { no: 22, name: '반팔티', price: 34000, variant: '105/검정색', qty: 2, date: D, buyer: { kind: 'youtube', name: '홍길동' } } },
-      { broadcast: b2, no: 11, data: { no: 11, name: '초코 과자', price: 6000, qty: 3, date: D, buyer: { kind: 'youtube', name: '홍길동' } } },
-      { broadcast: b2, no: 11, data: { no: 11, name: '초코 과자', price: 2000, date: D, buyer: { kind: 'youtube', name: '김철수' } } },
-      { broadcast: b2, no: 22, data: { no: 22, name: '반팔티', price: 15000, variant: '100/흰색', date: D, buyer: sms } },
+      { broadcast: b1, no: 7, data: { no: 7, name: '핑크프릴', price: 8000, date: D, time: '20:00', buyer: { kind: 'youtube', name: '홍길동' } } },
+      { broadcast: b2, no: 21, data: { no: 21, name: '반바지', price: 10000, variant: 'M', date: D, time: '21:00', buyer: { kind: 'youtube', name: '홍길동' } } },
+      { broadcast: b2, no: 21, data: { no: 21, name: '반바지', price: 10000, variant: 'L', date: D, time: '21:00', buyer: { kind: 'youtube', name: '홍길동' } } },
+      { broadcast: b2, no: 22, data: { no: 22, name: '반팔티', price: 34000, variant: '105/검정색', qty: 2, date: D, time: '21:00', buyer: { kind: 'youtube', name: '홍길동' } } },
+      { broadcast: b2, no: 11, data: { no: 11, name: '초코 과자', price: 6000, qty: 3, date: D, time: '21:00', buyer: { kind: 'youtube', name: '홍길동' } } },
+      { broadcast: b2, no: 11, data: { no: 11, name: '초코 과자', price: 2000, date: D, time: '21:00', buyer: { kind: 'youtube', name: '김철수' } } },
+      { broadcast: b2, no: 22, data: { no: 22, name: '반팔티', price: 15000, variant: '100/흰색', date: D, time: '21:00', buyer: sms } },
     ])
-    // 다육 7번 데이터는 O3 전 다섯 칸 그대로 (칸 순서까지)
-    expect(Object.keys(byLabel[0]?.data ?? {})).toEqual(['no', 'name', 'price', 'date', 'buyer'])
+    // 다육 7번 데이터는 O3 전 다섯 칸 그대로 (칸 순서까지) — 뒤에 찜 시각만 더한다 (D-LABEL-TIME-01, 내용 키 밖)
+    expect(Object.keys(byLabel[0]?.data ?? {})).toEqual(['no', 'name', 'price', 'date', 'buyer', 'time'])
     for (const { data } of byLabel) {
       const checked = checkProductData(data)
       expect(checked.ok).toBe(true)

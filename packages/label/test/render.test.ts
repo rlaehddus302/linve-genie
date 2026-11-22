@@ -134,8 +134,9 @@ describe('배치 검사 — 글이 상자 밖으로 나가지 않는다 (AC-P1-1
       const t = { ...defaultTemplate('product', size), shopName: '다육농장' }
       const r = product(t)
       expectCleanLayout(r.image, r.layout)
-      // (b) 기본 템플릿 상자는 겹치지 않는다
-      const boxes = Object.values(t.items)
+      // (b) 기본 템플릿 상자는 겹치지 않는다 — 처음에 끈 시간 칸은 빈 자리가 없어 가게 이름 줄 오른쪽 끝에 둔다(켜면 겹침 경고, D-LABEL-TIME-01)
+      expect(t.items.time.visible).toBe(false)
+      const boxes = Object.entries(t.items).filter(([id]) => id !== 'time').map(([, box]) => box)
       for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) expect(overlaps(boxes[i] as TemplateItem, boxes[j] as TemplateItem)).toBe(false)
       // 판매자 샘플 배치: 맨 위 가운데 가게 이름, 그 아래 한 줄에 번호·가격·날짜, 그 아래 품종, 그 아래 닉네임
       const it2 = t.items

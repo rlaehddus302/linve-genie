@@ -16,7 +16,7 @@
 // 단추 둘은 늘 좌우 — 부정 왼쪽, 긍정 오른쪽 (D-UX4-01). 프린터를 '기본·실험'으로 나눠 보이지 않는다.
 import { printerProfile, labelSizesForProfileId } from '@livejjim/printer'
 import { CAPTION_POSITIONS, CAPTION_SPACE_HINT, CAPTION_TEXT_MAX, CAPTION_WORDS, captionsCrowded, productArea, safeMargin, type LabelCaption } from '@livejjim/label/captions'
-import type { ProductDesign, ProductItemId, ProductTemplate, TemplateItem } from '@livejjim/label'
+import type { DateStyle, ProductDesign, ProductItemId, ProductTemplate, ShopMark, TemplateItem, TimeStyle } from '@livejjim/label'
 import type { QueueSummary, StoredTemplate, Templates } from '@livejjim/web/src/api/print-types.ts'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ActivityIndicator, Image, PanResponder, ScrollView, View, useWindowDimensions } from 'react-native'
@@ -25,11 +25,13 @@ import type { PickEntry } from '@livejjim/mobile-ble'
 import { cancelPrinterPick, lastPickedEntry, pickPrinter, useInlinePrinterPick } from '../native/printer-pick.ts'
 import { sizeWordMm, testHelp } from '../lib/test-help.ts'
 import { RETRY_NOW } from '../lib/words.ts'
+import { snapMove, snapResize, type SnapGuide, type SnapRect } from '../lib/label-snap.ts'
 import { useServices } from '../services.tsx'
 import { BigButton, BottomCTA, BottomSheet, FormPage, LineTab, LineTabs, NavBar, usePageTop, useWhiteTop, ChoiceCheck, Icon, ListRow, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { LabelPrintArt, PrinterConnectArt } from '../ui/LabelArt.tsx'
 import { Notice } from '../ui/parts.tsx'
+import { PLAIN } from './console/parts.tsx'
 import { DEVICE_NAME_MAX, TEST_QUESTION, replaceQuestion } from './LabelsScreen.tsx'
 
 export const LABEL_ASK_TITLE = '라벨을 뽑을까요?'
@@ -49,16 +51,41 @@ export const TEST_BODY = '뽑아 보면 프린터와 라벨이 잘 맞는지 알
 const DEVICE_NAME = '내 휴대폰'
 /** 아무 프린터도 못 찾으면 다시 찾는 간격 (D-UX4-04) */
 export const RESCAN_MS = 10_000
-/** 라벨 칸 이름과 차례 (번호·닉네임은 늘 찍힌다 — L-3 PRODUCT_LOCKED) */
-export const ITEM_WORDS: Readonly<Record<ProductItemId, string>> = { shop: '가게 이름', number: '번호', price: '가격', date: '날짜', name: '품종', buyer: '닉네임' }
-const ITEM_ORDER: readonly ProductItemId[] = ['shop', 'number', 'price', 'date', 'name', 'buyer']
-/** 가격 표기 (앱 예시 30만원 — D-UX4-03, 만원 단위 D-UX4-07) */
-const PRICE_STYLES = ['TEN_THOUSAND', 'THOUSAND', 'WON'] as const
-const PRICE_WORDS: Readonly<Record<ProductTemplate['priceStyle'], string>> = {
-  TEN_THOUSAND: '30만원',
-  THOUSAND: '300 천원',
-  WON: '300,000원',
+/**
+ * 라벨 칸 이름 (번호·닉네임은 늘 찍힌다 — L-3 PRODUCT_LOCKED). 화면 이름은 '품명'(D-LABEL-ITEMS-01, 사용자 지시 2026-11-23 "품명") — 옛 '품종'.
+ * 라벨에 찍히는 글(품종: …)은 라벨 규칙 몫이라 그대로다.
+ */
+export const ITEM_WORDS: Readonly<Record<ProductItemId, string>> = { shop: '가게 이름', date: '날짜', time: '시간', number: '번호', price: '가격', name: '품명', buyer: '닉네임' }
+/**
+ * 문구 탭 왼쪽 목록의 차례 (D-LABEL-ITEMS-01, 사용자 지시 2026-11-23 "항목 순서를 가게 이름, 날짜, 시간, 번호, 가격, 품명, 닉네임, 직접 입력으로").
+ * 옛: 가게 이름·번호·가격·날짜·품종·닉네임. 미리 보기 위 칸도 이 차례로 놓는다.
+ */
+const ITEM_ORDER: readonly ProductItemId[] = ['shop', 'date', 'time', 'number', 'price', 'name', 'buyer']
+/**
+ * 가격 표기는 둘만 (D-LABEL-ITEMS-01, 사용자 지시 2026-11-23 "가격은 300,000원, 30만 원 이렇게 2개만"). 보기 글은 미리 보기 견본(백만 원)과 같게.
+ * 옛: 30만원 · 300 천원 · 300,000원. 저장본이 천원(THOUSAND)이면 불러올 때 원(WON)으로 바꿔 둔다(저장할 때 반영 — AUTO).
+ */
+const PRICE_STYLES = ['WON', 'TEN_THOUSAND'] as const
+const PRICE_WORDS: Readonly<Record<(typeof PRICE_STYLES)[number], string>> = {
+  WON: '1,000,000원',
+  TEN_THOUSAND: '100만 원',
 }
+/** 가게 이름 양옆 기호 (끄면 'none') — 보기 글은 '가게'를 감싼 모양 */
+const SHOP_MARK_CHOICES = ['dash', 'angle', 'square', 'round'] as const satisfies readonly ShopMark[]
+const SHOP_MARK_WORDS: Readonly<Record<(typeof SHOP_MARK_CHOICES)[number], string>> = { dash: '-가게-', angle: '<가게>', square: '[가게]', round: '(가게)' }
+/** 날짜 모양 (연도는 따로 켜고 끈다) */
+const DATE_SEPS = ['.', '/', '-'] as const satisfies readonly DateStyle['sep'][]
+const DEFAULT_DATE_STYLE: DateStyle = { year: true, sep: '.' }
+/** 날짜 모양 보기 글: 오늘(한국 시각) 날짜로 — 연도를 켜면 26.11.23, 끄면 11.23 */
+export function dateWord(style: DateStyle, now: Date = new Date()): string {
+  const kst = new Date(now.getTime() + 9 * 3600_000)
+  const two = (n: number) => String(n).padStart(2, '0')
+  const parts = [two(kst.getUTCMonth() + 1), two(kst.getUTCDate())]
+  return (style.year ? [two(kst.getUTCFullYear() % 100), ...parts] : parts).join(style.sep)
+}
+/** 시간 모양 */
+const TIME_STYLES = ['24h', '12h'] as const satisfies readonly TimeStyle[]
+const TIME_WORDS: Readonly<Record<TimeStyle, string>> = { '24h': '17:30', '12h': '5:30 PM' }
 
 // 앱은 라벨 실행 코드를 가져오지 않는다(APP-01 AC3) — 칸을 고칠 때 필요한 숫자만 LABEL_RULES 그대로 옮겨 둔다. 저장 때 서버가 다시 검사한다.
 /** 글자 크기 범위 (L-5, 점) */
@@ -95,19 +122,60 @@ export function movedItem(item: TemplateItem, dx: number, dy: number, labelW: nu
   return { ...item, x: clamp(Math.round(item.x + dx), 0, labelW - item.width), y: clamp(Math.round(item.y + dy), 0, labelH - item.height) }
 }
 
-/** 칸 크기 바꾸기: 상자를 키우면 글자 크기도 높이만큼 같이 (16~120점) */
-export function resizedItem(item: TemplateItem, dw: number, dh: number, labelW: number, labelH: number): TemplateItem {
-  const width = clamp(Math.round(item.width + dw), 24, labelW - item.x)
-  const height = clamp(Math.round(item.height + dh), 20, labelH - item.y)
-  const fontSize = clamp(Math.round((item.fontSize * height) / item.height), FONT_SIZE_MIN, FONT_SIZE_MAX)
+/** 칸의 가장 작은 크기 (점) — 서버가 미리 보기에 그 칸의 최소 크기(minSizes)를 주지 않으면 이것 */
+export interface BoxMin {
+  readonly width: number
+  readonly height: number
+}
+export const BOX_MIN: BoxMin = { width: 24, height: 20 }
+
+/**
+ * 글자 한 줄 높이 (점) — 칸 높이는 글자 크기로 정해진다 (D-LABEL-SNAP-01, 사용자 지시 2026-11-23 "박스 높이를 아무리 크게 조절해도 그렇게 조절되게
+ * 하지 말고 파워포인트에서 텍스트 박스 조절하듯이 … 쓸데없는 여백 생기게 하지 말라"). 옛 글자 크기 단계의 ceil(글자×1.25)와 같은 식.
+ */
+export const textBoxHeight = (points: number): number => Math.ceil(points * 1.25)
+
+/** 라벨 아래 끝 안에 들어가는 가장 큰 글자 (낮으면 FONT_SIZE_MIN) */
+const fittingFont = (wanted: number, room: number): number => {
+  let size = wanted
+  while (size > FONT_SIZE_MIN && textBoxHeight(size) > room) size -= 1
+  return size
+}
+
+/**
+ * 오른쪽 아래 손잡이: 폭과 글자 크기를 함께 — 끈 높이(dh)만큼 글자를 키우고 칸 높이는 늘 그 글자 한 줄 높이 (파워포인트 텍스트 상자처럼, D-LABEL-SNAP-01).
+ * min(서버가 준 그 칸의 최소 크기) 밑으로는 줄지 않는다 — "칸이 좁아 만들 수 없어요" 대신 안 줄어든다. 라벨 밖으로는 안 커진다.
+ * 옛: 상자 높이를 마음대로 키우고 글자는 높이 비율로(위아래 빈 곳이 생겼다).
+ */
+export function resizedItem(item: TemplateItem, dw: number, dh: number, labelW: number, labelH: number, min: BoxMin = BOX_MIN): TemplateItem {
+  const width = clamp(Math.round(item.width + dw), min.width, labelW - item.x)
+  const room = labelH - item.y
+  let fontSize = fittingFont(clamp(Math.floor((textBoxHeight(item.fontSize) + dh) / 1.25), FONT_SIZE_MIN, FONT_SIZE_MAX), room)
+  while (fontSize < FONT_SIZE_MAX && textBoxHeight(fontSize) < min.height && textBoxHeight(fontSize + 1) <= room) fontSize += 1
+  const height = Math.max(1, Math.min(textBoxHeight(fontSize), room))
   return { ...item, width, height, fontSize, minFontSize: Math.min(item.minFontSize, fontSize) }
 }
 
-/** 글자 크기 한 단계: 커지면 상자 높이도 글자가 들어가게 (라벨 안에서) */
+/** 오른쪽 가운데 손잡이: 폭만 (높이는 글자 한 줄 높이로 맞춘다 — 만진 칸에만 새 높이 규칙) */
+export function widenedItem(item: TemplateItem, dw: number, labelW: number, labelH: number, min: BoxMin = BOX_MIN): TemplateItem {
+  const width = clamp(Math.round(item.width + dw), min.width, labelW - item.x)
+  return { ...item, width, height: Math.max(1, Math.min(textBoxHeight(item.fontSize), labelH - item.y)) }
+}
+
+/** 글자 크기 한 단계: 높이도 글자 한 줄 높이로 따라간다(줄면 같이 준다). 라벨 아래 끝을 넘게는 안 커진다 */
 export function fontStepped(item: TemplateItem, delta: number, labelH: number): TemplateItem {
   const fontSize = clamp(item.fontSize + delta, FONT_SIZE_MIN, FONT_SIZE_MAX)
-  const height = clamp(Math.max(item.height, Math.ceil(fontSize * 1.25)), 1, labelH - item.y)
+  if (delta > 0 && item.y + textBoxHeight(fontSize) > labelH) return item
+  const height = Math.max(1, Math.min(textBoxHeight(fontSize), labelH - item.y))
   return { ...item, fontSize, height, minFontSize: Math.min(item.minFontSize, fontSize) }
+}
+
+/** 글자를 한 단계(2점) 더 키울 수 있나 — 라벨 아래 끝 안에서 */
+export const canGrowFont = (item: TemplateItem, labelH: number): boolean => item.fontSize < FONT_SIZE_MAX && item.y + textBoxHeight(Math.min(FONT_SIZE_MAX, item.fontSize + 2)) <= labelH
+
+/** 불러온 초안 고르기: 천원 표기(THOUSAND)는 앱이 보이는 두 표기 중 원(WON)으로 (D-LABEL-ITEMS-01 AUTO — 화면에 없는 표기로 남지 않게) */
+export function normalizedDraft(template: ProductTemplate): ProductTemplate {
+  return template.priceStyle === 'THOUSAND' ? { ...template, priceStyle: 'WON' } : template
 }
 
 /** 라벨 크기는 작은 것부터 (넓이 → 폭) */
@@ -134,6 +202,8 @@ interface DraftPreview {
   readonly height: number
   readonly png: string
   readonly longest: string | null
+  /** 칸마다 가장 작은 크기(템플릿 점) — 이 밑으로는 줄이지 못하게 한다 (D-LABEL-SNAP-01). 없으면 BOX_MIN */
+  readonly minSizes?: Partial<Record<ProductItemId, BoxMin>>
 }
 
 const errorText = (caught: unknown): string => (isApiError(caught) ? caught.message : '하지 못했어요. 다시 눌러 주세요.')
@@ -357,6 +427,12 @@ function DesignStep({ queue, profileId, saveLabel, onBack, onSaved }: { readonly
   const [styleArt, setStyleArt] = useState<{ readonly key: string; readonly png: Partial<Record<ProductDesign, string>> }>({ key: '', png: {} })
   const [notePage, setNotePage] = useState(0)
   const [editing, setEditing] = useState<'shop' | 'note' | null>(null)
+  /** 마지막으로 잘 그려진 초안 — 칸이 좁아 못 그리면(DOES_NOT_FIT) 오류 대신 이것으로 되돌린다 (D-LABEL-SNAP-01) */
+  const lastGood = useRef<ProductTemplate | null>(null)
+  /** 칸마다 최소 크기 — 마지막으로 받은 미리 보기의 것 */
+  const [minSizes, setMinSizes] = useState<Partial<Record<ProductItemId, BoxMin>>>({})
+  /** 가게 이름 양옆 기호를 다시 켤 때 쓸 마지막 기호 */
+  const lastMark = useRef<(typeof SHOP_MARK_CHOICES)[number]>('dash')
   const top = usePageTop()
   const { width: screenWidth, height: screenHeight } = useWindowDimensions()
   useWhiteTop()
@@ -367,8 +443,10 @@ function DesignStep({ queue, profileId, saveLabel, onBack, onSaved }: { readonly
     get<Templates>('/api/print/templates').then(
       (view) => {
         setStored(view.product)
-        // 가게 이름 칸은 저장된 본문 그대로 (비어 있으면 가게 설정의 이름을 따른다 — D-FB1-07)
-        setDraft({ ...view.product.template, shopName: view.product.storedShopName ?? '' })
+        // 가게 이름 칸은 저장된 본문 그대로 (비어 있으면 가게 설정의 이름을 따른다 — D-FB1-07). 천원 표기는 원 표기로 (D-LABEL-ITEMS-01)
+        const mark = view.product.template.shopMark
+        if (mark !== undefined && mark !== 'none') lastMark.current = mark
+        setDraft(normalizedDraft({ ...view.product.template, shopName: view.product.storedShopName ?? '' }))
       },
       (caught: unknown) => setError(errorText(caught)),
     )
@@ -376,33 +454,56 @@ function DesignStep({ queue, profileId, saveLabel, onBack, onSaved }: { readonly
   useEffect(load, [])
 
   /** 초안을 서버에 보내 그림을 받는다 (크기를 바꾸면 서버가 그 크기의 칸 배치로 고친 초안도 준다) */
-  const draw = (template: ProductTemplate, resize?: string, design?: ProductDesign) => {
+  // fit: 날짜·시간·가격 모양을 바꾸면 새 모양이 들어가도록 서버가 좁은 칸을 가장 작은 크기까지 넓혀 돌려준다 (D-LABEL-MINBOX-01) —
+  // 그냥 그리면 '26/11/23'처럼 넓어진 글이 칸이 좁아 못 그려져 고른 모양이 몰래 되돌아갔다
+  const draw = (template: ProductTemplate, resize?: string, design?: ProductDesign, fit = false) => {
     clearTimeout(previewTimer.current)
-    const layoutChange = resize !== undefined || design !== undefined
-    if (layoutChange) setChangingLayout(true)
+    // 용지·스타일은 칸 배치를 통째로 바꾸니 받을 때까지 막는다. 모양 바꾸기(fit)는 고른 것을 바로 보이고 막지 않는다
+    const blocking = resize !== undefined || design !== undefined
+    const layoutChange = blocking || fit
+    if (blocking) setChangingLayout(true)
     const ticket = ++asked.current
-    post<DraftPreview>('/api/print/templates/product/preview', { template, resize, design }).then(
+    post<DraftPreview>('/api/print/templates/product/preview', { template, resize, design, ...(fit ? { fit } : {}) }).then(
       (view) => {
         if (ticket !== asked.current) return
         setPreview(view)
         setError(null)
-        if (layoutChange) {
+        if (view.minSizes !== undefined) setMinSizes(view.minSizes)
+        lastGood.current = layoutChange ? view.template : template
+        if (blocking) {
           setChangingLayout(false)
           setDraft(view.template)
-        }
+        } else if (fit && JSON.stringify(view.template.items) !== JSON.stringify(template.items)) setDraft({ ...template, items: view.template.items })
       },
       (caught: unknown) => {
-        if (ticket === asked.current) {
-          setChangingLayout(false)
-          setPreview(null)
-          setError(errorText(caught))
+        if (ticket !== asked.current) return
+        setChangingLayout(false)
+        // 칸을 너무 줄여 글이 안 들어가면(칸이 좁아…) 알리지 않고 마지막으로 잘 그려진 초안으로 (사용자 지시 "칸이 좁아 만들수 없다고 띄우지 말고 걍 안 줄어들게")
+        const good = lastGood.current
+        // 칸이 좁은 오류만 (서버 doesNotFitMessage 문장) — 다른 오류(못 쓰는 글자 등)는 되돌리면 친 글이 몰래 사라지니 그대로 알린다
+        if (!layoutChange && good !== null && isApiError(caught) && caught.code === 'LABEL_INVALID' && caught.message.includes(DOES_NOT_FIT_WORDS)) {
+          setDraft(good)
+          return
         }
+        setPreview(null)
+        setError(errorText(caught))
       },
     )
+  }
+  /** 다음 초안은 칸 맞추기(fit)로 바로 그린다 — 모양을 바꾼 때 (D-LABEL-MINBOX-01) */
+  const fitNext = useRef(false)
+  const setDraftFitted = (next: ProductTemplate) => {
+    fitNext.current = true
+    setDraft(next)
   }
   // 칠 때·끌 때마다가 아니라 잠깐 멈춘 뒤에 그린다
   useEffect(() => {
     if (draft === null) return
+    if (fitNext.current) {
+      fitNext.current = false
+      draw(draft, undefined, undefined, true)
+      return () => { asked.current++ }
+    }
     previewTimer.current = setTimeout(() => draw(draft), 250)
     return () => { clearTimeout(previewTimer.current); asked.current++ }
   }, [draft])
@@ -442,7 +543,6 @@ function DesignStep({ queue, profileId, saveLabel, onBack, onSaved }: { readonly
   const paperWidth = Math.min(500, screenWidth - SPACE.xxl * 2)
   const paper = dots === null ? null : paperDots(dots)
   const workspaceHeight = paper === null ? 160 : paperWidth * paper.height / paper.width + SPACE.xxxl * 2
-  const activeItem = itemId === 'notes' ? undefined : draft?.items[itemId]
   const notes = draft?.captions ?? []
   const noteIndex = Math.max(0, Math.min(notePage, notes.length - 1))
   const note = notes[noteIndex]
@@ -457,6 +557,7 @@ function DesignStep({ queue, profileId, saveLabel, onBack, onSaved }: { readonly
       setTab('문구')
     }
   }
+  const minFor = (id: ProductItemId): BoxMin => ({ width: Math.max(BOX_MIN.width, minSizes[id]?.width ?? 0), height: Math.max(BOX_MIN.height, minSizes[id]?.height ?? 0) })
   const pickChoice = (id: ItemChoice) => {
     if (id !== 'notes') return pickItem(id)
     setItemId('notes')
@@ -471,7 +572,7 @@ function DesignStep({ queue, profileId, saveLabel, onBack, onSaved }: { readonly
       <NavBar title="라벨 디자인" onBack={onBack} />
       {/* 흰 용지가 또렷하게 보이도록 뒤 바탕은 더 어두운 회색 (D-LABEL-TABS-01) */}
       <View testID="label-workspace" style={{ height: workspaceHeight, flexShrink: 1, minHeight: 0, backgroundColor: DESK }}>
-        {draft !== null && dots !== null ? <LabelEditor draft={draft} preview={preview} dots={dots} picked={picked} onPick={pickItem} onItem={setItem} disabled={changingLayout || saving} /> : error === null ? <ActivityIndicator style={{ flex: 1 }} color={p.primary} /> : null}
+        {draft !== null && dots !== null ? <LabelEditor draft={draft} preview={preview} dots={dots} picked={picked} onPick={pickItem} onItem={setItem} minFor={minFor} disabled={changingLayout || saving} /> : error === null ? <ActivityIndicator style={{ flex: 1 }} color={p.primary} /> : null}
       </View>
       {crowded ? <Notice tone="warning" alert>{CAPTION_SPACE_HINT}</Notice> : preview?.longest ? <Notice tone="warning">{preview.longest}</Notice> : null}
       {error !== null ? <Notice tone="danger" alert>{error}</Notice> : null}
@@ -484,46 +585,68 @@ function DesignStep({ queue, profileId, saveLabel, onBack, onSaved }: { readonly
               <LineTab key={name} label={name} on={tab === name} onPress={() => pickTab(name)} />
             ))}
           </LineTabs>
-          <ScrollView role="tabpanel" aria-label={tab} style={{ flex: 1 }} contentContainerStyle={{ gap: SPACE.sm, paddingTop: SPACE.md, paddingBottom: SPACE.sm }}>
-            {tab === '용지' ? (
-              <>
-                <Txt weight="bold">라벨 크기</Txt>
-                <OptionGrid label="라벨 크기" values={sizes} columns={3} selected={draft.size} word={sizeWordMm} onPick={(size) => draw(draft, size)} />
-              </>
-            ) : tab === '스타일' ? (
-              <StyleGrid selected={draft.design ?? 'basic'} art={styleArt.key === styleKey ? styleArt.png : {}} dots={dots} onPick={(design) => { setPicked(null); if (!changingLayout) draw(draft, undefined, design) }} />
-            ) : (
-              <>
-                <OptionGrid label="라벨 항목" values={ITEM_CHOICES} columns={3} selected={itemId} word={(id) => (id === 'notes' ? NOTES_WORD : ITEM_WORDS[id])} onPick={pickChoice} />
-                {itemId !== 'notes' && activeItem !== undefined ? (
-                  <View role="group" aria-label={`${ITEM_WORDS[itemId]} 설정`} style={{ gap: SPACE.xs }}>
-                    {PRODUCT_LOCKED.includes(itemId) ? null : <ToggleRow title="찍기" on={activeItem.visible} rowHeight={44} onChange={(on) => setItem(itemId, { ...activeItem, visible: on })} />}
-                    {activeItem.visible && itemId === 'shop' ? <EditTextButton label="가게 이름" value={draft.shopName || '가게 설정 이름 사용'} onPress={() => setEditing('shop')} /> : null}
-                    {activeItem.visible && itemId === 'price' ? <OptionGrid label="가격 표기" values={PRICE_STYLES} columns={3} selected={draft.priceStyle} word={(style) => PRICE_WORDS[style]} onPick={(priceStyle) => setDraft({ ...draft, priceStyle })} /> : null}
-                    {activeItem.visible ? <FontStepper word={ITEM_WORDS[itemId]} size={activeItem.fontSize} onStep={(delta) => setItem(itemId, fontStepped(activeItem, delta, dots.heightDots))} /> : null}
-                  </View>
+          {tab === '문구' ? (
+            // 좌우 둘로: 왼쪽 넣을 수 있는 항목, 오른쪽 그 항목의 설정 (D-LABEL-ITEMS-01, 사용자 지시 2026-11-23 "좌우 두개로 나눠서 … 지금은 상하로 나눠져서 공간이 좁아")
+            <View role="tabpanel" aria-label={tab} style={{ flex: 1, flexDirection: 'row', gap: SPACE.md, paddingTop: SPACE.md }}>
+              <ScrollView style={{ width: ITEM_LIST_WIDTH, flexGrow: 0 }} contentContainerStyle={{ paddingBottom: SPACE.sm }}>
+                <View role="radiogroup" aria-label="라벨 항목" style={{ gap: SPACE.xs }}>
+                  {ITEM_CHOICES.map((id) => (
+                    <ItemListRow key={id} word={id === 'notes' ? NOTES_WORD : ITEM_WORDS[id]} on={itemId === id} off={id !== 'notes' && !itemOf(draft, id).visible} onPress={() => pickChoice(id)} />
+                  ))}
+                </View>
+              </ScrollView>
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: SPACE.sm, paddingBottom: SPACE.sm }}>
+                {itemId !== 'notes' ? (
+                  <ItemSettings
+                    id={itemId}
+                    draft={draft}
+                    heightDots={dots.heightDots}
+                    onDraft={setDraftFitted}
+                    onItem={(item) => setItem(itemId, item)}
+                    onEditShop={() => setEditing('shop')}
+                    onMark={(mark) => {
+                      if (mark !== 'none') lastMark.current = mark
+                      setDraft({ ...draft, shopMark: mark })
+                    }}
+                    lastMark={lastMark.current}
+                  />
                 ) : (
                   // 직접 입력 문구 — 호스트 이름·가게 문구처럼 상품마다 같은 글을 라벨 모서리에 (2026-11-12 "호스트 등 라벨 고정 문구")
-                  <View role="group" aria-label={`${NOTES_WORD} 설정`} style={{ gap: SPACE.xs }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
-                      {notes.length > 0 ? <>
+                  <View role="group" aria-label={`${NOTES_WORD} 설정`} style={{ gap: SPACE.sm }}>
+                    {notes.length > 0 ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs }}>
                         <PageArrow next={false} disabled={noteIndex === 0} onPress={() => setNotePage(noteIndex - 1)} />
                         <Txt weight="medium">{`${noteIndex + 1} / ${notes.length}`}</Txt>
                         <PageArrow next disabled={noteIndex + 1 >= notes.length} onPress={() => setNotePage(noteIndex + 1)} />
-                      </> : <Txt color="textSub">호스트 이름처럼 늘 같은 글을 넣어요</Txt>}
-                      <View style={{ flex: 1 }} />
-                      {note !== undefined ? <SmallButton label="삭제" onPress={() => { setNotes(notes.filter((_, i) => i !== noteIndex)); setNotePage(Math.max(0, noteIndex - 1)) }} /> : null}
-                      <SmallButton label="문구 추가" onPress={() => { setNotes([...notes, { text: '', position: CAPTION_POSITIONS[notes.length % CAPTION_POSITIONS.length] ?? 'topRight' }]); setNotePage(notes.length); setEditing('note') }} />
+                      </View>
+                    ) : (
+                      <Txt color="textSub">호스트 이름처럼 늘 같은 글을 넣어요</Txt>
+                    )}
+                    {/* 단추는 좌우 한 줄 — 지우기(부정) 왼쪽, 더하기(긍정) 오른쪽 (D-UX4-01) */}
+                    <View style={{ flexDirection: 'row', gap: SPACE.xs }}>
+                      {note !== undefined ? <View style={{ flex: 1 }}><SmallButton label="삭제" onPress={() => { setNotes(notes.filter((_, i) => i !== noteIndex)); setNotePage(Math.max(0, noteIndex - 1)) }} /></View> : null}
+                      <View style={{ flex: 1 }}><SmallButton label="문구 추가" onPress={() => { setNotes([...notes, { text: '', position: CAPTION_POSITIONS[notes.length % CAPTION_POSITIONS.length] ?? 'topRight' }]); setNotePage(notes.length); setEditing('note') }} /></View>
                     </View>
                     {note !== undefined ? <>
-                      <EditTextButton label={`문구 ${noteIndex + 1}`} value={note.text || '내용 입력'} onPress={() => setEditing('note')} />
+                      <ValueRow title={`문구 ${noteIndex + 1}`} value={note.text || '내용 입력'} onPress={() => setEditing('note')} />
                       <OptionGrid label={`문구 ${noteIndex + 1} 위치`} values={NOTE_CORNERS} columns={2} selected={note.position} word={(position) => CAPTION_WORDS[position]} onPick={(position) => editNote({ position })} />
                     </> : null}
                   </View>
                 )}
-              </>
-            )}
-          </ScrollView>
+              </ScrollView>
+            </View>
+          ) : (
+            <ScrollView role="tabpanel" aria-label={tab} style={{ flex: 1 }} contentContainerStyle={{ gap: SPACE.sm, paddingTop: SPACE.md, paddingBottom: SPACE.sm }}>
+              {tab === '용지' ? (
+                <>
+                  <Txt weight="bold">라벨 크기</Txt>
+                  <OptionGrid label="라벨 크기" values={sizes} columns={3} selected={draft.size} word={sizeWordMm} onPick={(size) => draw(draft, size)} />
+                </>
+              ) : (
+                <StyleGrid selected={draft.design ?? 'basic'} art={styleArt.key === styleKey ? styleArt.png : {}} dots={dots} onPick={(design) => { setPicked(null); if (!changingLayout) draw(draft, undefined, design) }} />
+              )}
+            </ScrollView>
+          )}
         </View>
       ) : null}
       <BottomCTA><BigButton label={saveLabel} busy={saving} disabled={draft === null || changingLayout || crowded} onPress={() => void save()} /></BottomCTA>
@@ -546,6 +669,92 @@ const DESIGNS = [{ value: 'basic', label: '기본형' }, { value: 'large', label
 type ItemChoice = ProductItemId | 'notes'
 const NOTES_WORD = '직접 입력'
 const ITEM_CHOICES: readonly ItemChoice[] = [...ITEM_ORDER, 'notes']
+/** 서버 라벨 규칙의 칸이 좁은 오류 문장(packages/label doesNotFitMessage)에 늘 있는 말 — 앱은 라벨 실행 코드를 가져오지 않는다(APP-01 AC3) */
+const DOES_NOT_FIT_WORDS = '칸이 좁아 라벨을 만들 수 없어요'
+/** 문구 탭 왼쪽 항목 목록의 폭 — '가게 이름'·'직접 입력'이 한 줄에 들어가게 */
+const ITEM_LIST_WIDTH = 96
+/** 저장본이 옛 판이라 칸이 빠져 있어도(새 '시간' 칸) 화면이 깨지지 않게 — 없으면 꺼진 칸으로 본다 */
+const HIDDEN_ITEM: TemplateItem = hiddenItem(FONT_SIZE_MIN)
+function hiddenItem(points: number): TemplateItem {
+  const fontSize = points
+  return { visible: false, x: 0, y: 0, width: BOX_MIN.width, height: BOX_MIN.height, fontSize, minFontSize: fontSize }
+}
+function itemOf(draft: ProductTemplate, id: ProductItemId): TemplateItem {
+  const items: Partial<Record<ProductItemId, TemplateItem>> = draft.items
+  return items[id] ?? HIDDEN_ITEM
+}
+
+/** 문구 탭 왼쪽 항목 한 줄 — 고르면 초록 테두리·바탕(옛 칸 고르기와 같은 느낌), 꺼진 칸은 흐린 글자 */
+function ItemListRow({ word, on, off, onPress }: { readonly word: string; readonly on: boolean; readonly off: boolean; readonly onPress: () => void }) {
+  const { p } = useKit()
+  return (
+    <Tap role="radio" aria-checked={on} aria-label={word} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.sm, justifyContent: 'center', borderRadius: RADIUS.sm, borderCurve: 'continuous', borderWidth: on ? 2 : 1, borderColor: on ? p.primary : p.border, backgroundColor: pressed ? p.pressed : on ? p.freshBg : p.surface })}>
+      <Txt step="meta" numberOfLines={1} adjustsFontSizeToFit weight={on ? 'bold' : 'medium'} color={on ? 'primaryText' : off ? 'textSub' : 'text'}>
+        {word}
+      </Txt>
+    </Tap>
+  )
+}
+
+/**
+ * 값을 고치는 줄 — 라이브 관리 화면의 줄(PlainRow)과 같은 모양: 왼쪽 이름 · 오른쪽 초록 값 · › (D-LABEL-ITEMS-01, 사용자 지시
+ * "가게이름 수정은 지금 같은 디자인 말고 라이브 관리 화면 처럼 깔끔하게"). 옛: 회색 바탕 상자(EditTextButton).
+ */
+function ValueRow({ title, value, onPress }: { readonly title: string; readonly value: string; readonly onPress: () => void }) {
+  const { p } = useKit()
+  return (
+    <Tap role="button" aria-label={`${title} 편집`} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: PLAIN.row, marginHorizontal: -SPACE.sm, paddingLeft: SPACE.sm, paddingRight: SPACE.xs, borderRadius: RADIUS.lg, borderCurve: 'continuous', backgroundColor: pressed ? p.pressed : 'transparent' })}>
+      <Txt step="bodyLarge" weight={PLAIN.weight} ink={PLAIN.ink} numberOfLines={1}>
+        {title}
+      </Txt>
+      <View style={{ flex: 1, alignItems: 'flex-end' }}>
+        <Txt step="body" weight="regular" color="primaryText" numberOfLines={1}>
+          {value}
+        </Txt>
+      </View>
+      <Icon name="chevron" color={PLAIN.chevron} size={20} />
+    </Tap>
+  )
+}
+
+/** 문구 탭 오른쪽: 고른 항목의 설정 — 찍기 · 항목마다의 형식 · 글자 크기 (D-LABEL-ITEMS-01) */
+function ItemSettings({ id, draft, heightDots, onDraft, onItem, onEditShop, onMark, lastMark }: {
+  readonly id: ProductItemId
+  readonly draft: ProductTemplate
+  readonly heightDots: number
+  readonly onDraft: (next: ProductTemplate) => void
+  readonly onItem: (item: TemplateItem) => void
+  readonly onEditShop: () => void
+  readonly onMark: (mark: ShopMark) => void
+  readonly lastMark: (typeof SHOP_MARK_CHOICES)[number]
+}) {
+  const item = itemOf(draft, id)
+  const mark = draft.shopMark ?? 'dash'
+  const dateStyle = draft.dateStyle ?? DEFAULT_DATE_STYLE
+  const priceStyle = draft.priceStyle === 'TEN_THOUSAND' ? 'TEN_THOUSAND' : 'WON'
+  return (
+    <View role="group" aria-label={`${ITEM_WORDS[id]} 설정`} style={{ gap: SPACE.xs }}>
+      {PRODUCT_LOCKED.includes(id) ? null : <ToggleRow title="찍기" on={item.visible} rowHeight={44} onChange={(on) => onItem({ ...item, visible: on })} />}
+      {item.visible && id === 'shop' ? (
+        <>
+          <ValueRow title="가게 이름" value={draft.shopName || '가게 설정 이름 사용'} onPress={onEditShop} />
+          {/* 양옆 기호 (사용자 지시 "가게 이름은 양 옆에 기호 넣을건지 말건지 온오프랑 넣을거면 뭐 넣을건지 선택") */}
+          <ToggleRow title="양옆 기호" on={mark !== 'none'} rowHeight={44} onChange={(on) => onMark(on ? lastMark : 'none')} />
+          {mark !== 'none' ? <OptionGrid label="기호 모양" values={SHOP_MARK_CHOICES} columns={2} selected={mark} word={(value) => SHOP_MARK_WORDS[value]} onPick={onMark} /> : null}
+        </>
+      ) : null}
+      {item.visible && id === 'date' ? (
+        <>
+          <ToggleRow title="연도" on={dateStyle.year} rowHeight={44} onChange={(year) => onDraft({ ...draft, dateStyle: { ...dateStyle, year } })} />
+          <OptionGrid label="날짜 모양" values={DATE_SEPS} columns={3} selected={dateStyle.sep} word={(sep) => dateWord({ ...dateStyle, sep })} onPick={(sep) => onDraft({ ...draft, dateStyle: { ...dateStyle, sep } })} />
+        </>
+      ) : null}
+      {item.visible && id === 'time' ? <OptionGrid label="시간 모양" values={TIME_STYLES} columns={2} selected={draft.timeStyle ?? '24h'} word={(style) => TIME_WORDS[style]} onPick={(timeStyle) => onDraft({ ...draft, timeStyle })} /> : null}
+      {item.visible && id === 'price' ? <OptionGrid label="가격 표기" values={PRICE_STYLES} columns={2} selected={priceStyle} word={(style) => PRICE_WORDS[style]} onPick={(next) => onDraft({ ...draft, priceStyle: next })} /> : null}
+      {item.visible ? <FontStepper word={ITEM_WORDS[id]} size={item.fontSize} canGrow={canGrowFont(item, heightDots)} onStep={(delta) => onItem(fontStepped(item, delta, heightDots))} /> : null}
+    </View>
+  )
+}
 /** 라벨 미리 보기 뒤 바탕 — 흰 용지가 또렷하게 (D-LABEL-TABS-01, 사용자 지시 "용지 뒷배경 더 어둡게") */
 const DESK = '#D1D6DB'
 
@@ -583,13 +792,6 @@ function PageArrow({ next, disabled, onPress }: { readonly next: boolean; readon
   </Tap>
 }
 
-function EditTextButton({ label, value, onPress }: { readonly label: string; readonly value: string; readonly onPress: () => void }) {
-  const { p } = useKit()
-  return <Tap role="button" aria-label={`${label} 편집`} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: SPACE.md, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, backgroundColor: pressed ? p.pressed : p.surfaceAlt, borderRadius: RADIUS.sm, borderCurve: 'continuous' })}>
-    <Txt step="meta" color="textSub">{label}</Txt><View style={{ flex: 1 }}><Txt right numberOfLines={1}>{value}</Txt></View><Icon name="chevron" size={16} color={p.textSub} />
-  </Tap>
-}
-
 function OptionGrid<T extends string>({ label, values, columns, selected, word, onPick }: { readonly label: string; readonly values: readonly T[]; readonly columns: number; readonly selected: T; readonly word: (value: T) => string; readonly onPick: (value: T) => void }) {
   return <View role="radiogroup" aria-label={label} style={{ gap: SPACE.xs }}>
     {Array.from({ length: Math.ceil(values.length / columns) }, (_, index) => {
@@ -603,48 +805,53 @@ function OptionGrid<T extends string>({ label, values, columns, selected, word, 
 }
 
 /** 글자 크기 − 숫자 + */
-function FontStepper({ word, size, onStep }: { readonly word: string; readonly size: number; readonly onStep: (delta: number) => void }) {
+function FontStepper({ word, size, canGrow, onStep }: { readonly word: string; readonly size: number; readonly canGrow: boolean; readonly onStep: (delta: number) => void }) {
   const { p } = useKit()
   const key = (sign: string, delta: number, name: string, off: boolean) => (
-    <Tap role="button" aria-label={`${word} 글자 ${name}`} aria-disabled={off} disabled={off} onPress={() => onStep(delta)} style={({ pressed }) => ({ width: TOUCH.min, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.softPressed : p.surfaceAlt, opacity: off ? 0.45 : 1 })}>
+    <Tap role="button" aria-label={`${word} 글자 ${name}`} aria-disabled={off} disabled={off} onPress={() => onStep(delta)} style={({ pressed }) => ({ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: RADIUS.md, borderCurve: 'continuous', backgroundColor: pressed ? p.softPressed : p.surfaceAlt, opacity: off ? 0.45 : 1 })}>
       <Txt step="bodyLarge" weight="bold">
         {sign}
       </Txt>
     </Tap>
   )
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: TOUCH.min }}>
+    // 문구 탭 오른쪽 좁은 칸에도 한 줄로 들어가게 (D-LABEL-ITEMS-01)
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: TOUCH.min }}>
       <View style={{ flex: 1 }}>
-        <Txt step="bodyLarge" weight="medium">
+        <Txt step="bodyLarge" weight="medium" numberOfLines={1} adjustsFontSizeToFit>
           글자 크기
         </Txt>
       </View>
       {key('−', -2, '작게', size <= FONT_SIZE_MIN)}
-      <View style={{ minWidth: 36, alignItems: 'center' }}>
+      <View style={{ minWidth: 32, alignItems: 'center' }}>
         <Txt weight="bold" aria-label={`${word} 글자 크기 ${String(size)}`}>
           {String(size)}
         </Txt>
       </View>
-      {key('+', 2, '크게', size >= FONT_SIZE_MAX)}
+      {key('+', 2, '크게', !canGrow)}
     </View>
   )
 }
 
 /**
  * 크게 연 라벨 미리 보기 + 칸 고르기·옮기기·크기 (D-UX4-05). 칸 자리는 템플릿 점(8점 = 1mm)을 화면 폭에 맞춰 그린다.
- * 칸을 누르면 골라지고, 고른 칸은 끌면 옮겨지고 오른쪽 아래 동그라미를 끌면 크기가 바뀐다.
+ * 칸을 누르면 골라지고, 고른 칸은 끌면 옮겨지고 오른쪽 가운데 손잡이로 폭, 오른쪽 아래 손잡이로 글자 크기(높이는 글자 한 줄)와 폭을 바꾼다.
+ * 옮기거나 크기를 바꾸는 동안 다른 켜진 칸·라벨 틀의 선에 붙고 안내선을 보인다 — 파워포인트 스마트 가이드처럼 (D-LABEL-SNAP-01, 사용자 지시 2026-11-23
+ * "각 항목 박스 눌러서 위치 이동 시킬 때 주변 박스들의 위치에 맞춰 스냅 … 사이즈 조절할 때도 주변 박스와 스냅되게").
  */
-function LabelEditor({ draft, preview, dots, picked, onPick, onItem, disabled }: {
+function LabelEditor({ draft, preview, dots, picked, onPick, onItem, minFor, disabled }: {
   readonly draft: ProductTemplate
   readonly preview: DraftPreview | null
   readonly dots: NonNullable<ReturnType<typeof labelDots>>
   readonly picked: ProductItemId | null
   readonly onPick: (id: ProductItemId | null) => void
   readonly onItem: (id: ProductItemId, item: TemplateItem) => void
+  readonly minFor: (id: ProductItemId) => BoxMin
   readonly disabled: boolean
 }) {
   const { p } = useKit()
   const [stage, setStage] = useState({ width: 0, height: 0 })
+  const [guides, setGuides] = useState<readonly SnapGuide[]>([])
   const { widthDots, heightDots } = dots
   const paper = paperDots(dots)
   const width = Math.max(0, Math.min(stage.width - SPACE.xxl * 2, (stage.height - SPACE.lg * 2) * paper.width / paper.height, 500))
@@ -653,52 +860,91 @@ function LabelEditor({ draft, preview, dots, picked, onPick, onItem, disabled }:
   const { body } = productArea(draft.captions ?? [], widthDots, heightDots, safeMargin(dots))
   const bodyScaleX = (scale * body.width) / widthDots
   const bodyScaleY = (scale * body.height) / heightDots
-  const pickedItem = picked === null ? null : draft.items[picked]
+  const visible = ITEM_ORDER.filter((id) => itemOf(draft, id).visible)
+  const pickedItem = picked === null ? null : itemOf(draft, picked)
+  const frame: SnapRect = { x: 0, y: 0, width: widthDots, height: heightDots }
+  /** 붙는 거리: 화면 약 7px를 점으로 */
+  const threshold = 7 / Math.max(0.01, Math.min(bodyScaleX, bodyScaleY))
+  /** 끄는 중 — 시작 칸(start)과 손가락 이동(점)으로 새 칸을 정하고 붙은 선을 안내선으로 */
+  const drag = (id: ProductItemId, start: TemplateItem, kind: HandleKind, dx: number, dy: number) => {
+    const others = visible.filter((other) => other !== id).map((other) => itemOf(draft, other))
+    if (kind === 'move') {
+      const raw = movedItem(start, dx, dy, widthDots, heightDots)
+      const snapped = snapMove(raw, others, frame, threshold)
+      setGuides(snapped.guides)
+      onItem(id, { ...start, x: snapped.rect.x, y: snapped.rect.y })
+      return
+    }
+    const min = minFor(id)
+    const line = textBoxHeight(start.fontSize)
+    const raw = { x: start.x, y: start.y, width: start.width + dx, height: kind === 'size' ? line + dy : line }
+    const snapped = snapResize(raw, { right: true, bottom: kind === 'size' }, others, frame, threshold, { width: min.width, height: Math.max(min.height, textBoxHeight(FONT_SIZE_MIN)) })
+    setGuides(snapped.guides)
+    const dw = snapped.rect.width - start.width
+    onItem(id, kind === 'size' ? resizedItem(start, dw, snapped.rect.height - line, widthDots, heightDots, min) : widenedItem(start, dw, widthDots, heightDots, min))
+  }
   return (
     <View onLayout={({ nativeEvent: { layout } }) => setStage((now) => now.width === layout.width && now.height === layout.height ? now : { width: layout.width, height: layout.height })} pointerEvents={disabled ? 'none' : 'auto'} style={{ flex: 1, alignItems: 'center', paddingTop: SPACE.lg }}>
       <View aria-label="라벨 미리 보기" style={{ width, height: width * paper.height / paper.width, overflow: 'hidden', backgroundColor: '#FFFFFF' }}>
-       <View style={{ position: 'absolute', left: paper.left * scale, top: paper.top * scale, width: widthDots * scale, height: heightDots * scale }}>
-        {preview !== null ? <Image accessible={false} accessibilityIgnoresInvertColors source={{ uri: `data:image/png;base64,${preview.png}` }} resizeMode="stretch" style={{ width: '100%', height: '100%', position: 'absolute' }} /> : <ActivityIndicator style={{ flex: 1 }} color={p.primary} />}
-        <View pointerEvents="box-none" style={{ position: 'absolute', left: body.x * scale, width: body.width * scale, top: body.y * scale, height: body.height * scale }}>
-        {ITEM_ORDER.filter((id) => draft.items[id].visible).map((id) => {
-          const item = draft.items[id]
-          const on = picked === id
-          return (
-            <Tap
-              key={id}
-              role="button"
-              aria-label={`라벨의 ${ITEM_WORDS[id]}`}
-              aria-pressed={on}
-              onPress={() => onPick(id)}
-              style={{ position: 'absolute', left: item.x * bodyScaleX, top: item.y * bodyScaleY, width: item.width * bodyScaleX, height: item.height * bodyScaleY, borderRadius: 4, borderCurve: 'continuous', borderWidth: on ? 2 : 0, borderColor: p.primary, backgroundColor: on ? 'rgba(31,122,77,0.08)' : 'transparent' }}
-            />
-          )
-        })}
-        {picked !== null && pickedItem !== null && pickedItem.visible && bodyScaleY > 0 ? (
-          <ItemHandles key={picked} item={pickedItem} scale={bodyScaleX} scaleY={bodyScaleY} widthDots={widthDots} heightDots={heightDots} onTap={() => onPick(null)} onChange={(next) => onItem(picked, next)} />
-        ) : null}
+        <View style={{ position: 'absolute', left: paper.left * scale, top: paper.top * scale, width: widthDots * scale, height: heightDots * scale }}>
+          {preview !== null ? <Image accessible={false} accessibilityIgnoresInvertColors source={{ uri: `data:image/png;base64,${preview.png}` }} resizeMode="stretch" style={{ width: '100%', height: '100%', position: 'absolute' }} /> : <ActivityIndicator style={{ flex: 1 }} color={p.primary} />}
+          <View pointerEvents="box-none" style={{ position: 'absolute', left: body.x * scale, width: body.width * scale, top: body.y * scale, height: body.height * scale }}>
+            {visible.map((id) => {
+              const item = itemOf(draft, id)
+              const on = picked === id
+              return (
+                <Tap
+                  key={id}
+                  role="button"
+                  aria-label={`라벨의 ${ITEM_WORDS[id]}`}
+                  aria-pressed={on}
+                  onPress={() => onPick(id)}
+                  style={{ position: 'absolute', left: item.x * bodyScaleX, top: item.y * bodyScaleY, width: item.width * bodyScaleX, height: item.height * bodyScaleY, borderRadius: 4, borderCurve: 'continuous', borderWidth: on ? 2 : 0, borderColor: p.primary, backgroundColor: on ? 'rgba(31,122,77,0.08)' : 'transparent' }}
+                />
+              )
+            })}
+            {/* 안내선 — 붙은 선을 따라 얇은 분홍 선 (손을 떼면 사라진다) */}
+            {guides.map((guide) => (
+              <View
+                key={`${guide.axis}${String(guide.at)}`}
+                testID="snap-guide"
+                pointerEvents="none"
+                aria-hidden
+                style={guide.axis === 'x'
+                  ? { position: 'absolute', left: guide.at * bodyScaleX - 0.5, top: guide.from * bodyScaleY, width: 1, height: Math.max(1, (guide.to - guide.from) * bodyScaleY), backgroundColor: GUIDE }
+                  : { position: 'absolute', top: guide.at * bodyScaleY - 0.5, left: guide.from * bodyScaleX, height: 1, width: Math.max(1, (guide.to - guide.from) * bodyScaleX), backgroundColor: GUIDE }}
+              />
+            ))}
+            {picked !== null && pickedItem !== null && pickedItem.visible && bodyScaleY > 0 ? (
+              <ItemHandles key={picked} item={pickedItem} scaleX={bodyScaleX} scaleY={bodyScaleY} onTap={() => onPick(null)} onDrag={(start, kind, dx, dy) => drag(picked, start, kind, dx, dy)} onEnd={() => setGuides([])} />
+            ) : null}
+          </View>
         </View>
-       </View>
       </View>
     </View>
   )
 }
 
-/** 고른 칸 위의 끌기 자리와 크기 손잡이 (손가락 움직임 → 점 단위) */
-function ItemHandles({ item, scale, scaleY, widthDots, heightDots, onTap, onChange }: {
+/** 안내선 색 — 파워포인트 스마트 가이드처럼 눈에 띄는 분홍 */
+const GUIDE = '#E5487F'
+
+/** 끄는 자리: 칸 전체(옮기기) · 오른쪽 가운데(폭) · 오른쪽 아래(글자 크기와 폭) */
+type HandleKind = 'move' | 'width' | 'size'
+
+/** 고른 칸 위의 끌기 자리와 크기 손잡이 둘 (손가락 움직임 → 점 단위로 바꿔 onDrag) */
+function ItemHandles({ item, scaleX, scaleY, onTap, onDrag, onEnd }: {
   readonly item: TemplateItem
-  readonly scale: number
+  readonly scaleX: number
   readonly scaleY: number
-  readonly widthDots: number
-  readonly heightDots: number
   readonly onTap: () => void
-  readonly onChange: (item: TemplateItem) => void
+  readonly onDrag: (start: TemplateItem, kind: HandleKind, dx: number, dy: number) => void
+  readonly onEnd: () => void
 }) {
   const { p } = useKit()
-  const latest = useRef({ item, scale, scaleY, widthDots, heightDots, onTap, onChange })
-  latest.current = { item, scale, scaleY, widthDots, heightDots, onTap, onChange }
+  const latest = useRef({ item, scaleX, scaleY, onTap, onDrag, onEnd })
+  latest.current = { item, scaleX, scaleY, onTap, onDrag, onEnd }
   const start = useRef(item)
-  const make = (kind: 'move' | 'size') =>
+  const make = (kind: HandleKind) =>
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onStartShouldSetPanResponderCapture: () => true,
@@ -708,27 +954,36 @@ function ItemHandles({ item, scale, scaleY, widthDots, heightDots, onTap, onChan
         start.current = latest.current.item
       },
       onPanResponderMove: (_, gesture) => {
-        const k = latest.current.scale
-        if (k <= 0) return
-        const dx = gesture.dx / k
-        const dy = gesture.dy / latest.current.scaleY
-        latest.current.onChange(kind === 'move' ? movedItem(start.current, dx, dy, latest.current.widthDots, latest.current.heightDots) : resizedItem(start.current, dx, dy, latest.current.widthDots, latest.current.heightDots))
+        const { scaleX: kx, scaleY: ky } = latest.current
+        if (kx <= 0 || ky <= 0) return
+        latest.current.onDrag(start.current, kind, gesture.dx / kx, gesture.dy / ky)
       },
       onPanResponderRelease: (_, gesture) => {
+        latest.current.onEnd()
         if (kind === 'move' && Math.abs(gesture.dx) < 4 && Math.abs(gesture.dy) < 4) latest.current.onTap()
       },
+      onPanResponderTerminate: () => latest.current.onEnd(),
     })
   const mover = useRef(make('move')).current
+  const widener = useRef(make('width')).current
   const sizer = useRef(make('size')).current
   const knob = 22
+  const bar = { width: 10, height: 22 }
+  const left = (item.x + item.width) * scaleX
   return (
     <>
-      <View {...mover.panHandlers} aria-hidden style={{ position: 'absolute', left: item.x * scale, top: item.y * scaleY, width: item.width * scale, height: item.height * scaleY }} />
+      <View {...mover.panHandlers} aria-hidden style={{ position: 'absolute', left: item.x * scaleX, top: item.y * scaleY, width: item.width * scaleX, height: item.height * scaleY }} />
+      <View
+        {...widener.panHandlers}
+        aria-hidden
+        hitSlop={12}
+        style={{ position: 'absolute', left: left - bar.width / 2, top: (item.y + item.height / 2) * scaleY - bar.height / 2, width: bar.width, height: bar.height, borderRadius: bar.width / 2, borderCurve: 'continuous', backgroundColor: p.primary, borderWidth: 2, borderColor: '#FFFFFF' }}
+      />
       <View
         {...sizer.panHandlers}
         aria-hidden
         hitSlop={12}
-        style={{ position: 'absolute', left: (item.x + item.width) * scale - knob / 2, top: (item.y + item.height) * scaleY - knob / 2, width: knob, height: knob, borderRadius: knob / 2, borderCurve: 'continuous', backgroundColor: p.primary, borderWidth: 3, borderColor: '#FFFFFF' }}
+        style={{ position: 'absolute', left: left - knob / 2, top: (item.y + item.height) * scaleY - knob / 2, width: knob, height: knob, borderRadius: knob / 2, borderCurve: 'continuous', backgroundColor: p.primary, borderWidth: 3, borderColor: '#FFFFFF' }}
       />
     </>
   )

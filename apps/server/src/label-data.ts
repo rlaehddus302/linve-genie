@@ -1,5 +1,6 @@
 // 엔진 상태 → 라벨 데이터 (LABEL_RULES L-9, L-10, D-I1-04·D-I1-10). 판정은 하지 않는다 — 코어 조회 함수의 결과만 읽는다.
 // - 상품 라벨: no·name = 그 찜이 속한 상품의 지금 번호·품종(개수가 2 이상이면 "채홍 3개", D-PIECES-01), price = 그 찜의 가격 스냅샷, date = 그 방송의 날짜(범위 날짜),
+//   time = 그 찜의 시각 HH:MM(KST, D-LABEL-TIME-01 — 내용 키 밖),
 //   buyer = 그 라벨 키에 고정된 구매자(라벨 키의 첫 작업 때 정한다).
 // - 상품 라벨의 구매자 규칙(첫 작업 때): 찜의 구매자 자신이 문자 구매자면 { kind: 'sms' },
 //   아니면 { kind: 'youtube', name: 찜의 구매자 자신의 지금 표시 이름 } — 합친 상대의 이름이 아니다.
@@ -23,6 +24,7 @@ import {
   type EngineState,
 } from '@livejjim/core'
 import { claimAmount, MissingAmountError } from './amount.ts'
+import { kstTime } from './time.ts'
 import { displayNickname, productTitle } from '@livejjim/core/format'
 import { checkPackingData, checkProductData, labelContentKey, type LabelBuyer, type PackingEntry, type PackingLabelData, type ProductLabelData } from '@livejjim/label'
 
@@ -88,6 +90,9 @@ export function productLabelData(
     ...(info.variant === null ? {} : { variant: info.variant }),
     ...(info.qty >= 2 ? { qty: info.qty } : {}),
     date: broadcast.date,
+    // 찜 시각 HH:MM (KST, 시간 칸 — D-LABEL-TIME-01). 코어 조회 결과의 순위 시각(rankTime: 그 찜의 실제 시각, 문자찜은 분 구간 시작)이다.
+    // 내용 키에는 들어가지 않는다 — 시간 칸을 켜고 끄거나 시각이 붙어도 "재출력 필요"가 되지 않는다
+    time: kstTime(info.rankTime).slice(0, 5),
     buyer: label.buyer,
   }
   const checked = checkProductData(data)

@@ -185,17 +185,19 @@ export function registerPrintRoutes(api: Hono<Env>, print: PrintService): void {
   // 저장 전 상품 라벨 초안 미리 보기 (D-UX3-19): 받은 템플릿 + 견본 값 → 203dpi PNG(base64). 쓰지 않는다
   api.post('/print/templates/product/preview', async (c) => {
     const input = body(c)
-    const extra = onlyKeys(input, ['template', 'resize', 'design'])
+    const extra = onlyKeys(input, ['template', 'resize', 'design', 'fit'])
     if (extra !== null) return extra
+    const fit = own(input, 'fit')
+    if (fit !== undefined && typeof fit !== 'boolean') return invalid([{ field: 'fit', message: '칸 맞추기는 예나 아니오로만 알려 주세요.' }])
     const resize = own(input, 'resize')
     if (resize !== undefined && !(typeof resize === 'string' && isLabelSize(resize))) return invalid([{ field: 'resize', message: '라벨 크기를 골라 주세요.' }])
     const design = own(input, 'design')
     if (design !== undefined && design !== 'basic' && design !== 'large' && design !== 'table') return invalid([{ field: 'design', message: '라벨 디자인을 골라 주세요.' }])
-    const result = await print.draftPreview(sellerOf(c), own(input, 'template'), resize, design)
+    const result = await print.draftPreview(sellerOf(c), own(input, 'template'), resize, design, fit === true)
     if (result.kind !== 'ok') return outcome(c, result)
     const png = encodeLabelPng(result.value.image)
     if (!png.ok) return imageError({ kind: 'error', error: png.error })
-    return c.json({ template: result.value.template, width: result.value.image.width, height: result.value.image.height, png: Buffer.from(png.bytes).toString('base64'), longest: result.value.longest })
+    return c.json({ template: result.value.template, width: result.value.image.width, height: result.value.image.height, png: Buffer.from(png.bytes).toString('base64'), longest: result.value.longest, minSizes: result.value.minSizes })
   })
 
   // ── 출력 기기 (L-11 8·10) ──────────────────────────────────────────────

@@ -35,7 +35,8 @@ describe('AC-I1-02 자동 작업은 효과와 같은 기록에서', () => {
     expect(job?.id).toBe(effects[0]?.id)
     expect(job).toMatchObject({ date: DAY, kind: 'product', reason: 'auto', status: 'WAITING', word: '작업 대기', voided: false, attempts: 0 })
     expect(job?.label).toMatchObject({ key: `${effects[0]?.claim ?? ''}@1`, claim: effects[0]?.claim, version: 1, broadcast: b.id, no: 15, buyer: { kind: 'youtube', name: '홍길동' } })
-    expect(job?.data).toEqual({ no: 15, name: '핑크프릴', price: 10000, date: DAY, buyer: { kind: 'youtube', name: '홍길동' } })
+    // 상품 라벨 데이터에 찜 시각 HH:MM(KST)이 붙는다 (D-LABEL-TIME-01 — 내용 키 밖)
+    expect(job?.data).toEqual({ no: 15, name: '핑크프릴', price: 10000, date: DAY, time: '12:00', buyer: { kind: 'youtube', name: '홍길동' } })
     expect(overview.queue).toMatchObject({ device: null, pause: null, waiting: 1, printing: 0, discard: 0 })
   })
 
@@ -52,7 +53,8 @@ describe('AC-I1-02 자동 작업은 효과와 같은 기록에서', () => {
     expect((await p.claim(DEVICE_A)).reason).toBe('PAUSED')
     await expectOk(p.restart())
     const claimed = await p.claim(DEVICE_A)
-    expect(claimed.job?.data).toEqual({ no: 15, name: '핑크프릴', price: 10000, date: DAY, buyer: { kind: 'youtube', name: '홍길동' } })
+    // 상품 라벨 데이터에 찜 시각 HH:MM(KST)이 붙는다 (D-LABEL-TIME-01 — 내용 키 밖)
+    expect(claimed.job?.data).toEqual({ no: 15, name: '핑크프릴', price: 10000, date: DAY, time: '12:00', buyer: { kind: 'youtube', name: '홍길동' } })
     expect(claimed.job?.template).toMatchObject({ kind: 'product', size: '50x30' })
     // 출력 중 작업이 있으면 다음을 주지 않는다
     expect((await p.claim(DEVICE_A)).reason).toBe('BUSY')

@@ -5,7 +5,8 @@ export const EXAMPLE_LABEL = {
   shop: '라이브다육',
   date: '26.11.03',
   no: 365,
-  price: '30만원',
+  // 만원 표기는 "30만 원" (D-LABEL-ITEMS-01 — 라벨 규칙 formatLabelPrice와 같다. 옛 '30만원')
+  price: '30만 원',
   name: '삼광색금',
   buyer: '지니다육',
 } as const

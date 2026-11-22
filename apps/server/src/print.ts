@@ -12,7 +12,11 @@ import { containsPhoneRun, currentBuyerOf, getProduct, listBroadcasts, listEffec
 import {
   checkProductData,
   LONGEST_PRODUCT,
-  SAMPLE_PRODUCT,
+  PREVIEW_PRODUCT,
+  minItemSizes,
+  labelSizeInfo,
+  type ItemMinSize,
+  type ProductItemId,
   computePackingText,
   doesNotFitMessage,
   renderProductLabel,
@@ -38,7 +42,7 @@ import {
 } from '@livejjim/label'
 import { createNodeRenderEnv } from '@livejjim/label/node'
 import { labelSizesForProfileId, printerProfile } from '@livejjim/printer'
-import { kstDate } from './time.ts'
+import { kstDate, kstTime } from './time.ts'
 import type { Db } from './db/database.ts'
 import type { FieldProblem } from './errors.ts'
 import { withDisplayNickname, contentKeyOf, currentLabelBuyer, isWinnerOf, packingLabelData, productLabelBuyer, productLabelData, type ClaimIndex } from './label-data.ts'
@@ -1844,7 +1848,7 @@ export class PrintService {
    * 받은 초안을 저장과 같은 검사(형식·16KB·가게 이름 길이)로 보고 견본 값(365번 삼광색금 — 앱 예시와 같다, D-UX4-07)으로 그린다. 가게 이름이 비면 설정 "가게"의 이름.
    * 가장 긴 값(번호 9999·99,999,999원·긴 품종·닉네임)이 칸에 들어가지 않으면 그 항목의 문장을 longest로 — 저장은 막지 않는다(웹과 같다). 아무것도 쓰지 않는다
    */
-  async draftPreview(sellerId: string, value: unknown, resize?: LabelSizeId, design?: ProductDesign): Promise<ActionOutcome<{ template: LabelTemplate; image: LabelBitmap; longest: string | null }>> {
+  async draftPreview(sellerId: string, value: unknown, resize?: LabelSizeId, design?: ProductDesign, fit = false): Promise<ActionOutcome<{ template: LabelTemplate; image: LabelBitmap; longest: string | null; minSizes: Partial<Record<ProductItemId, ItemMinSize>> }>> {
     let text: string
     try {
       text = JSON.stringify(value)
@@ -1874,12 +1878,30 @@ export class PrintService {
       draft = resized.template
     }
     const shop = await readShop(this.#db, sellerId)
-    const template = fillShopName(draft, shop.name)
     const env = createNodeRenderEnv()
-    const sample = renderProductLabel(env, template, { ...SAMPLE_PRODUCT, date: kstDate(this.#now().getTime()) })
+    // 견본: 적당히 긴 품종·닉네임, 백만 원, 오늘·지금(KST) (D-LABEL-SAMPLE-01)
+    const now = this.#now().getTime()
+    const data = { ...PREVIEW_PRODUCT, date: kstDate(now), time: kstTime(now).slice(0, 5) }
+    // 칸 맞추기 (D-LABEL-MINBOX-01): 날짜·시간·가격 모양을 바꿔 글이 넓어지면 좁은 칸을 가장 작은 크기까지 넓힌다
+    if (fit && draft.kind === 'product') {
+      const mins = minItemSizes(env, fillShopName(draft, shop.name), data)
+      if (mins.ok) draft = grownToMin(draft, mins.sizes)
+    }
+    const template = fillShopName(draft, shop.name)
+    const sample = renderProductLabel(env, template, data)
     if (!sample.ok) return rejected(422, 'LABEL_INVALID', sample.error.code === 'DOES_NOT_FIT' && sample.error.item !== undefined ? doesNotFitMessage(sample.error.item) : sample.error.message)
     const longest = renderProductLabel(env, template, LONGEST_PRODUCT)
-    return { kind: 'ok', value: { template: draft, image: sample.image, longest: longest.ok ? null : longest.error.item !== undefined ? doesNotFitMessage(longest.error.item) : longest.error.message } }
+    // 칸마다 가장 작은 칸 — 앱이 이보다 작게 줄이지 못하게 (D-LABEL-MINBOX-01)
+    const mins = minItemSizes(env, template, data)
+    return {
+      kind: 'ok',
+      value: {
+        template: draft,
+        image: sample.image,
+        longest: longest.ok ? null : longest.error.item !== undefined ? doesNotFitMessage(longest.error.item) : longest.error.message,
+        minSizes: mins.ok ? mins.sizes : {},
+      },
+    }
   }
 
   /**
@@ -2045,4 +2067,25 @@ function newJobId(prefix: 'm' | 'r' | 'p'): string {
   let out = ''
   for (const byte of bytes) out += LOWER[byte % LOWER.length]
   return `${prefix}-${out}`
+}
+
+/**
+ * 켜진 칸 중 가장 작은 크기보다 좁거나 낮은 칸을 그 크기까지 넓힌다 (D-LABEL-MINBOX-01, 미리 보기 fit).
+ * 오른쪽에 붙여 찍는 날짜·시간과 오른쪽으로 넓히면 라벨 밖으로 나가는 칸은 오른쪽 끝을 두고 왼쪽으로, 아니면 오른쪽으로. 아래도 같다. 라벨 안에서만.
+ */
+export function grownToMin(template: ProductTemplate, mins: Partial<Record<ProductItemId, ItemMinSize>>): ProductTemplate {
+  const { widthDots, heightDots } = labelSizeInfo(template.size)
+  const items = { ...template.items }
+  for (const id of Object.keys(items) as ProductItemId[]) {
+    const item = items[id]
+    const min = mins[id]
+    if (!item.visible || min === undefined || (item.width >= min.width && item.height >= min.height)) continue
+    const width = Math.min(widthDots, Math.max(item.width, min.width))
+    const height = Math.min(heightDots, Math.max(item.height, min.height))
+    const right = id === 'date' || id === 'time' || item.x + width > widthDots
+    const x = right ? Math.max(0, item.x + item.width - width) : item.x
+    const y = item.y + height > heightDots ? Math.max(0, item.y + item.height - height) : item.y
+    items[id] = { ...item, x, y, width, height }
+  }
+  return { ...template, items }
 }
