@@ -466,12 +466,14 @@ export interface StoredSettings {
   readonly epost: EpostKeys | null
   /** 우체국 창구소포 비회원 신청 비밀번호 (숫자 4자리, 없으면 null — EP1 D-EP1-14) */
   readonly epostPassword: string | null
+  /** 받는 분 이름에 손님 닉네임 같이 적기 — `이름(닉네임)` (D-PARCEL-NICK-01, 기본 꺼짐) */
+  readonly nickInName: boolean
 }
 
 export async function readSettings(db: Db, masterKey: Buffer, sellerId: string): Promise<StoredSettings> {
   const rows = await db.select().from(parcelSettings).where(eq(parcelSettings.sellerId, sellerId)).limit(1)
   const row = rows[0]
-  if (row === undefined) return { carrier: null, carrierName: null, customerNo: null, sender: null, box: DEFAULT_BOX, epost: null, epostPassword: null }
+  if (row === undefined) return { carrier: null, carrierName: null, customerNo: null, sender: null, box: DEFAULT_BOX, epost: null, epostPassword: null, nickInName: false }
   const open = (aad: string, sealed: string | null): string | null => {
     if (sealed === null) return null
     try {
@@ -500,6 +502,7 @@ export async function readSettings(db: Db, masterKey: Buffer, sellerId: string):
     box: storedBox(row.box),
     epost: readEpostKeys(open(epostAad(sellerId), row.epostEnc)),
     epostPassword: open(epostPwAad(sellerId), row.epostPwEnc),
+    nickInName: row.nickInName,
   }
 }
 
@@ -522,6 +525,7 @@ export async function writeSettings(db: Db, masterKey: Buffer, sellerId: string,
     box: value.box,
     epostEnc: value.epost === null ? null : sealText(masterKey, epostAad(sellerId), JSON.stringify({ key: value.epost.key, secret: value.epost.secret })),
     epostPwEnc: value.epostPassword === null ? null : sealText(masterKey, epostPwAad(sellerId), value.epostPassword),
+    nickInName: value.nickInName,
     updatedAt: now,
   }
   await db

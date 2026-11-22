@@ -82,6 +82,7 @@ import {
   readBox,
   readQty,
   readSender,
+  recipientName,
   senderProblems,
   tidyText,
   type AddressErrorCode,
@@ -324,6 +325,8 @@ export interface ParcelSettingsView {
   readonly boxes: readonly BoxKind[]
   /** 우체국 비회원 신청 비밀번호 (숫자 4자리 — 판매자만 본다, 없으면 null. EP1 D-EP1-14) */
   readonly epostPassword: string | null
+  /** 우체국 접수 때 받는 분 이름을 `이름(닉네임)`으로 (D-PARCEL-NICK-01, 기본 꺼짐) */
+  readonly nickInName: boolean
 }
 
 export type BookItemResult =
@@ -413,7 +416,7 @@ class RequestTaken extends Error {
 
 type Prepared =
   | { readonly kind: 'skip'; readonly result: BookItemResult }
-  | { readonly kind: 'send'; readonly attempt: AttemptRow; readonly receiver: ParcelAddress }
+  | { readonly kind: 'send'; readonly attempt: AttemptRow; readonly receiver: ParcelAddress; readonly nickname: string | null }
 
 export class ParcelService {
   readonly #deps: ParcelDeps
@@ -679,6 +682,7 @@ export class ParcelService {
       box: stored.box,
       boxes: BOX_KINDS,
       epostPassword: stored.epostPassword,
+      nickInName: stored.nickInName,
     }
   }
 
@@ -688,7 +692,7 @@ export class ParcelService {
    * FAKE는 시험 모드에서만. OTHER가 아닌 코드와 함께 온 carrierName은 저장하지 않는다. 이름은 로그에 남기지 않는다
    */
   async updateSettings(sellerId: string, body: Record<string, unknown>): Promise<Outcome<ParcelSettingsView>> {
-    const allowed = ['carrier', 'carrierName', 'customerNo', 'sender', 'box', 'epostKey', 'epostSecret', 'epostPassword']
+    const allowed = ['carrier', 'carrierName', 'customerNo', 'sender', 'box', 'epostKey', 'epostSecret', 'epostPassword', 'nickInName']
     const extra = Object.keys(body).filter((key) => !allowed.includes(key))
     if (extra.length > 0) return problem(400, 'UNKNOWN_FIELD', '받을 수 없는 항목이 있어요.', unknownFieldProblems(extra))
     const current = await readSettings(this.#deps.db, this.#deps.masterKey, sellerId)
@@ -769,9 +773,15 @@ export class ParcelService {
       if (read === 'invalid') problems.push({ field: 'epostPassword', message: EPOST_MESSAGES.passwordInvalid })
       else epostPassword = read
     }
+    // 받는 분 이름에 닉네임 같이 적기 (D-PARCEL-NICK-01 — 적지 않으면 그대로, 참·거짓만)
+    let nickInName = current.nickInName
+    if (body.nickInName !== undefined) {
+      if (typeof body.nickInName === 'boolean') nickInName = body.nickInName
+      else problems.push({ field: 'nickInName', message: PARCEL_MESSAGES.nickInNameInvalid })
+    }
     if (problems.length > 0) return problem(400, 'INVALID_INPUT', '입력한 내용을 확인해 주세요.', problems, codes.length > 0 ? { codes } : undefined)
     // 우체국을 쓰고 계약 정보가 바뀌었으면 우체국에 맞는지 물어 본 뒤 저장한다 (틀린 정보로 접수 날에 막히지 않게)
-    const next: StoredSettings = { carrier, carrierName, customerNo, sender, box, epost, epostPassword }
+    const next: StoredSettings = { carrier, carrierName, customerNo, sender, box, epost, epostPassword, nickInName }
     const adapter = carrier === null || carrier === OTHER_CARRIER ? undefined : this.#carriers[carrier]
     const account = ParcelService.accountOf(next)
     const changed = epost?.key !== current.epost?.key || epost?.secret !== current.epost?.secret || customerNo !== current.customerNo || carrier !== current.carrier
@@ -1473,7 +1483,9 @@ export class ParcelService {
     const sender = settings.sender as ParcelSender
     let answer
     try {
-      answer = await adapter.book({ requestKey: attempt.requestKey, customerNo: settings.customerNo, receiver: prepared.receiver, sender, box: attempt.box, count: attempt.qty, account: ParcelService.accountOf(settings) })
+      // D-PARCEL-NICK-01: 판매자가 켰으면 받는 분 이름 = 이름(닉네임). 저장한 배송지는 그대로 둔다
+      const receiver = { ...prepared.receiver, name: recipientName(prepared.receiver.name, prepared.nickname, settings.nickInName) }
+      answer = await adapter.book({ requestKey: attempt.requestKey, customerNo: settings.customerNo, receiver, sender, box: attempt.box, count: attempt.qty, account: ParcelService.accountOf(settings) })
     } catch {
       answer = { kind: 'UNKNOWN' as const }
     }
@@ -1505,7 +1517,7 @@ export class ParcelService {
           const receiver = this.#open(sellerId, address)
           if (receiver === null) return skip({ buyer, ok: false, reason: 'ADDRESS_EXPIRED', message: PARCEL_MESSAGES.addressExpired })
           if (!(await moveAttempt(tx, sellerId, latest.id, ['PENDING', 'UNKNOWN'], { state: 'PENDING', updatedAt: new Date(now) }))) return skip(this.#resultOf(buyer, await attemptById(tx, sellerId, latest.id)))
-          return { kind: 'send', attempt: latest, receiver }
+          return { kind: 'send', attempt: latest, receiver, nickname: ParcelService.nicknameOf(state, buyer) }
         }
         // EP1: 우체국에 사전접수한 묶음은 택배사에 다시 보내지 않는다 (PC-9 2)
         if ((await epostRow(tx, sellerId, date, buyer))?.state === 'RECEIVED') return skip({ buyer, ok: false, reason: 'EPOST', message: EPOST_MESSAGES.alreadyReceived })
@@ -1516,7 +1528,7 @@ export class ParcelService {
         const receiver = this.#open(sellerId, address) as ParcelAddress
         const attempt = await insertAttempt(tx, { sellerId, date, buyer, carrier, box, qty: row.qty, accountId, now: new Date(now), ...(direct === null ? {} : { requestKey: directRequestKey(direct) }) })
         if (attempt === null) return skip({ buyer, ok: false, reason: 'BOOKING', message: ELIGIBILITY_MESSAGES.BOOKING })
-        return { kind: 'send', attempt, receiver }
+        return { kind: 'send', attempt, receiver, nickname: ParcelService.nicknameOf(state, buyer) }
       })
     })
   }
@@ -1536,14 +1548,14 @@ export class ParcelService {
         const receiver = this.#open(sellerId, address)
         if (receiver === null) return skip({ buyer, ok: false, reason: 'ADDRESS_EXPIRED', message: PARCEL_MESSAGES.addressExpired })
         if (!(await moveAttempt(tx, sellerId, latest.id, ['PENDING', 'UNKNOWN'], { state: 'PENDING', updatedAt: new Date(now) }))) return skip(this.#resultOf(buyer, await attemptById(tx, sellerId, latest.id)))
-        return { kind: 'send', attempt: latest, receiver }
+        return { kind: 'send', attempt: latest, receiver, nickname: null }
       }
       const row = this.#extraRow(sellerId, date, extra, address, latest, box)
       if (!row.ready) return skip({ buyer, ok: false, reason: row.reason as EligibilityReason, message: row.message as string })
       const receiver = this.#open(sellerId, address) as ParcelAddress
       const attempt = await insertAttempt(tx, { sellerId, date, buyer, carrier, box, qty: extra.qty, accountId, now: new Date(now), ...(direct === null ? {} : { requestKey: directRequestKey(direct) }) })
       if (attempt === null) return skip({ buyer, ok: false, reason: 'BOOKING', message: ELIGIBILITY_MESSAGES.BOOKING })
-      return { kind: 'send', attempt, receiver }
+      return { kind: 'send', attempt, receiver, nickname: null }
     })
   }
 
@@ -1681,6 +1693,23 @@ export class ParcelService {
     }
   }
 
+  // ── 받는 분 이름에 닉네임 (D-PARCEL-NICK-01) ────────────────────────────
+
+  /** 받는 분 이름 괄호에 넣을 손님 닉네임: 방송 채팅 손님의 표시 이름. 문자 구매자(표시 이름이 "문자찜")·직접 넣은 택배·모르는 구매자는 null */
+  static nicknameOf(state: EngineState, buyer: string): string | null {
+    if (isExtraBuyer(buyer)) return null
+    const info = getBuyer(state, buyer)
+    return info === null || info.kind === 'sms' ? null : info.display
+  }
+
+  /** 그 날짜의 받는 분 이름 만들기 (설정이 꺼져 있으면 이름 그대로 — 범위를 읽지 않는다) */
+  async #recipientNames(sellerId: string, date: string): Promise<(buyer: string, name: string) => string> {
+    const { nickInName } = await readSettings(this.#deps.db, this.#deps.masterKey, sellerId)
+    if (!nickInName) return (_buyer, name) => name
+    const runtime = await this.#realScope(sellerId, date)
+    return (buyer, name) => recipientName(name, runtime === null ? null : ParcelService.nicknameOf(runtime.state, buyer), true)
+  }
+
   // ── 우체국 창구소포 간편사전접수 (EP1 PC-9) ────────────────────────────
 
   /**
@@ -1706,7 +1735,7 @@ export class ParcelService {
     return ok({
       date,
       buyer,
-      fill: epostFill({ name, phone, address, detail, zip: receiverZip, memo }, sender, view.row.qty),
+      fill: epostFill({ name: recipientName(name, ParcelService.nicknameOf(runtime.state, buyer), settings.nickInName), phone, address, detail, zip: receiverZip, memo }, sender, view.row.qty),
       row: view.row,
       pages: EPOST_PAGES,
       hosts: EPOST_HOSTS,
@@ -1749,10 +1778,11 @@ export class ParcelService {
     if (day.kind !== 'ok') return day.kind === 'not_found' ? NOT_FOUND : { kind: 'error', error: day.error }
     const { db } = this.#deps
     const addresses = await addressRowsOf(db, sellerId, date)
+    const named = await this.#recipientNames(sellerId, date)
     const rows: (readonly string[])[] = []
     for (const row of day.value.ready) {
       const receiver = this.#open(sellerId, addresses.get(row.buyer))
-      if (receiver !== null) rows.push(epostFileRow(receiver))
+      if (receiver !== null) rows.push(epostFileRow({ ...receiver, name: named(row.buyer, receiver.name) }))
     }
     if (rows.length === 0) return problem(409, 'NO_PARCELS', EPOST_MESSAGES.noRows)
     if (rows.length > EPOST_FILE_MAX) return problem(409, 'PARCEL_STATE', EPOST_MESSAGES.tooMany)
@@ -1851,13 +1881,14 @@ export class ParcelService {
     const day = await this.day(sellerId, date)
     if (day.kind !== 'ok') return day
     const addresses = await addressRowsOf(this.#deps.db, sellerId, date)
+    const named = await this.#recipientNames(sellerId, date)
     const rows: EpostVisitRow[] = []
     const buyers: string[] = []
     const qty: number[] = []
     for (const row of day.value.ready) {
       const receiver = this.#open(sellerId, addresses.get(row.buyer))
       if (receiver === null) continue
-      rows.push({ name: receiver.name, zip: receiver.zip, address: receiver.address, detail: receiver.detail, phone: receiver.phone, box: day.value.box, content: itemText(row.qty), memo: receiver.memo })
+      rows.push({ name: named(row.buyer, receiver.name), zip: receiver.zip, address: receiver.address, detail: receiver.detail, phone: receiver.phone, box: day.value.box, content: itemText(row.qty), memo: receiver.memo })
       buyers.push(row.buyer)
       qty.push(row.qty)
     }

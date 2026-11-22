@@ -64,7 +64,7 @@ export interface CancelContext {
   readonly account: CarrierAccount | null
 }
 
-/** 택배사에 보내는 접수 하나 — 받는 분 여섯 칸·보내는 사람·상자 크기·물품 수만 (품종·가격·구매자 ID·닉네임은 없다, PC-6) */
+/** 택배사에 보내는 접수 하나 — 받는 분 여섯 칸·보내는 사람·상자 크기·물품 수만 (품종·가격·구매자 ID는 없다. 닉네임은 판매자가 켰을 때 받는 분 이름 괄호 안에만 — PC-6, D-PARCEL-NICK-01) */
 export interface BookRequest {
   readonly requestKey: string
   readonly customerNo: string | null

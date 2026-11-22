@@ -10,7 +10,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { get, isApiError, put, type ApiError } from '../api/client.ts'
 import type { BoxKind, ParcelSettings, SettingsCarrier } from '../api/parcel-types.ts'
 import { useUnsavedGuard } from '../lib/leave-guard.ts'
-import { BOX_HINT, BOX_LABEL, CARRIER_NAME_LABEL, CARRIER_NAME_MAX, EPOST_CARRIER, EPOST_CUSTOMER_LABEL, EPOST_GUIDE, EPOST_KEY_LABEL, EPOST_PRINT_NOTE, EPOST_SECRET_LABEL, NO_AUTO_BOOK_NOTE, OTHER_CARRIER, boxWord, epostKeyHelp, EPOST_PASSWORD_HINT, EPOST_PASSWORD_LABEL } from '../lib/parcel-words.ts'
+import { BOX_HINT, BOX_LABEL, CARRIER_NAME_LABEL, CARRIER_NAME_MAX, EPOST_CARRIER, EPOST_CUSTOMER_LABEL, EPOST_GUIDE, EPOST_KEY_LABEL, EPOST_PRINT_NOTE, EPOST_SECRET_LABEL, NO_AUTO_BOOK_NOTE, OTHER_CARRIER, boxWord, epostKeyHelp, EPOST_PASSWORD_HINT, EPOST_PASSWORD_LABEL, NICK_IN_NAME_HINT, NICK_IN_NAME_LABEL } from '../lib/parcel-words.ts'
 import { useSaveStep, type StepResult } from '../lib/save-bar.ts'
 import { RequestError } from './ErrorNote.tsx'
 import { AddressInputs, fieldNames } from './ParcelParts.tsx'
@@ -209,6 +209,15 @@ export function ParcelSettingsSection() {
           ) : null}
         </div>
       ) : null}
+      <div className="field">
+        <label className="choice" htmlFor={`${id}-nick-in-name`}>
+          <input id={`${id}-nick-in-name`} type="checkbox" checked={draft.nickInName} aria-describedby={`${id}-nick-in-name-hint`} onChange={(event) => change({ nickInName: event.target.checked })} />
+          <span>{NICK_IN_NAME_LABEL}</span>
+        </label>
+        <p className="hint" id={`${id}-nick-in-name-hint`}>
+          {NICK_IN_NAME_HINT}
+        </p>
+      </div>
       <fieldset className="stack-tight parcel-sender">
         <legend>보내는 사람</legend>
         <AddressInputs prefix="sender" keys={SENDER_KEYS} labels={SENDER_LABELS} value={draft.sender} onChange={(key, value) => change({ sender: { ...draft.sender, [key]: value } })} error={error} />
@@ -237,7 +246,7 @@ export function ParcelSettingsSection() {
         </p>
         <p className="hint">택배 화면에서 묶음마다 바꿀 수 있어요.</p>
       </div>
-      {error !== null ? <RequestError error={error} omitFields={['carrier', 'carrierName', 'customerNo', 'epostKey', 'epostSecret', 'box', 'sender', 'epostPassword', ...fieldNames('sender', SENDER_KEYS)]} /> : null}
+      {error !== null ? <RequestError error={error} omitFields={['carrier', 'carrierName', 'customerNo', 'epostKey', 'epostSecret', 'box', 'sender', 'epostPassword', 'nickInName', ...fieldNames('sender', SENDER_KEYS)]} /> : null}
     </form>
   )
 }

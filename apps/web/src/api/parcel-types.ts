@@ -207,4 +207,6 @@ export interface ParcelSettings {
   readonly boxes: readonly BoxKind[]
   /** 우체국 비회원 신청 비밀번호 (숫자 4자리, 판매자만 — EP1 D-EP1-14. 옛 서버엔 없다) */
   readonly epostPassword?: string | null
+  /** 우체국 접수 때 받는 분 이름을 `이름(닉네임)`으로 (D-PARCEL-NICK-01, 기본 꺼짐. 옛 서버엔 없다) */
+  readonly nickInName?: boolean
 }

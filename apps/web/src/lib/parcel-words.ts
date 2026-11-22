@@ -228,7 +228,13 @@ export interface ParcelDraft {
   readonly epostSecret: string
   /** 우체국 비회원 신청 비밀번호 (EP1 D-EP1-14 — 저장한 것을 그대로 보이고, 바뀌었을 때만 보낸다) */
   readonly epostPassword: string
+  /** 받는 분 이름에 닉네임 같이 적기 (D-PARCEL-NICK-01) */
+  readonly nickInName: boolean
 }
+
+/** 받는 분 이름에 닉네임 같이 적기 (D-PARCEL-NICK-01) */
+export const NICK_IN_NAME_LABEL = '받는 분 이름에 닉네임 같이 적기'
+export const NICK_IN_NAME_HINT = "켜면 우체국 접수 때 받는 분 이름이 '홍길동(대박다육)'처럼 들어가요. 이름과 닉네임을 합쳐 20자가 넘으면 닉네임을 줄여요. 이모지·특수 글자는 빼고 넣어요."
 
 /** 우체국 신청 비밀번호 칸 (EP1 D-EP1-14) */
 export const EPOST_PASSWORD_LABEL = '우체국 신청 비밀번호 (숫자 4자리)'
@@ -245,6 +251,7 @@ export function parcelDraftOf(settings: ParcelSettings): ParcelDraft {
     epostKey: '',
     epostSecret: '',
     epostPassword: settings.epostPassword ?? '',
+    nickInName: settings.nickInName === true,
   }
 }
 
@@ -257,6 +264,7 @@ export function sameParcelDraft(a: ParcelDraft, b: ParcelDraft): boolean {
     a.epostKey === b.epostKey &&
     a.epostSecret === b.epostSecret &&
     a.epostPassword === b.epostPassword &&
+    a.nickInName === b.nickInName &&
     SENDER_KEYS.every((key) => a.sender[key] === b.sender[key])
   )
 }
@@ -281,6 +289,8 @@ export function parcelBody(settings: ParcelSettings, draft: ParcelDraft): Record
     ...(draft.carrier === EPOST_CARRIER && draft.epostSecret.trim() !== '' ? { epostSecret: draft.epostSecret } : {}),
     // 바뀌었을 때만 (빈 글이면 지운다 — EP1 D-EP1-14)
     ...(draft.epostPassword === (settings.epostPassword ?? '') ? {} : { epostPassword: draft.epostPassword }),
+    // 바뀌었을 때만 (옛 서버는 이 칸을 모른다 — D-PARCEL-NICK-01)
+    ...(draft.nickInName === (settings.nickInName === true) ? {} : { nickInName: draft.nickInName }),
   }
 }
 

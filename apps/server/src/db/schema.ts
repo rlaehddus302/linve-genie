@@ -2161,6 +2161,8 @@ export const parcelSettings = pgTable('parcel_settings', {
   epostPwEnc: text('epost_pw_enc'),
   /** 기본 택배 크기 코드 (FB1 D-FB1-05) */
   box: text('box').notNull().default('80'),
+  /** 우체국 접수 때 받는 분 이름을 `이름(닉네임)`으로 (D-PARCEL-NICK-01, 마이그레이션 0073). 기본 꺼짐 — 이름만 */
+  nickInName: boolean('nick_in_name').notNull().default(false),
   updatedAt: timestamptz('updated_at').notNull(),
 })
 

@@ -27,3 +27,18 @@ describe('D-REAL-04 우체국 설정 본문', () => {
     expect(parcelBody(settings, { ...typed, carrier: 'CJ' })).not.toHaveProperty('epostSecret')
   })
 })
+
+describe('D-PARCEL-NICK-01 받는 분 이름에 닉네임 같이 적기', () => {
+  it('옛 서버(칸 없음)는 꺼짐으로 읽고, 바꿨을 때만 보낸다', () => {
+    const draft = parcelDraftOf(settings)
+    expect(draft.nickInName).toBe(false)
+    expect(parcelBody(settings, draft)).not.toHaveProperty('nickInName')
+    const on = { ...draft, nickInName: true }
+    expect(sameParcelDraft(draft, on)).toBe(false)
+    expect(parcelBody(settings, on)).toMatchObject({ nickInName: true })
+    const saved = { ...settings, nickInName: true }
+    expect(parcelDraftOf(saved).nickInName).toBe(true)
+    expect(parcelBody(saved, parcelDraftOf(saved))).not.toHaveProperty('nickInName')
+    expect(parcelBody(saved, { ...parcelDraftOf(saved), nickInName: false })).toMatchObject({ nickInName: false })
+  })
+})

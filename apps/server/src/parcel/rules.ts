@@ -374,7 +374,41 @@ export const PARCEL_MESSAGES = {
   carrierInvalid: '택배사를 골라 주세요.',
   carrierNameEmpty: '택배사 이름을 적어 주세요.',
   carrierNameTooLong: '택배사 이름은 20자까지 적어 주세요.',
+  nickInNameInvalid: '받는 분 이름에 닉네임 적기는 켜기·끄기로 골라 주세요.',
   pickupLink: '직접 받기로 했어요.',
   combinedLink: '다른 주문과 함께 보내요.',
   linkNotice: '받는 분·연락처·주소는 이 주문을 보내는 데만 쓰고, 주문 날짜로부터 30일 뒤 지워요.',
 } as const
+
+// ── 받는 분 이름에 닉네임 같이 적기 (D-PARCEL-NICK-01) ─────────────────────
+
+/** 닉네임을 붙인 받는 분 이름 전체 상한 (코드 포인트) — 받는 분 이름 상한(PC-2 20자)과 같다. 지금 우체국에 넘기는 이름이 이미 이 길이까지다 */
+export const NICK_NAME_MAX = ADDRESS_LIMITS.name
+
+/**
+ * 손님 닉네임 → 받는 분 이름 괄호 안에 넣을 글. NFC·전각 반각 뒤 맨 앞 `@`(유튜브 핸들)를 떼고, 한글(음절·자모)·영문·숫자·공백·`.`·`_`·`-`만 남긴다 —
+ * 이모지·괄호·꺾쇠·따옴표·제어 글자 같은 것은 지운다(우체국 화면·파일·계약 API가 받지 않을 수 있고, 닉네임은 신뢰할 수 없는 입력이다). 이어진 공백은 하나로
+ */
+export function nickText(raw: string): string {
+  // NFKC는 한글 자모(ㅋ)를 다른 자모로 바꾸므로 쓰지 않는다 — NFC 뒤 전각 영숫자·기호만 반각으로
+  const half = raw.normalize('NFC').replace(/[\uFF01-\uFF5E]/gu, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))
+  const kept = [...half.replace(/^[\s@]+/u, '')].filter((char) => /^[가-힣ㄱ-ㆎA-Za-z0-9 ._-]$/u.test(char) || /^\s$/u.test(char)).join('')
+  return tidyText(kept)
+}
+
+/**
+ * 받는 분 이름 (D-PARCEL-NICK-01): 판매자가 켰으면 `이름(닉네임)`, 아니면 이름만.
+ * 닉네임이 없거나(문자 구매자·직접 넣은 택배), 다듬으면 비거나, 이름과 같거나(공백 빼고), 이름에 이미 `(닉네임)`이 있으면 이름만.
+ * 합친 길이가 20자를 넘으면 이름은 그대로 두고 닉네임 뒤쪽을 줄인다. 닉네임을 한 글자도 넣을 자리가 없으면 이름만
+ */
+export function recipientName(name: string, nickname: string | null, on: boolean): string {
+  if (!on || nickname === null) return name
+  const nick = nickText(nickname)
+  if (nick === '') return name
+  const bare = (text: string): string => text.replace(/\s+/gu, '')
+  if (bare(nick) === bare(name) || bare(name).includes(`(${bare(nick)})`)) return name
+  const room = NICK_NAME_MAX - codePoints(name) - 2
+  if (room < 1) return name
+  const short = [...nick].slice(0, room).join('').trimEnd()
+  return short === '' ? name : `${name}(${short})`
+}

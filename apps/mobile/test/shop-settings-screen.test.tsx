@@ -33,6 +33,23 @@ function world() {
 }
 
 describe('ShopSettingsScreen (앱 가게 설정)', () => {
+  // D-PARCEL-NICK-01: 택배 칸의 "받는 분 이름에 닉네임 같이 적기" 스위치 — 켜고 저장하면 택배 설정 PUT에 nickInName: true만 더 간다
+  it('택배: 받는 분 이름에 닉네임 같이 적기 스위치를 켜고 저장하면 nickInName을 보낸다', async () => {
+    const { w, writes } = world()
+    w.server.on('PUT', /^\/api\/parcels\/settings$/, (call) => {
+      writes.push({ method: 'PUT', path: call.path, body: call.body })
+      return { body: { settings: { carrier: null, carrierName: null, carriers: [{ code: 'EPOST', name: '우체국택배', autoBook: false }], customerNoLast4: null, sender: null, shopName: '초록가게', box: '60', boxes: ['60', '80'], nickInName: true } } }
+    })
+    render(w.wrap(<ShopSettingsScreen onBack={() => undefined} />))
+    fireEvent.click(await screen.findByRole('switch', { name: '받는 분 이름에 닉네임 같이 적기 — 꺼짐' }))
+    expect(await screen.findByRole('switch', { name: '받는 분 이름에 닉네임 같이 적기 — 켜짐' })).toBeTruthy()
+    expect(screen.getByText(/'홍길동\(대박다육\)'처럼/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    await waitFor(() => expect(writes.some((write) => write.path === '/api/parcels/settings')).toBe(true))
+    const put = writes.find((write) => write.path === '/api/parcels/settings')
+    expect(put?.body).toMatchObject({ nickInName: true })
+  })
+
   it('바꾼 칸만 저장 하나로: 가게 PUT, 판매 규칙은 바뀐 키만 PATCH, 저장 문장', async () => {
     const { w, writes } = world()
     render(w.wrap(<ShopSettingsScreen onBack={() => undefined} />))
