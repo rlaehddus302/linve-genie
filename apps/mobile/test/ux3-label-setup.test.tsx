@@ -35,23 +35,43 @@ function labelWorld(labelsEnabled = true) {
 
 describe('D-UX3-19 라이브 시작 라벨 단계', () => {
   // 옛 기대: 단추 [네, 뽑을게요](위)·[안 뽑아요](아래). D-UX4-01·03: 좌우로 [괜찮아요](왼쪽)·[뽑을게요](오른쪽), 설명 세 줄과 라벨 그림.
-  // D-LBL-NOPRN-01 (사용자 지시 2026-11-16 "프린터 연결 안 되어 있더라도 기능 보이게 … 프린터 없으면 일단 큐에 넣어라"): 왼쪽은 [프린터 없이] — 라벨 기능을 끄지 않고
-  //   (옛 기대: [괜찮아요] → PUT enabled false) 켠 채 라이브로 간다. 설명에 "프린터가 없어도 … 대기열에 쌓였다가" 한 줄이 더해졌다
-  it('[프린터 없이]: 라벨 기능을 켠 채(꺼져 있으면 켜고) 바로 라이브로 — 라벨은 대기열에 쌓인다 (D-LBL-NOPRN-01)', async () => {
+  // D-LBL-NOPRN-01 (사용자 지시 2026-11-16): 왼쪽은 [프린터 없이] — 라벨 기능을 켠 채 라이브로, 설명에 "프린터가 없어도 … 대기열에 쌓였다가" 한 줄.
+  // D-LBL-ASKNO-01 (사용자 지시 2026-11-23 "왼쪽 버튼 이름을 아니요 라고 바꿔. 그리고 아니요 누르면 그 라이브 세팅에서 라벨 출력 오프로 해"):
+  //   옛 기대 [프린터 없이](끄지 않음)·대기열 설명 줄 → [아니요]는 라벨 출력을 끄고(PUT enabled false) 라이브로. 대기열 설명 줄은 이제 맞지 않아 뺐다
+  it('[아니요]: 라벨 출력을 끄고 바로 라이브로 (D-LBL-ASKNO-01)', async () => {
     const world = labelWorld()
     const onDone = vi.fn()
     render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={onDone} />))
     const page = screen.getByRole('dialog', { name: '라벨' })
     expect(within(page).getByRole('heading', { name: '라벨을 뽑을까요?' })).toBeTruthy()
     expect(page.textContent).toContain('찜이 확정되면 라벨 프린터로 바로 출력해요.\n상품 번호, 가격, 구매자 이름 등을 기록할 수 있어서\n나중에 포장할 때 헷갈리지 않아요.')
-    expect(page.textContent).toContain('프린터가 없어도 라벨은 대기열에 쌓였다가 연결하면 뽑혀요.')
+    expect(page.textContent).not.toContain('대기열에 쌓였다가')
     expect(within(page).getByRole('img', { name: '라벨 프린터에서 라벨이 뽑혀 나오는 그림' }).textContent).toContain('-라이브다육-')
-    expect(within(page).getAllByRole('button').map((button) => button.getAttribute('aria-label')).slice(-2)).toEqual(['프린터 없이', '뽑을게요'])
+    expect(within(page).getAllByRole('button').map((button) => button.getAttribute('aria-label')).slice(-2)).toEqual(['아니요', '뽑을게요'])
     await flush()
-    fireEvent.click(within(page).getByRole('button', { name: '프린터 없이' }))
+    fireEvent.click(within(page).getByRole('button', { name: '아니요' }))
     await waitFor(() => expect(onDone).toHaveBeenCalled())
-    // 이미 켜져 있으면 켬/끔을 건드리지 않는다 — 끄는 요청은 없다
-    expect(world.server.callsTo('PUT', /^\/api\/settings\/labels$/).map((call) => call.body)).not.toContainEqual({ enabled: false })
+    expect(world.server.callsTo('PUT', /^\/api\/settings\/labels$/).map((call) => call.body)).toEqual([{ enabled: false }])
+    world.services.labels.stop()
+  })
+
+  // D-LBL-ASKNO-01 (사용자 지시 2026-11-23 "라벨 프린터를 연결해주세요 화면에서 나중에 연결 누르면 마찬가지로 라이브 세팅에서 라벨 출력 오프로 하고"):
+  //   옛 D-LBL-NOPRN-01 [나중에 연결]은 라벨을 켠 채 넘어갔다
+  it('연결 화면 [나중에 연결]: 라벨 출력을 끄고 라이브로 (D-LBL-ASKNO-01)', async () => {
+    const world = labelWorld()
+    // 프린터를 찾는 중인 채로 둔다 — 아직 안 이어져 [나중에 연결]이 보인다
+    vi.spyOn(world.ble, 'connect').mockImplementation(() => {
+      world.ble.setState('CONNECTING')
+      return new Promise(() => {})
+    })
+    const onDone = vi.fn()
+    render(world.wrap(<LabelSetupScreen onBack={() => {}} onDone={onDone} />))
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: '뽑을게요' }))
+    const connect = await screen.findByRole('dialog', { name: '프린터 연결' })
+    fireEvent.click(await within(connect).findByRole('button', { name: '나중에 연결' }))
+    await waitFor(() => expect(onDone).toHaveBeenCalled())
+    expect(world.server.callsTo('PUT', /^\/api\/settings\/labels$/).map((call) => call.body)).toEqual([{ enabled: false }])
     world.services.labels.stop()
   })
 

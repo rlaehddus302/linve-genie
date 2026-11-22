@@ -1,9 +1,9 @@
 // 방송 시작 라벨 단계 (D-UX3-19, 사용자 지시 2026-11-03 "링크 붙여넣은 다음에 라벨 프린트 할건지 물어보고 한다 하면 프린터 연결 도와주고
 // 연결 확인하고 라벨 디자인 커스텀 한 다음에 테스트 출력한다음에 본방송으로"): 링크를 이은 뒤 방송 화면 전에 한 장씩.
-// 1) "라벨을 뽑을까요?" — 설명 + 라벨이 뽑혀 나오는 그림(D-UX4-03). [프린터 없이](왼쪽)는 라벨 기능을 켠 채 프린터 연결 없이 방송으로 — 라벨은 대기열에 쌓였다가
-//    프린터를 이으면 뽑는다(D-LBL-NOPRN-01, 사용자 지시 2026-11-16 "프린터 없으면 일단 큐에 넣어라" — 옛 [괜찮아요]는 라벨 기능을 껐다). [뽑을게요](오른쪽)는 꺼져 있으면 켠다.
-//    라벨을 아예 안 쓰려면 라이브 관리의 [라벨 출력]을 끈다.
-//    연결 화면에서 프린터가 아직 안 이어졌으면 [나중에 연결]로 넘어갈 수 있다(라벨은 켠 채).
+// 1) "라벨을 뽑을까요?" — 설명 + 라벨이 뽑혀 나오는 그림(D-UX4-03). [아니요](왼쪽)는 라벨 출력을 끄고 바로 라이브로, [뽑을게요](오른쪽)는 꺼져 있으면 켠다
+//    (D-LBL-ASKNO-01, 사용자 지시 2026-11-23 "왼쪽 버튼 이름을 아니요 … 아니요 누르면 그 라이브 세팅에서 라벨 출력 오프" — 옛 D-LBL-NOPRN-01 [프린터 없이]는 켠 채 대기열에 쌓았다).
+//    연결 화면에서 프린터가 아직 안 이어졌으면 [나중에 연결] — 이것도 라벨 출력을 끄고 라이브로. 다시 쓰려면 라이브 관리의 [라벨 출력]을 켠다.
+//    단계 사이는 밀어 넘긴다(SlideSwitch — 다음은 오른쪽에서, 뒤로는 왼쪽에서).
 // 2) "라벨 프린터를 연결해 주세요" — 전원·블루투스 그림(D-UX4-04). 들어오면 바로 찾기 시작: 기억한 프린터면 고르기 없이 다시 잇고,
 //    아니면 주변 프린터 목록을 이 화면에 바로 보인다(찾는 동안 계속 늘어나고, 아무것도 없으면 10초마다 다시 찾음).
 //    그림은 왼쪽 휴대폰(블루투스)·오른쪽 프린터(전원)가 이어지는 모습, [새로고침]은 없다(저절로 다시 찾음). 줄을 누르면 이 화면에서 그 줄에
@@ -26,6 +26,7 @@ import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
 import { BigButton, BottomCTA, BottomSheet, FormPage, HeaderTextButton, LineTab, LineTabs, NavBar, SheetChoices, usePageTop, useWhiteTop, Icon, ListRow, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
+import { SlideSwitch } from '../ui/kit/slide.tsx'
 import { LabelPrintArt, PrinterConnectArt } from '../ui/LabelArt.tsx'
 import { Notice } from '../ui/parts.tsx'
 import { DEVICE_NAME_MAX, TEST_QUESTION, replaceQuestion } from './LabelsScreen.tsx'
@@ -33,11 +34,9 @@ import { DEVICE_NAME_MAX, TEST_QUESTION, replaceQuestion } from './LabelsScreen.
 export const LABEL_ASK_TITLE = '라벨을 뽑을까요?'
 /** 설명은 읽기 쉽게 줄을 나눈다 (D-UX4-03, 사용자 지시 2026-11-03 그대로) */
 export const LABEL_ASK_BODY = '찜이 확정되면 라벨 프린터로 바로 출력해요.\n상품 번호, 가격, 구매자 이름 등을 기록할 수 있어서\n나중에 포장할 때 헷갈리지 않아요.'
-/** 프린터 없이 시작할 때의 설명 한 줄 (D-LBL-NOPRN-01) */
-export const LABEL_ASK_NO_PRINTER = '프린터가 없어도 라벨은 대기열에 쌓였다가 연결하면 뽑혀요.'
-/** 왼쪽 단추 — 라벨은 켠 채 프린터 연결 없이 방송으로 (D-LBL-NOPRN-01) */
-export const LABEL_WITHOUT_PRINTER = '프린터 없이'
-/** 연결 화면에서 아직 프린터가 안 이어졌을 때 넘어가기 (D-LBL-NOPRN-01) */
+/** 왼쪽 단추 — 라벨 출력을 끄고 라이브로 (D-LBL-ASKNO-01) */
+export const LABEL_ASK_NO = '아니요'
+/** 연결 화면에서 아직 프린터가 안 이어졌을 때 넘어가기 — 라벨 출력을 끈다 (D-LBL-ASKNO-01) */
 export const CONNECT_LATER = '나중에 연결'
 export const CONNECT_TITLE = '라벨 프린터를 연결해 주세요'
 /** 휴대폰 블루투스를 켜라는 것을 분명히 (D-UX4-10, 사용자 지시 2026-11-05) */
@@ -133,6 +132,8 @@ export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: ()
   const { labels } = useServices()
   const snapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
   const [step, setStep] = useState<Step>(only ?? 'ask')
+  /** 뒤로 가는 넘김인가 — 밀어 넘기는 방향 */
+  const [back, setBack] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -153,10 +154,17 @@ export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: ()
     await put('/api/settings/labels', { enabled })
     await labels.reload()
   }
-  const go = (next: Step) => {
+  const go = (next: Step, backward = false) => {
     setError(null)
+    setBack(backward)
     setStep(next)
   }
+  /** 라벨 출력을 끄고 라이브로 — [아니요]·[나중에 연결] (D-LBL-ASKNO-01) */
+  const skipLabels = () =>
+    void run(async () => {
+      await setLabels(false)
+      onDone()
+    })
   const errorLine =
     error === null ? null : (
       <Notice tone="danger" alert>
@@ -164,6 +172,13 @@ export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: ()
       </Notice>
     )
 
+  return (
+    <SlideSwitch id={step} back={back} testID="label-setup">
+      {page()}
+    </SlideSwitch>
+  )
+
+  function page() {
   if (step === 'ask') {
     return (
       <FormPage
@@ -173,10 +188,7 @@ export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: ()
         testID="label-setup-ask"
         actions={
           <>
-            <BigButton kind="outline" label={LABEL_WITHOUT_PRINTER} disabled={busy} onPress={() => void run(async () => {
-              await setLabels(true)
-              onDone()
-            })} />
+            <BigButton kind="outline" label={LABEL_ASK_NO} disabled={busy} onPress={skipLabels} />
             <BigButton label="뽑을게요" busy={busy} onPress={() => void run(async () => {
               await setLabels(true)
               go('connect')
@@ -187,21 +199,19 @@ export function LabelSetupScreen({ onBack, onDone, only }: { readonly onBack: ()
         <Txt step="bodyLarge" color="textSub">
           {LABEL_ASK_BODY}
         </Txt>
-        <Txt step="body" color="textSub">
-          {LABEL_ASK_NO_PRINTER}
-        </Txt>
         {errorLine}
         <LabelPrintArt />
       </FormPage>
     )
   }
-  if (step === 'connect') return <ConnectStep onBack={() => (only === undefined ? go('ask') : onBack())} onNext={() => (only === undefined ? go('design') : onDone())} {...(only === undefined ? { onLater: onDone } : {})} />
-  if (step === 'design') return <DesignStep saveLabel={only === undefined ? '저장하고 다음' : '저장'} queue={snapshot.queue} profileId={snapshot.profileId} onBack={() => (only === undefined ? go('connect') : onBack())} onSaved={() => (only === undefined && !snapshot.mine ? go('device') : onDone())} />
-  return <TestStep selectDevice={step === 'device'} busy={busy} run={run} onBack={() => (only === undefined ? go('design') : onBack())} onDone={onDone} error={errorLine} />
+  if (step === 'connect') return <ConnectStep onBack={() => (only === undefined ? go('ask', true) : onBack())} onNext={() => (only === undefined ? go('design') : onDone())} busy={busy} error={errorLine} {...(only === undefined ? { onLater: skipLabels } : {})} />
+  if (step === 'design') return <DesignStep saveLabel={only === undefined ? '저장하고 다음' : '저장'} queue={snapshot.queue} profileId={snapshot.profileId} onBack={() => (only === undefined ? go('connect', true) : onBack())} onSaved={() => (only === undefined && !snapshot.mine ? go('device') : onDone())} />
+  return <TestStep selectDevice={step === 'device'} busy={busy} run={run} onBack={() => (only === undefined ? go('design', true) : onBack())} onDone={onDone} error={errorLine} />
+  }
 }
 
 /** 2) 프린터 연결과 확인 — 들어오면 바로 찾고, 찾은 프린터를 이 화면에 줄로 (D-UX4-04). 고른 줄에서 바로 연결 확인, 이어지면 [다음] (D-UX4-10) */
-function ConnectStep({ onBack, onNext, onLater }: { readonly onBack: () => void; readonly onNext: () => void; readonly onLater?: () => void }) {
+function ConnectStep({ onBack, onNext, onLater, busy = false, error = null }: { readonly onBack: () => void; readonly onNext: () => void; readonly onLater?: () => void; readonly busy?: boolean; readonly error?: React.ReactNode }) {
   const { labels } = useServices()
   const { p } = useKit()
   const snapshot = useSyncExternalStore(labels.subscribe, labels.getSnapshot)
@@ -259,7 +269,7 @@ function ConnectStep({ onBack, onNext, onLater }: { readonly onBack: () => void;
   const rows = found !== null && found.length > 0 ? found : picked === null ? [] : [picked]
   const stateOf = (entry: PickEntry) => (picked === null || picked.device.id !== entry.device.id ? null : linked ? 'done' : 'busy')
   return (
-    <FormPage title={CONNECT_TITLE} name="프린터 연결" onBack={onBack} testID="label-setup-connect" actions={linked ? <BigButton label="다음" onPress={onNext} /> : onLater !== undefined ? <BigButton kind="outline" label={CONNECT_LATER} onPress={onLater} /> : null}>
+    <FormPage title={CONNECT_TITLE} name="프린터 연결" onBack={onBack} testID="label-setup-connect" actions={linked ? <BigButton label="다음" onPress={onNext} /> : onLater !== undefined ? <BigButton kind="outline" label={CONNECT_LATER} disabled={busy} onPress={onLater} /> : null}>
       <Txt step="bodyLarge" color="textSub">
         {CONNECT_BODY}
       </Txt>
@@ -314,6 +324,7 @@ function ConnectStep({ onBack, onNext, onLater }: { readonly onBack: () => void;
           {problem}
         </Notice>
       ) : null}
+      {error}
     </FormPage>
   )
 }
