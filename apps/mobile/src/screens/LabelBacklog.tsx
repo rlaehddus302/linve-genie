@@ -11,6 +11,7 @@
 import { useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { View } from 'react-native'
 import type { LabelView } from '@livejjim/web/src/api/print-types.ts'
+import { withPickWindow } from '../native/printer-pick.ts'
 import { get, isApiError, newRequestId, post, withQuery, withRetry } from '../api/client.ts'
 import { MISSING_BUSY, MISSING_FAILED, PRINT_ALL_WAITING, WAITING_FAILED, WAITING_NEED_PRINTER, WAITING_RECONNECT, WAITING_RECONNECT_FAILED, missingQueued, missingRowTitle, waitingResult } from '../lib/print-words.ts'
 import { useServices } from '../services.tsx'
@@ -73,7 +74,7 @@ function useWaitingPrint() {
 
   const reconnect = () =>
     run('reconnect', async () => {
-      await labels.reconnect()
+      await withPickWindow(() => labels.reconnect())
       const now = labels.getSnapshot()
       if (now.printer !== 'CONNECTED' && now.printer !== 'PRINTING') {
         setNote({ tone: 'danger', text: now.printerError?.message ?? WAITING_RECONNECT_FAILED })

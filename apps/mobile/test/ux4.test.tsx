@@ -7,7 +7,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { cancelPrinterPick, pickDevice, pickPrinter, setPickEntries, useInlinePrinterPick, usePickWindowShown } from '../src/native/printer-pick.ts'
+import { cancelPrinterPick, pickDevice, pickPrinter, setPickEntries, useInlinePrinterPick, usePickWindowShown, withPickWindow } from '../src/native/printer-pick.ts'
 import { FONT_SIZE_MAX, FONT_SIZE_MIN, fontStepped, labelDots, movedItem, resizedItem, sortedSizes } from '../src/screens/LabelSetupScreen.tsx'
 import { firstChannelPopup } from '../src/lib/youtube.ts'
 import { EXAMPLE_LABEL, EXAMPLE_LINES } from '../src/lib/label-example.ts'
@@ -180,7 +180,8 @@ describe('D-UX4-04 프린터 고르기를 화면이 직접 그린다', () => {
     expect(seen.inline).toBeNull()
   })
 
-  it('목록을 그리는 화면이 없으면 고르기 창, 그만두면 null', async () => {
+  // D-NOPICK-02: 옛 기대 "목록을 그리는 화면이 없으면 늘 고르기 창" → 판매자가 누른 연결(withPickWindow) 안에서만 창
+  it('목록을 그리는 화면이 없으면 판매자가 누른 연결에서만 고르기 창, 그만두면 null', async () => {
     let shown: readonly PickEntry[] | null = null
     function Window() {
       shown = usePickWindowShown()
@@ -189,10 +190,33 @@ describe('D-UX4-04 프린터 고르기를 화면이 직접 그린다', () => {
     render(<Window />)
     let picked: Promise<BleDeviceInfo | null> = Promise.resolve(device)
     act(() => {
-      picked = pickDevice(fakeScan().scan)
+      picked = withPickWindow(() => pickDevice(fakeScan().scan))
     })
     expect(shown).toEqual([])
     act(() => cancelPrinterPick())
+    await expect(picked).resolves.toBeNull()
+    expect(shown).toBeNull()
+  })
+
+  it('판매자가 부르지 않은 고르기(연결 화면을 떠난 뒤 늦게 끝난 찾기 등)는 창을 띄우지 않고 바로 null (D-NOPICK-02)', async () => {
+    let shown: readonly PickEntry[] | null = null
+    function Window() {
+      shown = usePickWindowShown()
+      return null
+    }
+    function Inline() {
+      useInlinePrinterPick()
+      return null
+    }
+    render(<Window />)
+    const screenView = render(<Inline />)
+    // 연결 화면이 떠 있는 동안 시작한 찾기가(기억한 프린터 알아보기 5초) 화면을 떠난 뒤에야 고르기로 넘어간다
+    screenView.unmount()
+    let picked: Promise<BleDeviceInfo | null> = Promise.resolve(device)
+    act(() => {
+      picked = pickDevice(fakeScan().scan)
+    })
+    expect(shown).toBeNull()
     await expect(picked).resolves.toBeNull()
     expect(shown).toBeNull()
   })

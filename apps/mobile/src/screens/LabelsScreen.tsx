@@ -13,6 +13,7 @@
 import { printerProfile, printerSupportStage } from '@livejjim/printer'
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Platform, ScrollView, View } from 'react-native'
+import { withPickWindow } from '../native/printer-pick.ts'
 import { isApiError } from '../api/client.ts'
 import { LOW_PAPER, labelPaper, useLabelPaper } from '../lib/label-paper.ts'
 import { testHelp } from '../lib/test-help.ts'
@@ -185,9 +186,9 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
               이어짐: [연결 끊기] 왼쪽 · [테스트 인쇄] 오른쪽 */}
           {disconnected ? (
             showReconnect ? (
-              <BigButton label={PRINT_ACTION.reconnect} disabled={busy} onPress={() => void run(() => labels.reconnect())} />
+              <BigButton label={PRINT_ACTION.reconnect} disabled={busy} onPress={() => void run(() => withPickWindow(() => labels.reconnect()))} />
             ) : (
-              <BigButton label={CONNECT_PRINTER} disabled={busy} onPress={() => void run(() => labels.connect('bluetooth'))} />
+              <BigButton label={CONNECT_PRINTER} disabled={busy} onPress={() => void run(() => withPickWindow(() => labels.connect('bluetooth')))} />
             )
           ) : null}
           {snapshot.printer === 'CONNECTED' ? (
@@ -199,7 +200,7 @@ export function LabelsScreen({ onBack }: { readonly onBack?: () => void }) {
           {(disconnected && (snapshot.testPrinter || showReconnect)) || showTestShare ? (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: SPACE.xs }}>
               {/* 보이는 글은 짧게(한글이 낱말 가운데서 끊기지 않게), 뜻 전체는 이름과 아래 한 줄로 */}
-              {showReconnect ? <TextAction label={PICK_OTHER_PRINTER} disabled={busy} onPress={() => void run(() => labels.connect('bluetooth'))} /> : null}
+              {showReconnect ? <TextAction label={PICK_OTHER_PRINTER} disabled={busy} onPress={() => void run(() => withPickWindow(() => labels.connect('bluetooth')))} /> : null}
               {disconnected && snapshot.testPrinter ? <TextAction label="시험용 프린터" ariaLabel={TEST_PRINTER_METHOD} disabled={busy} onPress={() => void run(() => labels.connect('test'))} /> : null}
               {showTestShare ? <TextAction label={testShareLabel(app)} disabled={busy} onPress={() => void run(async () => void (await labels.shareTest()))} /> : null}
             </View>
