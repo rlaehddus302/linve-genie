@@ -1,16 +1,17 @@
 // D-RECENT-TT-01 (판매자 보고 2026-11-17 "라이브 링크 넣는 화면에 최근 연결한 채널에 틱톡은 없음"): GET /api/youtube/live-broadcasts가
 // 최근 연결한 틱톡 계정도 따로 된 칸(tiktok)으로 알린다 — 아이디마다 한 줄, 최근 이은 것이 먼저, 5곳까지. 유튜브 채널 줄(channels)은 그대로에
-// 이은 때(linkedAt)만 더한다. 틱톡에는 묻지 않는다(라이브인지 모름). 다른 판매자의 틱톡 연결은 보이지 않는다.
+// 이은 때(linkedAt)만 더한다. 다른 판매자의 틱톡 연결은 보이지 않는다. 닉네임·라이브인지는 틱톡 공개 정보로 붙인다(D-RECENT-TT-02 — 아래 시험, 기본 시험 서버는 못 받음).
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { broadcasts } from '../src/db/schema.ts'
 import { insertTiktokLink, unlinkTiktokLink } from '../src/tiktok-live/store.ts'
+import { parseTikTokProfile, type TikTokProfile } from '../src/tiktok/profile.ts'
 import { addSeller, client, createBroadcast, type Seller } from './support.ts'
 import { pass, webLinked, webWorld, type WebWorld } from './youtube-web-support.ts'
 
 const worlds: WebWorld[] = []
-async function world(): Promise<WebWorld> {
-  const created = await webWorld()
+async function world(overrides?: NonNullable<Parameters<typeof webWorld>[0]>['overrides']): Promise<WebWorld> {
+  const created = await webWorld(overrides === undefined ? {} : { overrides })
   worlds.push(created)
   return created
 }
@@ -79,7 +80,7 @@ describe('D-RECENT-TT-01 최근 연결한 채널에 틱톡 계정', () => {
     // 섞는 차례: shop.two > shop.one(b5) > shop.three > 채널2 > shop.one(b2, 같은 아이디라 한 줄) > 채널1
     expect(Date.parse(channels[0]!.linkedAt)).toBeLessThan(times[2]!)
     expect(Date.parse(channels[0]!.linkedAt)).toBeGreaterThan(Date.parse(channels[1]!.linkedAt))
-    // 유튜브는 최근 채널마다 한 번씩만 본다(전과 같다) — 틱톡에는 묻지 않는다
+    // 유튜브는 최근 채널마다 한 번씩만 본다(전과 같다)
     expect(w.web.calls('channelLive') - before).toBe(2)
   })
 
@@ -94,5 +95,55 @@ describe('D-RECENT-TT-01 최근 연결한 채널에 틱톡 계정', () => {
     }
     const tiktok = (await client(w, seller.cookie).get('/api/youtube/live-broadcasts')).body.tiktok as { tiktokId: string }[]
     expect(tiktok.map((row) => row.tiktokId)).toEqual(['shop.n5', 'shop.n4', 'shop.n3', 'shop.n2', 'shop.n1'])
+  })
+})
+
+describe('D-RECENT-TT-02 틱톡 줄의 닉네임·사진·라이브인지', () => {
+  // 판매자 2026-11-23 "틱톡은 왜 채널 사진이랑 이름 안 가져와?" · "틱톡 라이브 지금 진행 중 아닌데 연결 버튼이 떠 있네?"
+  it('최근 틱톡 계정마다 공개 정보를 하나씩 물어 닉네임·라이브인지를 붙인다 — 못 받으면 null, 1분 안에는 다시 묻지 않는다, 받은 사진은 회차 사진 경로로', async () => {
+    const asked: string[] = []
+    const PHOTO_URL = 'https://p16-common-sign.tiktokcdn.com/avt/one.jpeg?x-expires=1'
+    const profiles: Record<string, TikTokProfile | null> = {
+      'shop.one': { live: false, nickname: '한별 농원', avatarUrl: PHOTO_URL },
+      'shop.two': { live: true, nickname: '<b>다육</b>', avatarUrl: null },
+      'shop.three': null,
+    }
+    const photos: string[] = []
+    const w = await world({ tiktok: { profileFetch: async (id) => { asked.push(id); return profiles[id] ?? null }, avatarFetch: async (url) => { photos.push(url); return 'data:image/jpeg;base64,/9j/' } } })
+    const seller = await addSeller(w)
+    const api = client(w, seller.cookie)
+    const b1 = await createBroadcast(w, seller, { date: '2026-10-10' })
+    await unlink(w, seller, await tiktokLinked(w, seller, b1.id, 'shop.three'))
+    await pass(w, 60_000, 60_000)
+    const b2 = await createBroadcast(w, seller, { date: '2026-10-11' })
+    await unlink(w, seller, await tiktokLinked(w, seller, b2.id, 'shop.two'))
+    await pass(w, 60_000, 60_000)
+    const b3 = await createBroadcast(w, seller, { date: '2026-10-12' })
+    await unlink(w, seller, await tiktokLinked(w, seller, b3.id, 'shop.one'))
+    const rows = (await api.get('/api/youtube/live-broadcasts')).body.tiktok as { tiktokId: string; live: boolean | null; nickname: string | null }[]
+    expect(rows.map((row) => [row.tiktokId, row.live, row.nickname])).toEqual([['shop.one', false, '한별 농원'], ['shop.two', true, '<b>다육</b>'], ['shop.three', null, null]])
+    expect(asked).toEqual(['shop.one', 'shop.two', 'shop.three'])
+    // 받은 사진 주소로 회차 사진이 보인다 (서버 직접 연결 없이도, D-TT-PHOTO-01 경로)
+    expect((await api.get(`/api/broadcasts/${b3.id}/tiktok/avatar`)).body.avatar).toBe('data:image/jpeg;base64,/9j/')
+    expect(photos).toEqual([PHOTO_URL])
+    // 1분 안에 다시 열면 묻지 않는다, 지나면 다시 묻는다
+    await api.get('/api/youtube/live-broadcasts')
+    expect(asked).toHaveLength(3)
+    await pass(w, 61_000, 61_000)
+    await api.get('/api/youtube/live-broadcasts')
+    expect(asked).toHaveLength(6)
+  })
+
+  it('공개 정보 응답 읽기: 2 라이브 · 4 아님 · 그 밖 모름, 다른 계정·오류·이상한 사진 주소는 버린다', () => {
+    const body = (user: Record<string, unknown>, room?: number, statusCode = 0) => ({ statusCode, data: { user, ...(room === undefined ? {} : { liveRoom: { status: room } }) } })
+    const user = { uniqueId: 'shop.one', nickname: '  한별\u0007 농원 ', status: 4, avatarThumb: 'https://p16-common-sign.tiktokcdn.com/a.webp' }
+    expect(parseTikTokProfile(body(user, 2), 'shop.one')).toEqual({ live: true, nickname: '한별 농원', avatarUrl: 'https://p16-common-sign.tiktokcdn.com/a.webp' })
+    expect(parseTikTokProfile(body(user, 4), 'Shop.One')?.live).toBe(false)
+    expect(parseTikTokProfile(body(user), 'shop.one')?.live).toBe(false)
+    expect(parseTikTokProfile(body({ ...user, status: 3 }), 'shop.one')?.live).toBeNull()
+    expect(parseTikTokProfile(body(user, 2), 'shop.two')).toBeNull()
+    expect(parseTikTokProfile(body(user, 2, 10_011), 'shop.one')).toBeNull()
+    expect(parseTikTokProfile('<html>', 'shop.one')).toBeNull()
+    expect(parseTikTokProfile(body({ ...user, avatarThumb: 'https://evil.example.com/a.jpg', nickname: '가'.repeat(60) }, 2), 'shop.one')).toEqual({ live: true, nickname: `${'가'.repeat(40)}…`, avatarUrl: null })
   })
 })

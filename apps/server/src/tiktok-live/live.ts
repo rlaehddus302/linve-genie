@@ -36,6 +36,9 @@ import {
   type ShortLinkResolver,
   fetchTikTokAvatar,
   type TikTokAvatarFetch,
+  fetchTikTokProfile,
+  type TikTokProfile,
+  type TikTokProfileFetch,
 } from '../tiktok/index.ts'
 import type { Draft, Rejection, ScopeWriter, TxHookContext } from '../writer.ts'
 import type { OwnThanks } from './thanks/own.ts'
@@ -201,7 +204,12 @@ export interface TikTokLiveOptions {
   readonly syncCatalog?: (sellerId: string, date: string) => Promise<void>
   /** 틱톡 프로필 사진 받기 (D-TT-PHOTO-01, 기본: 틱톡 이미지 서버에서 받음 — 시험은 가짜) */
   readonly avatarFetch?: TikTokAvatarFetch
+  /** 틱톡 계정 공개 정보 받기 (D-RECENT-TT-02, 기본: 틱톡 공개 읽기 주소 — 시험은 가짜) */
+  readonly profileFetch?: TikTokProfileFetch
 }
+
+/** 계정 공개 정보를 다시 묻지 않는 동안 (D-RECENT-TT-02 — 링크 넣는 화면을 자주 열어도 틱톡에 덜 묻는다) */
+export const TIKTOK_PROFILE_KEEP_MS = 60_000
 
 interface Entry {
   readonly sellerId: string
@@ -791,6 +799,31 @@ export class TikTokLive {
   /** 틱톡 아이디 → 받은 사진(data: 주소)과 받은 시각 (있으면 6시간, 못 받았으면 10분 동안 다시 받지 않는다) */
   readonly #avatarPhotos = new Map<string, { readonly data: string | null; readonly at: number }>()
   readonly #avatarLoading = new Map<string, Promise<string | null>>()
+
+  /** 틱톡 아이디 → 받은 공개 정보와 받은 시각 (D-RECENT-TT-02) */
+  readonly #profiles = new Map<string, { readonly profile: TikTokProfile | null; readonly at: number }>()
+
+  /**
+   * 최근 연결한 틱톡 계정들의 공개 정보 (닉네임·지금 라이브인지, D-RECENT-TT-02). 하나씩 차례로 묻고, 1분 안에 물은 것은 다시 묻지 않는다.
+   * 사진 주소가 오면 기억해 회차 사진 경로(D-TT-PHOTO-01)가 서버 직접 연결 없이도 사진을 보인다. 못 받은 계정은 빠진다
+   */
+  async profiles(tiktokIds: readonly string[]): Promise<Map<string, TikTokProfile>> {
+    const out = new Map<string, TikTokProfile>()
+    const fetchProfile = this.#options.profileFetch ?? fetchTikTokProfile()
+    for (const tiktokId of tiktokIds) {
+      const now = this.#clock.now()
+      let entry = this.#profiles.get(tiktokId)
+      if (entry === undefined || now - entry.at >= TIKTOK_PROFILE_KEEP_MS) {
+        const profile = await fetchProfile(tiktokId).catch(() => null)
+        if (this.#profiles.size > 2000) this.#profiles.clear()
+        entry = { profile, at: now }
+        this.#profiles.set(tiktokId, entry)
+        if (profile?.avatarUrl != null) this.#rememberAvatar(tiktokId, profile.avatarUrl)
+      }
+      if (entry.profile !== null) out.set(tiktokId, entry.profile)
+    }
+    return out
+  }
 
   #rememberAvatar(tiktokId: string, url: string): void {
     if (this.#avatarUrls.size > 2000) this.#avatarUrls.clear()

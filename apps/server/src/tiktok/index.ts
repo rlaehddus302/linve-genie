@@ -3,6 +3,7 @@
 // 계약(N2b-2에게): harness/sprints/N2b-1/dev-notes.md "N2b-2에게".
 export { systemTikTokClock, type TikTokClock } from './clock.ts'
 export { avatarDataUrl, fetchTikTokAvatar, imageType, isTikTokAvatarUrl, tiktokAvatarUrl, TIKTOK_AVATAR_MAX_BYTES, TIKTOK_AVATAR_TIMEOUT_MS, type TikTokAvatarFetch } from './avatar.ts'
+export { fetchTikTokProfile, parseTikTokProfile, TIKTOK_PROFILE_NAME_MAX, TIKTOK_PROFILE_TIMEOUT_MS, type TikTokProfile, type TikTokProfileFetch } from './profile.ts'
 export {
   chatEventFields,
   createCommentFilter,

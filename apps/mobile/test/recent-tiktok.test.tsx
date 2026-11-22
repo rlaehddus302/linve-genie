@@ -1,5 +1,5 @@
 // D-RECENT-TT-01 (판매자 보고 2026-11-17 "라이브 링크 넣는 화면에 최근 연결한 채널에 틱톡은 없음"): 최근 연결한 채널 목록에
-// 최근 이은 틱톡 계정도 이은 때 차례로 섞어(합쳐 5줄) 보인다 — 줄마다 틱톡 프로필 사진(모르면 틱톡 그림) · @아이디 · "틱톡" · [연결].
+// 최근 이은 틱톡 계정도 이은 때 차례로 섞어(합쳐 5줄) 보인다 — 줄마다 틱톡 프로필 사진(모르면 틱톡 그림) · 닉네임(모르면 @아이디, D-RECENT-TT-02) · "틱톡" · [연결](라이브 아님이면 없음).
 // [연결]은 그 계정의 라이브 주소를 칸에 넣고 [다음]을 누른 것과 같다(틱톡 링크 잇기 — 동의 안내·옮기기 묻기도 그대로). 옛 서버(틱톡 칸 없음)는 전과 같다.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
@@ -65,6 +65,29 @@ describe('최근 연결한 채널에 틱톡 계정 (D-RECENT-TT-01)', () => {
     // 틱톡 줄도 [연결]이 있다 (다른 라이브에 이어져 있어도 — 누르면 옮길지 묻는다)
     expect(within(rows[1]!).getByRole('button', { name: '@shop.two 연결' }).getAttribute('aria-disabled')).not.toBe('true')
     expect(within(rows[3]!).getByRole('button', { name: '@shop_one 연결' }).getAttribute('aria-disabled')).not.toBe('true')
+  })
+
+  // D-RECENT-TT-02 (판매자 2026-11-23 "틱톡은 왜 채널 사진이랑 이름 안 가져와?" · "틱톡 라이브 지금 진행 중 아닌데 연결 버튼이 떠 있네?")
+  it('서버가 준 닉네임을 이름으로, 틱톡이 라이브 아님이라고 하면 [연결] 없이 "지금 라이브 중이 아니에요" — 모르면(null) 지금처럼 [연결]', async () => {
+    const w = world([
+      { tiktokId: 'shop.two', linkedAt: at(40), linkedBroadcast: null, photoBroadcast: 'b7', live: false, nickname: '다육이 <b>농장</b>' },
+      { tiktokId: 'shop_one', linkedAt: at(30), linkedBroadcast: null, photoBroadcast: null, live: true, nickname: '한별 농원' },
+      { tiktokId: 'shop.three', linkedAt: at(20), linkedBroadcast: null, photoBroadcast: null, live: null, nickname: null },
+      { tiktokId: 'shop.four', linkedAt: at(10), linkedBroadcast: 'b1', photoBroadcast: null, live: false, nickname: '넷째 농원' },
+    ])
+    render(w.wrap(<BroadcastLinkScreen broadcastId="b1" closed={false} onBack={() => {}} />))
+    const rows = await rowsOf()
+    expect(names(rows)).toEqual(['다육이 <b>농장</b>', '한별 농원', '@shop.three', '넷째 농원'])
+    // 닉네임은 글자 그대로
+    expect(rows[0]!.querySelector('b')).toBeNull()
+    expect(within(rows[0]!).getByTestId('recent-live-sub').textContent).toBe(NO_LIVE_NOW)
+    expect(within(rows[0]!).queryByRole('button')).toBeNull()
+    expect(within(rows[1]!).getByRole('button', { name: '한별 농원 연결' })).toBeTruthy()
+    expect(within(rows[1]!).getByTestId('recent-live-sub').textContent).toBe(RECENT_TIKTOK_SUB)
+    expect(within(rows[2]!).getByRole('button', { name: '@shop.three 연결' })).toBeTruthy()
+    // 이 라이브에 이어진 계정은 라이브 아님이어도 "이 라이브에 연결돼 있어요" 그대로 (꺼진 [연결])
+    expect(within(rows[3]!).getByTestId('recent-live-sub').textContent).toBe('틱톡 · 이 라이브에 연결돼 있어요')
+    await waitFor(() => expect(within(rows[0]!).getByTestId('recent-live-avatar').innerHTML).toContain(PHOTO))
   })
 
   it('[연결]: 그 계정의 라이브 주소를 칸에 넣고 틱톡 링크로 잇는다 — 이으면 방송 화면으로', async () => {

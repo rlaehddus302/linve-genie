@@ -51,7 +51,7 @@ import type { LiveTimer } from './instagram/notices.ts'
 import { createWebhookApp } from './instagram/routes.ts'
 import { SellerLocks } from './seller-locks.ts'
 import { routeThanks } from './thanks-route.ts'
-import { libraryWebcast, type ShortLinkResolver, type TikTokAttemptLimiter, type TikTokAvatarFetch, type TikTokClock, type TikTokSettings, type WebcastFactory } from './tiktok/index.ts'
+import { libraryWebcast, type ShortLinkResolver, type TikTokAttemptLimiter, type TikTokAvatarFetch, type TikTokClock, type TikTokProfileFetch, type TikTokSettings, type WebcastFactory } from './tiktok/index.ts'
 import { TikTokLive } from './tiktok-live/live.ts'
 import { TikTokExtension } from './tiktok-live/extension.ts'
 import { OwnThanks } from './tiktok-live/thanks/own.ts'
@@ -247,6 +247,8 @@ export interface ServerOptions {
     readonly shortLinks?: ShortLinkResolver
     /** 틱톡 프로필 사진 받기 (시험은 가짜 — 틱톡에 나가지 않게, D-TT-PHOTO-01) */
     readonly avatarFetch?: TikTokAvatarFetch
+    /** 틱톡 계정 공개 정보 받기 (D-RECENT-TT-02, 기본: 틱톡 공개 읽기 주소) */
+    readonly profileFetch?: TikTokProfileFetch
   }
   /**
    * 틱톡 감사 채팅 (D-TT-SEND-01~). 없으면 꺼짐 — 틱톡 구매자 감사는 지금처럼 건너뜀(NOT_SUPPORTED).
@@ -692,6 +694,8 @@ export function createServer(options: ServerOptions): LivejjimServer {
       ? null
       : new YoutubeSystem({
           syncCatalog: (seller, date) => catalog.afterLink(seller, date),
+          // 최근 연결한 틱톡 계정의 닉네임·라이브인지 (D-RECENT-TT-02) — 틱톡 서비스는 아래에서 만든다
+          tiktokProfiles: async (ids) => (tiktok === null ? new Map() : tiktok.profiles(ids)),
           db,
           masterKey,
           timer,
@@ -808,6 +812,7 @@ export function createServer(options: ServerOptions): LivejjimServer {
     ...(tiktokOptions.noticeVersion === undefined ? {} : { noticeVersion: tiktokOptions.noticeVersion }),
     ...(tiktokOptions.shortLinks === undefined ? {} : { shortLinks: tiktokOptions.shortLinks }),
     ...(tiktokOptions.avatarFetch === undefined ? {} : { avatarFetch: tiktokOptions.avatarFetch }),
+    ...(tiktokOptions.profileFetch === undefined ? {} : { profileFetch: tiktokOptions.profileFetch }),
     syncCatalog: (seller, date) => catalog.afterLink(seller, date),
     onLiveEnded: (sellerId, b) => autoEnd.ended(sellerId, b, { platform: 'TIKTOK' }),
   })

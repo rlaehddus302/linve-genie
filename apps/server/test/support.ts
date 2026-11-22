@@ -61,6 +61,8 @@ export function startServer(database: Database, masterKey: string, overrides: Pa
     passwordCost: FAST_COST,
     log: (record) => logs.push(record),
     ...overrides,
+    // 시험은 틱톡에 나가지 않는다 — 계정 공개 정보는 기본으로 언제나 못 받음 (D-RECENT-TT-02)
+    tiktok: { profileFetch: async () => null, ...(overrides.tiktok ?? {}) },
     clock,
   })
   return { server, database, masterKey, clock, logs }

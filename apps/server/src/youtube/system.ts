@@ -232,6 +232,8 @@ export interface LinkHooks {
 
 export interface YoutubeSystemOptions {
   readonly syncCatalog?: (seller: string, date: string) => Promise<void>
+  /** 틱톡 아이디들 → 공개 정보 (닉네임·지금 라이브인지, D-RECENT-TT-02). 못 받은 아이디는 빠진다 */
+  readonly tiktokProfiles?: (tiktokIds: readonly string[]) => Promise<ReadonlyMap<string, { readonly live: boolean | null; readonly nickname: string | null }>>
   readonly db: Db
   readonly masterKey: Buffer
   readonly timer: Timer
@@ -839,7 +841,13 @@ export class YoutubeSystem {
     const tiktok: RecentTiktok[] = (await recentTiktokAccounts(this.#options.db, sellerId, RECENT_CHANNELS_MAX))
       .filter((row) => checkTikTokTarget(row.tiktokId).ok)
       .map((row) => ({ tiktokId: row.tiktokId, linkedAt: row.linkedAt.toISOString(), linkedBroadcast: row.linkedBroadcast, photoBroadcast: row.photoBroadcast }))
-    return { kind: 'ok', broadcasts: list.map((item) => ({ ...item, linkedBroadcast: byVideo.get(item.videoId) ?? null })), channels, tiktok }
+    // 닉네임·지금 라이브인지 (D-RECENT-TT-02, 판매자 "틱톡은 왜 채널 사진이랑 이름 안 가져와?" · "틱톡 라이브 지금 진행 중 아닌데 연결 버튼이 떠 있네?") — 못 받으면 모름(null)
+    const profiles = tiktok.length === 0 ? new Map() : await (this.#options.tiktokProfiles?.(tiktok.map((row) => row.tiktokId)) ?? Promise.resolve(new Map())).catch(() => new Map())
+    const withProfile: RecentTiktok[] = tiktok.map((row) => {
+      const profile = profiles.get(row.tiktokId) as { live: boolean | null; nickname: string | null } | undefined
+      return { ...row, live: profile?.live ?? null, nickname: profile?.nickname ?? null }
+    })
+    return { kind: 'ok', broadcasts: list.map((item) => ({ ...item, linkedBroadcast: byVideo.get(item.videoId) ?? null })), channels, tiktok: withProfile }
   }
 
   /** 끊기 (AC-Y1-13): 수집기가 멈추고, 그 방송의 기다리던 실시간 채팅 감사는 보내지 못함(NO_LINK) */

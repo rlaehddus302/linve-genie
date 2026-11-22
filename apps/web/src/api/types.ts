@@ -523,6 +523,10 @@ export interface RecentTiktok {
   readonly linkedBroadcast: string | null
   /** 프로필 사진을 물을 회차 (없으면 null — 틱톡 그림) */
   readonly photoBroadcast: string | null
+  /** 지금 라이브 중인가 — false 라이브 아님, null·없음 모름(옛 서버) (D-RECENT-TT-02) */
+  readonly live?: boolean | null
+  /** 틱톡 닉네임 — null·없음이면 @아이디 (D-RECENT-TT-02) */
+  readonly nickname?: string | null
 }
 
 export type CollectorStatus = 'STARTING' | 'LIVE' | 'RETRYING' | 'STOPPED' | 'FINISHED' | 'CHAT_ENDED'

@@ -842,10 +842,14 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
             {recentRows.map((row) => {
               if (row.kind === 'tiktok') {
                 const account = row.account
-                const tiktokName = `@${account.tiktokId}`
+                // 닉네임이 있으면 닉네임, 없으면(옛 서버·못 받음) @아이디 (D-RECENT-TT-02)
+                const nick = typeof account.nickname === 'string' && account.nickname.trim() !== '' ? channelName(account.nickname) : null
+                const tiktokName = nick ?? `@${account.tiktokId}`
                 const here = account.linkedBroadcast !== null && account.linkedBroadcast === broadcastId
                 const elsewhere = account.linkedBroadcast !== null && !here
-                const tiktokSub = here ? `${RECENT_TIKTOK_SUB} · 이 라이브에 연결돼 있어요` : elsewhere ? `${RECENT_TIKTOK_SUB} · 다른 라이브에 연결돼 있어요` : RECENT_TIKTOK_SUB
+                // 틱톡이 라이브 아님이라고 할 때만 [연결]을 걷는다 — 모르면(null·옛 서버) 지금처럼 [연결] (D-RECENT-TT-02)
+                const notLive = account.live === false && !here
+                const tiktokSub = here ? `${RECENT_TIKTOK_SUB} · 이 라이브에 연결돼 있어요` : notLive ? NO_LIVE_NOW : elsewhere ? `${RECENT_TIKTOK_SUB} · 다른 라이브에 연결돼 있어요` : RECENT_TIKTOK_SUB
                 return (
                   <View key={`tiktok-${account.tiktokId}`} testID="recent-live" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md }}>
                     <TiktokPhoto broadcastId={account.photoBroadcast} size={RECENT_ICON} />
@@ -856,7 +860,7 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
                       </Txt>
                     </View>
                     {/* 다른 라이브에 이어져 있으면 눌러서 옮길지 묻는다(TIKTOK_ELSEWHERE) — 이 라이브에 이미 이어져 있으면 누를 수 없다 */}
-                    <ConnectButton label={`${tiktokName} 연결`} disabled={off || here} onPress={() => linkTiktok(account.tiktokId)} />
+                    {notLive ? null : <ConnectButton label={`${tiktokName} 연결`} disabled={off || here} onPress={() => linkTiktok(account.tiktokId)} />}
                   </View>
                 )
               }
