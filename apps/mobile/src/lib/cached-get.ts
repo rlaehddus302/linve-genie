@@ -78,10 +78,29 @@ export function fetchCached<T>(path: string, fresh = false): Promise<T> {
   return promise.then((entry) => entry.value as T)
 }
 
+/** 다음 화면이 쓸 자료를 앞 화면에서 미리 받아 둔 것 (D-RECENT-PREFETCH-01) — 경로마다 하나, 한 번 쓰면 지운다 */
+const prefetched = new Map<string, { readonly at: number; readonly value: Promise<unknown> }>()
+
+/** 다음 화면이 쓸 경로를 미리 받기 시작한다 (실패해도 조용히 — 그 화면이 다시 받는다) */
+export function prefetchOnce(path: string, now = Date.now()): void {
+  const value = get<unknown>(path)
+  value.catch(() => undefined)
+  prefetched.set(path, { at: now, value })
+}
+
+/** 미리 받기 시작한 지 maxAgeMs 안이면 그 요청(받는 중이면 거기에 붙음)을 한 번만 돌려준다 — 없거나 오래됐으면 null */
+export function takePrefetched<T>(path: string, maxAgeMs: number, now = Date.now()): Promise<T> | null {
+  const ready = prefetched.get(path)
+  prefetched.delete(path)
+  if (ready === undefined || now < ready.at || now - ready.at >= maxAgeMs) return null
+  return ready.value as Promise<T>
+}
+
 /** 모두 지운다 — 로그아웃·로그인 풀림·계정 바뀜 (시험마다도) */
 export function clearCached(): void {
   cache.clear()
   inflight.clear()
+  prefetched.clear()
   clearedAt = nextTicket()
 }
 

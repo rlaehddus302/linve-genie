@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CollectorView, ConnectionStatus, LinkView, LiveBroadcastItem, RecentChannel, RecentTiktok, YoutubeConnectionResponse, YoutubeWebChat } from '@livejjim/web/src/api/types.ts'
 import { get, isApiError, newRequestId, post, withRetry, type ApiError } from '../../api/client.ts'
+import { prefetchOnce, takePrefetched } from '../../lib/cached-get.ts'
 import { clipboardHasText } from '../../lib/clipboard.ts'
 import { liveLinkOf } from '../../lib/live-link.ts'
 import { BandPostPicker, TiktokConsentCard } from './OtherLinks.tsx'
@@ -611,6 +612,25 @@ export interface AddressLinker {
   readonly knownChannel: string | null
 }
 
+type RecentLivesBody = { broadcasts: LiveBroadcastItem[]; channels?: RecentChannel[]; tiktok?: RecentTiktok[] }
+const RECENT_LIVES_PATH = '/api/youtube/live-broadcasts'
+/** 미리 받은 최근 채널 목록을 쓸 수 있는 시간 — 넘으면 새로 받는다(그새 라이브가 시작·끝났을 수 있다) (D-RECENT-PREFETCH-01) */
+export const RECENT_PREFETCH_MS = 60_000
+
+/**
+ * 최근 연결한 채널 목록을 미리 받는다 (D-RECENT-PREFETCH-01, 사용자 "최근 연결한 채널 불러오는것도 느린데, 그 전 어떤 라이브인가요? 페이지에서 미리 불러오고 있으면 안 돼?"):
+ * 서버가 채널마다 유튜브·틱톡을 읽어 1~3초 걸린다 — 판매 종류를 고르는 동안 받아 두면 링크 화면에 바로 보인다
+ */
+export function prefetchRecentLives(now?: number): void {
+  prefetchOnce(RECENT_LIVES_PATH, now)
+}
+
+/** 미리 받은 목록(받는 중이면 그 요청에 붙는다)을 한 번만 쓴다 — 없거나 오래됐거나 실패했으면 새로 받는다 */
+function takeRecentLives(): Promise<RecentLivesBody> {
+  const ready = takePrefetched<RecentLivesBody>(RECENT_LIVES_PATH, RECENT_PREFETCH_MS)
+  return ready === null ? get<RecentLivesBody>(RECENT_LIVES_PATH) : ready.catch(() => get<RecentLivesBody>(RECENT_LIVES_PATH))
+}
+
 export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NEXT, disabled, enabled = true, onEdit, onUnknown, confirmNotice }: AddressLinkerOptions): AddressLinker {
   const [recent, setRecent] = useState<readonly LiveBroadcastItem[] | null>(null)
   /** 최근 연결한 채널 (최근 것이 먼저, D-UX4-187) — 옛 서버면 null(라이브 줄만) */
@@ -655,7 +675,8 @@ export function useAddressLinker({ webChat, broadcastId, submit, label = LINK_NE
     setChannels(null)
     setTiktok([])
     try {
-      const { broadcasts, channels: found, tiktok: accounts } = await get<{ broadcasts: LiveBroadcastItem[]; channels?: RecentChannel[]; tiktok?: RecentTiktok[] }>('/api/youtube/live-broadcasts')
+      // 새 라이브의 판매 종류 화면이 미리 받아 두었으면 그것을 (D-RECENT-PREFETCH-01)
+      const { broadcasts, channels: found, tiktok: accounts } = await takeRecentLives()
       setRecent(broadcasts)
       setChannels(Array.isArray(found) ? found : null)
       // 옛 서버(칸 없음)는 틱톡 줄 없이. 주소로 만들 수 있는 아이디만 (D-RECENT-TT-01)

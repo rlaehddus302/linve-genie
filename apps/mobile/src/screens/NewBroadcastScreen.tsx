@@ -15,13 +15,14 @@ import { LIVE_PLATFORMS, type PlatformTarget } from '../lib/open-app.ts'
 import { browserStart, type BrowserHints } from '../lib/live-browser.ts'
 import { readModeOf } from '../lib/youtube.ts'
 import { peekCached, useCachedGet } from '../lib/cached-get.ts'
+import { trackNewLink } from '../lib/new-link.ts'
 import { LiveBrowser, type LiveBrowserOpen } from './LiveBrowser.tsx'
 import { useSheetHandoff } from './console/claim-actions.ts'
 import { BottomSheet, FormPage, Icon, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { Notice } from '../ui/parts.tsx'
 import { defaultBroadcastTitle, startErrorMessage } from './HomeScreen.tsx'
-import { LINK_ASK_TITLE, LinkPages, markLinkAsked, sendLiveLink, useAddressLinker, type LiveLinkRequest } from './console/YoutubeSection.tsx'
+import { LINK_ASK_TITLE, LinkPages, markLinkAsked, prefetchRecentLives, sendLiveLink, useAddressLinker, type LiveLinkRequest } from './console/YoutubeSection.tsx'
 
 /** 판매 종류 — 늘릴 때는 여기에 한 줄 (word가 제목에 들어간다. 기타는 제목에 넣지 않는다) */
 export const SALE_CATEGORIES: readonly { readonly key: string; readonly word: string; readonly inTitle: boolean; readonly icon: string }[] = [
@@ -102,6 +103,10 @@ function MakeError({ error }: { readonly error: ApiError | null }) {
 /** 1단계: 판매 종류 고르기 */
 export function NewBroadcastCategoryScreen({ nav }: { readonly nav: NewBroadcastNavigation }) {
   const { p } = useKit()
+  // 다음 링크 화면의 최근 연결한 채널을 고르는 동안 미리 받는다 (D-RECENT-PREFETCH-01)
+  useEffect(() => {
+    prefetchRecentLives()
+  }, [])
   // 유튜브·틱톡·밴드 모두 링크로 이을 수 있어 늘 링크 단계로 간다 (D-UX3-14 — 전에는 유튜브를 이을 수 없는 서버면 바로 만들었다)
   return (
     <FormPage title="어떤 라이브인가요?" name="새 라이브" onBack={nav.back}>
@@ -162,17 +167,31 @@ export function NewBroadcastAddressScreen({ category, nav }: { readonly category
     const id = await ensureMade()
     if (id === null) return
     const key = linkKey(request)
-    if (linked.current?.key !== key) {
+    const openLabels = nav.openLabelSetup
+    if (linked.current?.key === key) {
+      if (openLabels !== undefined) openLabels(id)
+      else nav.openConsole(id)
+      return
+    }
+    const work = (async () => {
       if (linked.current !== null) {
         await unlinkLive(id, linked.current.platform)
         linked.current = null
       }
       await sendLiveLink(id, request)
       linked.current = { key, platform: request.platform }
+    })()
+    // 방송 화면 전에 라벨을 뽑을지 묻는다 (D-UX3-19) — 잇기를 기다리지 않고 바로 연다 (D-LINK-ASYNC-01): 서버가 유튜브를 다시 읽는 1~3초 동안
+    // 판매자는 프린터를 잇는다. 못 이으면 프린터 화면이 이 화면으로 돌아오고, 까닭(옮길까요·처음 채널·오류)은 아래 await가 던져 이 화면이 보인다.
+    // 라벨 단계가 없으면(바로 방송 화면 — 이 화면이 닫힌다) 옛처럼 이은 뒤에 간다
+    if (openLabels !== undefined) {
+      trackNewLink(id, work)
+      openLabels(id)
+      await work
+    } else {
+      await work
+      nav.openConsole(id)
     }
-    // 방송 화면 전에 라벨을 뽑을지 묻는다 (D-UX3-19)
-    if (nav.openLabelSetup !== undefined) nav.openLabelSetup(id)
-    else nav.openConsole(id)
   }
   const linker = useAddressLinker({ enabled: route !== undefined, webChat: route?.webChat ?? null, broadcastId: madeId, submit: linkNew, disabled: busy, onEdit: clearError, onUnknown: () => setFinder(true), confirmNotice: <MakeError error={error} /> })
 
