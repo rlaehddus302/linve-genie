@@ -116,7 +116,9 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
     fireEvent.click(within(connect).getByRole('button', { name: '다음' }))
 
     const design = await screen.findByRole('dialog', { name: '라벨 디자인' })
-    // 가게 이름 칸은 저장된 본문(빈 글) — 비우면 가게 설정 이름을 따른다
+    // 가게 이름 칸은 저장된 본문(빈 글) — 비우면 가게 설정 이름을 따른다. 칸 설정은 문구 탭 (D-LABEL-TABS-01 — 옛 항목 탭)
+    await within(design).findByRole('radiogroup', { name: '라벨 크기' })
+    fireEvent.click(within(design).getByRole('tab', { name: '문구' }))
     fireEvent.click(await within(design).findByRole('radio', { name: '가게 이름' }))
     fireEvent.click(within(design).getByRole('button', { name: '가게 이름 편집' }))
     expect((await screen.findByRole('textbox', { name: '가게 이름' }) as HTMLInputElement).value).toBe('')
@@ -127,7 +129,7 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
     fireEvent.click(within(design).getByRole('radio', { name: '50×40mm' }))
     await waitFor(() => expect(within(design).getByRole('radio', { name: '50×40mm' }).getAttribute('aria-checked')).toBe('true'))
     expect(world.server.callsTo('POST', /\/preview$/).at(-1)?.body).toMatchObject({ resize: '50x40' })
-    fireEvent.click(within(design).getByRole('tab', { name: '항목' }))
+    fireEvent.click(within(design).getByRole('tab', { name: '문구' }))
     fireEvent.click(within(design).getByRole('radio', { name: '가격' }))
     expect(within(within(design).getByRole('radiogroup', { name: '가격 표기' })).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual(['30만원', '300 천원', '300,000원'])
     fireEvent.click(within(design).getByRole('radio', { name: '300,000원' }))
@@ -157,7 +159,7 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
     await waitFor(() => expect(within(connect).getByRole('status', { name: '연결됐어요' })).toBeTruthy())
     fireEvent.click(within(connect).getByRole('button', { name: '다음' }))
     const design = await screen.findByRole('dialog', { name: '라벨 디자인' })
-    await within(design).findByRole('group', { name: '번호 설정' })
+    await within(design).findByRole('radiogroup', { name: '라벨 크기' })
     fireEvent.click(within(design).getByRole('button', { name: '저장하고 다음' }))
     fireEvent.click(await screen.findByRole('button', { name: '이 기기에서 출력' }))
     expect(screen.queryByRole('dialog', { name: '테스트 인쇄' })).toBeNull()
@@ -219,6 +221,9 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     await waitFor(() => expect(within(connect).getByRole('status', { name: '연결됐어요' })).toBeTruthy())
     fireEvent.click(within(connect).getByRole('button', { name: '다음' }))
     const design = await screen.findByRole('dialog', { name: '라벨 디자인' })
+    // 처음은 용지 탭 — 칸 설정은 문구 탭 (D-LABEL-TABS-01)
+    await within(design).findByRole('radiogroup', { name: '라벨 크기' })
+    fireEvent.click(within(design).getByRole('tab', { name: '문구' }))
     await within(design).findByRole('group', { name: '번호 설정' })
     return { world, design }
   }
@@ -314,10 +319,12 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     world.services.labels.stop()
   })
 
-  it('고정 화면의 제목·템플릿과 실제 인쇄 미리보기에서 바로 항목을 선택한다 (D-LABEL-UI-02)', async () => {
+  // 옛 기대 D-LABEL-UI-02: 머리 오른쪽 [템플릿] 단추. 새 기대 D-LABEL-TABS-01: [템플릿] 없이 탭이 용지·스타일·문구 차례
+  it('고정 화면의 제목·탭 차례와 실제 인쇄 미리보기에서 바로 항목을 선택한다 (D-LABEL-UI-02·D-LABEL-TABS-01)', async () => {
     const { world, design } = await openDesign()
     expect(within(design).getByRole('heading', { name: '라벨 디자인' })).toBeTruthy()
-    expect(within(design).getByRole('button', { name: '템플릿' })).toBeTruthy()
+    expect(within(design).queryByRole('button', { name: '템플릿' })).toBeNull()
+    expect(within(design).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['용지', '스타일', '문구'])
     const box = within(design).getByRole('button', { name: '라벨의 품종' })
     expect(box.getAttribute('aria-pressed')).toBe('false')
     fireEvent.click(within(design).getByRole('tab', { name: '용지' }))
@@ -326,7 +333,7 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     expect(within(design).queryByRole('group', { name: '번호 설정' })).toBeNull()
     fireEvent.click(box)
     expect(box.getAttribute('aria-pressed')).toBe('true')
-    expect(within(design).getByRole('tab', {name: '항목'}).getAttribute('aria-selected')).toBe('true')
+    expect(within(design).getByRole('tab', {name: '문구'}).getAttribute('aria-selected')).toBe('true')
     fireEvent.click(within(design).getByRole('radio', { name: '날짜' }))
     fireEvent.click(within(within(design).getByRole('group', { name: '날짜 설정' })).getByRole('switch', { name: '찍기 — 켜짐' }))
     expect(within(design).queryByRole('button', { name: '라벨의 날짜' })).toBeNull()
@@ -348,17 +355,20 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
   })
 })
 
-it('저장된 자유 배치를 열고 표형을 선택하면 저장할 때만 반영한다', async () => {
+// 옛 기대: 머리 [템플릿] → 아래 창에서 이름만 있는 고르기. 새 기대 D-LABEL-TABS-01: 스타일 탭에서 예시 그림이 있는 2열 고르기
+it('저장된 자유 배치를 열고 스타일 탭에서 표형을 선택하면 저장할 때만 반영한다', async () => {
   const world = labelWorld()
   render(world.wrap(<LabelSetupScreen only="design" onBack={() => {}} onDone={() => {}} />))
-  await screen.findByRole('group', { name: '번호 설정' })
-  fireEvent.click(screen.getByRole('button', { name: '템플릿' }))
-  fireEvent.click(await screen.findByRole('radio', { name: '표형' }))
-  await waitFor(() => expect(world.server.callsTo('POST', /\/preview$/).some((c) => (c.body as {design?: string}).design === 'table')).toBe(true))
+  await screen.findByRole('radiogroup', { name: '라벨 크기' })
+  fireEvent.click(screen.getByRole('tab', { name: '스타일' }))
+  const styles = await screen.findByRole('radiogroup', { name: '라벨 스타일' })
+  expect(within(styles).getAllByRole('radio').map((radio) => radio.getAttribute('aria-label'))).toEqual(['기본형', '큰 글씨형', '표형'])
+  // 세 스타일의 예시 그림을 지금 초안으로 받는다
+  await waitFor(() => expect(new Set(world.server.callsTo('POST', /\/preview$/).map((c) => (c.body as {design?: string}).design))).toEqual(new Set([undefined, 'basic', 'large', 'table'])))
+  fireEvent.click(within(styles).getByRole('radio', { name: '표형' }))
+  await waitFor(() => expect(world.server.callsTo('POST', /\/preview$/).at(-1)?.body).toMatchObject({ design: 'table' }))
   await waitFor(() => expect(screen.getByRole('button', {name:'저장'}).matches(':disabled, [aria-disabled="true"]')).toBe(false))
-  fireEvent.click(screen.getByRole('button', { name: '템플릿' }))
-  expect((await screen.findByRole('radio', {name:'표형'})).getAttribute('aria-checked')).toBe('true')
-  fireEvent.click(screen.getByRole('button', {name:'판 닫기'}))
+  expect(within(screen.getByRole('radiogroup', { name: '라벨 스타일' })).getByRole('radio', {name:'표형'}).getAttribute('aria-checked')).toBe('true')
   expect(world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)).toHaveLength(0)
   fireEvent.click(screen.getByRole('button', { name: '저장' }))
   await waitFor(() => expect(world.server.callsTo('PUT', /^\/api\/print\/templates\/product$/)[0]?.body).toMatchObject({ template: { design: 'table' }, version: 2 }))
@@ -368,7 +378,9 @@ it('저장된 자유 배치를 열고 표형을 선택하면 저장할 때만 �
 it('문구 추가의 첫 위치는 오른쪽 위이며 여러 문구의 내용·위치를 고치고 삭제할 수 있다', async () => {
   const world = labelWorld()
   render(world.wrap(<LabelSetupScreen only="design" onBack={() => {}} onDone={() => {}} />))
+  // 직접 입력 문구는 문구 탭의 [직접 입력] 칸 (D-LABEL-TABS-01 — 옛 문구 탭)
   fireEvent.click(await screen.findByRole('tab', { name: '문구' }))
+  fireEvent.click(await screen.findByRole('radio', { name: '직접 입력' }))
   const add = await screen.findByRole('button', { name: '문구 추가' })
   fireEvent.click(add)
   fireEvent.change(screen.getByRole('textbox', { name: '문구 1' }), { target: { value: '향남꽃선비 라방' } })

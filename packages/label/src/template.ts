@@ -1,6 +1,6 @@
 // 라벨 템플릿 — JSON 모델·검사·크기마다 기본 템플릿 (LABEL_RULES L-5, D-P1-06·D-N1-03, AC-P1-20·AC-N1-10~12).
 // 위치·크기·글자 크기는 모두 점(1mm = 8점) 단위, 상자 왼쪽 위 기준이다.
-import { CAPTION_POSITIONS, CAPTION_SPACE_HINT, CAPTION_TEXT_MAX, captionLayout, type LabelCaption } from './captions.ts'
+import { CAPTION_POSITIONS, CAPTION_SPACE_HINT, CAPTION_TEXT_MAX, captionsCrowded, safeMargin, type LabelCaption } from './captions.ts'
 import { ITEM_NAMES, LABEL_MESSAGES, type LabelError, type TemplateProblem } from './errors.ts'
 import { DEFAULT_LABEL_SIZE, canMakePackingLabel, isLabelSize, labelSizeInfo, type LabelSizeId } from './sizes.ts'
 import { PRICE_STYLES, trimLabelText, type PriceStyle } from './text.ts'
@@ -366,8 +366,8 @@ export function validateTemplate(value: unknown): TemplateCheck {
       if (text) captions.push({ text, position: note.position as LabelCaption['position'] })
     }
     if (isLabelSize(size)) {
-      const { widthDots, heightDots } = labelSizeInfo(size)
-      if (captionLayout(captions, widthDots, heightDots).bodyHeight < heightDots / 2) problems.push({ path: 'captions', message: CAPTION_SPACE_HINT })
+      const info = labelSizeInfo(size)
+      if (captionsCrowded(captions, info.widthDots, info.heightDots, safeMargin(info))) problems.push({ path: 'captions', message: CAPTION_SPACE_HINT })
     }
   }
   const ids: readonly string[] = kind === 'product' ? PRODUCT_ITEMS : PACKING_ITEMS

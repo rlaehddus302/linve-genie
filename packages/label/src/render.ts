@@ -2,7 +2,7 @@
 // 글 계산 결과만 받아 캔버스(주입)에 그리고 1비트 그림과 배치 결과를 돌려준다. 글을 새로 만들지 않는다 —
 // 바꾸는 것은 L-5의 줄 나누기와 끝 `…`뿐이다. 내장 글꼴에 없는 글자는 캔버스에 맡기지 않고 빈 네모로 그린다
 // (캔버스는 없는 글자를 시스템 글꼴로 대신 그리기 때문이다). 시각·난수·실행 환경 언어를 쓰지 않는다.
-import { captionBodyItem, captionLayout } from './captions.ts'
+import { areaItem, productArea, safeMargin } from './captions.ts'
 import { oneBitFromRgba, type LabelBitmap } from './bitmap.ts'
 import type { PackingPage, PackingText, ProductText } from './compute.ts'
 import { LABEL_MESSAGES, doesNotFitError, type LabelError } from './errors.ts'
@@ -549,9 +549,11 @@ const PACKING_SPEC = {
 /** 상품 라벨 그리기 — 글 계산 결과(computeProductText)만 받는다 */
 export function renderProductText(env: LabelRenderEnv, text: ProductText): RenderResult<RenderedLabel> {
   const t = text.template
-  const { widthDots, heightDots } = labelSizeInfo(t.size)
-  const { top, bodyHeight, lines } = captionLayout(t.captions ?? [], widthDots, heightDots)
-  const cellFor = (item: TemplateItem) => lines.length ? captionBodyItem(item, top, bodyHeight / heightDots) : item
+  const info = labelSizeInfo(t.size)
+  const { widthDots, heightDots } = info
+  // 종이 가장자리 1mm 안전 영역 안에만 그린다 (D-LABEL-SAFE-01)
+  const { body, innerHeight, lines } = productArea(t.captions ?? [], widthDots, heightDots, safeMargin(info))
+  const cellFor = (item: TemplateItem) => areaItem(item, widthDots, heightDots, body, innerHeight)
   const specs: ItemSpec[] = []
   for (const id of ['shop', 'number', 'price', 'date', 'name', 'buyer'] as const) {
     const value = text.items[id]

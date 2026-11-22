@@ -26,8 +26,13 @@ const BASE: BaseSnapshot = JSON.parse(readFileSync(join(import.meta.dirname, 'fi
 // D-STB-01: 기본 상품 템플릿(50×20·30·40·50) 날짜 칸 x 292→290 · 폭 88→90으로 달라진 그림의 새 고정값(gen-stb-snapshot.ts).
 // BASE는 그대로 두고, 옛 기본 템플릿(revertStbDateBox)으로 그리면 BASE 전부가 점 하나까지 같아야 한다.
 const STB: Pick<BaseSnapshot, 'renders'> = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'base-o3-stb.json'), 'utf8')) as Pick<BaseSnapshot, 'renders'>
-/** 지금 기본 템플릿으로 그린 그림의 고정값: BASE에 D-STB-01로 달라진 그림만 바꿔 넣은 것 */
-const NOW_RENDERS: Record<string, string> = { ...BASE.renders, ...STB.renders }
+// D-LABEL-SAFE-01: 상품 라벨을 종이 가장자리 1mm 안전 영역 안에만 그려 달라진 그림의 새 고정값(gen-safe-snapshot.ts).
+// renders는 지금 기본 템플릿, before는 옛 기본 템플릿(revertStbDateBox)으로 그린 것 — BASE·STB 위에 덮는다.
+const SAFE = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'base-o3-safe.json'), 'utf8')) as { readonly renders: Record<string, string>; readonly before: Record<string, string> }
+/** 지금 기본 템플릿으로 그린 그림의 고정값: BASE에 D-STB-01·D-LABEL-SAFE-01로 달라진 그림만 바꿔 넣은 것 */
+const NOW_RENDERS: Record<string, string> = { ...BASE.renders, ...STB.renders, ...SAFE.renders }
+/** 옛 기본 템플릿으로 그린 그림의 고정값: BASE에 D-LABEL-SAFE-01로 달라진 그림만 바꿔 넣은 것 */
+const BEFORE_RENDERS: Record<string, string> = { ...BASE.renders, ...SAFE.before }
 
 const HONG = { kind: 'youtube', name: '홍길동' } as const
 const product = (fields: Record<string, unknown> = {}): Record<string, unknown> => ({ no: 22, name: '반팔티', price: 34000, date: '2026-10-25', buyer: HONG, ...fields })
@@ -65,8 +70,22 @@ describe('AC-O3-02·06 다육 회귀 — O3 전 그림·내용 키 그대로', (
     expect(Object.values(BASE.renders).filter((v) => !v.startsWith('error:'))).toHaveLength(570)
   })
 
-  it('지금 코드로 옛 기본 템플릿(D-STB-01 전 날짜 칸)을 그린 1비트 그림이 O3 전과 점 하나까지 같다 (해시)', () => {
-    expect(collectSnapshot(env, undefined, revertStbDateBox).renders).toStrictEqual(BASE.renders)
+  it('지금 코드로 옛 기본 템플릿(D-STB-01 전 날짜 칸)을 그린 1비트 그림이 O3 전(+ D-LABEL-SAFE-01 새 값)과 점 하나까지 같다 (해시)', () => {
+    expect(collectSnapshot(env, undefined, revertStbDateBox).renders).toStrictEqual(BEFORE_RENDERS)
+  })
+
+  it('D-LABEL-SAFE-01 새 고정값은 상품 라벨의 그려진 그림만 바꾼다 — 포장 라벨·오류(DOES_NOT_FIT 등)는 그대로', () => {
+    const productIds = new Set(baseCases().filter((c) => c.kind === 'product').map((c) => c.id))
+    const old = { ...BASE.renders, ...STB.renders }
+    for (const [overlay, before] of [[SAFE.renders, old], [SAFE.before, BASE.renders]] as const) {
+      expect(Object.keys(overlay).length).toBeGreaterThan(0)
+      for (const [key, value] of Object.entries(overlay)) {
+        expect(productIds.has(key.split(' ')[0] ?? ''), key).toBe(true)
+        expect(before[key]?.startsWith('error:'), key).toBe(false)
+        expect(value.startsWith('error:'), key).toBe(false)
+        expect(value, key).not.toBe(before[key])
+      }
+    }
   })
 
   it('D-STB-01 새 고정값은 네 크기 기본 상품 템플릿(과 그것에서 지은 사례 템플릿)의 그려진 그림만 바꾼다', () => {
@@ -83,7 +102,7 @@ describe('AC-O3-02·06 다육 회귀 — O3 전 그림·내용 키 그대로', (
     }
   })
 
-  it('지금 코드·기존 저장 템플릿으로 그린 1비트 그림이 고정값(BASE + D-STB-01 새 값)과 점 하나까지 같다 (해시)', () => {
+  it('지금 코드·기존 저장 템플릿으로 그린 1비트 그림이 고정값(BASE + D-STB-01·D-LABEL-SAFE-01 새 값)과 점 하나까지 같다 (해시)', () => {
     expect(now.renders).toStrictEqual(NOW_RENDERS)
   })
 
@@ -96,7 +115,7 @@ describe('AC-O3-02·06 다육 회귀 — O3 전 그림·내용 키 그대로', (
     expect(neutral.renders).toStrictEqual(NOW_RENDERS)
     expect(neutral.keys).toStrictEqual(BASE.keys)
     const neutralBefore = collectSnapshot(env, (c) => withNeutralOptions(c.kind, c.data), revertStbDateBox)
-    expect(neutralBefore.renders).toStrictEqual(BASE.renders)
+    expect(neutralBefore.renders).toStrictEqual(BEFORE_RENDERS)
   })
 
   it('검사를 통과한 옵션 없는 수량 1 데이터는 O3 전과 같은 칸만 있다', () => {

@@ -20,11 +20,14 @@ import {
   renderProductText,
   renderTestLabel,
   splitGraphemes,
+  type LabelSizeId,
   type LabelTemplate,
   type LayoutItem,
   type ProductTemplate,
   type TemplateItem,
 } from '../src/index.ts'
+import { areaItem, productArea, safeMargin } from '../src/captions.ts'
+import { labelSizeInfo } from '../src/sizes.ts'
 import { SAMPLE_PACKING, SAMPLE_PRODUCT, blackIn, diffOutside, expectCleanLayout, expectLayoutMatchesText, nodeEnv, overlaps, thirtyLabelData } from './helpers.ts'
 
 const env = nodeEnv()
@@ -435,7 +438,8 @@ describe('조정이 그림에 그대로 나온다 (AC-P1-21)', () => {
     const newBox = moved.items.date
     expect(blackIn(after.image, oldBox)).toBe(0)
     expect(blackIn(after.image, newBox)).toBeGreaterThan(0)
-    expect(item(after.layout.items, 'date').box).toEqual({ x: 292, y: 196, width: 88, height: 36 })
+    // 그릴 때는 종이 가장자리 1mm 안전 영역 안으로 줄여 넣는다 (D-LABEL-SAFE-01)
+    expect(item(after.layout.items, 'date').box).toEqual(drawnBox(moved.size, { ...newBox, fontSize: 1, minFontSize: 1, visible: true }))
     expect(diffOutside(before.image, after.image, [oldBox, newBox])).toBe(0)
     expectCleanLayout(after.image, after.layout)
   })
@@ -480,7 +484,8 @@ describe('상품 라벨 기본 디자인', () => {
         const result = product(t)
         product({ ...t, priceStyle: 'WON' }, LONGEST_PRODUCT)
         if (design === 'table') {
-          const cell = t.items.buyer
+          // 표 테두리는 안전 영역 안으로 줄인 칸에 긋는다 (D-LABEL-SAFE-01)
+          const cell = drawnBox(size, t.items.buyer)
           for (let x = cell.x; x < cell.x + cell.width; x++) expect(getPixel(result.image, x, cell.y)).toBe(true)
         }
       }
@@ -508,3 +513,11 @@ it('같은 표형에서 호스트·가게 문구와 여러 줄이 자동 상품 
   const crowded = { ...t, captions: Array.from({ length: 6 }, () => t.captions[0]) }
   expect(validateTemplate(crowded)).toMatchObject({ ok: false })
 })
+
+/** 템플릿 칸이 그림에 그려지는 자리 — 종이 가장자리 1mm 안전 영역 안 (D-LABEL-SAFE-01, 문구 없음) */
+function drawnBox(size: LabelSizeId, box: TemplateItem): { x: number; y: number; width: number; height: number } {
+  const info = labelSizeInfo(size)
+  const { body, innerHeight } = productArea([], info.widthDots, info.heightDots, safeMargin(info))
+  const { x, y, width, height } = areaItem(box, info.widthDots, info.heightDots, body, innerHeight)
+  return { x, y, width, height }
+}
