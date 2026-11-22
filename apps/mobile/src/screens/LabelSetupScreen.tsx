@@ -20,11 +20,11 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { ActivityIndicator, Image, PanResponder, View, useWindowDimensions } from 'react-native'
 import { get, isApiError, post, put } from '../api/client.ts'
 import type { PickEntry } from '@livejjim/mobile-ble'
-import { cancelPrinterPick, pickPrinter, useInlinePrinterPick } from '../native/printer-pick.ts'
+import { cancelPrinterPick, lastPickedEntry, pickPrinter, useInlinePrinterPick } from '../native/printer-pick.ts'
 import { sizeWordMm, testHelp } from '../lib/test-help.ts'
 import { RETRY_NOW } from '../lib/words.ts'
 import { useServices } from '../services.tsx'
-import { BigButton, BottomCTA, BottomSheet, FormPage, HeaderTextButton, LineTab, LineTabs, NavBar, SheetChoices, usePageTop, useWhiteTop, Icon, ListRow, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
+import { BigButton, BottomCTA, BottomSheet, FormPage, HeaderTextButton, LineTab, LineTabs, NavBar, SheetChoices, usePageTop, useWhiteTop, CheckBadge, Icon, ListRow, SmallButton, TextField, ToggleRow, Txt, useKit, Tap } from '../ui/kit/index.ts'
 import { RADIUS, SPACE, TOUCH } from '../ui/kit/tokens.ts'
 import { SlideSwitch } from '../ui/kit/slide.tsx'
 import { LabelPrintArt, PrinterConnectArt } from '../ui/LabelArt.tsx'
@@ -266,25 +266,19 @@ function ConnectStep({ onBack, onNext, onLater, busy = false, error = null }: { 
     if (problem !== null && snapshot.printer === 'DISCONNECTED') setPicked(null)
   }, [problem, snapshot.printer])
 
-  const rows = found !== null && found.length > 0 ? found : picked === null ? [] : [picked]
-  const stateOf = (entry: PickEntry) => (picked === null || picked.device.id !== entry.device.id ? null : linked ? 'done' : 'busy')
+  // 이미 이어진 채로 들어왔다(나갔다 다시 들어옴) — 고를 때 본 그 줄 하나로 ✓ 연결됐어요. 옛: 회색 "연결됐어요" 상자로 모양이 달랐다 (D-CHECK-01)
+  // 이 앱이 켜진 뒤 고른 줄이 없으면(저절로 다시 이음) 프린터 이름 줄. 시험용 프린터는 고른 블루투스 줄을 쓰지 않는다
+  const last = snapshot.target === 'test' ? null : lastPickedEntry()
+  const kept: PickEntry | null = !linked || picked !== null ? null : last ?? { device: { id: 'linked', name: name ?? '' }, title: name ?? '라벨 프린터', model: '', signal: null, experimental: false, detail: '' }
+  const rows = found !== null && found.length > 0 ? found : picked !== null ? [picked] : kept !== null ? [kept] : []
+  const stateOf = (entry: PickEntry) => (kept !== null && entry.device.id === kept.device.id ? 'done' : picked === null || picked.device.id !== entry.device.id ? null : linked ? 'done' : 'busy')
   return (
     <FormPage title={CONNECT_TITLE} name="프린터 연결" onBack={onBack} testID="label-setup-connect" actions={linked ? <BigButton label="다음" onPress={onNext} /> : onLater !== undefined ? <BigButton kind="outline" label={CONNECT_LATER} disabled={busy} onPress={onLater} /> : null}>
       <Txt step="bodyLarge" color="textSub">
         {CONNECT_BODY}
       </Txt>
       <PrinterConnectArt />
-      {linked && rows.length === 0 ? (
-        <View role="status" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.md, padding: SPACE.lg, borderRadius: RADIUS.xl, borderCurve: 'continuous', backgroundColor: p.soft }}>
-          <Icon name="check" color={p.primary} size={24} />
-          <View style={{ flex: 1, gap: 2 }}>
-            <Txt step="bodyLarge" weight="bold">
-              연결됐어요
-            </Txt>
-            <Txt color="textSub">{name}</Txt>
-          </View>
-        </View>
-      ) : (
+      {(
         <View role="group" aria-label="주변 프린터" style={{ gap: SPACE.xs }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
             <Txt step="caption" weight="bold" color="textSub">
@@ -300,7 +294,7 @@ function ConnectStep({ onBack, onNext, onLater, busy = false, error = null }: { 
               const right =
                 state === 'done' ? (
                   <View role="status" style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
-                    <Icon name="check" color={p.primary} size={20} />
+                    <CheckBadge />
                     <Txt weight="bold" color="primaryText">
                       연결됐어요
                     </Txt>
@@ -313,7 +307,7 @@ function ConnectStep({ onBack, onNext, onLater, busy = false, error = null }: { 
                 ) : undefined
               // 고른 뒤에는 다른 줄을 눌러도 바꾸지 않는다 — 잇는 중에 또 고르면 꼬인다
               const onPress = picked === null && !linked ? () => choose(entry) : undefined
-              return <ListRow key={entry.device.id} title={entry.title} subtitle={entry.detail} ariaLabel={`${entry.title} — ${entry.detail}`} right={right} onPress={onPress} />
+              return <ListRow key={entry.device.id} title={entry.title} {...(entry.detail === '' ? {} : { subtitle: entry.detail })} ariaLabel={entry.detail === '' ? entry.title : `${entry.title} — ${entry.detail}`} right={right} onPress={onPress} />
             })
           )}
         </View>

@@ -3,7 +3,7 @@
 // 연결 확인하고 라벨 디자인 커스텀 한 다음에 테스트 출력한다음에 본방송으로"): 묻기 → 연결·확인 → 꾸미기(서버 초안 미리 보기) → 테스트 "예" → 출력 기기 → 방송.
 import { B1_PROFILE } from '@livejjim/printer'
 import { defaultTemplate, productDesign, type ProductDesign, type ProductTemplate } from '@livejjim/label'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { BleDeviceInfo, PickEntry } from '@livejjim/mobile-ble'
 import { describe, expect, it, vi } from 'vitest'
 import { pickDevice, setPickEntries } from '../src/native/printer-pick.ts'
@@ -245,6 +245,16 @@ describe('D-UX4-04·05 연결 화면과 라벨 꾸미기', () => {
     expect(within(connect).getByText('B1-1234')).toBeTruthy()
     fireEvent.click(within(connect).getByRole('button', { name: '다음' }))
     await screen.findByRole('dialog', { name: '라벨 디자인' })
+    // D-CHECK-01: 나갔다가 프린터 연결 화면에 다시 들어와도 고를 때 본 그 줄(이름 · 설명 · ✓ 연결됐어요) — 옛: 회색 "연결됐어요" 상자
+    cleanup()
+    render(world.wrap(<LabelSetupScreen only="connect" onBack={() => {}} onDone={() => {}} />))
+    const again = await screen.findByRole('dialog', { name: '프린터 연결' })
+    await flush()
+    expect(within(again).getByRole('group', { name: '주변 프린터' })).toBeTruthy()
+    expect(within(again).getByText('B1-1234')).toBeTruthy()
+    expect(within(again).getByText('NIIMBOT')).toBeTruthy()
+    expect(within(again).getByText('연결됐어요')).toBeTruthy()
+    expect(within(again).queryByText('B1-5678')).toBeNull()
     world.services.labels.stop()
   })
 

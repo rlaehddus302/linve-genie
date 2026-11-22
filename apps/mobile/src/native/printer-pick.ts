@@ -42,9 +42,18 @@ export const pickDevice: DevicePicker = async (scan) =>
     }
   })
 
+/** 마지막으로 고른 줄 — 연결 화면을 나갔다 다시 들어와도 고를 때 본 그 줄(이름 · 기종·신호 · ✓)로 보인다 (D-CHECK-01). 앱을 다시 켜면 없다 */
+let lastPicked: PickEntry | null = null
+
 /** 이 기기로 잇기 */
 export function pickPrinter(device: BleDeviceInfo): void {
+  lastPicked = entries?.find((entry) => entry.device.id === device.id) ?? null
   finish?.(device)
+}
+
+/** 마지막으로 고른 줄 (이 앱이 켜진 뒤 고른 것이 없으면 null) */
+export function lastPickedEntry(): PickEntry | null {
+  return lastPicked
 }
 
 /** 고르기 그만두기 (찾기도 멈춘다) */
