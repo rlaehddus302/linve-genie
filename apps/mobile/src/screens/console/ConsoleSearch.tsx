@@ -11,7 +11,7 @@ import { addRecentSearch, clearRecentSearches, useRecentSearches } from '../../l
 import { RADIUS, StackPage, Tap, Txt, useKit } from '../../ui/kit/index.ts'
 import { GUTTER, SPACE } from '../../ui/kit/tokens.ts'
 import { Loading } from '../../ui/parts.tsx'
-import { SearchField, TextButton } from '../customer-parts.tsx'
+import { SearchField } from '../customer-parts.tsx'
 import { ClaimFeed } from './ClaimFeed.tsx'
 import { feedRowMatches, productMatches } from './console-search.ts'
 import { useConsoleApi } from './context.ts'
@@ -34,12 +34,6 @@ export const RECENT_TITLE = '최근 검색어'
 export const RECENT_CLEAR = '전체 삭제'
 /** 맞는 것이 없을 때 (D-SEARCH-EMPTY-02, 사용자 2026-11-17 토스 검색 결과 없음 사진 "검색 결과 없을 때 저렇게 똑같이 띄워줘.") — 빈 칸 안내와 같은 그림 아래 한 줄 */
 export const SEARCH_NO_MATCH = '검색한 내용을 찾을 수 없어요.'
-/**
- * 처음 뜨는 키보드는 숫자 키패드 (D-UX4-212, 사용자 "검색에서 기본 키보드 띄울 때, 숫자 키패드를 기본으로 띄워. 보통 번호를 검색하니까."):
- * 숫자 키패드에는 글자로 바꾸는 키가 없어(아이폰·갤럭시 모두) 칸 오른쪽 글자 단추로 바꾼다 — 숫자일 때 [한글], 글자일 때 [숫자]
- */
-export const KEYS_TO_TEXT = '한글'
-export const KEYS_TO_DIGITS = '숫자'
 
 export function ConsoleSearchScreen({ broadcastId, onBack }: { readonly broadcastId: string; readonly onBack: () => void }) {
   return (
@@ -53,7 +47,6 @@ function SearchPage({ broadcastId, onBack }: { readonly broadcastId: string; rea
   const { p } = useKit()
   const api = useConsoleApi()
   const [query, setQuery] = useState('')
-  const [textKeys, setTextKeys] = useState(false)
   /** 결과를 누르면 라이브 화면으로 돌아가 그 상품을 연다 */
   const recent = useRecentSearches()
   const pick = (key: string) => {
@@ -76,11 +69,8 @@ function SearchPage({ broadcastId, onBack }: { readonly broadcastId: string; rea
   return (
     <StackPage name={SEARCH_PAGE_NAME} title={SEARCH_PAGE_NAME} onBack={onBack} scroll={false} testID="console-search-page">
       {/* 토스 검색 화면처럼 화면 끝에서 16 안쪽에 회색 찾기 칸 */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: SPACE.lg, paddingTop: SPACE.xs, paddingBottom: SPACE.md }}>
-        <View style={{ flex: 1 }}>
-          <SearchField label={SEARCH_LABEL} value={query} fill={p.surfaceAlt} autoFocus keyboardType={textKeys ? 'default' : 'number-pad'} onChangeText={setQuery} onSubmit={() => addRecentSearch(query)} />
-        </View>
-        <TextButton label={textKeys ? KEYS_TO_DIGITS : KEYS_TO_TEXT} ariaLabel={textKeys ? '숫자 키보드로 바꾸기' : '한글 키보드로 바꾸기'} color="textSub" onPress={() => setTextKeys(on => !on)} />
+      <View style={{ paddingHorizontal: SPACE.lg, paddingTop: SPACE.xs, paddingBottom: SPACE.md }}>
+        <SearchField label={SEARCH_LABEL} value={query} fill={p.surfaceAlt} autoFocus onChangeText={setQuery} onSubmit={() => addRecentSearch(query)} />
       </View>
       {/* 목록을 끌기 시작하면 키보드를 내린다 (D-UX4-200과 같음) */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: GUTTER, paddingBottom: SPACE.xxl, gap: SPACE.lg }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" onScrollBeginDrag={() => Keyboard.dismiss()}>
