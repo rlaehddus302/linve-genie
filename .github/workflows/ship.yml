@@ -2,7 +2,8 @@
 # "내 맥미니, 내 맥북, 홍재 맥북 각 기기의 클로드한테 일을 시키고 작업 완료되면 자동으로 깃헙 메인 푸시, 운영 서버에 배포, 내 아이폰, 홍재 아이폰 각 앱을 최신 버전으로 업데이트").
 # 각 맥의 Claude는 main에 푸시까지만 한다. 비밀(운영 배포 AWS 역할·안드로이드 서명·App Store Connect 키)은 맥 미니에만 있다.
 # 순서: 빠른 시험 → 운영 서버(앱 화면만 바뀌었으면 건너뜀) → 앱 화면 새 버전(D-OTA-01, 휴대폰이 켤 때 받는다 — 몇 분)
-#       → 아이폰 네이티브 부품이 바뀌었을 때 TestFlight. 안드로이드 화면·APK는 명시적으로 요청한 수동 실행에서만.
+#       → 아이폰 네이티브 부품이 바뀌었을 때 TestFlight. 안드로이드도 똑같이 — 화면 새 버전, 네이티브가 바뀌면 APK
+#         (사용자 지시 2026-11-23 "앞으로 아이폰, 갤럭시 동일하게 적용해", D-SHIP-BOTH-01. 수동 실행에서 android를 끄면 아이폰만).
 #       → 화면 일꾼 갱신(packages/screen-worker 가 바뀌었을 때만, 늘 서버 배포 다음 — D-RETRO-33).
 # 한 번에 하나씩(밀린 것은 가장 새 것 하나만 남는다 — 새 것이 앞 것을 다 품는다). 문서만 바뀐 푸시는 돌지 않는다.
 # 손으로 돌릴 때(workflow_dispatch) native=yes면 지문이 같아도 선택한 플랫폼의 앱을 다시 만든다.
@@ -32,7 +33,7 @@ on:
       android:
         description: '안드로이드 화면 갱신과 APK 배포도 진행'
         type: boolean
-        default: false
+        default: true
       force_server:
         description: '방송 중에도 운영 서버를 배포한다 — 급한 고침만. 서버가 9~10초 끊긴다 (yes/no)'
         default: 'no'
@@ -71,7 +72,7 @@ jobs:
         working-directory: apps/mobile
         env:
           FORCE: ${{ inputs.native }}
-          INCLUDE_ANDROID: ${{ github.event_name == 'workflow_dispatch' && inputs.android && 'yes' || 'no' }}
+          INCLUDE_ANDROID: ${{ (github.event_name == 'push' || inputs.android) && 'yes' || 'no' }}
         run: |
           mkdir -p "$HOME/.livegenie-ci"
           fp() { npx expo-updates fingerprint:generate --platform "$1" | python3 -c 'import json,sys;print(json.load(sys.stdin)["hash"])'; }
@@ -167,7 +168,7 @@ jobs:
           echo "$FP_IOS" > "$HOME/.livegenie-ci/built-ios"
 
       - name: 안드로이드 화면 갱신 (요청 시)
-        if: github.event_name == 'workflow_dispatch' && inputs.android && env.SERVER_DEFERRED != 'yes'
+        if: (github.event_name == 'push' || inputs.android) && env.SERVER_DEFERRED != 'yes'
         env:
           EXPO_PUBLIC_SERVER_URL: https://livegenie.kr
           NODE_ENV: production
@@ -198,7 +199,7 @@ jobs:
 
       - name: 안드로이드 앱 내려받기 링크 (https://livegenie.kr/app-updates/android.apk)
         # 마지막으로 만든 APK를 운영 서버에 둔다(D-APK-LINK-01). 지문이 같아 빌드를 건너뛴 실행에서도 링크를 채운다
-        if: github.event_name == 'workflow_dispatch' && inputs.android && env.SERVER_DEFERRED != 'yes'
+        if: (github.event_name == 'push' || inputs.android) && env.SERVER_DEFERRED != 'yes'
         run: bash scripts/deploy/mini-apk.sh
 
       - name: 화면 일꾼 갱신 (서버 배포 다음에만)
