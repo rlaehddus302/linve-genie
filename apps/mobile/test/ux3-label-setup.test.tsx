@@ -202,6 +202,13 @@ describe('D-UX3-19 라이브 시작 라벨 단계', () => {
     expect(read('src/screens/LabelSetupScreen.tsx')).not.toContain('SlideSwitch id={step}')
   })
 
+  it('라벨 디자인 설정 칸은 막기를 켜고 꺼도 안드로이드에서 접히지 않는다 — 저장 뒤 하얀 화면 (D-LABEL-SAVE-WHITE-01)', () => {
+    const source = readFileSync(join(import.meta.dirname, '..', 'src/screens/LabelSetupScreen.tsx'), 'utf8')
+    // 레이아웃 글꼴만 가진 View는 안드로이드가 납작하게 접는다. pointerEvents가 바뀌면 접힘이 풀리며 자식이 옮겨지는데,
+    // 저장 뒤 화면이 닫히는 중이면 "The specified child already has a parent"로 화면 전체가 하얘졌다
+    expect(source).toContain("<View collapsable={false} pointerEvents={changingLayout || saving ? 'none' : 'auto'}")
+  })
+
   it('라벨 기능이 꺼져 있으면 [뽑을게요]가 켠다', async () => {
     const world = labelWorld(false)
     render(world.wrap(<LabelFlow onBack={() => {}} onDone={() => {}} />))

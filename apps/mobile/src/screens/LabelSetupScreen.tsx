@@ -578,7 +578,9 @@ function DesignStep({ queue, profileId, saveLabel, onBack, onSaved }: { readonly
       {error !== null ? <Notice tone="danger" alert>{error}</Notice> : null}
       {error !== null && draft === null ? <SmallButton label={RETRY_NOW} onPress={load} /> : null}
       {draft !== null && dots !== null ? (
-        <View pointerEvents={changingLayout || saving ? 'none' : 'auto'} style={{ flex: 1, minHeight: 48 + Math.min(218, screenHeight * 0.3), paddingHorizontal: SPACE.lg }}>
+        // collapsable={false}: 막기(pointerEvents)를 켜고 끌 때 안드로이드가 이 칸을 납작하게 접었다 폈다 하며 자식을 다른 부모로 옮기지 않게 —
+        // 저장 뒤 화면이 닫히는 중에 풀리면 "already has a parent"로 화면 전체가 하얗게 됐다 (D-LABEL-SAVE-WHITE-01)
+        <View collapsable={false} pointerEvents={changingLayout || saving ? 'none' : 'auto'} style={{ flex: 1, minHeight: 48 + Math.min(218, screenHeight * 0.3), paddingHorizontal: SPACE.lg }}>
           {/* 라이브 화면과 같은 밑줄 글자 탭 (D-TABS-01 — 옛: 칸을 나눠 채운 초록 밑줄 탭) */}
           <LineTabs label="라벨 설정" bleed={SPACE.lg}>
             {DESIGN_TABS.map((name) => (
