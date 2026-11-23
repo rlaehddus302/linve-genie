@@ -183,13 +183,19 @@ describe('찜 기록 시각·누르기 (D-UX4-154)', () => {
     expect(feedClock(feedRows(data, names, 'b1')[0]!.latest)).toBe('13:06:01')
   })
 
-  it('라이브 중: 살아 있는 찜, 또는 끝난 찜이어도 상품이 목록에 있으면 누른다 · 끝난·봉인한 라이브: 상품이 있고 [상품 보기]를 열 수 있을 때만', () => {
-    expect(feedPickable({ status: 'PENDING', hasProduct: false }, false, true)).toBe(true)
-    expect(feedPickable({ status: 'CANCELLED', hasProduct: true }, false, false)).toBe(true)
-    expect(feedPickable({ status: 'CANCELLED', hasProduct: false }, false, true)).toBe(false)
-    expect(feedPickable({ status: 'CONFIRMED', hasProduct: true }, true, true)).toBe(true)
-    expect(feedPickable({ status: 'CONFIRMED', hasProduct: true }, true, false)).toBe(false)
-    expect(feedPickable({ status: 'PENDING', hasProduct: false }, true, true)).toBe(false)
+  // D-PASS-END-01: 끝난 라이브도 살아 있는 찜은 눌러 [패스 처리]·[찜 삭제] (옛: 끝난 라이브는 상품 보기만) — 봉인한 날짜만 상품 보기뿐
+  it('라이브 중: 살아 있는 찜, 또는 끝난 찜이어도 상품이 목록에 있으면 누른다 · 끝난 라이브: 살아 있는 찜, 또는 상품이 있고 [상품 보기]를 열 수 있을 때 · 봉인: 상품 보기를 열 수 있을 때만', () => {
+    expect(feedPickable({ status: 'PENDING', hasProduct: false }, false, true, false)).toBe(true)
+    expect(feedPickable({ status: 'CANCELLED', hasProduct: true }, false, false, false)).toBe(true)
+    expect(feedPickable({ status: 'CANCELLED', hasProduct: false }, false, true, false)).toBe(false)
+    expect(feedPickable({ status: 'CONFIRMED', hasProduct: true }, true, true, false)).toBe(true)
+    expect(feedPickable({ status: 'CONFIRMED', hasProduct: true }, true, false, false)).toBe(true)
+    expect(feedPickable({ status: 'PENDING', hasProduct: false }, true, true, false)).toBe(true)
+    expect(feedPickable({ status: 'CANCELLED', hasProduct: true }, true, false, false)).toBe(false)
+    expect(feedPickable({ status: 'CANCELLED', hasProduct: true }, true, true, false)).toBe(true)
+    expect(feedPickable({ status: 'CONFIRMED', hasProduct: true }, true, true, true)).toBe(true)
+    expect(feedPickable({ status: 'CONFIRMED', hasProduct: true }, true, false, true)).toBe(false)
+    expect(feedPickable({ status: 'PENDING', hasProduct: false }, true, true, true)).toBe(false)
   })
 })
 

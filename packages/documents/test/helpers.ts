@@ -169,6 +169,71 @@ export async function pdfFonts(bytes: Uint8Array): Promise<PdfFontInfo[]> {
   return out
 }
 
+/**
+ * PDF에 실제로 찍힌 글리프마다 ① 들어 있는 글꼴 파일에 모양이 있는가 ② 글자 폭(/W)이 적혀 있는가.
+ * 글자 뽑기(ToUnicode)는 멀쩡해도 화면에는 빈칸·벌어진 칸으로 보이는 깨짐(D-PDF-FONT-01)을 잡는다. 문제 목록을 돌려준다.
+ */
+export async function pdfGlyphProblems(bytes: Uint8Array): Promise<string[]> {
+  const fontkit = (await import('@pdf-lib/fontkit')).default as unknown as {
+    create(buffer: Uint8Array): { getGlyph(id: number): { path: { commands: readonly unknown[] }; name?: string } }
+  }
+  const doc = await PDFDocument.load(bytes)
+  const context = doc.context
+  const deref = (value: unknown): unknown => (value instanceof PDFRef ? context.lookup(value) : value)
+  const streamBytes = (stream: PDFStream): Uint8Array => {
+    const raw = (stream as unknown as { contents: Uint8Array }).contents
+    return String(stream.dict.get(PDFName.of('Filter'))) === '/FlateDecode' ? new Uint8Array(inflateSync(raw)) : raw
+  }
+  let fontFile: Uint8Array | undefined
+  const widths = new Set<number>()
+  for (const [, object] of context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFDict) || String(object.get(PDFName.of('Subtype'))) !== '/CIDFontType2') continue
+    const w = deref(object.get(PDFName.of('W'))) as { asArray(): unknown[] } | undefined
+    const items = w?.asArray() ?? []
+    for (let i = 0; i < items.length; ) {
+      const first = (items[i] as { asNumber(): number }).asNumber()
+      const next = deref(items[i + 1])
+      if (next !== undefined && typeof (next as { asArray?: unknown }).asArray === 'function') {
+        ;(next as { asArray(): unknown[] }).asArray().forEach((_, k) => widths.add(first + k))
+        i += 2
+      } else {
+        for (let g = first; g <= (next as { asNumber(): number }).asNumber(); g++) widths.add(g)
+        i += 3
+      }
+    }
+    const descriptor = deref(object.get(PDFName.of('FontDescriptor')))
+    const file = descriptor instanceof PDFDict ? deref(descriptor.get(PDFName.of('FontFile2'))) : undefined
+    if (file instanceof PDFStream) fontFile = streamBytes(file)
+  }
+  if (fontFile === undefined) return ['글꼴 파일(FontFile2)이 없다']
+  const embedded = fontkit.create(fontFile)
+  const used = new Set<number>()
+  for (const page of doc.getPages()) {
+    const contents = deref(page.node.get(PDFName.of('Contents')))
+    const streams = contents instanceof PDFStream ? [contents] : ((contents as { asArray(): unknown[] } | undefined)?.asArray().map(deref) ?? [])
+    for (const stream of streams) {
+      if (!(stream instanceof PDFStream)) continue
+      const text = new TextDecoder('latin1').decode(streamBytes(stream))
+      for (const match of text.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
+        const hex = match[1] as string
+        for (let i = 0; i + 4 <= hex.length; i += 4) used.add(Number.parseInt(hex.slice(i, i + 4), 16))
+      }
+    }
+  }
+  const problems: string[] = []
+  for (const id of [...used].sort((a, b) => a - b)) {
+    if (!widths.has(id)) problems.push(`글리프 ${String(id)}: 폭(/W) 없음`)
+    try {
+      const glyph = embedded.getGlyph(id)
+      const name = glyph.name ?? ''
+      if (glyph.path.commands.length === 0 && !/space|uni00A0|uni3000/.test(name)) problems.push(`글리프 ${String(id)}(${name}): 모양 없음`)
+    } catch (error) {
+      problems.push(`글리프 ${String(id)}: 모양을 읽을 수 없음 (${String(error)})`)
+    }
+  }
+  return used.size === 0 ? ['찍힌 글리프가 없다'] : problems
+}
+
 /** PDF 쪽 크기 (pt) */
 export async function pdfPageSizes(bytes: Uint8Array): Promise<{ width: number; height: number }[]> {
   const doc = await PDFDocument.load(bytes)

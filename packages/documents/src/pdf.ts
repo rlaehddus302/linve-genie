@@ -1,4 +1,5 @@
-// 구매 내역 확인서 PDF (STL-04·STL-05, D-206·D-207): A4 세로, 한글 글꼴을 문서 안에 넣는다(쓰는 글자만 넣은 부분 글꼴).
+// 구매 내역 확인서 PDF (STL-04·STL-05, D-206·D-207): A4 세로, 한글 글꼴을 문서 안에 통째로 넣는다.
+// 부분 글꼴(subset)은 쓰지 않는다 — pdf-lib·fontkit 부분 글꼴은 Pretendard 한글 글리프 대부분을 빈칸으로 만든다(D-PDF-FONT-01).
 // 기본 14 글꼴·시스템 글꼴 이름만 적은 참조로 한글을 그리지 않는다. 모든 쪽 하단에 고지 문장과 쪽 번호.
 // 전원 일괄은 구매자마다 새 쪽에서 시작하고 쪽 번호는 구매자마다 1/n부터.
 // 시계를 읽지 않는다(문서 날짜 정보를 넣지 않는다) — 같은 확인서·글꼴이면 같은 PDF.
@@ -35,7 +36,7 @@ export async function renderReceiptsPdf(receipts: readonly ReceiptData[], fontSo
   const font = asDocumentFont(fontSource)
   const doc = await PDFDocument.create({ updateMetadata: false })
   doc.registerFontkit(fontkit as unknown as Parameters<PDFDocument['registerFontkit']>[0])
-  const embedded = await doc.embedFont(font.bytes, { subset: true })
+  const embedded = await doc.embedFont(font.bytes, { subset: false })
   doc.setTitle(receipts.length === 1 ? (receipts[0] as ReceiptData).title : RECEIPT_TITLE)
   doc.setCreator(SERVICE_NAME)
   doc.setProducer(SERVICE_NAME)

@@ -140,7 +140,8 @@ describe('찜을 눌러 조치 (D-RETRO-53)', () => {
     // 판 머리에 그 찜을 받은 시각 — 초까지 (D-UX4-154, 11:00:02Z = 한국 20:00:02)
     expect(within(menu).getByLabelText('찜한 시각 20:00:02').textContent).toBe('20:00:02')
     // D-STK-02 (사용자 지시 2026-11-16 "동일 상품 번호에 여러 개 … 뒷사람도 라벨"): 대기 1번 찜 맨 위에 [이 손님에게도 팔기]가 더해졌다 (옛 기대: 아래 넷)
-    expect(menuRows(menu)).toEqual(['이 손님에게도 팔기', '찜으로 올리기', '상품 보기', '상품 고치기', '찜 삭제'])
+    // D-PASS-END-01 (사용자 2026-11-23 "라방 끝나고 찜 패스 처리하는 방법 필요함"): 살아 있는 찜에 [패스 처리]가 [찜 삭제] 위에 더해졌다
+    expect(menuRows(menu)).toEqual(['이 손님에게도 팔기', '찜으로 올리기', '상품 보기', '상품 고치기', '패스 처리', '찜 삭제'])
     fireEvent.click(within(menu).getByRole('button', { name: '찜으로 올리기' }))
     const ask = await screen.findByRole('alertdialog', { name: '15번 찜으로 올릴까요?' })
     expect(within(ask).getByText(/^김영희\s+지금 찜인 홍길동 님은 대기 1번으로 내려가요\.$/)).toBeTruthy()
@@ -213,7 +214,7 @@ describe('찜을 눌러 조치 (D-RETRO-53)', () => {
     await openFeed()
     fireEvent.click(within(await screen.findByRole('list', { name: '찜 기록' })).getByRole('button', { name: '15 찜' }))
     const menu = await screen.findByRole('group', { name: '찜 메뉴' })
-    expect(menuRows(menu)).toEqual(['상품 보기', '상품 고치기', '찜 삭제'])
+    expect(menuRows(menu)).toEqual(['상품 보기', '상품 고치기', '패스 처리', '찜 삭제']) // [패스 처리] D-PASS-END-01
     fireEvent.click(within(menu).getByRole('button', { name: '상품 고치기' }))
     const sheet = await screen.findByTestId('product-sheet')
     expect(within(sheet).getByRole('button', { name: '가격 고치기' }).textContent).toBe('35,000원')

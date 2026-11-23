@@ -5,6 +5,9 @@
 // D-STK-02 (사용자 지시 2026-11-16 "동일 상품 번호에 여러 개 … 뒷사람도 라벨"): 대기 1번 찜에 [이 손님에게도 팔기] — 같은 물건을 하나 더 팔아(재고 +1)
 //   지금 1등은 그대로 두고 이 손님도 찜이 된다(라벨·감사). [찜으로 올리기](1등과 바꾸기)보다 위에 둔다. 팝업 [닫기 | 더 팔기].
 // D-UX4-154: 판 머리 손님 이름 옆에 그 찜을 받은 시각(한국 시각, 초까지 "13:05:42" — 문자찜은 문자를 받은 시각).
+// D-PASS-END-01 (사용자 2026-11-23 "라방 끝나고 찜 패스 처리하는 방법 필요함"): 살아 있는 찜에 [패스 처리] — 방송자 취소를 사유 '손님 패스'로 보낸다
+//   (손님 기록 패스 횟수에 든다, 기다리던 손님이 있으면 그 손님 찜). 끝난 라이브에서도 [패스 처리]·[찜 삭제]를 보인다 — 봉인한 날짜만 막는다
+//   (주문 상세 [상품 빼기]와 같은 기준). 올리기·되돌리기·고치기·더 팔기는 끝난 라이브에서 그대로 숨긴다.
 // 앱은 판정하지 않는다 — 엔진의 방송자 조치(host.cancel·host.promote·host.assign)를 보낼 뿐이다(claim-actions). 닉네임은 글자로만 그린다.
 import { useState } from 'react'
 import { View } from 'react-native'
@@ -12,7 +15,7 @@ import type { Claim } from '@livejjim/web/src/api/types.ts'
 import { isApiError } from '../../api/client.ts'
 import { BottomSheet, PopupDialog, Txt } from '../../ui/kit/index.ts'
 import { SPACE } from '../../ui/kit/tokens.ts'
-import { ACTIVE_CLAIM, SELL_TO_THIS, deleteClaim, raiseClaim, raisePlan, sellMore, sellMoreDescription, sellMorePlan, useSheetHandoff, type RaisePlan } from './claim-actions.ts'
+import { ACTIVE_CLAIM, CLAIM_PASS_REASON, SELL_TO_THIS, deleteClaim, raiseClaim, raisePlan, sellMore, sellMoreDescription, sellMorePlan, useSheetHandoff, type RaisePlan } from './claim-actions.ts'
 import { useConsoleApi } from './context.ts'
 import { claimAt, feedBuyerName, feedClock } from './feed-rows.ts'
 import { IconMenuRow, TRASH_TINT } from './parts.tsx'
@@ -22,6 +25,9 @@ export const MENU_RESTORE = '찜 되돌리기'
 export const MENU_OPEN_PRODUCT = '상품 보기'
 export const MENU_EDIT_PRODUCT = '상품 고치기'
 export const MENU_DELETE = '찜 삭제'
+export const MENU_PASS = '패스 처리'
+/** [패스 처리] 묻는 창 설명 (손님 이름 아래) */
+export const PASS_NOTE = '손님 기록에 패스로 남아요. 기다리던 손님이 있으면 그 손님 찜이 돼요.'
 
 /** 누른 찜 */
 export interface PickedClaim {
@@ -32,7 +38,7 @@ export interface PickedClaim {
 }
 
 /** 메뉴 줄 바탕 */
-const TINT = { product: '#E6F2EB', edit: '#EEF0EC', raise: '#F8E3A3', restore: '#EAF1F7', more: '#E6F2EB' } as const
+const TINT = { product: '#E6F2EB', edit: '#EEF0EC', raise: '#F8E3A3', restore: '#EAF1F7', more: '#E6F2EB', pass: '#F7E6E1' } as const
 
 /** 이 찜에 지금 할 수 있는 조치가 하나라도 있는지 (살아 있는 찜 · 올리기·되돌리기 · 상품 보기·고치기) — 없으면 판을 열지 않는다 */
 export function claimHasMenu(claim: Pick<Claim, 'status'>, plan: RaisePlan | null, productRow: boolean): boolean {
@@ -58,7 +64,7 @@ export function ClaimMenu({ picked, onClose, onOpenProduct, onEditProduct, onErr
   const api = useConsoleApi()
   // 팝업이 묻는 것 — 누른 순간의 낱말을 붙들어 둔다(보내는 동안 찜 상태가 바뀌어도 묻는 말이 바뀌지 않게). replaced: 대기 1번으로 내려갈 지금 1등 이름
   // more (D-STK-02): 같은 물건을 하나 더 팔아 이 대기 1번 손님도 찜으로 — stock: 보낼 새 재고(묻는 말에 보인다)
-  const [asking, setAsking] = useState<{ readonly kind: 'delete' | 'promote' | 'restore' | 'more'; readonly target: PickedClaim; readonly replaced: string | null; readonly stock?: number } | null>(null)
+  const [asking, setAsking] = useState<{ readonly kind: 'delete' | 'pass' | 'promote' | 'restore' | 'more'; readonly target: PickedClaim; readonly replaced: string | null; readonly stock?: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const handoff = useSheetHandoff()
   const closed = api.ended || api.sealed
@@ -75,10 +81,10 @@ export function ClaimMenu({ picked, onClose, onOpenProduct, onEditProduct, onErr
   const visible = picked !== null && claim !== undefined && claimHasMenu(claim, plan, canOpen || canEdit || sellToThis !== null)
   const clock = claim === undefined ? '' : feedClock(claimAt(claim))
 
-  const ask = (kind: 'delete' | 'promote' | 'restore' | 'more') => {
+  const ask = (kind: 'delete' | 'pass' | 'promote' | 'restore' | 'more') => {
     if (picked === null) return
     const target = picked
-    const replaced = kind === 'delete' || kind === 'more' || plan === null || plan.replace === null ? null : feedBuyerName(api.data, api.names, plan.replace)
+    const replaced = kind === 'delete' || kind === 'pass' || kind === 'more' || plan === null || plan.replace === null ? null : feedBuyerName(api.data, api.names, plan.replace)
     const stock = kind === 'more' && sellToThis !== null ? sellToThis.stock : undefined
     onClose()
     handoff(() => setAsking({ kind, target, replaced, ...(stock === undefined ? {} : { stock }) }))
@@ -99,8 +105,8 @@ export function ClaimMenu({ picked, onClose, onOpenProduct, onEditProduct, onErr
     setBusy(true)
     onError(null)
     try {
-      if (asking.kind === 'delete') {
-        if (ACTIVE_CLAIM.has(target.status)) await deleteClaim(api, target)
+      if (asking.kind === 'delete' || asking.kind === 'pass') {
+        if (ACTIVE_CLAIM.has(target.status)) await deleteClaim(api, target, ...(asking.kind === 'pass' ? [CLAIM_PASS_REASON] : []))
       } else if (asking.kind === 'more') {
         const now = api.data.products.get(target.product)
         if (now === undefined) throw new Error('바꾸지 못했어요. 다시 눌러 주세요.')
@@ -111,8 +117,9 @@ export function ClaimMenu({ picked, onClose, onOpenProduct, onEditProduct, onErr
       setAsking(null)
     } catch (caught) {
       setAsking(null)
-      const fallback = asking.kind === 'delete' ? '지우지 못했어요. 다시 눌러 주세요.' : '바꾸지 못했어요. 다시 눌러 주세요.'
-      onError(isApiError(caught) ? caught.message : caught instanceof Error && caught.message !== '' && asking.kind !== 'delete' ? caught.message : fallback)
+      const removing = asking.kind === 'delete' || asking.kind === 'pass'
+      const fallback = removing ? '지우지 못했어요. 다시 눌러 주세요.' : '바꾸지 못했어요. 다시 눌러 주세요.'
+      onError(isApiError(caught) ? caught.message : caught instanceof Error && caught.message !== '' && !removing ? caught.message : fallback)
     } finally {
       setBusy(false)
     }
@@ -134,7 +141,8 @@ export function ClaimMenu({ picked, onClose, onOpenProduct, onEditProduct, onErr
             {plan?.kind === 'restore' ? <IconMenuRow emoji="↩️" tint={TINT.restore} title={MENU_RESTORE} onPress={() => ask('restore')} /> : null}
             {canOpen ? <IconMenuRow emoji="🪴" tint={TINT.product} title={MENU_OPEN_PRODUCT} onPress={() => openProduct(onOpenProduct)} /> : null}
             {canEdit ? <IconMenuRow emoji="✏️" tint={TINT.edit} title={MENU_EDIT_PRODUCT} onPress={() => openProduct(onEditProduct)} /> : null}
-            {active && !closed ? <IconMenuRow emoji="🗑️" tint={TRASH_TINT} title={MENU_DELETE} onPress={() => ask('delete')} /> : null}
+            {active && !api.sealed ? <IconMenuRow emoji="🙅" tint={TINT.pass} title={MENU_PASS} subtitle="손님 기록에 패스로 남아요" onPress={() => ask('pass')} /> : null}
+            {active && !api.sealed ? <IconMenuRow emoji="🗑️" tint={TRASH_TINT} title={MENU_DELETE} onPress={() => ask('delete')} /> : null}
           </View>
         )}
       </BottomSheet>
@@ -144,6 +152,16 @@ export function ClaimMenu({ picked, onClose, onOpenProduct, onEditProduct, onErr
         description={asking?.target.buyer ?? null}
         cancelLabel="닫기"
         confirmLabel="삭제"
+        busy={busy}
+        onCancel={() => setAsking(null)}
+        onConfirm={() => void confirm()}
+      />
+      <PopupDialog
+        visible={asking?.kind === 'pass'}
+        message={asking === null ? '' : `${String(asking.target.no)}번 찜을 패스로 처리할까요?`}
+        description={asking === null ? null : `${asking.target.buyer}\n${PASS_NOTE}`}
+        cancelLabel="닫기"
+        confirmLabel="패스 처리"
         busy={busy}
         onCancel={() => setAsking(null)}
         onConfirm={() => void confirm()}

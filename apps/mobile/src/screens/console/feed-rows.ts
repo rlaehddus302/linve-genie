@@ -192,10 +192,12 @@ export function filterFeed<T extends Pick<FeedBuyer, 'buyer' | 'nos'>>(rows: rea
 
 /**
  * 찜 꼬리표를 누를 수 있는지 (찜 메뉴 ClaimMenu가 내놓는 줄이 하나라도 있을 때만 — D-UX4-154).
- * 라이브 중: 살아 있는 찜(삭제·올리기), 또는 끝난 찜이어도 그 상품이 목록에 있으면(되돌리기·상품 보기).
- * 끝난·봉인한 라이브: 메뉴에는 [상품 보기]만 남으므로 그 상품이 목록에 있고 상품 보기를 열 수 있을 때만.
+ * 라이브 중: 살아 있는 찜(패스 처리·삭제·올리기), 또는 끝난 찜이어도 그 상품이 목록에 있으면(되돌리기·상품 보기).
+ * 끝난 라이브(D-PASS-END-01): 살아 있는 찜(패스 처리·삭제), 또는 그 상품이 목록에 있고 상품 보기를 열 수 있을 때.
+ * 봉인한 날짜: 메뉴에는 [상품 보기]만 남으므로 그 상품이 목록에 있고 상품 보기를 열 수 있을 때만.
  */
-export function feedPickable(item: Pick<FeedNo, 'status' | 'hasProduct'>, closed: boolean, canOpenProduct: boolean): boolean {
-  if (closed) return item.hasProduct && canOpenProduct
+export function feedPickable(item: Pick<FeedNo, 'status' | 'hasProduct'>, ended: boolean, canOpenProduct: boolean, sealed: boolean): boolean {
+  if (sealed) return item.hasProduct && canOpenProduct
+  if (ended) return ACTIVE_CLAIM.has(item.status) || (item.hasProduct && canOpenProduct)
   return ACTIVE_CLAIM.has(item.status) || item.hasProduct
 }

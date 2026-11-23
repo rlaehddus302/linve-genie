@@ -16,7 +16,7 @@ import {
   type ReceiptData,
   type ReceiptLayout,
 } from '../src/index.ts'
-import { fontBytes, pdfFonts, pdfPageSizes, pdfPageTexts, pdfText, play, replayGolden, sale, type EventInput } from './helpers.ts'
+import { fontBytes, pdfFonts, pdfGlyphProblems, pdfPageSizes, pdfPageTexts, pdfText, play, replayGolden, sale, type EventInput } from './helpers.ts'
 
 const SHOP = { name: '초록다육', account: { bank: '농협', number: '302-9988-7766-11', holder: '김판매' }, accountNote: '입금자명은 닉네임으로 적어 주세요' }
 const CREATED = Date.UTC(2026, 9, 18, 14, 30, 0)
@@ -117,6 +117,14 @@ describe('AC-P2-23 한 명 PDF', () => {
       expect(info.baseFont).not.toMatch(/Helvetica|Times|Courier|Symbol|ZapfDingbats|Arial|Malgun|Gulim|Batang|AppleSDGothic/i)
     }
     expect(fonts.map((f) => f.subtype).sort()).toEqual(['/CIDFontType2', '/Type0'])
+  })
+
+  it('찍힌 글자마다 글꼴 모양과 폭이 PDF 안에 있다 — 한글이 빈칸으로, "23:30"·"302-9988"이 벌어져 보이지 않는다 (D-PDF-FONT-01)', async () => {
+    const one = await renderReceiptPdf(receipt(G201, 'UC_A'), font)
+    expect(await pdfGlyphProblems(one)).toEqual([])
+    const batch = await renderBatchPdf({ state: G202, date: '2026-10-19', shop: SHOP, rehearsal: false, createdAt: CREATED }, font)
+    expect(batch.ok).toBe(true)
+    if (batch.ok) expect(await pdfGlyphProblems(batch.pdf)).toEqual([])
   })
 
   it('상품 줄 60개 → 여러 쪽, 줄이 빠지거나 겹치지 않고 합계·최종 금액은 마지막 쪽에 한 번, 모든 쪽에 고지와 n/전체', async () => {

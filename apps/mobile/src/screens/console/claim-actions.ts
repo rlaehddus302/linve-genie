@@ -21,6 +21,11 @@ import type { ScopeData } from '../../lib/scope-data.ts'
 import type { ConsoleApi } from './context.ts'
 
 export const CLAIM_DELETE_REASON = '판매자가 찜을 삭제했어요'
+/**
+ * 찜 [패스 처리] 사유 (D-PASS-END-01) — 주문 상세 [상품 빼기]의 "손님이 패스했어요"(D-PASS-01)와 같은 낱말이라
+ * 서버 손님 기록(isPassReason)이 손님 패스로 센다(세 번부터 "패스 잦음 주의").
+ */
+export const CLAIM_PASS_REASON = '손님 패스'
 export const PROMOTE_AFTER_DELETE_REASON = '찜 삭제 뒤 다음 대기 손님'
 export const PRODUCT_DELETE_REASON = '판매자가 상품을 삭제했어요'
 /** 상품 삭제 팝업을 닫고 지우는 동안 메뉴 줄 자리 (D-DEL-FREEZE-01) */
@@ -38,9 +43,9 @@ function pickOf(claim: Claim): Record<string, unknown> {
 
 const latestOf = (api: ConsoleApi): ScopeData => api.latest?.() ?? api.data
 
-/** 찜 하나 삭제 — 1등이었고 승계가 방송자 결정으로 남으면 대기 1을 1등으로 */
-export async function deleteClaim(api: ConsoleApi, claim: Claim): Promise<void> {
-  await api.command({ type: 'host.cancel', b: claim.broadcast, no: claim.no, buyer: claim.currentBuyer, reason: CLAIM_DELETE_REASON, ...pickOf(claim) })
+/** 찜 하나 삭제(또는 패스 처리 — reason만 다르다) — 1등이었고 승계가 방송자 결정으로 남으면 대기 1을 1등으로 */
+export async function deleteClaim(api: ConsoleApi, claim: Claim, reason: string = CLAIM_DELETE_REASON): Promise<void> {
+  await api.command({ type: 'host.cancel', b: claim.broadcast, no: claim.no, buyer: claim.currentBuyer, reason, ...pickOf(claim) })
   if (claim.status !== 'CONFIRMED') return
   const product = latestOf(api).products.get(claim.product)
   if (product === undefined || product.hasOptions) return

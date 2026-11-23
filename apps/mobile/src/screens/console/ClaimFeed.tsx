@@ -176,13 +176,12 @@ export function ClaimFeed({ only, onOpenProduct, onEditProduct, toolbar, query: 
   const matched = useMemo(() => (match === undefined ? filterFeed(buyers, query) : buyers.filter(match)), [buyers, query, match])
   const [picked, setPicked] = useState<PickedClaim | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const closed = api.ended || api.sealed
   if (buyers.length === 0) return only === 'PENDING' ? <EmptyFill title="보류 찜이 없어요" body={'번호에 맞는 상품이 없는 찜이\n여기에 모여요'} /> : <EmptyFill title={FEED_EMPTY} body={FEED_EMPTY_BODY} />
   const searching = match !== undefined || searchText(query) !== ''
   // 최근순만 최근 FEED_LIMIT명 (라이브 채팅처럼 가장 최근 손님이 맨 아래, D-UX3-75) — 이름순·찾는 중에는 모두 그린다
   const limited = !searching && sort === 'recent' && matched.length > FEED_LIMIT
   const shown = limited ? matched.slice(-FEED_LIMIT) : matched
-  // 보류 찜 판은 누르지 않는다. 끝난·봉인한 라이브는 메뉴에 [상품 보기]만 남아 그 상품이 있는 꼬리표만 (D-UX4-154)
+  // 보류 찜 판은 누르지 않는다. 끝난 라이브는 살아 있는 찜([패스 처리]·[찜 삭제], D-PASS-END-01)과 상품이 있는 꼬리표, 봉인한 날짜는 상품이 있는 꼬리표만 (D-UX4-154)
   const pickOn = only === undefined
   const canOpen = onOpenProduct !== undefined
   const bar = showToolbar ? (
@@ -199,7 +198,7 @@ export function ClaimFeed({ only, onOpenProduct, onEditProduct, toolbar, query: 
             <FeedLine
               key={row.key}
               row={row}
-              {...(pickOn ? { onPick: (line: FeedBuyer, item: FeedNo) => setPicked({ id: item.id, no: item.no, buyer: line.buyer }), canPick: (item: FeedNo) => feedPickable(item, closed, canOpen) } : {})}
+              {...(pickOn ? { onPick: (line: FeedBuyer, item: FeedNo) => setPicked({ id: item.id, no: item.no, buyer: line.buyer }), canPick: (item: FeedNo) => feedPickable(item, api.ended, canOpen, api.sealed) } : {})}
             />
           ))}
         </View>

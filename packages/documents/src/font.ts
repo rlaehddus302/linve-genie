@@ -19,8 +19,30 @@ interface FontkitFont {
   layout(text: string): { readonly glyphs: readonly GlyphLike[] }
 }
 
+/**
+ * 글자 바꿔 끼우기(GSUB) 표를 이름만 바꿔 숨긴 사본 (D-PDF-FONT-01).
+ * Pretendard는 숫자 사이 `:`·`-`를 `colon.case`·`hyphen.case`로 바꿔 끼우는데, pdf-lib은 그런 글리프의 폭(/W)을 적지 않아
+ * PDF 보기 프로그램이 기본 폭(1000)으로 그려 "23:   30"처럼 벌어진다. 표를 숨기면 글자표(cmap)의 글리프만 쓰여
+ * 폭 재기·PDF·이미지가 모두 같은 글리프를 쓴다. 표 목록 순서(태그 정렬)를 지키려고 마지막 글자만 바꾼다(`GSUB`→`GSUX`).
+ */
+function hideSubstitutions(bytes: Uint8Array): Uint8Array {
+  if (bytes.length < 12) return bytes
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const count = view.getUint16(4)
+  for (let i = 0; i < count; i++) {
+    const at = 12 + 16 * i
+    if (at + 4 > bytes.length) break
+    if (bytes[at] === 0x47 && bytes[at + 1] === 0x53 && bytes[at + 2] === 0x55 && bytes[at + 3] === 0x42) {
+      const copy = bytes.slice()
+      copy[at + 3] = 0x58
+      return copy
+    }
+  }
+  return bytes
+}
+
 export class DocumentFont {
-  /** 부르는 쪽이 넘긴 글꼴 바이트 (PDF에 넣는다) */
+  /** 부르는 쪽이 넘긴 글꼴 바이트에서 바꿔 끼우기 표를 숨긴 것 (PDF에 통째로 넣는다) */
   readonly bytes: Uint8Array
   readonly unitsPerEm: number
   /** 글꼴 단위의 위·아래 높이 (아래는 음수) */
@@ -32,8 +54,8 @@ export class DocumentFont {
 
   constructor(bytes: Uint8Array) {
     if (!(bytes instanceof Uint8Array) || bytes.length === 0) throw new TypeError('글꼴 바이트(Uint8Array)가 필요하다')
-    this.bytes = bytes
-    this.font = (fontkit as unknown as { create(buffer: Uint8Array): FontkitFont }).create(bytes)
+    this.bytes = hideSubstitutions(bytes)
+    this.font = (fontkit as unknown as { create(buffer: Uint8Array): FontkitFont }).create(this.bytes)
     this.unitsPerEm = this.font.unitsPerEm
     this.ascent = this.font.ascent
     this.descent = this.font.descent

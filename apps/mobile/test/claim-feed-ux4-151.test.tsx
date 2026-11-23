@@ -187,21 +187,42 @@ describe('도구 줄을 따로 그리기 (ClaimFeedToolbar · ClaimFeed toolbar=
 })
 
 describe('끝난 라이브에서 찜 누르기 (D-UX4-154 — 찜 메뉴 규칙을 따른다)', () => {
-  it('끝난 라이브: 상품이 있는 꼬리표만 눌러 [상품 보기] 하나 — 상품이 없는 보류 찜은 누르지 않는다', async () => {
+  // D-PASS-END-01 (사용자 2026-11-23 "라방 끝나고 찜 패스 처리하는 방법 필요함"): 끝난 라이브도 살아 있는 찜은 [패스 처리]·[찜 삭제]
+  //   (옛: 끝난 라이브는 상품이 있는 꼬리표만 눌러 [상품 보기] 하나). 올리기·고치기는 그대로 없다. 봉인한 날짜는 옛 그대로.
+  it('끝난 라이브: 살아 있는 찜은 모두 눌러 [상품 보기 · 패스 처리 · 찜 삭제] — 상품이 없는 보류 찜도 [패스 처리 · 찜 삭제]', async () => {
     const opened: string[] = []
     render(<ConsoleContext.Provider value={feedApi({ ended: true })}><ClaimFeed onOpenProduct={(key) => opened.push(key)} onEditProduct={() => {}} /></ConsoleContext.Provider>)
     const list = screen.getByRole('list', { name: '찜 기록' })
-    expect(within(list).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['15 찜', '15 대기 1 · 이미 찜됨 · 1등 홍길동', '7 찜'])
+    expect(within(list).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['15 찜', '88 보류', '15 대기 1 · 이미 찜됨 · 1등 홍길동', '7 찜'])
     fireEvent.click(within(list).getByRole('button', { name: '15 찜' }))
     const menu = await screen.findByRole('group', { name: '찜 메뉴' })
-    // 올리기·고치기·삭제는 끝난 라이브에 없다 (ClaimMenu 규칙)
-    expect(within(menu).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['상품 보기'])
+    // 올리기·고치기는 끝난 라이브에 없다 (ClaimMenu 규칙)
+    expect(within(menu).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['상품 보기', '패스 처리', '찜 삭제'])
     fireEvent.click(within(menu).getByRole('button', { name: '상품 보기' }))
     await waitFor(() => expect(opened).toEqual(['b1/15']))
   })
 
-  it('봉인한 라이브에 [상품 보기]를 열 길이 없으면 아무것도 누르지 않는다', () => {
-    render(<ConsoleContext.Provider value={feedApi({ ended: true, sealed: true })}><ClaimFeed /></ConsoleContext.Provider>)
+  it('끝난 라이브 [패스 처리] → "15번 찜을 패스로 처리할까요?" [닫기 | 패스 처리] → 사유 "손님 패스"인 방송자 취소 하나', async () => {
+    const sent: Record<string, unknown>[] = []
+    const api = feedApi({ ended: true })
+    render(<ConsoleContext.Provider value={{ ...api, command: async (event) => { sent.push(event); return { date: '2026-10-29', rehearsal: false, seq: 6, type: String(event.type), changed: true, effects: [] } } }}><ClaimFeed onOpenProduct={() => {}} /></ConsoleContext.Provider>)
+    fireEvent.click(within(screen.getByRole('list', { name: '찜 기록' })).getByRole('button', { name: '15 찜' }))
+    fireEvent.click(within(await screen.findByRole('group', { name: '찜 메뉴' })).getByRole('button', { name: '패스 처리' }))
+    const ask = await screen.findByRole('alertdialog', { name: '15번 찜을 패스로 처리할까요?' })
+    expect(within(ask).getByText(/^홍길동\s+손님 기록에 패스로 남아요\. 기다리던 손님이 있으면 그 손님 찜이 돼요\.$/)).toBeTruthy()
+    // 부정 왼쪽 · 긍정 오른쪽 (D-UX4-01)
+    expect(within(ask).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['닫기', '패스 처리'])
+    fireEvent.click(within(ask).getByRole('button', { name: '패스 처리' }))
+    await waitFor(() => expect(sent).toEqual([{ type: 'host.cancel', b: 'b1', no: 15, buyer: 'u1', reason: '손님 패스' }]))
+  })
+
+  it('봉인한 라이브에 [상품 보기]를 열 길이 없으면 아무것도 누르지 않는다 · 열 수 있으면 [상품 보기]만 (패스·삭제 없음)', async () => {
+    const { unmount } = render(<ConsoleContext.Provider value={feedApi({ ended: true, sealed: true })}><ClaimFeed /></ConsoleContext.Provider>)
     expect(within(screen.getByRole('list', { name: '찜 기록' })).queryByRole('button')).toBeNull()
+    unmount()
+    render(<ConsoleContext.Provider value={feedApi({ ended: true, sealed: true })}><ClaimFeed onOpenProduct={() => {}} /></ConsoleContext.Provider>)
+    fireEvent.click(within(screen.getByRole('list', { name: '찜 기록' })).getByRole('button', { name: '15 찜' }))
+    const menu = await screen.findByRole('group', { name: '찜 메뉴' })
+    expect(within(menu).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['상품 보기'])
   })
 })
