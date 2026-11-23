@@ -7,6 +7,10 @@
 //   모두 거절하면 글 탓이라 아무도 쉬지 않고 rejected (D-YT-SEND-14).
 //   응답을 모르는 실패(timeout·network·unverified·server)와 채팅 끝남(ended)은 다른 계정으로 넘기지 않고 그대로 던진다(두 번 올리지 않는다).
 // - 쉬지 않는 계정이 없으면 보내지 않고 blocked.
+// - 맡은 방송 수는 최근 HOLD_IDLE_MS 안에 올린 방송만 센다 (D-YT-SEND-23, 사용자 "왜 감사채팅 봇 계정이 라이브지니가 아니라 라이브지니-2야?"):
+//   끝난 라이브도 그 계정이 맡은 것으로 남아(서버를 다시 켤 때까지) 다음 라이브가 1번 계정이 놀고 있는데도 2번으로 갔다(운영 2026-11-23 — 15:26 끝난 라이브가 1번을 잡아 16:03 라이브가 2번).
+//   한동안 올리지 않은 방송은 다른 방송의 계정 고르기에서 빼, 쉬는 1번 계정이 늘 먼저 맡는다. 그 방송 자신은 다시 올릴 때 맡던 계정을 그대로 쓴다(작성자가 바뀌지 않게).
+//   채팅이 끝났다(ended)는 답을 받으면 그 방송은 바로 놓는다.
 // - 계정 쉼은 운영 로그(CHAT_SEND_ACCOUNT_DOWN, count = 계정 번호 1부터)로 남긴다. 쿠키·채널 ID는 남기지 않는다.
 import type { LogSink } from '../../log.ts'
 import type { Timer } from '../timer.ts'
@@ -15,6 +19,8 @@ import { ChatSendError, type AccountCheck, type ChatSender, type ChatSendResult,
 export const AUTH_REST_MS = 10 * 60 * 1000
 export const RATE_REST_MS = 60 * 1000
 export const BLOCKED_REST_MS = 5 * 60 * 1000
+/** 이만큼 올리지 않은 방송은 맡은 방송 수에 넣지 않는다 (D-YT-SEND-23) */
+export const HOLD_IDLE_MS = 20 * 60 * 1000
 
 interface Account {
   readonly sender: ChatSender
@@ -31,6 +37,8 @@ export class ChatSenderPool implements MultiAuthorSender {
   readonly #timer: Timer
   /** 영상 ID → 맡은 계정 (메모리 — 서버를 다시 켜면 다시 고른다) */
   readonly #byVideo = new Map<string, Account>()
+  /** 영상 ID → 마지막으로 올리려 한 때 (D-YT-SEND-23) */
+  readonly #lastAt = new Map<string, number>()
   #log: LogSink | null = null
 
   constructor(senders: readonly ChatSender[], timer: Timer) {
@@ -61,6 +69,11 @@ export class ChatSenderPool implements MultiAuthorSender {
     return this.#byVideo.get(videoId)?.sender.authorChannelId ?? null
   }
 
+  #release(videoId: string): void {
+    this.#byVideo.delete(videoId)
+    this.#lastAt.delete(videoId)
+  }
+
   #rest(account: Account, ms: number, kind: string): void {
     account.restUntil = this.#timer.now() + ms
     for (const [video, holder] of this.#byVideo) if (holder === account) this.#byVideo.delete(video)
@@ -71,7 +84,9 @@ export class ChatSenderPool implements MultiAuthorSender {
   #order(videoId: string, tried: ReadonlySet<Account>): Account[] {
     const now = this.#timer.now()
     const ready = this.#accounts.filter((account) => account.restUntil <= now && !tried.has(account))
-    const load = (account: Account) => [...this.#byVideo.values()].filter((holder) => holder === account).length
+    // 다른 방송은 최근 HOLD_IDLE_MS 안에 올린 것만 센다 — 끝난 라이브가 계정을 잡고 있지 않게 (D-YT-SEND-23)
+    const busy = (video: string) => video !== videoId && now - (this.#lastAt.get(video) ?? -Infinity) < HOLD_IDLE_MS
+    const load = (account: Account) => [...this.#byVideo].filter(([video, holder]) => holder === account && busy(video)).length
     const held = this.#byVideo.get(videoId)
     const rest = ready.filter((account) => account !== held).sort((a, b) => load(a) - load(b) || a.number - b.number)
     return held !== undefined && ready.includes(held) ? [held, ...rest] : rest
@@ -88,6 +103,7 @@ export class ChatSenderPool implements MultiAuthorSender {
       tried.add(account)
       // 보내기 전에 붙인다 — 같은 방송의 다음 감사가 같은 계정의 줄에 선다
       this.#byVideo.set(target.videoId, account)
+      this.#lastAt.set(target.videoId, this.#timer.now())
       try {
         const result = await account.sender.send(target, text, signal)
         for (const bad of rejectedBy) this.#rest(bad, AUTH_REST_MS, 'rejected')
@@ -109,7 +125,11 @@ export class ChatSenderPool implements MultiAuthorSender {
           this.#byVideo.clear()
           this.#log?.({ level: 'error', code: 'CHAT_SEND_ACCOUNT_DOWN', route: this.route, errorKind: 'blocked', count: 0 })
           throw error
-        } else throw error
+        } else {
+          // 채팅이 끝난 라이브는 계정을 놓는다 (D-YT-SEND-23)
+          if (error.kind === 'ended') this.#release(target.videoId)
+          throw error
+        }
       }
     }
   }

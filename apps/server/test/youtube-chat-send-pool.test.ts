@@ -5,7 +5,7 @@ import type { LogRecord } from '../src/log.ts'
 import { parseAccounts } from '../src/youtube/chat-send/create.ts'
 import { isBlockedResponse } from '../src/youtube/chat-send/innertube-sender.ts'
 import { officialFailure } from '../src/youtube/chat-send/official-sender.ts'
-import { AUTH_REST_MS, BLOCKED_REST_MS, ChatSenderPool, RATE_REST_MS } from '../src/youtube/chat-send/pool.ts'
+import { AUTH_REST_MS, BLOCKED_REST_MS, ChatSenderPool, HOLD_IDLE_MS, RATE_REST_MS } from '../src/youtube/chat-send/pool.ts'
 import { ChatSendError, FailoverSender, chatSendRoute, type ChatSender, type ChatSendFailure, type ChatSendResult, type ChatSendTarget } from '../src/youtube/chat-send/sender.ts'
 import { ChannelMismatchError } from '../src/youtube/connect.ts'
 import { GoogleError } from '../src/youtube/google.ts'
@@ -57,6 +57,38 @@ describe('D-YT-SEND-12 봇 계정 풀', () => {
     expect(stubs[1]?.calls).toEqual(['B:1', 'B:2'])
     expect(p.assigned('A')).toBe(ch(1))
     expect(p.authorChannelIds).toEqual([ch(1), ch(2)])
+  })
+
+  it('D-YT-SEND-23 끝난 라이브는 계정을 잡지 않는다: 20분 넘게 올리지 않은 방송은 맡은 수에서 빠져 다음 라이브도 1번 계정 (운영 2026-11-23 — 2번으로 갔다)', async () => {
+    const { clock, pool: p } = pool(2)
+    expect((await p.send(target('A'), '1')).authorChannelId).toBe(ch(1))
+    // A가 아직 올리는 중(20분 안)이면 동시 라이브 B는 2번
+    clock.t += HOLD_IDLE_MS - 1
+    expect((await p.send(target('B'), '1')).authorChannelId).toBe(ch(2))
+    // A는 20분 넘게 조용하고 B는 아직 올리는 중 → 새 라이브 C는 놀고 있는 1번
+    clock.t += 2
+    await p.send(target('B'), '2')
+    expect((await p.send(target('C'), '1')).authorChannelId).toBe(ch(1))
+    expect(p.assigned('B')).toBe(ch(2))
+  })
+
+  it('D-YT-SEND-23 운영 그대로: 1번이 맡았던 라이브가 끝나고 다음 라이브가 오면 2번이 아니라 1번', async () => {
+    const { clock, pool: p } = pool(2)
+    for (let i = 0; i < 31; i += 1) expect((await p.send(target('A'), String(i))).authorChannelId).toBe(ch(1))
+    clock.t += 56 * 60 * 1000
+    expect((await p.send(target('B'), '1')).authorChannelId).toBe(ch(1))
+    // 오래 조용했던 A도 다시 올리면 맡던 1번 그대로 (작성자가 바뀌지 않게)
+    expect((await p.send(target('A'), 'again')).authorChannelId).toBe(ch(1))
+  })
+
+  it('D-YT-SEND-23 채팅이 끝났다(ended)는 답을 받은 라이브는 바로 계정을 놓는다', async () => {
+    const { stubs, pool: p } = pool(2)
+    await p.send(target('A'), '1')
+    ;(stubs[0] as Stub).fail = 'ended'
+    await expect(p.send(target('A'), '2')).rejects.toMatchObject({ kind: 'ended' })
+    expect(p.assigned('A')).toBeNull()
+    ;(stubs[0] as Stub).fail = null
+    expect((await p.send(target('B'), '1')).authorChannelId).toBe(ch(1))
   })
 
   it('로그인 풀림(auth) → 같은 감사를 다음 계정으로 한 번, 그 계정은 10분 쉼·경보, 방송도 새 계정으로', async () => {
