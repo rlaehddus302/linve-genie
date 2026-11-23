@@ -148,8 +148,11 @@ export function SessionProvider({ children, services }: { readonly children: Rea
   /** 들어온 계정·가게를 정한다. 같은 아이디라도 같이 보는 라이브가 바뀌면 실시간 연결을 새 가게로 다시 잇고 이 기기 마이크는 끈다 (D-SHARE-LIVE-01) */
   const settle = (me: Me) => {
     const key = cacheKeyOf(me)
-    const switched = shownKey.current !== null && shownKey.current !== key && shownKey.current.split('#')[0] === me.loginId
+    const changed = shownKey.current !== null && shownKey.current !== key
+    const switched = changed && shownKey.current?.split('#')[0] === me.loginId
     shownKey.current = key
+    // 가게가 바뀌면 라벨 대기열의 판(rev)도 새 가게 것으로 — 앞 가게 판이 크면 새 라벨 알림을 버린다 (D-PRINT-SHOP-01)
+    if (changed) services.labels.reset()
     setVoiceAccount(me.loginId)
     // 다른 계정(가게)이면 기억해 둔 화면 자료를 지운다 (D-UX4-77)
     setCachedAccount(key)

@@ -141,6 +141,8 @@ export class LabelQueue {
   #autoAllowed = false
   #keep = false
   #live = false
+  /** 받아 적용한 print 알림 수 — 요약을 받는 동안 알림이 왔는지 가린다 */
+  #notices = 0
   /** 방송이 열려 있는지 다시 확인한 저절로 잇기 차례 ("gaveUp"은 -1) */
   #liveChecked: number | null = null
 
@@ -341,6 +343,7 @@ export class LabelQueue {
       if (data === null || !('queue' in data)) return
       const current = this.#snapshot.queue
       if (current !== null && data.rev < current.rev) return
+      this.#notices++
       this.#applyQueue(data.queue)
     })
     stream.addEventListener('labels', () => void this.reload())
@@ -356,10 +359,12 @@ export class LabelQueue {
     if (this.#stopped) return
     const generation = this.#generation
     try {
+      const noticesBefore = this.#notices
       const overview = await get<PrintOverview & { readonly live?: boolean }>('/api/print')
       if (generation !== this.#generation) return
       const saved = this.#snapshot.queue
-      const queue = saved && saved.rev > overview.queue.rev ? saved : overview.queue
+      // 받는 동안 더 새 알림이 왔을 때만 그것을 지킨다. 아니면 서버 요약이 맞다 — 들고 있던 판이 더 커도(다른 가게의 판) 버린다 (D-PRINT-SHOP-01)
+      const queue = saved && this.#notices !== noticesBefore && saved.rev > overview.queue.rev ? saved : overview.queue
       // 옛 서버는 live를 주지 않는다 — 방송이 없는 것으로 본다(지금 정책 그대로)
       this.#live = overview.live === true
       this.#set({ loadError: null, live: this.#live })
@@ -385,6 +390,19 @@ export class LabelQueue {
       if (!isApiError(error)) throw error
       this.#set({ loadError: error })
     }
+  }
+
+  /**
+   * 다른 가게(계정·같이 보는 라이브)로 바뀌었다 (D-PRINT-SHOP-01): 앞 가게의 대기열 요약을 버리고 새로 받는다.
+   * 판(rev)은 가게마다 따로 센다 — 앞 가게의 큰 판을 들고 있으면 새 가게의 print 알림(작은 판)을 모두 "오래된 것"으로 버려
+   * 새 라벨을 저절로 받지 못하고 [대기 중인 라벨 모두 출력하기]·라벨 출력을 눌러야만 나왔다(11/23 라이브: 앞 가게 판 1362, 새 가게 180대)
+   */
+  reset(): void {
+    if (this.#stopped) return
+    this.#generation++
+    this.#reported = null
+    this.#set({ queue: null, mine: false })
+    void this.reload(true)
   }
 
   /** 앱이 앞으로 돌아왔다 (APP-04): 요약을 다시 받고 이어 찍는다 */

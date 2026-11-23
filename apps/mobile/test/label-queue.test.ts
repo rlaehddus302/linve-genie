@@ -187,6 +187,37 @@ describe('LabelQueue', () => {
     expect(loads).toBe(2)
   })
 
+  it('다른 가게로 바뀌면(reset) 앞 가게의 큰 판을 버리고 새 가게의 작은 판 알림을 받는다 (D-PRINT-SHOP-01)', async () => {
+    const { server, sources, queue } = setup()
+    let rev = 1362
+    server.on('GET', /^\/api\/print$/, () => ({ body: { queue: queueSummary({ rev, device: null }), jobs: [], discard: [] } }))
+    queue.start()
+    await flush()
+    sources[0]!.open()
+    expect(queue.getSnapshot().queue?.rev).toBe(1362)
+    // 새 가게: 판이 처음부터 다시 센다
+    rev = 180
+    queue.reset()
+    await flush()
+    expect(queue.getSnapshot().queue?.rev).toBe(180)
+    sources[0]!.emit('print', { rev: 181, queue: queueSummary({ rev: 181, device: null, waiting: 7 }), jobs: [], labels: [] })
+    expect(queue.getSnapshot().queue?.waiting).toBe(7)
+  })
+
+  it('reset 없이도 요약을 다시 받으면 서버 판이 맞다 — 들고 있던 판이 더 커도 버린다 (D-PRINT-SHOP-01)', async () => {
+    const { server, sources, queue } = setup()
+    let rev = 1362
+    server.on('GET', /^\/api\/print$/, () => ({ body: { queue: queueSummary({ rev, device: null }), jobs: [], discard: [] } }))
+    queue.start()
+    await flush()
+    sources[0]!.open()
+    rev = 187
+    await queue.reload()
+    expect(queue.getSnapshot().queue?.rev).toBe(187)
+    sources[0]!.emit('print', { rev: 188, queue: queueSummary({ rev: 188, device: null, waiting: 3 }), jobs: [], labels: [] })
+    expect(queue.getSnapshot().queue?.waiting).toBe(3)
+  })
+
   it('서버 그림 모양 읽기: base64 1비트 행 바이트, 길이가 안 맞으면 null', () => {
     expect([...decodeBase64('AAEC/w==')]).toEqual([0, 1, 2, 255])
     expect(parseBitmap({ width: 16, height: 2, data: 'AAEC/w==' })).toEqual({ width: 16, height: 2, data: new Uint8Array([0, 1, 2, 255]) })
