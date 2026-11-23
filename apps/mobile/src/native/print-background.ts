@@ -1,6 +1,6 @@
 // 출력 기기만 뒤에서 대기열을 확인한다. 서버가 정한 기기·멈춤·출력 시도 규칙은 LabelQueue가 그대로 적용한다.
 import { useEffect } from 'react'
-import { AppRegistry, AppState, Platform } from 'react-native'
+import { AppRegistry, Platform } from 'react-native'
 import { requireOptionalNativeModule } from 'expo'
 import { useServices, useSession } from '../services.tsx'
 
@@ -38,7 +38,9 @@ export function PrintBackground() {
         active = wanted
         if (Platform.OS === 'android') station?.setStation(wanted)
         if (timer !== undefined) clearInterval(timer)
-        timer = wanted ? setInterval(() => { if (AppState.currentState !== 'active') labels.resume() }, 20_000) : undefined
+        // 20초마다 대기열을 다시 받고 이어 찍는다 — 앱이 앞에 있어도 (D-SSE-STALL-01: 실시간 알림이 조용히 끊기면 앞에 있는 동안
+        // 새 라벨을 못 받아 [대기 중인 라벨 모두 출력하기]를 눌러야만 나왔다. 옛: 뒤에 있을 때만)
+        timer = wanted ? setInterval(() => labels.resume(), 20_000) : undefined
       }
       const printing = wanted && (view.job !== null || (view.busy && (view.queue?.waiting ?? 0) > 0))
       if (Platform.OS === 'ios' && printing !== working) {

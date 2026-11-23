@@ -1,6 +1,7 @@
 // 서버 실시간 알림(SSE, GET /api/stream)을 스트리밍 fetch로 받는다 — React Native에는 EventSource가 없다.
 // 웹 lib/stream.ts의 EventSourceLike와 같은 모양을 주어 저장소(scope-store·label-queue)가 웹과 같은 프로토콜(ready·change·print…)을 그대로 쓴다.
 // 브라우저 EventSource와 달리 스스로 다시 붙지 않는다 — 끊기면 readyState가 CLOSED(2)가 되고 onerror를 부른다. 다시 붙기는 live.ts가 한다.
+// 45초 동안 아무 글자(서버 15초 ping 포함)도 오지 않으면 끊긴 것으로 본다 (D-SSE-STALL-01).
 import type { FetchLike } from './config.ts'
 
 export const CONNECTING = 0
@@ -65,7 +66,15 @@ export class SseParser {
 
 export interface SseOptions {
   readonly fetch: FetchLike
+  /**
+   * 이만큼 아무 글자도 오지 않으면 죽은 연결로 보고 닫는다 (D-SSE-STALL-01). 서버는 15초마다 `: ping`을 보내므로 기본 45초(세 번 놓침).
+   * 휴대폰 망이 바뀌거나 절전 뒤엔 연결이 OPEN으로 남은 채 아무것도 오지 않을 수 있다 — 그러면 새 라벨 알림을 못 받아 [대기 중인 라벨 모두 출력하기]를 눌러야만 나왔다
+   */
+  readonly staleMs?: number
 }
+
+/** 서버 하트비트(15초)의 세 배 — 이만큼 조용하면 끊긴 연결 */
+export const SSE_STALE_MS = 45_000
 
 class FetchEventSource implements EventSourceLike {
   onopen: ((event: unknown) => void) | null = null
@@ -73,6 +82,7 @@ class FetchEventSource implements EventSourceLike {
   #state = CONNECTING
   readonly #listeners = new Map<string, ((event: SseMessage) => void)[]>()
   readonly #abort = new AbortController()
+  #stale: ReturnType<typeof setTimeout> | undefined
 
   constructor(url: string, options: SseOptions) {
     void this.#run(url, options)
@@ -87,15 +97,33 @@ class FetchEventSource implements EventSourceLike {
   }
 
   close(): void {
+    this.#clearStale()
     if (this.#state === CLOSED) return
     this.#state = CLOSED
     this.#abort.abort()
   }
 
   #fail(): void {
+    this.#clearStale()
     if (this.#state === CLOSED) return
     this.#state = CLOSED
     this.onerror?.({ type: 'error' })
+  }
+
+  #clearStale(): void {
+    if (this.#stale !== undefined) clearTimeout(this.#stale)
+    this.#stale = undefined
+  }
+
+  /** 글자가 올 때마다 다시 잰다. 조용하면 끊김으로 알리고(보는 쪽이 다시 연다) 읽기를 멈춘다 (D-SSE-STALL-01) */
+  #armStale(ms: number): void {
+    this.#clearStale()
+    this.#stale = setTimeout(() => {
+      this.#stale = undefined
+      if (this.#state !== OPEN) return
+      this.#fail()
+      this.#abort.abort()
+    }, ms)
   }
 
   async #run(url: string, options: SseOptions): Promise<void> {
@@ -112,6 +140,8 @@ class FetchEventSource implements EventSourceLike {
       return
     }
     this.#state = OPEN
+    const staleMs = options.staleMs ?? SSE_STALE_MS
+    this.#armStale(staleMs)
     this.onopen?.({ type: 'open' })
     const parser = new SseParser((message) => {
       if (this.#state !== OPEN) return
@@ -123,6 +153,7 @@ class FetchEventSource implements EventSourceLike {
       for (;;) {
         const { done, value } = await reader.read()
         if (done) break
+        if (this.#state === OPEN) this.#armStale(staleMs)
         if (value !== undefined) parser.push(decoder.decode(value, { stream: true }))
       }
     } catch {

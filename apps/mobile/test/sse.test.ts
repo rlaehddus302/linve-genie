@@ -76,4 +76,37 @@ describe('openEventSource', () => {
     await wait()
     expect(errors).toBe(0)
   })
+
+  it('열린 채 아무 글자도 오지 않으면(죽은 연결) staleMs 뒤 끊김으로 알린다 — 보는 쪽이 다시 연다 (D-SSE-STALL-01)', async () => {
+    const source = openEventSource('http://test.local/api/stream', { staleMs: 30, fetch: async () => new Response(streamOf(['event: ready\ndata: {}\n\n'], { hang: true }), { status: 200 }) })
+    let errors = 0
+    source.onerror = () => errors++
+    await wait()
+    expect(source.readyState).toBe(OPEN)
+    await new Promise<void>((resolve) => setTimeout(resolve, 60))
+    expect(source.readyState).toBe(CLOSED)
+    expect(errors).toBe(1)
+  })
+
+  it('ping 주석이라도 계속 오면 열린 채로 둔다 (D-SSE-STALL-01)', async () => {
+    const encoder = new TextEncoder()
+    let timer: ReturnType<typeof setInterval> | undefined
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: ready\ndata: {}\n\n'))
+        timer = setInterval(() => controller.enqueue(encoder.encode(': ping\n\n')), 10)
+      },
+      cancel() {
+        clearInterval(timer)
+      },
+    })
+    const source = openEventSource('http://test.local/api/stream', { staleMs: 40, fetch: async () => new Response(body, { status: 200 }) })
+    let errors = 0
+    source.onerror = () => errors++
+    await new Promise<void>((resolve) => setTimeout(resolve, 120))
+    expect(source.readyState).toBe(OPEN)
+    expect(errors).toBe(0)
+    source.close()
+    clearInterval(timer)
+  })
 })
