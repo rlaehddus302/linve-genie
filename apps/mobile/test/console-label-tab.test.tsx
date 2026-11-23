@@ -132,8 +132,8 @@ describe('탭 밑줄 미끄러짐 (D-TABS-04)', () => {
   it('탭을 바꿔도 밑줄은 고른 탭 안에 하나', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world, true)
-    fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
-    await waitFor(() => expect(within(screen.getByRole('button', { name: '찜 기록' })).getByTestId('line-tab-bar')).toBeTruthy())
+    fireEvent.click(await screen.findByRole('button', { name: '찜' }) /* D-UX4-210 탭 이름 찜 기록 → 찜 */)
+    await waitFor(() => expect(within(screen.getByRole('button', { name: '찜' }) /* D-UX4-210 탭 이름 찜 기록 → 찜 */).getByTestId('line-tab-bar')).toBeTruthy())
     expect(screen.getAllByTestId('line-tab-bar')).toHaveLength(1)
     expect(within(screen.getByRole('button', { name: '상품' })).queryByTestId('line-tab-bar')).toBeNull()
     world.services.labels.stop()

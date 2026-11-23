@@ -83,7 +83,7 @@ describe('매출 캡슐 (D-UX4-140)', () => {
     expect(screen.queryByTestId('sales-pill')).toBeNull()
     fireEvent.pointerUp(screen.getByRole('list', { name: '상품 목록' }))
     expect(screen.getByTestId('sales-pill')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '찜 기록' }))
+    fireEvent.click(screen.getByRole('button', { name: '찜' }) /* D-UX4-210 탭 이름 찜 기록 → 찜 */)
     expect(screen.queryByTestId('sales-pill')).toBeNull()
   })
 })

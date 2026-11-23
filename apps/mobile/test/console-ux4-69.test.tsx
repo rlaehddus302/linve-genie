@@ -125,16 +125,16 @@ describe('아래 창과 같은 탭은 숨기고, 들린 말 탭 (D-UX4-91)', () 
   it('아래 창이 들린 말이면 들린 말 탭이 없고, 채팅·문자면 채팅·문자 탭이 없고, 안 보기면 둘 다 있다 — 숨긴 탭을 보고 있었으면 상품으로', async () => {
     const world = makeWorld({ products: [] })
     await open(world)
-    expect(names()).toEqual(['상품', '찜 기록', '채팅·문자'])
+    expect(names()).toEqual(['상품', '찜', '채팅·문자']) // 탭 이름 바뀜 (D-UX4-210, 옛 기대: "찜 기록")
     fireEvent.click(screen.getByRole('button', { name: '채팅·문자' }))
     expect(screen.getByRole('button', { name: '채팅·문자' }).getAttribute('aria-selected')).toBe('true')
     act(() => setDockChoice('talk'))
-    expect(names()).toEqual(['상품', '찜 기록', '음성 인식']) // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말")
+    expect(names()).toEqual(['상품', '찜', '음성 인식']) // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말") // D-UX4-210: 찜 기록 → 찜
     expect(screen.getByRole('button', { name: '상품' }).getAttribute('aria-selected')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: '음성 인식' })) // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말")
     expect(await screen.findByText('아직 인식한 말이 없어요')).toBeTruthy() // 문구 바뀜 (D-UX4-96, 옛 기대: "아직 들린 말이 없어요")
     act(() => setDockChoice('none'))
-    expect(names()).toEqual(['상품', '찜 기록', '채팅·문자', '음성 인식']) // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말")
+    expect(names()).toEqual(['상품', '찜', '채팅·문자', '음성 인식']) // 문구 바뀜 (D-UX4-96, 옛 기대: "들린 말") // D-UX4-210: 찜 기록 → 찜
   })
 
   it('들린 말 탭: 들린 시각(한국 시각) + 말, 새 말이 아래', async () => {

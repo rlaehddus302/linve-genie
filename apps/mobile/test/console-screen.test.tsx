@@ -116,7 +116,7 @@ describe('ConsoleScreen', () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world)
     expect(getComputedStyle(screen.getByTestId('console-list')).justifyContent).toBe('flex-start')
-    fireEvent.click(screen.getByRole('button', { name: '찜 기록' }))
+    fireEvent.click(screen.getByRole('button', { name: '찜' }) /* D-UX4-210 탭 이름 찜 기록 → 찜 */)
     expect(getComputedStyle(screen.getByTestId('console-list')).justifyContent).toBe('flex-start')
     fireEvent.click(screen.getByRole('button', { name: '채팅·문자' }))
     expect(getComputedStyle(screen.getByTestId('console-list')).justifyContent).toBe('flex-end')
@@ -268,7 +268,7 @@ describe('ConsoleScreen', () => {
       world.source().emit('change', { date: '2026-10-29', rehearsal: false, seq: 7, type: 'chat' })
       await flush()
     })
-    fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
+    fireEvent.click(await screen.findByRole('button', { name: '찜' }) /* D-UX4-210 탭 이름 찜 기록 → 찜 */)
     const feed = await screen.findByRole('list', { name: '찜 기록' })
     const rows = within(feed).getAllByRole('listitem')
     // D-UX3-79로 바뀐 기대 (사용자 지시 2026-11-09 "구매자별로 번호를 묶는 느낌"): 옛 기대는 찜 하나가 한 줄(시각·어디서·이름·번호·결과 + 채팅 원문).
@@ -322,7 +322,7 @@ describe('ConsoleScreen', () => {
       }),
     }))
     world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=8$/, () => ({ body: changes(8, 9, {}) }))
-    fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
+    fireEvent.click(await screen.findByRole('button', { name: '찜' }) /* D-UX4-210 탭 이름 찜 기록 → 찜 */)
     const feed = await screen.findByRole('list', { name: '찜 기록' })
     fireEvent.click(within(feed).getByRole('button', { name: '15 찜' }))
     const menu = await screen.findByRole('group', { name: '찜 메뉴' })

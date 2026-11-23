@@ -225,7 +225,7 @@ describe('빈 목록 안내 (D-UX4-56)', () => {
     expect(within(products).getByText(NO_PRODUCTS_YET)).toBeTruthy()
     expect(getComputedStyle(products).justifyContent).toBe('center')
     expect(getComputedStyle(products).alignItems).toBe('center')
-    fireEvent.click(screen.getByRole('button', { name: '찜 기록' }))
+    fireEvent.click(screen.getByRole('button', { name: '찜' }) /* D-UX4-210 탭 이름 찜 기록 → 찜 */)
     const feed = screen.getByRole('status', { name: `${FEED_EMPTY} ${FEED_EMPTY_BODY.replace('\n', ' ')}` })
     expect(within(feed).getByText(FEED_EMPTY)).toBeTruthy()
     expect(FEED_EMPTY_BODY).toBe('채팅이나 문자로 찜이 오면\n바로 보여드릴게요')

@@ -140,7 +140,7 @@ describe('화면 (D-STK-02)', () => {
   it('찜 기록의 대기 1번 손님 [이 손님에게도 팔기] → 재고 2. 대기 2번 손님에게는 없다(앞 손님이 먼저 찜이 되므로)', async () => {
     const world = makeWorld({ products: [product(15)] })
     await open(world, SAMPLE)
-    fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
+    fireEvent.click(await screen.findByRole('button', { name: '찜' }) /* D-UX4-210 탭 이름 찜 기록 → 찜 */)
     const list = await screen.findByRole('list', { name: '찜 기록' })
     fireEvent.click(within(list).getByRole('button', { name: /^15 대기 2/ }))
     let menu = await screen.findByRole('group', { name: '찜 메뉴' })

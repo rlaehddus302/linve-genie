@@ -154,7 +154,7 @@ describe('라이브 중 손님별 합계 (D-BUYERSUM-01)', () => {
     const world = makeWorld({ products: [product(26), product(27), product(28)] })
     await open(world, VIEW)
     expect(screen.queryByTestId('totals-pill')).toBeNull()
-    fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
+    fireEvent.click(await screen.findByRole('button', { name: '찜' }) /* D-UX4-210 탭 이름 찜 기록 → 찜 */)
     const pill = await screen.findByTestId('totals-pill')
     expect(pill.textContent).toBe(TOTALS_PILL)
     fireEvent.click(pill)

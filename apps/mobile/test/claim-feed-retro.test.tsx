@@ -34,7 +34,7 @@ async function open(world: World, patch: Parameters<typeof changes>[2]) {
   world.server.on('GET', /^\/api\/days\/2026-10-29\/changes\?since=([7-9]|\d\d)$/, (call) => ({ body: changes(Number(/since=(\d+)/.exec(call.path)?.[1]), world.seq, {}) }))
 }
 
-const openFeed = async () => fireEvent.click(await screen.findByRole('button', { name: '찜 기록' }))
+const openFeed = async () => fireEvent.click(await screen.findByRole('button', { name: '찜' }) /* D-UX4-210 탭 이름 찜 기록 → 찜 */)
 const labels = (list: HTMLElement) => within(list).getAllByRole('listitem').map((row) => row.getAttribute('aria-label'))
 
 const SAMPLE = {

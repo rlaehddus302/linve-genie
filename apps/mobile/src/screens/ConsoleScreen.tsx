@@ -133,6 +133,8 @@ function AwayLine() {
  */
 /** 붙는 머리 = 라이브 화면 목록의 첫째 자식(탭 바) (D-UX4-98 → D-TABS-02: 탭 바 위 알림 묶음을 탭 바 밑으로 옮겨 옛 둘째 자식이 첫째가 됐다) */
 export const STICKY_TABS = [0]
+/** 찜 탭 이름 (D-UX4-210, 사용자 "찜 기록 탭 이름 -> 찜" — 옛 "찜 기록") */
+export const FEED_TAB = '찜'
 /** 탭 바 알약 위 여백 — 맨 위에 있을 때도, 올리다 위에 붙었을 때도 머리 아래 이만큼 (D-UX4-110, 사용자 지시 2026-11-10 "중간에 올릴 때 탭바와 상단영역 사이 여백과 끝까지 올렸을 때 여백이 달라") */
 export const TABS_TOP = LINE_TABS_TOP
 
@@ -570,7 +572,8 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
   const tabPills = (
     <>
       <LineTab role="button" on={shownTab === 'products'} label={`상품 ${String(productCountNow)}`} ariaLabel="상품" onPress={() => pickTab('products')} />
-      <LineTab role="button" on={shownTab === 'feed'} label={`찜 기록 ${String(claimCount)}`} ariaLabel="찜 기록" onPress={() => pickTab('feed')} />
+      {/* 탭 이름 "찜" (D-UX4-210, 사용자 "찜 기록 탭 이름 -> 찜") */}
+      <LineTab role="button" on={shownTab === 'feed'} label={`찜 ${String(claimCount)}`} ariaLabel={FEED_TAB} onPress={() => pickTab('feed')} />
       {showTalkTab ? <LineTab role="button" on={shownTab === 'talk'} label={TALK_TAB} ariaLabel={TALK_TAB} onPress={() => pickTab('talk')} /> : null}
       {showHeardTab ? <LineTab role="button" on={shownTab === 'heard'} label={HEARD_TAB} ariaLabel={HEARD_TAB} onPress={() => pickTab('heard')} /> : null}
       {showLabelTab ? <LineTab role="button" on={shownTab === 'labels'} label={`${LABEL_TAB} ${String(labelList.length)}`} ariaLabel={LABEL_TAB} onPress={() => pickTab('labels')} /> : null}
@@ -591,8 +594,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
     setDirectOpen(true)
   }
   // 돋보기: 상품 탭은 번호 숫자판, 찜 기록 탭은 닉네임 키보드 (D-UX4-201)
-  // 따로 넘어가는 찾기 화면은 상품·찜 기록을 하나로 찾는다 (D-UX4-205) — 상품이나 찜이 하나라도 있으면
-  const canSearch = openSearch !== undefined ? (shownTab === 'products' || shownTab === 'feed') && (productCountNow > 0 || claimCount > 0) : (shownTab === 'products' && (searchDigits !== '' || productCountNow > 0)) || (shownTab === 'feed' && feedRows(data, names, broadcastId).length > 0)
+  // 따로 넘어가는 찾기 화면은 상품·찜 기록을 하나로 찾는다 (D-UX4-205) — 상품이나 찜이 하나라도 있으면, 어느 탭에서든 (D-UX4-211, 사용자 "상품, 찜 탭 말고 다른거 누르면 검색 버튼 사라짐 고쳐라")
+  // 화면 안 찾기(시험·웹)는 상품·찜 탭에만 칸이 있어, 다른 탭에서는 상품 탭으로 옮겨 번호 숫자판을 연다
+  const canSearch = openSearch !== undefined ? productCountNow > 0 || claimCount > 0 : (shownTab === 'feed' ? feedRows(data, names, broadcastId).length > 0 : searchDigits !== '' || productCountNow > 0)
   const startSearch = () => {
     // 기기에서는 토스 검색처럼 따로 넘어가는 화면 (D-UX4-204, 사용자 "검색 눌렀을 때 별도 화면으로 넘어가서 사진4처럼")
     if (openSearch !== undefined) {
@@ -602,7 +606,9 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
     }
     tabHide.show()
     setSearching(true)
+    // 다른 탭이면 상품 탭으로 옮긴다 — 탭을 바꾸면 숫자판을 접으므로(위 효과) 칸만 열고, 칸에 손이 가면 숫자판이 열린다
     if (shownTab === 'products') openSearchPad()
+    else if (shownTab !== 'feed') setTab('products')
   }
 
   return (
@@ -618,7 +624,7 @@ export function ConsoleScreen({ broadcastId, seller, onBack, onEnded, justEnded 
           backLabel={fromSales ? '정산서로' : '홈으로'}
           // 오른쪽 위 돋보기 · ⋯ (D-UX4-201, 사용자 "검색창을 오른쪽 위에 검색 아이콘으로 하고, 관리 버튼도 ... 버튼으로" — 토스 거래 내역 머리처럼. 옛: "관리" 글자 단추 D-UX4-42)
           right={<>
-            {canSearch ? <HeaderIconButton icon="search" label={openSearch !== undefined ? '검색 열기' : shownTab === 'products' ? '상품 번호 검색 열기' : '찜 기록 찾기 열기'} testID="console-search" onPress={startSearch} /> : null}
+            {canSearch ? <HeaderIconButton icon="search" label={openSearch !== undefined ? '검색 열기' : shownTab === 'feed' ? '찜 기록 찾기 열기' : '상품 번호 검색 열기'} testID="console-search" onPress={startSearch} /> : null}
             <HeaderIconButton icon="more" label={MANAGE_LABEL} testID="console-more" onPress={() => (openManage === undefined ? setPage('settings') : openManage())} />
           </>}
         />

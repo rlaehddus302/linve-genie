@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConsoleScreen } from '../src/screens/ConsoleScreen.tsx'
-import { ConsoleSearchScreen, RECENT_CLEAR, RECENT_TITLE, SEARCH_EMPTY, SEARCH_LABEL, SEARCH_NO_MATCH, SEARCH_PAGE_NAME } from '../src/screens/console/ConsoleSearch.tsx'
+import { ConsoleSearchScreen, KEYS_TO_DIGITS, KEYS_TO_TEXT, RECENT_CLEAR, RECENT_TITLE, SEARCH_EMPTY, SEARCH_LABEL, SEARCH_NO_MATCH, SEARCH_PAGE_NAME } from '../src/screens/console/ConsoleSearch.tsx'
 import { addRecentSearch, getRecentSearches, parseRecentSearches, resetRecentSearches, RECENT_SEARCHES_KEY, RECENT_SEARCHES_MAX, wireRecentSearches, withRecentSearch } from '../src/lib/recent-searches.ts'
 import { feedRowMatches, productMatches } from '../src/screens/console/console-search.ts'
 import { useConsoleSignals, type ConsoleSignal } from '../src/screens/console/scope.tsx'
@@ -71,6 +71,28 @@ describe('찾기 화면 (D-UX4-204·205)', () => {
     expect(openSearch).toHaveBeenCalledTimes(1)
     expect(screen.queryByLabelText('상품 번호 검색')).toBeNull()
     expect(screen.queryByRole('group', { name: '숫자판' })).toBeNull()
+  })
+
+  it('돋보기는 상품·찜 탭이 아닌 탭(채팅·문자)에서도 보인다 (D-UX4-211)', async () => {
+    const world = makeWorld({ products: [product(12)] })
+    const openSearch = vi.fn()
+    render(world.wrap(<ConsoleScreen broadcastId="b1" seller onBack={() => {}} openSearch={openSearch} />))
+    await screen.findByRole('button', { name: '검색 열기' })
+    fireEvent.click(screen.getByRole('button', { name: '채팅·문자' }))
+    fireEvent.click(await screen.findByRole('button', { name: '검색 열기' }))
+    expect(openSearch).toHaveBeenCalledTimes(1)
+  })
+
+  it('찾기 칸은 숫자 키패드로 열리고, 오른쪽 [한글]로 글자 키보드, [숫자]로 다시 숫자 키패드 (D-UX4-212)', async () => {
+    const { page } = await openPage(searchWorld())
+    const field = page.getByLabelText(SEARCH_LABEL)
+    expect(field.getAttribute('inputmode')).toBe('numeric')
+    fireEvent.click(page.getByRole('button', { name: '한글 키보드로 바꾸기' }))
+    expect(page.getByLabelText(SEARCH_LABEL).getAttribute('inputmode') ?? 'text').toBe('text')
+    expect(page.getByText(KEYS_TO_DIGITS)).toBeTruthy()
+    fireEvent.click(page.getByRole('button', { name: '숫자 키보드로 바꾸기' }))
+    expect(page.getByLabelText(SEARCH_LABEL).getAttribute('inputmode')).toBe('numeric')
+    expect(page.getByText(KEYS_TO_TEXT)).toBeTruthy()
   })
 
   it('제목 "검색" · 회색 찾기 칸 하나(숫자판 없음) · 빈 칸이면 안내만', async () => {
