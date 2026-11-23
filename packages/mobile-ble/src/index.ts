@@ -63,4 +63,4 @@ export {
   type FakeBleTransportOptions,
   type FakePrintedPage,
 } from './fake.ts'
-export { BLE_RESTORE_IDENTIFIER, createPlxTransport, deviceInfoOf, radioStateOf, type BleManagerLike } from './plx.ts'
+export { BLE_CONNECTION_PRIORITY_HIGH, BLE_RESTORE_IDENTIFIER, createPlxTransport, deviceInfoOf, radioStateOf, type BleManagerLike } from './plx.ts'

@@ -136,6 +136,17 @@ export function diagManager(manager: BleManager): BleManagerLike {
         diagFlush('link_closed')
         listener(error, device)
       }),
+    requestConnectionPriorityForDevice: (id, priority, transactionId) =>
+      manager.requestConnectionPriorityForDevice(id, priority, transactionId).then(
+        (device) => {
+          diag('priority_ok', priority)
+          return device
+        },
+        (error: unknown) => {
+          bleError('priority', error)
+          throw error
+        },
+      ),
     discoverAllServicesAndCharacteristicsForDevice: (id, transactionId) => watch('discover', () => manager.discoverAllServicesAndCharacteristicsForDevice(id, transactionId)),
     servicesForDevice: async (id) => {
       const list = await manager.servicesForDevice(id)

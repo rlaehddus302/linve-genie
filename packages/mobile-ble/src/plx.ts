@@ -22,7 +22,15 @@ export type BleManagerLike = Pick<
   | 'monitorCharacteristicForDevice'
   | 'writeCharacteristicWithoutResponseForDevice'
   | 'writeCharacteristicWithResponseForDevice'
->
+> &
+  Partial<Pick<BleManager, 'requestConnectionPriorityForDevice'>>
+
+/**
+ * 빠른 연결 우선순위 (ble-plx ConnectionPriority.High). 안드로이드 기본(보통)은 연결 간격이 30~50ms라
+ * 응답 없는 쓰기가 연결 이벤트마다 하나씩 끝나 라벨 한 장(조각 수백 개)이 아이폰의 두 배(7초 넘게) 걸렸다 —
+ * 높음(7.5~15ms)이면 아이폰과 비슷하다. 아이폰은 아무 일도 하지 않는다 (D-PRINT-FAST-01)
+ */
+export const BLE_CONNECTION_PRIORITY_HIGH = 1
 
 export function radioStateOf(state: State | string): BleRadioState {
   switch (state) {
@@ -116,6 +124,8 @@ export function createPlxTransport(manager: BleManagerLike): BleTransport {
         options.onDisconnect()
       })
       await manager.discoverAllServicesAndCharacteristicsForDevice(id)
+      // 빠른 연결 간격을 청한다 — 못 바꾸는 기기·옛 판이면 보통 간격 그대로 쓴다(연결은 그대로 둔다)
+      await manager.requestConnectionPriorityForDevice?.(id, BLE_CONNECTION_PRIORITY_HIGH).catch(() => undefined)
       const link: BleLink = {
         id,
         mtu: Number.isInteger(device.mtu) && device.mtu >= BLE_DEFAULT_MTU ? device.mtu : BLE_DEFAULT_MTU,

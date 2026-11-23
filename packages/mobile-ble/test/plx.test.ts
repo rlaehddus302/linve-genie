@@ -1,12 +1,12 @@
 // react-native-ble-plx 묶기 — 가짜 BleManager로: 상태 이름, 찾기 거르기(이름·서비스), 연결·MTU·특성·알림(base64)·쓰기(base64)·끊김 한 번.
 import type { BleError, Characteristic, Device, Service, State } from 'react-native-ble-plx'
 import { describe, expect, it } from 'vitest'
-import { BLE_DEFAULT_MTU, createPlxTransport, decodeBase64, encodeBase64, radioStateOf, type BleManagerLike } from '../src/index.ts'
+import { BLE_CONNECTION_PRIORITY_HIGH, BLE_DEFAULT_MTU, createPlxTransport, decodeBase64, encodeBase64, radioStateOf, type BleManagerLike } from '../src/index.ts'
 
 type ScanListener = (error: BleError | null, device: Device | null) => void
 type MonitorListener = (error: BleError | null, characteristic: Characteristic | null) => void
 
-function fakeManager(options: { mtu?: number; state?: string } = {}) {
+function fakeManager(options: { mtu?: number; state?: string; priorityFails?: boolean } = {}) {
   const log: string[] = []
   let scanListener: ScanListener | null = null
   let disconnectListener: (() => void) | null = null
@@ -43,6 +43,11 @@ function fakeManager(options: { mtu?: number; state?: string } = {}) {
     },
     async discoverAllServicesAndCharacteristicsForDevice(id) {
       log.push(`discover:${id}`)
+      return { id } as Device
+    },
+    async requestConnectionPriorityForDevice(id, priority) {
+      log.push(`priority:${id}:${String(priority)}`)
+      if (options.priorityFails === true) throw new Error('못 바꿈')
       return { id } as Device
     },
     async servicesForDevice() {
@@ -175,6 +180,20 @@ describe('createPlxTransport', () => {
     expect(dropped).toBe(1)
     const noMtu = await createPlxTransport(fakeManager({ mtu: 0 })).connect('X', { onDisconnect: () => undefined })
     expect(noMtu.mtu).toBe(BLE_DEFAULT_MTU)
+  })
+
+  it('연결하면 서비스를 찾은 뒤 빠른 연결 우선순위(High)를 청하고, 못 바꿔도 연결은 쓴다 (D-PRINT-FAST-01)', async () => {
+    const manager = fakeManager()
+    await createPlxTransport(manager).connect('AA:BB', { onDisconnect: () => undefined })
+    expect(manager.log.filter((line) => line.startsWith('discover:') || line.startsWith('priority:'))).toEqual(['discover:AA:BB', `priority:AA:BB:${String(BLE_CONNECTION_PRIORITY_HIGH)}`])
+    expect(BLE_CONNECTION_PRIORITY_HIGH).toBe(1)
+    const failing = fakeManager({ priorityFails: true })
+    const link = await createPlxTransport(failing).connect('CC', { onDisconnect: () => undefined })
+    await link.writeWithoutResponse('s', 'c', new Uint8Array([9]))
+    expect(failing.writes).toHaveLength(1)
+    // 옛 관리자(우선순위 함수 없음)도 그대로 잇는다
+    const { requestConnectionPriorityForDevice: _drop, ...old } = fakeManager()
+    await expect(createPlxTransport(old).connect('DD', { onDisconnect: () => undefined })).resolves.toMatchObject({ id: 'DD' })
   })
 
   it('앱이 끊으면 cancelDeviceConnection, 그 뒤 끊김 알림은 없다', async () => {
